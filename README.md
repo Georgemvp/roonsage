@@ -1,13 +1,13 @@
-# MediaSage for Plex
+# MediaSage for Roon
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docker Hub](https://img.shields.io/badge/docker-ecwilson%2Fmediasage-blue)](https://hub.docker.com/r/ecwilson/mediasage)
 [![GHCR](https://img.shields.io/badge/ghcr-ecwilsonaz%2Fmediasage-blue)](https://ghcr.io/ecwilsonaz/mediasage)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 
-**AI-powered playlists and album recommendations for Plex—using only music you actually own.**
+**AI-powered playlists and album recommendations for Roon—using only music you actually own.**
 
-MediaSage is a self-hosted web app that creates playlists and recommends albums by combining LLM intelligence with your Plex library. Every suggestion is guaranteed playable because it only considers music you have.
+MediaSage is a self-hosted web app that creates playlists and recommends albums by combining LLM intelligence with your Roon library. Every suggestion is guaranteed playable because it only considers music you have.
 
 *Sample Generated Playlist:*
 ![MediaSage Screenshot](docs/images/screenshot-playlist.png)
@@ -34,14 +34,15 @@ docker run -d \
   -p 5765:5765 \
   -v mediasage-data:/app/data \
   --restart unless-stopped \
+  -e ROON_HOST=192.168.1.x \
   ghcr.io/ecwilsonaz/mediasage:latest
 ```
 
-Open **http://localhost:5765** — a setup wizard walks you through connecting Plex, choosing an AI provider, and syncing your library.
+Open **http://localhost:5765** — a setup wizard walks you through connecting to your Roon Core, choosing an AI provider, and syncing your library.
 
 You can also pass credentials as environment variables to skip the wizard. See [Configuration](#configuration) for details.
 
-**Requirements:** Docker, a Plex server with music, a [Plex token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/), and an API key from Google, Anthropic, or OpenAI (or a local model via Ollama).
+**Requirements:** Docker, a running Roon Core, and an API key from Google, Anthropic, or OpenAI (or a local model via Ollama).
 
 ---
 
@@ -51,6 +52,7 @@ You can also pass credentials as environment variables to skip the wizard. See [
 - [Features](#features)
 - [Installation](#installation)
 - [Configuration](#configuration)
+- [Roon Authorization](#roon-authorization)
 - [How It Works](#how-it-works)
 - [Development](#development)
 - [API Reference](#api-reference)
@@ -59,21 +61,19 @@ You can also pass credentials as environment variables to skip the wizard. See [
 
 ## Why MediaSage?
 
-**Plex users with personal music libraries have few good options for AI playlists.**
+**Roon users with large personal libraries have few good options for AI-powered playlist generation.**
 
-Plexamp's built-in Sonic Sage used ChatGPT to generate playlists, but it was designed around Tidal streaming. The AI recommended tracks from an unlimited catalog, and Tidal made them playable. The "limit to library" setting just hid results you didn't own—so if you asked for 25 tracks and only 4 existed in your library, you got a 4-track playlist.
-
-When [Tidal integration ended in October 2024](https://forums.plex.tv/t/tidal-integration-with-plex-ending-october-28-2024/885728), Sonic Sage lost its foundation. Generic tools like ChatGPT have the same problem: they recommend from an infinite catalog with no awareness of what you actually own.
+Generic tools like ChatGPT recommend from an infinite catalog with no awareness of what you actually own. The result: playlists full of tracks you don't have.
 
 **MediaSage inverts the approach:**
 
-| Filter-Last (Sonic Sage, ChatGPT) | Filter-First (MediaSage) |
+| Filter-Last (ChatGPT, generic AI) | Filter-First (MediaSage) |
 |-----------------------------------|-------------------------|
 | AI recommends from infinite catalog | AI only sees your library |
-| Hide missing tracks after | No missing tracks possible |
+| Missing tracks after filtering | No missing tracks possible |
 | Near-empty playlists | Full playlists, every time |
 
-The result: every track in every playlist exists in your Plex library and plays immediately.
+Every track in every playlist exists in your Roon library and plays immediately.
 
 ---
 
@@ -112,7 +112,7 @@ Real-time track counts show exactly how your filters narrow results.
 
 ### Local Library Cache
 
-MediaSage syncs your Plex library to a local SQLite database. After a one-time sync (~2 min for 18,000 tracks), all library operations—filtering, counting, sending to AI—happen locally in milliseconds instead of waiting on Plex.
+MediaSage syncs your Roon library to a local SQLite database. After a one-time sync, all library operations—filtering, counting, sending to AI—happen locally in milliseconds.
 
 - **Setup wizard** walks you through first-run configuration and sync
 - **Footer status** shows track count and last sync time
@@ -131,21 +131,19 @@ Bring your own API key—or run locally:
 | **Ollama** ⚗️ | Varies | Free | Privacy, local inference |
 | **Custom** ⚗️ | Configurable | Free | Self-hosted, OpenAI-compatible APIs |
 
-⚗️ *Local LLM support is experimental. [Report issues](https://github.com/ecwilsonaz/mediasage/issues).*
+⚗️ *Local LLM support is experimental. [Report issues](https://github.com/Georgemvp/roon-mediasage/issues).*
 
 > **Free option:** Google Gemini offers a free API tier that's more than enough for personal use — no credit card required. See the [Gemini free credit guide](docs/gemini-free-credit-guide.md) for setup instructions and details.
 
 Estimated cost displays before you generate. MediaSage auto-detects your provider based on which key you configure.
 
-### Play and Save
+### Play and Queue
 
-- **Play Now** — send tracks directly to any Plex device for instant playback
-- **Create** a new playlist, **replace** an existing one, or **append** tracks to one
-- Device picker shows all active Plex clients with status indicators
-- Duplicate detection when appending to existing playlists
-- Preview tracks with album art before saving
+- **Play Now** — send tracks directly to any Roon zone for instant playback
+- **Queue** — append tracks to the current Roon zone queue
+- Zone picker shows all active Roon zones
+- Preview tracks with album art before sending
 - Remove tracks you don't want
-- Rename the playlist
 - See actual token usage and cost
 
 ---
@@ -156,16 +154,14 @@ Estimated cost displays before you generate. MediaSage auto-detects your provide
 
 ```bash
 mkdir mediasage && cd mediasage
-curl -O https://raw.githubusercontent.com/ecwilsonaz/mediasage/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/ecwilsonaz/mediasage/main/.env.example
-mv .env.example .env
+curl -O https://raw.githubusercontent.com/Georgemvp/roon-mediasage/main/docker-compose.yml
 ```
 
-Edit `.env`:
+Edit `docker-compose.yml` or create a `.env` file:
 
 ```bash
-PLEX_URL=http://your-plex-server:32400
-PLEX_TOKEN=your-plex-token
+ROON_HOST=192.168.1.x
+ROON_PORT=9100
 
 # Choose ONE provider:
 GEMINI_API_KEY=your-gemini-key
@@ -179,6 +175,8 @@ Start:
 docker compose up -d
 ```
 
+Then **authorize MediaSage in Roon** — see [Roon Authorization](#roon-authorization).
+
 ### NAS Platforms
 
 <details>
@@ -189,18 +187,17 @@ docker compose up -d
 2. Download `latest` tag
 3. **Container** → **Create**
 4. Port: 5765 → 5765
-5. Add environment variables: `PLEX_URL`, `PLEX_TOKEN`, `GEMINI_API_KEY`
+5. Add environment variables: `ROON_HOST`, `GEMINI_API_KEY`
 
 **Docker Compose:**
 ```bash
 mkdir -p /volume1/docker/mediasage && cd /volume1/docker/mediasage
-curl -O https://raw.githubusercontent.com/ecwilsonaz/mediasage/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/ecwilsonaz/mediasage/main/.env.example
-mv .env.example .env && nano .env
+curl -O https://raw.githubusercontent.com/Georgemvp/roon-mediasage/main/docker-compose.yml
+nano docker-compose.yml  # set ROON_HOST and API key
 ```
 Then in **Container Manager** → **Project** → **Create**, point to `/volume1/docker/mediasage`.
 
-**No Docker?** Some Synology models (especially ARM-based units) don't support Docker/Container Manager. See [Bare Metal](#bare-metal-no-docker) below for running MediaSage directly with Python.
+**No Docker?** Some Synology models (especially ARM-based units) don't support Docker/Container Manager. See [Bare Metal](#bare-metal-no-docker) below.
 
 </details>
 
@@ -210,7 +207,7 @@ Then in **Container Manager** → **Project** → **Create**, point to `/volume1
 1. **Docker** → **Add Container**
 2. Repository: `ghcr.io/ecwilsonaz/mediasage:latest`
 3. Port: 5765 → 5765
-4. Add variables: `PLEX_URL`, `PLEX_TOKEN`, `GEMINI_API_KEY`
+4. Add variables: `ROON_HOST`, `GEMINI_API_KEY`
 
 </details>
 
@@ -236,8 +233,8 @@ services:
     ports:
       - "5765:5765"
     environment:
-      - PLEX_URL=http://your-server:32400
-      - PLEX_TOKEN=your-token
+      - ROON_HOST=192.168.1.x
+      - ROON_PORT=9100
       - GEMINI_API_KEY=your-key
     volumes:
       - ./data:/app/data
@@ -248,11 +245,11 @@ services:
 
 ### Bare Metal (No Docker)
 
-Docker isn't required. MediaSage is Python + FastAPI with no native dependencies, so it runs on any machine with Python 3.11+ — including ARM-based Synology NAS models, Raspberry Pis, or any Linux/macOS/Windows box.
+MediaSage is Python + FastAPI with no native dependencies, so it runs on any machine with Python 3.11+.
 
 ```bash
-git clone https://github.com/ecwilsonaz/mediasage.git
-cd mediasage
+git clone https://github.com/Georgemvp/roon-mediasage.git
+cd roon-mediasage
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -261,8 +258,8 @@ pip install -r requirements.txt
 Set your environment variables:
 
 ```bash
-export PLEX_URL=http://your-plex-server:32400
-export PLEX_TOKEN=your-plex-token
+export ROON_HOST=192.168.1.x
+export ROON_PORT=9100
 export GEMINI_API_KEY=your-gemini-key
 ```
 
@@ -277,8 +274,6 @@ Access at **http://your-machine-ip:5765**.
 <details>
 <summary><strong>Running as a background service (systemd)</strong></summary>
 
-To keep MediaSage running after you close your terminal, create a systemd service:
-
 ```ini
 # /etc/systemd/system/mediasage.service
 [Unit]
@@ -288,9 +283,9 @@ After=network.target
 [Service]
 Type=simple
 User=your-user
-WorkingDirectory=/path/to/mediasage
-EnvironmentFile=/path/to/mediasage/.env
-ExecStart=/path/to/mediasage/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 5765
+WorkingDirectory=/path/to/roon-mediasage
+EnvironmentFile=/path/to/roon-mediasage/.env
+ExecStart=/path/to/roon-mediasage/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 5765
 Restart=on-failure
 
 [Install]
@@ -312,13 +307,14 @@ sudo systemctl start mediasage
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `PLEX_URL` | Yes | Plex server URL (e.g., `http://192.168.1.100:32400`) |
-| `PLEX_TOKEN` | Yes | [Plex authentication token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) |
+| `ROON_HOST` | Yes | IP address or hostname of your Roon Core |
+| `ROON_PORT` | No | Roon Core port (default: `9100`) |
+| `ROON_CORE_ID` | No | Auto-saved after first authorization |
+| `ROON_TOKEN` | No | Auto-saved after first authorization |
 | `GEMINI_API_KEY` | One required | Google Gemini API key |
 | `ANTHROPIC_API_KEY` | One required | Anthropic API key |
 | `OPENAI_API_KEY` | One required | OpenAI API key |
 | `LLM_PROVIDER` | No | Force provider: `gemini`, `anthropic`, `openai`, `ollama`, `custom` |
-| `PLEX_MUSIC_LIBRARY` | No | Library name if not "Music" |
 | `OLLAMA_URL` | No | Ollama server URL (default: `http://localhost:11434`) |
 | `OLLAMA_CONTEXT_WINDOW` | No | Override detected context window for Ollama (default: 32768) |
 | `CUSTOM_LLM_URL` | No | Custom OpenAI-compatible API base URL |
@@ -331,11 +327,15 @@ You can also configure MediaSage through the **Settings** page in the web UI. Se
 
 ### Advanced: config.yaml
 
-Mount a config file for additional options:
+Mount a config file for additional options (see `config.example.yaml`):
 
 ```yaml
-plex:
-  music_library: "Music"
+roon:
+  host: "192.168.1.x"
+  port: 9100
+  # core_id and token are auto-saved after authorization
+  core_id: ""
+  token: ""
 
 llm:
   provider: "gemini"
@@ -360,8 +360,6 @@ This balances quality with cost. Enable `smart_generation: true` to use the anal
 
 ### Local LLM Setup (Experimental)
 
-Run MediaSage with local models for privacy and zero API costs.
-
 <details>
 <summary><strong>Ollama</strong></summary>
 
@@ -370,13 +368,13 @@ Run MediaSage with local models for privacy and zero API costs.
    ollama pull llama3:8b
    ```
 
-2. Configure MediaSage via environment or Settings UI:
+2. Configure MediaSage:
    ```bash
    LLM_PROVIDER=ollama
    OLLAMA_URL=http://localhost:11434
    ```
 
-3. Select your model in Settings → the context window is auto-detected.
+3. Select your model in Settings — the context window is auto-detected.
 
 **Recommended models:** `llama3:8b`, `qwen3:8b`, `mistral` — models with 8K+ context work best.
 
@@ -397,7 +395,18 @@ For LM Studio, text-generation-webui, vLLM, or any OpenAI-compatible server:
 
 </details>
 
-**Note:** Local models are slower and may produce less accurate results than cloud providers. A 10-minute timeout is used for generation. Models with larger context windows will support more tracks.
+---
+
+## Roon Authorization
+
+MediaSage connects to Roon as an **Extension**. After starting the app for the first time:
+
+1. Open **Roon** on any device
+2. Go to **Settings → Extensions**
+3. Find **MediaSage** in the list and click **Enable**
+4. MediaSage is now authorized and will save the token automatically
+
+Make sure MediaSage is reachable on the same network as your Roon Core, and that `ROON_HOST` points to the machine running Roon Core. The `ROON_CORE_ID` and `ROON_TOKEN` are saved automatically to `data/config.user.yaml` after the first successful authorization.
 
 ---
 
@@ -411,7 +420,7 @@ MediaSage uses a **filter-first architecture** designed for large libraries (50,
 │     LLM interprets your prompt → suggests genre/decade filters   │
 ├─────────────────────────────────────────────────────────────────┤
 │  2. FILTER                                                       │
-│     Plex library narrowed to matching tracks                     │
+│     Roon library narrowed to matching tracks                     │
 │     "90s Alternative" → 2,000 tracks                             │
 ├─────────────────────────────────────────────────────────────────┤
 │  3. SAMPLE                                                       │
@@ -426,9 +435,9 @@ MediaSage uses a **filter-first architecture** designed for large libraries (50,
 │     Fuzzy matching links LLM selections to library               │
 │     Handles minor spelling/formatting differences                │
 ├─────────────────────────────────────────────────────────────────┤
-│  6. SAVE                                                         │
-│     Playlist created in Plex                                     │
-│     Ready in Plexamp or any Plex client                          │
+│  6. PLAY                                                         │
+│     Tracks sent to a Roon zone                                   │
+│     Ready for immediate playback in any Roon client              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -441,14 +450,14 @@ This ensures every track exists in your library while keeping API costs manageab
 ### Local Setup
 
 ```bash
-git clone https://github.com/ecwilsonaz/mediasage.git
-cd mediasage
+git clone https://github.com/Georgemvp/roon-mediasage.git
+cd roon-mediasage
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-export PLEX_URL=http://your-plex-server:32400
-export PLEX_TOKEN=your-plex-token
+export ROON_HOST=192.168.1.x
+export ROON_PORT=9100
 export GEMINI_API_KEY=your-key
 
 uvicorn backend.main:app --reload --port 5765
@@ -462,7 +471,7 @@ pytest tests/ -v
 
 ### Tech Stack
 
-- **Backend:** Python 3.11+, FastAPI, python-plexapi, rapidfuzz, httpx
+- **Backend:** Python 3.14+, FastAPI, roonapi, rapidfuzz, httpx
 - **Frontend:** Vanilla HTML/CSS/JS (no build step)
 - **LLM SDKs:** anthropic, openai, google-genai (+ Ollama via REST API)
 - **Deployment:** Docker
@@ -478,20 +487,21 @@ Interactive documentation available at `/docs` when running.
 | `/api/health` | GET | Health check |
 | `/api/config` | GET/POST | Get or update configuration |
 | `/api/setup/status` | GET | Onboarding checklist state |
-| `/api/setup/validate-plex` | POST | Validate Plex credentials |
+| `/api/setup/validate-roon` | POST | Validate Roon Core connection |
 | `/api/setup/validate-ai` | POST | Validate AI provider credentials |
 | `/api/setup/complete` | POST | Mark setup wizard as complete |
 | `/api/library/stats` | GET | Library statistics |
+| `/api/library/stats/cached` | GET | Cached library statistics |
 | `/api/library/status` | GET | Cache state, track count, sync progress |
 | `/api/library/sync` | POST | Trigger background library sync |
 | `/api/library/search` | GET | Search library tracks |
 | `/api/analyze/prompt` | POST | Analyze natural language prompt |
 | `/api/analyze/track` | POST | Analyze a seed track |
 | `/api/filter/preview` | POST | Preview filtered track list |
-| `/api/generate` | POST | Generate playlist |
 | `/api/generate/stream` | POST | Stream playlist generation (SSE) |
-| `/api/playlist` | POST | Save playlist to Plex |
-| `/api/playlist/update` | POST | Replace or append to a playlist |
+| `/api/roon/zones` | GET | List active Roon zones |
+| `/api/queue` | POST | Send tracks to a Roon zone |
+| `/api/queue/append` | POST | Append tracks to a Roon zone queue |
 | `/api/recommend/albums/preview` | GET | Preview album candidates for filters |
 | `/api/recommend/analyze-prompt` | POST | Analyze prompt for genre/decade filters |
 | `/api/recommend/questions` | POST | Generate clarifying questions |
@@ -499,10 +509,8 @@ Interactive documentation available at `/docs` when running.
 | `/api/recommend/switch-mode` | POST | Switch library/discovery mode |
 | `/api/results` | GET | List saved result history |
 | `/api/results/{id}` | GET/DELETE | Get or delete a saved result |
-| `/api/plex/clients` | GET | List active Plex clients |
-| `/api/plex/playlists` | GET | List existing Plex playlists |
-| `/api/play-queue` | POST | Send tracks to a Plex client |
-| `/api/art/{rating_key}` | GET | Proxy album art from Plex |
+| `/api/art/{item_key}` | GET | Proxy album art from Roon |
+| `/api/external-art` | GET | Fetch external album art |
 | `/api/ollama/status` | GET | Ollama connection status |
 | `/api/ollama/models` | GET | List available Ollama models |
 | `/api/ollama/model-info` | GET | Get model details (context window) |
