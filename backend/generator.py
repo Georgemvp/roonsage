@@ -7,7 +7,7 @@ from datetime import datetime
 
 from backend.llm_client import get_llm_client
 from backend.models import GenerateResponse, Track
-from backend.plex_client import PlexQueryError, get_plex_client
+from backend.roon_client import RoonQueryError as PlexQueryError, get_roon_client
 from backend import library_cache
 
 logger = logging.getLogger(__name__)
@@ -101,7 +101,7 @@ def _cached_track_to_model(cached: dict) -> Track:
 
 
 def _get_tracks_from_cache_or_plex(
-    plex_client,
+    roon_client,
     genres: list[str] | None,
     decades: list[str] | None,
     exclude_live: bool,
@@ -131,12 +131,12 @@ def _get_tracks_from_cache_or_plex(
     # Fall back to Plex
     logger.info("Cache empty, fetching from Plex")
     if not has_filters:
-        return plex_client.get_random_tracks(
+        return roon_client.get_random_tracks(
             count=effective_limit,
             exclude_live=exclude_live,
         )
     else:
-        return plex_client.get_tracks_by_filters(
+        return roon_client.get_tracks_by_filters(
             genres=genres,
             decades=decades,
             exclude_live=exclude_live,
@@ -168,12 +168,12 @@ def generate_playlist_stream(
     try:
         logger.info("Starting playlist generation (streaming)")
         llm_client = get_llm_client()
-        plex_client = get_plex_client()
+        roon_client = get_roon_client()
 
         if not llm_client:
             yield emit("error", {"message": "LLM client not initialized"})
             return
-        if not plex_client:
+        if not roon_client:
             yield emit("error", {"message": "Plex client not initialized"})
             return
 
@@ -192,7 +192,7 @@ def generate_playlist_stream(
                     genres, decades, min_rating, using_cache)
         try:
             filtered_tracks = _get_tracks_from_cache_or_plex(
-                plex_client=plex_client,
+                roon_client=roon_client,
                 genres=genres,
                 decades=decades,
                 exclude_live=exclude_live,
@@ -438,7 +438,7 @@ def _tracks_match(llm_artist: str, llm_title: str, library_track: Track) -> bool
     Uses fuzzy matching to handle slight variations in naming.
     """
     from rapidfuzz import fuzz
-    from backend.plex_client import simplify_string, normalize_artist, FUZZ_THRESHOLD
+    from backend.roon_client import simplify_string, normalize_artist, FUZZ_THRESHOLD
 
     # Compare titles
     simplified_llm_title = simplify_string(llm_title)

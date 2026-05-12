@@ -27,7 +27,7 @@ from backend.models import (
     TasteProfile,
     album_key,
 )
-from backend.plex_client import simplify_string
+from backend.roon_client import simplify_string
 
 # Fuzzy-match thresholds for album selection (0-100 scale, rapidfuzz)
 ALBUM_ARTIST_MIN_SCORE = 70   # Minimum artist similarity to consider a match

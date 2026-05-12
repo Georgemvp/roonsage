@@ -9,7 +9,7 @@ from backend.models import (
     DecadeCount,
     Track,
 )
-from backend.plex_client import get_plex_client
+from backend.roon_client import get_roon_client
 
 
 PROMPT_ANALYSIS_SYSTEM = """You are a music expert helping to create playlists from a user's music library.
@@ -66,15 +66,15 @@ def analyze_prompt(prompt: str) -> AnalyzePromptResponse:
         RuntimeError: If clients are not initialized
     """
     llm_client = get_llm_client()
-    plex_client = get_plex_client()
+    roon_client = get_roon_client()
 
     if not llm_client:
         raise RuntimeError("LLM client not initialized")
-    if not plex_client:
+    if not roon_client:
         raise RuntimeError("Plex client not initialized")
 
     # Get library stats for available filters
-    stats = plex_client.get_library_stats()
+    stats = roon_client.get_library_stats()
     available_genres = [GenreCount(**g) for g in stats.get("genres", [])]
     available_decades = [DecadeCount(**d) for d in stats.get("decades", [])]
 

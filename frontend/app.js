@@ -127,13 +127,13 @@ const state = {
     selectedTrackKey: null,    // Currently selected track in detail panel
 
     // Instant Queue (005) — Play Now
-    plexClients: [],           // Never cached — fetched fresh each time (FR-016)
+    roonZones: [],             // Never cached — fetched fresh each time
     _pendingClientId: null,    // Client ID awaiting play choice modal selection
 
     // Instant Queue (005) — Update Existing
     saveMode: 'new',           // 'new' | 'replace' | 'append'
     selectedPlaylistId: null,
-    plexPlaylists: [],         // Cached after first fetch (FR-017)
+    // plexPlaylists removed — Roon uses queue, not saved playlists
 
     // Recommendation (006)
     rec: {
@@ -272,10 +272,10 @@ async function fetchSetupStatus() {
     return apiCall('/setup/status');
 }
 
-async function validatePlex(url, token, library) {
-    return apiCall('/setup/validate-plex', {
+async function validateRoon(host, port) {
+    return apiCall('/setup/validate-roon', {
         method: 'POST',
-        body: JSON.stringify({ plex_url: url, plex_token: token, music_library: library }),
+        body: JSON.stringify({ roon_host: host, roon_port: parseInt(port) || 9100 }),
     });
 }
 
@@ -483,8 +483,8 @@ async function savePlaylist(name, ratingKeys, description = '') {
 // Instant Queue API Calls (005)
 // =============================================================================
 
-async function fetchPlexClients() {
-    return apiCall('/plex/clients');
+async function fetchRoonZones() {
+    return apiCall('/roon/zones');
 }
 
 async function createPlayQueue(ratingKeys, clientId, mode) {
@@ -494,8 +494,8 @@ async function createPlayQueue(ratingKeys, clientId, mode) {
     });
 }
 
-async function fetchPlexPlaylists() {
-    return apiCall('/plex/playlists');
+// fetchPlexPlaylists removed — Roon uses queue API instead
+async function _unused_fetchRoonQueue() {
 }
 
 async function sendPlaylistUpdate(playlistId, ratingKeys, mode, description = '') {
@@ -1713,7 +1713,7 @@ function updateResultsFooter() {
 function updateSettings() {
     if (!state.config) return;
 
-    document.getElementById('plex-url').value = state.config.plex_url || '';
+    document.getElementById('roon-host').value = state.config.roon_host || '';
     document.getElementById('music-library').value = state.config.music_library || 'Music';
     document.getElementById('llm-provider').value = state.config.llm_provider || 'gemini';
 
@@ -1723,11 +1723,7 @@ function updateSettings() {
         providerEnvWarning.classList.toggle('hidden', !state.config.provider_from_env);
     }
 
-    // Update token/key placeholders to indicate if configured
-    const plexTokenInput = document.getElementById('plex-token');
-    plexTokenInput.placeholder = state.config.plex_token_set
-        ? '••••••••••••••••  (configured)'
-        : 'Your Plex token';
+    // Roon token is handled internally — no manual token input in settings
 
     const llmApiKeyInput = document.getElementById('llm-api-key');
     llmApiKeyInput.placeholder = state.config.llm_api_key_set
@@ -1752,10 +1748,12 @@ function updateSettings() {
     customContext.value = state.config.custom_context_window || 32768;
 
     // Update status indicators
-    const plexStatus = document.getElementById('plex-status');
-    plexStatus.classList.toggle('connected', state.config.plex_connected);
-    plexStatus.querySelector('.status-text').textContent =
-        state.config.plex_connected ? 'Connected' : 'Not connected';
+    const roonStatus = document.getElementById('roon-status');
+    if (roonStatus) {
+        roonStatus.classList.toggle('connected', state.config.roon_connected);
+        roonStatus.querySelector('.status-text').textContent =
+            state.config.roon_connected ? 'Connected' : 'Not connected';
+    }
 
     const llmStatus = document.getElementById('llm-status');
     llmStatus.classList.toggle('connected', state.config.llm_configured);
@@ -1990,7 +1988,7 @@ function validateCustomContextInline() {
 }
 
 function updateConfigRequiredUI() {
-    const plexConnected = state.config?.plex_connected ?? false;
+    const roonConnected = state.config?.roon_connected ?? false;
     const llmConfigured = state.config?.llm_configured ?? false;
 
     // Elements that require configuration
@@ -2006,23 +2004,23 @@ function updateConfigRequiredUI() {
     const hintSeed = document.getElementById('llm-required-hint-seed');
 
     // Determine what's missing
-    const needsPlex = !plexConnected;
+    const needsRoon = !roonConnected;
     const needsLLM = !llmConfigured;
-    const needsConfig = needsPlex || needsLLM;
+    const needsConfig = needsRoon || needsLLM;
 
     // Update button/input states
     if (analyzeBtn) analyzeBtn.disabled = needsConfig;
     if (continueBtn) continueBtn.disabled = needsLLM; // Only needs LLM at this point
-    if (searchBtn) searchBtn.disabled = needsPlex;
-    if (searchInput) searchInput.disabled = needsPlex;
-    if (promptTextarea) promptTextarea.disabled = needsPlex;
+    if (searchBtn) searchBtn.disabled = needsRoon;
+    if (searchInput) searchInput.disabled = needsRoon;
+    if (promptTextarea) promptTextarea.disabled = needsRoon;
 
     // Build hint message based on what's missing
     let hintMessage = '';
-    if (needsPlex && needsLLM) {
-        hintMessage = '<a href="#" data-view="settings">Configure Plex and an LLM provider</a> to continue';
-    } else if (needsPlex) {
-        hintMessage = '<a href="#" data-view="settings">Connect to Plex</a> to continue';
+    if (needsRoon && needsLLM) {
+        hintMessage = '<a href="#" data-view="settings">Configure Roon and an LLM provider</a> to continue';
+    } else if (needsRoon) {
+        hintMessage = '<a href="#" data-view="settings">Connect to Roon</a> to continue';
     } else if (needsLLM) {
         hintMessage = '<a href="#" data-view="settings">Configure an LLM provider</a> to continue';
     }
@@ -2035,7 +2033,7 @@ function updateConfigRequiredUI() {
         }
     });
 
-    // Dimensions hint only needs LLM (Plex is already connected at this step)
+    // Dimensions hint only needs LLM (Roon is already connected at this step)
     if (hintDimensions) {
         hintDimensions.innerHTML = needsLLM ? '<a href="#" data-view="settings">Configure an LLM provider</a> to continue' : '';
         hintDimensions.hidden = !needsLLM;
@@ -2162,9 +2160,9 @@ function hideSuccess() {
 function showSuccessModal(name, trackCount, playlistUrl) {
     const modal = document.getElementById('success-modal');
     const summary = document.getElementById('success-modal-summary');
-    const openBtn = document.getElementById('open-in-plex-btn');
+    const openBtn = document.getElementById('open-in-roon-btn');
 
-    summary.textContent = `"${name}" with ${trackCount} track${trackCount !== 1 ? 's' : ''} has been added to your Plex library.`;
+    summary.textContent = `"${name}" queued ${trackCount} track${trackCount !== 1 ? 's' : ''} to Roon.`;
 
     if (playlistUrl) {
         openBtn.href = playlistUrl;
@@ -2260,9 +2258,9 @@ function updateSyncProgress(phase, current, total) {
         text.textContent = 'Fetching album genres...';
         if (bar) bar.setAttribute('aria-valuenow', '0');
     } else if (phase === 'fetching') {
-        // Indeterminate state - fetching tracks from Plex
+        // Indeterminate state - fetching tracks from Roon
         fill.style.width = '0%';
-        text.textContent = 'Fetching tracks from Plex...';
+        text.textContent = 'Fetching tracks from Roon...';
         if (bar) bar.setAttribute('aria-valuenow', '0');
     } else if (phase === 'processing') {
         // Processing phase - show progress
@@ -2339,7 +2337,7 @@ async function checkLibraryStatus() {
         updateFooterLibraryStatus(status);
 
         // Upgrade resync: schema migration requires re-sync — blocking
-        if (status.needs_resync && status.plex_connected) {
+        if (status.needs_resync && status.roon_connected) {
             showSyncModal('upgrade');
             if (status.is_syncing && status.sync_progress) {
                 updateSyncProgress(status.sync_progress.phase, status.sync_progress.current, status.sync_progress.total);
@@ -2352,13 +2350,13 @@ async function checkLibraryStatus() {
             }
             startSyncPolling();
         // First-time sync: no tracks ever — blocking
-        } else if (status.track_count === 0 && status.plex_connected && !status.is_syncing && !status.synced_at) {
+        } else if (status.track_count === 0 && status.roon_connected && !status.is_syncing && !status.synced_at) {
             await startFirstTimeSync();
         // Any other sync in progress (manual refresh, stale re-sync) — background only
         } else if (status.is_syncing) {
             startSyncPolling();
         // Cache empty after a previous sync (error, etc.) — trigger silently
-        } else if (status.track_count === 0 && status.plex_connected && status.synced_at) {
+        } else if (status.track_count === 0 && status.roon_connected && status.synced_at) {
             try {
                 await triggerLibrarySync();
             } catch { /* sync may already be in progress (409) */ }
@@ -2930,8 +2928,8 @@ function renderSearchResults(tracks) {
 
 async function selectSeedTrack(ratingKey, tracks) {
     // Check if services are configured before proceeding
-    if (!state.config?.plex_connected) {
-        showError('Connect to Plex in Settings first');
+    if (!state.config?.roon_connected) {
+        showError('Connect to Roon in Settings first');
         return;
     }
     if (!state.config?.llm_configured) {
@@ -3178,11 +3176,11 @@ async function handleSavePlaylist() {
     }
 
     const saveSteps = [
-        'Connecting to Plex server...',
+        'Connecting to Roon Core...',
         'Creating playlist...',
         'Adding tracks...',
     ];
-    setLoading(true, 'Saving to Plex...', saveSteps);
+    setLoading(true, 'Queueing to Roon...', saveSteps);
 
     try {
         const ratingKeys = state.playlist.map(t => t.rating_key);
@@ -3192,7 +3190,7 @@ async function handleSavePlaylist() {
             const trackCount = response.tracks_added || state.playlist.length;
             showSuccessModal(name, trackCount, response.playlist_url);
             // Invalidate playlist cache so newly created playlist shows in Update Existing picker
-            state.plexPlaylists = [];
+            // state.roonPlaylists = []; (not used)
         } else {
             showError(response.error || 'Failed to save playlist');
         }
@@ -3222,7 +3220,7 @@ async function loadSettings() {
         updateConfigRequiredUI();
 
         // Show library stats if connected
-        if (state.config.plex_connected) {
+        if (state.config.roon_connected) {
             const statsSection = document.getElementById('library-stats-section');
             statsSection.style.display = 'block';
 
@@ -3248,8 +3246,9 @@ async function loadSettings() {
 async function handleSaveSettings() {
     const updates = {};
 
-    const plexUrl = document.getElementById('plex-url').value.trim();
-    const plexToken = document.getElementById('plex-token').value.trim();
+    const roonHost = document.getElementById('roon-host').value.trim();
+    const roonPortStr = document.getElementById('roon-port').value.trim();
+    const roonPort = parseInt(roonPortStr) || 9100;
     const musicLibrary = document.getElementById('music-library').value.trim();
     const llmProvider = document.getElementById('llm-provider').value;
     const llmApiKey = document.getElementById('llm-api-key').value.trim();
@@ -3265,8 +3264,8 @@ async function handleSaveSettings() {
     const customModel = document.getElementById('custom-model').value.trim();
     const customContextWindow = parseInt(document.getElementById('custom-context-window').value) || 32768;
 
-    if (plexUrl) updates.plex_url = plexUrl;
-    if (plexToken) updates.plex_token = plexToken;
+    if (roonHost) updates.roon_host = roonHost;
+    if (roonPort) updates.roon_port = roonPort;
     if (musicLibrary) updates.music_library = musicLibrary;
     if (llmProvider) updates.llm_provider = llmProvider;
 
@@ -3311,11 +3310,11 @@ async function handleSaveSettings() {
         showSuccess('Settings saved!');
 
         // Clear password fields after save
-        document.getElementById('plex-token').value = '';
+        // roon token handled internally
         document.getElementById('llm-api-key').value = '';
 
         // Reload library stats
-        if (state.config.plex_connected) {
+        if (state.config.roon_connected) {
             loadSettings();
         }
     } catch (error) {
@@ -3434,18 +3433,18 @@ function populateClientList(clients) {
 async function refreshClientList() {
     const listEl = document.getElementById('client-list');
     const emptyState = document.getElementById('client-empty-state');
-    emptyState.querySelector('p').textContent = 'No Plex clients active. Open Plexamp or Plex first.';
+    emptyState.querySelector('p').textContent = 'No Roon zones found. Make sure Roon is running.';
     emptyState.classList.add('hidden');
     listEl.innerHTML = '<div class="client-loading"><div class="spinner"></div><p>Finding devices...</p></div>';
 
     try {
-        const clients = await fetchPlexClients();
-        state.plexClients = clients;
+        const clients = await fetchRoonZones();
+        state.roonZones = clients;
         populateClientList(clients);
     } catch (error) {
         // Show error inline in the picker so user can retry with refresh button
         listEl.innerHTML = '';
-        emptyState.querySelector('p').textContent = 'Failed to find devices. Check that Plex is running.';
+        emptyState.querySelector('p').textContent = 'Failed to find zones. Check that Roon is running.';
         emptyState.classList.remove('hidden');
     }
 }
@@ -3466,7 +3465,7 @@ async function handlePlayNow() {
 }
 
 function handleClientSelect(clientId) {
-    const client = state.plexClients.find(c => c.client_id === clientId);
+    const client = state.roonZones.find(c => c.zone_id === clientId);
     if (!client) return;
 
     dismissClientPicker();
@@ -3554,12 +3553,12 @@ async function fetchAndPopulatePlaylists() {
     const picker = document.getElementById('playlist-picker');
 
     // Only fetch if cache is empty
-    if (!state.plexPlaylists.length) {
+    if (false) { // Roon uses zone-based queue, not playlist saving
         // Show loading state in picker
         picker.innerHTML = '<option value="" disabled>Loading playlists...</option>';
 
         try {
-            state.plexPlaylists = await fetchPlexPlaylists();
+            // state.roonPlaylists not used
         } catch (error) {
             showError('Failed to load playlists: ' + error.message);
             picker.innerHTML = '<option value="__scratch__">MediaSage - Now Playing</option>';
@@ -3569,7 +3568,7 @@ async function fetchAndPopulatePlaylists() {
 
     // Rebuild picker options: fixed scratch option first, then server playlists
     picker.innerHTML = '<option value="__scratch__">MediaSage - Now Playing</option>';
-    for (const pl of state.plexPlaylists) {
+    for (const pl of []) { // Roon playlist picker disabled
         // Skip if it's the same as the scratch playlist title (avoid duplicate)
         if (pl.title === 'MediaSage - Now Playing') continue;
         const option = document.createElement('option');
@@ -3612,7 +3611,7 @@ function setSaveMode(mode) {
     const pickerContainer = document.getElementById('playlist-picker-container');
 
     if (mode === 'new') {
-        saveBtn.innerHTML = '<span class="btn-label-long">Save to Plex</span><span class="btn-label-short">Save</span>';
+        saveBtn.innerHTML = '<span class="btn-label-long">Queue to Roon</span><span class="btn-label-short">Queue</span>';
         nameContainer.classList.remove('hidden');
         pickerContainer.classList.add('hidden');
     } else if (mode === 'replace') {
@@ -3635,7 +3634,7 @@ function setSaveMode(mode) {
 async function handleUpdatePlaylist() {
     const picker = document.getElementById('playlist-picker');
     const playlistId = picker.value;
-    const matchedPlaylist = state.plexPlaylists.find(p => p.rating_key === playlistId);
+    const matchedPlaylist = null; // Roon uses zone-based queue, not saved playlists
     const playlistTitle = matchedPlaylist?.title || picker.options[picker.selectedIndex]?.textContent || 'Playlist';
 
     if (!playlistId) {
@@ -3678,7 +3677,7 @@ async function handleUpdatePlaylist() {
 
             document.getElementById('update-success-message').textContent = message;
 
-            const openBtn = document.getElementById('update-open-in-plex-btn');
+            const openBtn = document.getElementById('update-open-in-roon-btn');
             if (response.playlist_url) {
                 openBtn.href = response.playlist_url;
                 openBtn.style.display = '';
@@ -3692,7 +3691,7 @@ async function handleUpdatePlaylist() {
             focusManager.openModal(updateModal);
 
             // Invalidate playlist cache so newly created scratch playlist appears next time
-            state.plexPlaylists = [];
+            // state.roonPlaylists = []; (not used)
         } else {
             showError(response.error || 'Failed to update playlist');
         }
@@ -3951,7 +3950,7 @@ const REC_PROMPT_GROUPS = [
 ];
 
 async function initRecommendView() {
-    if (state.config?.plex_connected) {
+    if (state.config?.roon_connected) {
         loadRecommendFilters();
     }
     renderPromptPills('rec-prompt-pills', 'rec-prompt-shuffle', REC_PROMPT_GROUPS);
@@ -5078,7 +5077,7 @@ function exitSetupWizard() {
 
     // Run normal init
     loadSettings().then(() => {
-        if (state.config?.plex_connected) checkLibraryStatus();
+        if (state.config?.roon_connected) checkLibraryStatus();
     }).catch(() => {});
     renderHistoryFeed();
 }
@@ -5094,14 +5093,14 @@ function renderSetupState(status) {
         dataWarning.classList.add('hidden');
     }
 
-    // Step 1: Plex
-    if (status.plex_connected) {
-        setStepDone('plex', `Connected to Plex (${status.music_libraries.length} music ${status.music_libraries.length === 1 ? 'library' : 'libraries'})`);
+    // Step 1: Roon
+    if (status.roon_connected) {
+        setStepDone('roon', `Connected to Roon Core`);
     } else {
-        setStepForm('plex');
-        if (status.plex_from_env) {
-            const urlInput = document.getElementById('setup-plex-url');
-            if (urlInput && !urlInput.value) urlInput.value = '';
+        setStepForm('roon');
+        if (status.roon_from_env) {
+            const hostInput = document.getElementById('setup-roon-host');
+            if (hostInput && !hostInput.value) hostInput.value = '';
         }
     }
 
@@ -5122,7 +5121,7 @@ function renderSetupState(status) {
     } else if (status.is_syncing) {
         showSyncProgress(status);
         startSetupSyncPolling();
-    } else if (status.plex_connected && status.llm_configured) {
+    } else if (status.roon_connected && status.llm_configured) {
         // Auto-trigger sync
         triggerSetupSync();
     } else {
@@ -5132,7 +5131,7 @@ function renderSetupState(status) {
     }
 
     // Step 4: Get Started
-    const allDone = status.plex_connected && status.llm_configured &&
+    const allDone = status.roon_connected && status.llm_configured &&
         status.library_synced && !status.is_syncing;
     const getStartedBtn = document.getElementById('setup-get-started-btn');
     getStartedBtn.disabled = !allDone;
@@ -5258,40 +5257,40 @@ function setupWizardEventListeners() {
     if (_setupListenersAttached) return;
     _setupListenersAttached = true;
 
-    // Plex validation
-    document.getElementById('setup-plex-btn').addEventListener('click', async () => {
-        const url = document.getElementById('setup-plex-url').value.trim();
-        const token = document.getElementById('setup-plex-token').value.trim();
-        const library = document.getElementById('setup-plex-library').value.trim() || 'Music';
+    // Roon validation
+    document.getElementById('setup-roon-btn').addEventListener('click', async () => {
+        const host = document.getElementById('setup-roon-host').value.trim();
+        const port = document.getElementById('setup-roon-port').value.trim() || '9100';
 
-        if (!url || !token) {
-            setStepError('plex', 'URL and token are required');
+        if (!host) {
+            setStepError('roon', 'Roon Core host is required');
             return;
         }
 
-        clearStepError('plex');
-        const btn = document.getElementById('setup-plex-btn');
+        clearStepError('roon');
+        const btn = document.getElementById('setup-roon-btn');
         btn.disabled = true;
         btn.textContent = 'Connecting...';
 
         try {
-            const result = await validatePlex(url, token, library);
+            const result = await validateRoon(host, port);
             if (result.success) {
-                state.setup.status.plex_connected = true;
-                state.setup.status.music_libraries = result.music_libraries || [];
-                setStepDone('plex', result.server_name
-                    ? `Connected to ${result.server_name}` : 'Connected to Plex');
+                state.setup.status.roon_connected = true;
+                setStepDone('roon', result.core_name
+                    ? `Connected to ${result.core_name}` : 'Connected to Roon');
                 // Auto-trigger sync if AI is also done
                 if (state.setup.status.llm_configured && !state.setup.status.library_synced) {
                     state.setup.status.is_syncing = true;
                     triggerSetupSync();
                 }
                 renderSetupState(state.setup.status);
+            } else if (result.needs_authorization) {
+                setStepError('roon', result.error || 'Open Roon → Settings → Extensions and enable MediaSage, then retry.');
             } else {
-                setStepError('plex', result.error || 'Connection failed');
+                setStepError('roon', result.error || 'Connection failed');
             }
         } catch (e) {
-            setStepError('plex', e.message);
+            setStepError('roon', e.message);
         } finally {
             btn.disabled = false;
             btn.textContent = 'Connect';
@@ -5340,8 +5339,8 @@ function setupWizardEventListeners() {
                 state.setup.status.llm_configured = true;
                 state.setup.status.llm_provider = provider;
                 setStepDone('ai', `Using ${result.provider_name || provider}`);
-                // Auto-trigger sync if Plex is also done
-                if (state.setup.status.plex_connected && !state.setup.status.library_synced) {
+                // Auto-trigger sync if Roon is also done
+                if (state.setup.status.roon_connected && !state.setup.status.library_synced) {
                     state.setup.status.is_syncing = true;
                     triggerSetupSync();
                 }
@@ -5434,7 +5433,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.querySelector('.app-footer')?.classList.remove('app-footer--loading');
 
         // Check library cache status after config is loaded
-        if (state.config?.plex_connected) {
+        if (state.config?.roon_connected) {
             await checkLibraryStatus();
         }
     } catch (error) {

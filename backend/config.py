@@ -7,7 +7,7 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-from backend.models import AppConfig, DefaultsConfig, LLMConfig, PlexConfig
+from backend.models import AppConfig, DefaultsConfig, LLMConfig, RoonConfig
 
 # Load .env file (if it exists) - env vars take priority
 load_dotenv()
@@ -147,7 +147,7 @@ def load_config(config_path: Path | None = None) -> AppConfig:
     yaml_config = deep_merge(yaml_config, user_config)
 
     # Extract nested config sections
-    plex_yaml = yaml_config.get("plex", {})
+    roon_yaml = yaml_config.get("roon", {})
     llm_yaml = yaml_config.get("llm", {})
     defaults_yaml = yaml_config.get("defaults", {})
 
@@ -189,12 +189,15 @@ def load_config(config_path: Path | None = None) -> AppConfig:
     provider_defaults = MODEL_DEFAULTS.get(provider, MODEL_DEFAULTS["gemini"])
 
     # Build configuration
-    plex_config = PlexConfig(
-        url=get_env_or_yaml("PLEX_URL", plex_yaml.get("url"), ""),
-        token=get_env_or_yaml("PLEX_TOKEN", plex_yaml.get("token"), ""),
-        music_library=get_env_or_yaml(
-            "PLEX_MUSIC_LIBRARY", plex_yaml.get("music_library"), "Music"
-        ),
+    roon_port_str = get_env_or_yaml("ROON_PORT", roon_yaml.get("port"), 9100)
+    roon_config = RoonConfig(
+        host=get_env_or_yaml("ROON_HOST", roon_yaml.get("host"), ""),
+        port=int(roon_port_str) if isinstance(roon_port_str, str) else roon_port_str,
+        core_id=get_env_or_yaml("ROON_CORE_ID", roon_yaml.get("core_id"), ""),
+        token=get_env_or_yaml("ROON_TOKEN", roon_yaml.get("token"), ""),
+        extension_id=get_env_or_yaml("ROON_EXTENSION_ID", roon_yaml.get("extension_id"), "com.mediasage.roon"),
+        display_name=get_env_or_yaml("ROON_DISPLAY_NAME", roon_yaml.get("display_name"), "MediaSage"),
+        display_version=get_env_or_yaml("ROON_DISPLAY_VERSION", roon_yaml.get("display_version"), "1.0.0"),
     )
 
     # Get local provider settings
@@ -260,7 +263,7 @@ def load_config(config_path: Path | None = None) -> AppConfig:
     )
 
     return AppConfig(
-        plex=plex_config,
+        roon=roon_config,
         llm=llm_config,
         defaults=defaults_config,
     )
@@ -296,15 +299,17 @@ def update_config_values(updates: dict[str, Any]) -> AppConfig:
         _config = load_config()
 
     # Create updated config by merging updates
-    plex_updates = {}
+    roon_updates = {}
     llm_updates = {}
 
-    if "plex_url" in updates and updates["plex_url"]:
-        plex_updates["url"] = updates["plex_url"]
-    if "plex_token" in updates and updates["plex_token"]:
-        plex_updates["token"] = updates["plex_token"]
-    if "music_library" in updates and updates["music_library"]:
-        plex_updates["music_library"] = updates["music_library"]
+    if "roon_host" in updates and updates["roon_host"]:
+        roon_updates["host"] = updates["roon_host"]
+    if "roon_port" in updates and updates["roon_port"]:
+        roon_updates["port"] = updates["roon_port"]
+    if "roon_token" in updates and updates["roon_token"]:
+        roon_updates["token"] = updates["roon_token"]
+    if "roon_core_id" in updates and updates["roon_core_id"]:
+        roon_updates["core_id"] = updates["roon_core_id"]
 
     if "llm_provider" in updates and updates["llm_provider"]:
         new_provider = updates["llm_provider"]
@@ -346,19 +351,19 @@ def update_config_values(updates: dict[str, Any]) -> AppConfig:
         llm_updates["custom_context_window"] = updates["custom_context_window"]
 
     # Create new config with updates
-    new_plex = _config.plex.model_copy(update=plex_updates)
+    new_roon = _config.roon.model_copy(update=roon_updates)
     new_llm = _config.llm.model_copy(update=llm_updates)
 
     _config = AppConfig(
-        plex=new_plex,
+        roon=new_roon,
         llm=new_llm,
         defaults=_config.defaults,
     )
 
     # Persist to user config file
     user_updates: dict[str, Any] = {}
-    if plex_updates:
-        user_updates["plex"] = plex_updates
+    if roon_updates:
+        user_updates["roon"] = roon_updates
     if llm_updates:
         user_updates["llm"] = llm_updates
 

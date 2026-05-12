@@ -2,14 +2,19 @@
 # Copy this file to config.yaml and update with your settings
 # Environment variables take priority over values in this file
 
-plex:
-  # Plex server URL (override with PLEX_URL env var)
-  url: "http://your-plex-server:32400"
-  # Plex authentication token (override with PLEX_TOKEN env var)
-  # See: https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/
+roon:
+  # Roon Core host/IP address (override with ROON_HOST env var)
+  host: "192.168.1.x"
+  # Roon Core port (override with ROON_PORT env var, default 9100)
+  port: 9100
+  # Core ID and token are auto-saved after first authorization
+  # in Roon → Settings → Extensions → Enable MediaSage
+  core_id: ""
   token: ""
-  # Name of your music library section in Plex
-  music_library: "Music"
+  # Extension metadata shown in Roon
+  extension_id: "com.mediasage.roon"
+  display_name: "MediaSage"
+  display_version: "1.0.0"
 
 llm:
   # LLM provider: "anthropic", "openai", or "gemini"

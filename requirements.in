@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-plexapi
+roonapi
 anthropic
 openai
 google-genai

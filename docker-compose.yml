@@ -11,10 +11,12 @@ services:
     ports:
       - "5765:5765"
     environment:
-      # Required: Plex server settings
-      - PLEX_URL=${PLEX_URL}
-      - PLEX_TOKEN=${PLEX_TOKEN}
-      - PLEX_MUSIC_LIBRARY=${PLEX_MUSIC_LIBRARY:-Music}
+      # Required: Roon Core settings
+      - ROON_HOST=${ROON_HOST}
+      - ROON_PORT=${ROON_PORT:-9100}
+      # Optional: auto-filled after first authorization in Roon → Extensions
+      - ROON_TOKEN=${ROON_TOKEN:-}
+      - ROON_CORE_ID=${ROON_CORE_ID:-}
 
       # Performance tuning
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}

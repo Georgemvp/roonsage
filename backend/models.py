@@ -18,7 +18,7 @@ def album_key(artist: str, album: str, lower: bool = True) -> str:
 
 
 class Track(BaseModel):
-    """A music track from the Plex library."""
+    """A music track from the Roon library."""
 
     rating_key: str
     title: str
@@ -85,12 +85,16 @@ class Playlist(BaseModel):
 # =============================================================================
 
 
-class PlexConfig(BaseModel):
-    """Plex server connection settings."""
+class RoonConfig(BaseModel):
+    """Roon Core connection settings."""
 
-    url: str
-    token: str
-    music_library: str = "Music"
+    host: str
+    port: int = 9100
+    core_id: str = ""
+    token: str = ""
+    extension_id: str = "com.mediasage.roon"
+    display_name: str = "MediaSage"
+    display_version: str = "1.0.0"
 
 
 class LLMConfig(BaseModel):
@@ -126,7 +130,7 @@ class DefaultsConfig(BaseModel):
 class AppConfig(BaseModel):
     """Root configuration object."""
 
-    plex: PlexConfig
+    roon: RoonConfig
     llm: LLMConfig
     defaults: DefaultsConfig = DefaultsConfig()
 
@@ -198,7 +202,7 @@ class FilterPreviewRequest(BaseModel):
     decades: list[str] = []
     track_count: int = 25
     max_tracks_to_ai: int = 500  # 0 = no limit
-    min_rating: int = 0  # 0 = any, 2/4/6/8/10 = minimum rating (Plex uses 0-10)
+    min_rating: int = 0  # 0 = any, 2/4/6/8/10 = minimum rating
     exclude_live: bool = True
 
 
@@ -253,7 +257,7 @@ class GenerateResponse(BaseModel):
 
 
 def _validate_rating_keys(v: list[str]) -> list[str]:
-    """Validate a list of Plex rating keys (must be non-empty, all numeric)."""
+    """Validate a list of rating keys (must be non-empty strings)."""
     if not v:
         raise ValueError("At least one track is required")
     for key in v:
@@ -263,16 +267,16 @@ def _validate_rating_keys(v: list[str]) -> list[str]:
 
 
 def _truncate_description(v: str) -> str:
-    """Truncate description to 2000 chars for Plex compatibility."""
+    """Truncate description to 2000 chars."""
     return v[:2000] if v else v
 
 
 class SavePlaylistRequest(BaseModel):
-    """Request to save a playlist to Plex."""
+    """Request to queue tracks to a Roon zone."""
 
     name: str
     rating_keys: list[str]
-    description: str = ""  # Playlist description (narrative) saved to Plex
+    description: str = ""  # Optional description
 
     @field_validator("name")
     @classmethod
@@ -308,89 +312,73 @@ class SavePlaylistResponse(BaseModel):
 # =============================================================================
 
 
-class PlexPlaylistInfo(BaseModel):
-    """Lightweight playlist info for the picker."""
+class RoonZoneInfo(BaseModel):
+    """Roon zone info."""
 
-    rating_key: str
-    title: str
-    track_count: int
-
-
-class PlexClientInfo(BaseModel):
-    """Online Plex client info."""
-
-    client_id: str
-    name: str
-    product: str
-    platform: str
-    is_playing: bool
-    is_mobile: bool = False
+    zone_id: str
+    display_name: str
+    state: str = "stopped"
+    outputs: list[str] = []
+    is_grouped: bool = False
 
 
-class UpdatePlaylistRequest(BaseModel):
-    """Request to update an existing playlist."""
+class QueueAppendRequest(BaseModel):
+    """Request to append tracks to a Roon zone queue."""
 
-    playlist_id: str
-    rating_keys: list[str]
-    mode: Literal["replace", "append"]
-    description: str = ""
+    zone_id: str
+    item_keys: list[str]
 
-    @field_validator("description")
+    @field_validator("zone_id")
     @classmethod
-    def truncate_description(cls, v: str) -> str:
-        return _truncate_description(v)
-
-    @field_validator("playlist_id")
-    @classmethod
-    def validate_playlist_id(cls, v: str) -> str:
-        if v != "__scratch__" and not v.isdigit():
-            raise ValueError("playlist_id must be '__scratch__' or a numeric rating key")
+    def validate_zone_id(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("zone_id cannot be empty")
         return v
 
-    @field_validator("rating_keys")
+    @field_validator("item_keys")
     @classmethod
-    def validate_rating_keys(cls, v: list[str]) -> list[str]:
-        return _validate_rating_keys(v)
+    def validate_item_keys(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("At least one track is required")
+        return v
 
 
-class UpdatePlaylistResponse(BaseModel):
-    """Response from updating a playlist."""
+class QueueAppendResponse(BaseModel):
+    """Response from appending to a Roon zone queue."""
 
     success: bool
     tracks_added: int = 0
     tracks_skipped: int = 0
-    duplicates_skipped: int = 0
-    playlist_url: str | None = None
-    warning: str | None = None
     error: str | None = None
 
 
 class PlayQueueRequest(BaseModel):
-    """Request to create a play queue."""
+    """Request to play tracks on a Roon zone."""
 
-    rating_keys: list[str]
-    client_id: str
+    item_keys: list[str]
+    zone_id: str
     mode: Literal["replace", "play_next"] = "replace"
 
-    @field_validator("client_id")
+    @field_validator("zone_id")
     @classmethod
-    def validate_client_id(cls, v: str) -> str:
+    def validate_zone_id(cls, v: str) -> str:
         if not v or not v.strip():
-            raise ValueError("client_id cannot be empty")
+            raise ValueError("zone_id cannot be empty")
         return v
 
-    @field_validator("rating_keys")
+    @field_validator("item_keys")
     @classmethod
-    def validate_rating_keys(cls, v: list[str]) -> list[str]:
-        return _validate_rating_keys(v)
+    def validate_item_keys(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("At least one track is required")
+        return v
 
 
 class PlayQueueResponse(BaseModel):
     """Response from play queue creation."""
 
     success: bool
-    client_name: str | None = None
-    client_product: str | None = None
+    zone_name: str | None = None
     tracks_queued: int = 0
     tracks_skipped: int = 0
     error: str | None = None
@@ -400,10 +388,10 @@ class ConfigResponse(BaseModel):
     """Config without secrets for display."""
 
     version: str
-    plex_url: str
-    plex_connected: bool
-    plex_token_set: bool  # True if token is configured (without revealing it)
-    music_library: str | None
+    roon_host: str
+    roon_port: int
+    roon_connected: bool
+    roon_token_set: bool  # True if token is configured (without revealing it)
     llm_provider: str
     llm_configured: bool
     llm_api_key_set: bool  # True if API key is configured (without revealing it)
@@ -428,9 +416,8 @@ class ConfigResponse(BaseModel):
 class UpdateConfigRequest(BaseModel):
     """Partial config update."""
 
-    plex_url: str | None = None
-    plex_token: str | None = None
-    music_library: str | None = None
+    roon_host: str | None = None
+    roon_port: int | None = None
     llm_provider: str | None = None
     llm_api_key: str | None = None
     model_analysis: str | None = None
@@ -446,7 +433,7 @@ class HealthResponse(BaseModel):
     """Health check response."""
 
     status: str
-    plex_connected: bool
+    roon_connected: bool
     llm_configured: bool
 
 
@@ -515,7 +502,7 @@ class LibraryCacheStatusResponse(BaseModel):
     is_syncing: bool
     sync_progress: SyncProgress | None = None
     error: str | None = None
-    plex_connected: bool
+    roon_connected: bool
     needs_resync: bool = False
 
 
@@ -532,7 +519,7 @@ class SyncTriggerResponse(BaseModel):
 
 
 class AlbumCandidate(BaseModel):
-    """An album from the user's Plex library, aggregated from cached tracks."""
+    """An album from the user's Roon library, aggregated from cached tracks."""
 
     parent_rating_key: str
     album: str
@@ -804,10 +791,9 @@ class SetupStatusResponse(BaseModel):
     process_uid: int = 0
     process_gid: int = 0
     data_dir: str = ""
-    plex_connected: bool
-    plex_error: str | None = None
-    plex_from_env: bool = False
-    music_libraries: list[str] = []
+    roon_connected: bool
+    roon_error: str | None = None
+    roon_from_env: bool = False
     llm_configured: bool
     llm_provider: str = ""
     llm_from_env: bool = False
@@ -818,21 +804,20 @@ class SetupStatusResponse(BaseModel):
     setup_complete: bool
 
 
-class ValidatePlexRequest(BaseModel):
-    """Request to validate Plex credentials during setup."""
+class ValidateRoonRequest(BaseModel):
+    """Request to validate Roon connection during setup."""
 
-    plex_url: str
-    plex_token: str
-    music_library: str = "Music"
+    roon_host: str
+    roon_port: int = 9100
 
 
-class ValidatePlexResponse(BaseModel):
-    """Response from Plex validation."""
+class ValidateRoonResponse(BaseModel):
+    """Response from Roon validation."""
 
     success: bool
+    core_name: str | None = None
+    needs_authorization: bool = False
     error: str | None = None
-    server_name: str | None = None
-    music_libraries: list[str] = []
 
 
 class ValidateAIRequest(BaseModel):

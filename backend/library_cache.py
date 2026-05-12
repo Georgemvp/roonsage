@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).parent.parent / "data"
 DB_PATH = DATA_DIR / "library_cache.db"
 
-# Patterns for detecting live recordings (same as plex_client.py)
+# Patterns for detecting live recordings (same as roon_client.py)
 DATE_PATTERN = r"\d{4}[-/]\d{2}[-/]\d{2}"
 LIVE_KEYWORDS = r"\b(?:live|concert|sbd|bootleg)\b"
 
@@ -405,16 +405,16 @@ def check_server_changed(current_server_id: str) -> bool:
 
 
 def sync_library(
-    plex_client: Any,
+    roon_client: Any,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
-    """Sync tracks from Plex to local cache.
+    """Sync tracks from Roon to local cache.
 
     This is a blocking synchronous operation. For async usage, wrap in
     asyncio.to_thread() or run in a thread pool.
 
     Args:
-        plex_client: PlexClient instance with active connection
+        roon_client: RoonClient instance with active connection
         on_progress: Optional callback(current, total) for progress updates
 
     Returns:
@@ -440,13 +440,13 @@ def sync_library(
 
     try:
         # Get server ID for cache validation
-        server_id = plex_client.get_machine_identifier()
+        server_id = roon_client.get_core_id()
         if not server_id:
-            raise ValueError("Could not get Plex server identifier")
+            raise ValueError("Could not get Roon Core identifier")
 
         # Check if server changed - clear cache if so
         if check_server_changed(server_id):
-            logger.info("Plex server changed, clearing cache")
+            logger.info("Roon Core changed, clearing cache")
             clear_cache()
 
         conn = ensure_db_initialized()
@@ -458,17 +458,17 @@ def sync_library(
         conn.commit()
 
         # Phase 1: Fetch albums for genre/year mapping
-        logger.info("Fetching album metadata from Plex...")
-        album_metadata = plex_client.get_all_albums_metadata()
+        logger.info("Fetching album metadata from Roon...")
+        album_metadata = roon_client.get_all_albums_metadata()
         logger.info("Got metadata for %d albums", len(album_metadata))
 
-        # Phase 2: Fetch all tracks from Plex
+        # Phase 2: Fetch all tracks from Roon
         with _sync_lock:
             _sync_state["phase"] = "fetching"
-        logger.info("Fetching all tracks from Plex (this may take 30-60s)...")
-        all_tracks = plex_client.get_all_raw_tracks()
+        logger.info("Fetching all tracks from Roon (this may take a while)...")
+        all_tracks = roon_client.get_all_raw_tracks()
         total = len(all_tracks)
-        logger.info("Got %d tracks from Plex", total)
+        logger.info("Got %d tracks from Roon", total)
 
         with _sync_lock:
             _sync_state["total"] = total
@@ -479,33 +479,43 @@ def sync_library(
         batch_data = []
 
         for i, track in enumerate(all_tracks):
-            # Extract track data
-            title = track.title
-            album = getattr(track, "parentTitle", "") or ""
-            artist = getattr(track, "grandparentTitle", "") or "Unknown Artist"
+            # Extract track data from Roon browse item dict
+            title = track.get("title", "Unknown Track")
+            # subtitle is typically "Artist • Album" in Roon
+            subtitle = track.get("subtitle", "") or ""
+            sub_parts = [p.strip() for p in subtitle.split("•")]
+            artist = sub_parts[0] if sub_parts else "Unknown Artist"
+            album = sub_parts[1] if len(sub_parts) > 1 else track.get("_album_title", "Unknown Album")
 
-            # Look up genres and year from album metadata using parentRatingKey
-            parent_key = str(getattr(track, "parentRatingKey", ""))
-            album_data = album_metadata.get(parent_key, {})
+            # Look up genres and year from album metadata using item_key of the album
+            album_item_key = track.get("_album_item_key", "")
+            album_data = album_metadata.get(album_item_key, {})
+            if not album_data and track.get("_album_title"):
+                # Try matching by album title as fallback
+                for meta in album_metadata.values():
+                    if meta.get("title", "").lower() == track.get("_album_title", "").lower():
+                        album_data = meta
+                        break
             genres = album_data.get("genres", [])
             year = album_data.get("year")
 
-            # Extract play history data
-            view_count = getattr(track, "viewCount", 0) or 0
-            last_viewed_at_raw = getattr(track, "lastViewedAt", None)
-            last_viewed_at = last_viewed_at_raw.isoformat() if last_viewed_at_raw else None
+            # Roon does not expose play counts via Browse API
+            view_count = 0
+            last_viewed_at = None
+
+            item_key = track.get("item_key", "")
 
             batch_data.append((
-                str(track.ratingKey),
+                item_key,
                 title,
                 artist,
                 album,
-                track.duration or 0,
+                track.get("duration", 0) * 1000 if track.get("duration") else 0,
                 year,
                 json.dumps(genres),  # Store genres as JSON array
-                getattr(track, "userRating", None),
+                None,  # user_rating not available via Browse API
                 _is_live_version(title, album),
-                parent_key,
+                album_item_key,  # parent_rating_key stores album item_key
                 view_count,
                 last_viewed_at,
             ))
@@ -554,7 +564,7 @@ def sync_library(
         synced_at = datetime.now(timezone.utc).isoformat()
 
         conn.execute(
-            "UPDATE sync_state SET plex_server_id = ?, last_sync_at = ?, "
+            "UPDATE sync_state SET plex_server_id = ?, last_sync_at = ?, "  # field name kept for DB compat
             "track_count = ?, sync_duration_ms = ? WHERE id = 1",
             (server_id, synced_at, synced_count, duration_ms),
         )
@@ -617,7 +627,7 @@ def count_tracks_by_filters(
     """
     state = get_sync_state()
     if state["track_count"] == 0:
-        return -1  # Cache empty, signal to use Plex
+        return -1  # Cache empty, signal to use Roon
 
     conn = ensure_db_initialized()
     try:
@@ -756,7 +766,7 @@ def get_album_candidates(
                 albums[prk] = {
                     "parent_rating_key": prk,
                     "album": row["album"],
-                    # artist column stores grandparentTitle (album artist), not track artist
+                    # artist column stores album artist from Roon subtitle parsing
                     "album_artist": row["artist"],
                     "year": year,
                     "genres": [],

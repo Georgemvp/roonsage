@@ -7,16 +7,16 @@ Auto-generated from feature plans. Last updated: 2026-02-04
 MediaSage is a self-hosted web application that generates Plex music playlists using LLMs with library awareness. It uses a filter-first approach to ensure 100% of suggested tracks are playable.
 
 ## Active Technologies
-- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-plexapi, sqlite3 (stdlib), Pydantic (003-local-library-cache)
+- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi, sqlite3 (stdlib), Pydantic (003-local-library-cache)
 - SQLite file at `data/library_cache.db` (003-local-library-cache)
-- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-plexapi, google-genai, anthropic, openai, pydantic, rapidfuzz (004-curator-narrative)
+- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi, google-genai, anthropic, openai, pydantic, rapidfuzz (004-curator-narrative)
 - SQLite (library cache at `data/library_cache.db`) - no schema changes needed (004-curator-narrative)
-- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-plexapi (v4.18.0), Pydantic, httpx (005-instant-queue)
+- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi (v4.18.0), Pydantic, httpx (005-instant-queue)
 - N/A (localStorage for frontend save mode persistence) (005-instant-queue)
-- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-plexapi, httpx, Pydantic, anthropic/openai/google-genai SDKs (006-recommend-album)
+- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi, httpx, Pydantic, anthropic/openai/google-genai SDKs (006-recommend-album)
 - SQLite file at `data/library_cache.db` (read-only for album aggregation from existing track cache) (006-recommend-album)
 
-- **Backend**: Python 3.11+, FastAPI, python-plexapi, anthropic SDK, openai SDK, pydantic, uvicorn, rapidfuzz, unidecode
+- **Backend**: Python 3.11+, FastAPI, python-roonapi, anthropic SDK, openai SDK, pydantic, uvicorn, rapidfuzz, unidecode
 - **Frontend**: Vanilla HTML/CSS/JS (no build step)
 - **Config**: YAML + environment variables
 - **Deployment**: Docker
@@ -27,7 +27,7 @@ MediaSage is a self-hosted web application that generates Plex music playlists u
 backend/
 ├── main.py              # FastAPI app, routes, static file serving
 ├── config.py            # Config loading (YAML + env vars)
-├── plex_client.py       # Plex connection, queries, playlist creation
+├── roon_client.py       # Plex connection, queries, playlist creation
 ├── llm_client.py        # Claude/OpenAI abstraction
 ├── analyzer.py          # Prompt analysis + seed track dimensions
 ├── generator.py         # Playlist generation
@@ -129,6 +129,6 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 <!-- MANUAL ADDITIONS END -->
 
 ## Recent Changes
-- 006-recommend-album: Added Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-plexapi, httpx, Pydantic, anthropic/openai/google-genai SDKs
-- 005-instant-queue: Added Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-plexapi (v4.18.0), Pydantic, httpx
-- 004-curator-narrative: Added Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-plexapi, google-genai, anthropic, openai, pydantic, rapidfuzz
+- 006-recommend-album: Added Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi, httpx, Pydantic, anthropic/openai/google-genai SDKs
+- 005-instant-queue: Added Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi (v4.18.0), Pydantic, httpx
+- 004-curator-narrative: Added Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi, google-genai, anthropic, openai, pydantic, rapidfuzz
