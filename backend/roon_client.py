@@ -173,6 +173,9 @@ class RoonClient:
         self._error: str | None = None
         self._last_reconnect_attempt: float = 0.0
         self._reconnect_lock = threading.Lock()
+        # The Browse API is single-session — concurrent browse operations on the
+        # same hierarchy corrupt each other's state. Serialize all browse sequences.
+        self._browse_lock = threading.Lock()
         self._needs_authorization = False
 
         if extension_info:
@@ -255,81 +258,122 @@ class RoonClient:
     def get_error(self) -> str | None:
         return self._error
 
+    def get_token(self) -> str | None:
+        """Return the current Roon authorization token (safe public accessor)."""
+        if not self._api:
+            return None
+        return getattr(self._api, "token", None)
+
     # ------------------------------------------------------------------
     # Library helpers — Browse API
     # ------------------------------------------------------------------
 
     def get_library_total_tracks(self) -> int:
-        """Return total track count via Browse API."""
+        """Return total track count.
+
+        Uses the SQLite cache as a fast path when available. Falls back to
+        fetching all tracks from Roon (expensive) only when the cache is empty.
+        """
+        # Fast path: use the local SQLite cache to avoid a full Roon round-trip
+        try:
+            from backend import library_cache
+            if library_cache.has_cached_tracks():
+                count = library_cache.count_tracks_by_filters()
+                if count >= 0:
+                    return count
+        except Exception as e:
+            logger.debug("Cache fast-path failed, falling back to Roon: %s", e)
+
+        # Slow path: fetch all tracks from Roon
         if not self.is_connected():
             return 0
         try:
-            opts = {"hierarchy": "browse", "pop_all": True}
-            result = self._api.browse_browse(opts)
-            # Navigate: Library → Albums → each album → tracks
-            # For a quick total, use the search/items API at track level if available
-            # Fall back to counting all tracks
             tracks = self.get_all_raw_tracks()
             return len(tracks)
         except Exception as e:
             logger.warning("Failed to get total tracks: %s", e)
             return 0
 
+    def _paginate_browse_load(
+        self,
+        hierarchy: str,
+        batch_size: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Load all items from the current browse position using paginated requests.
+
+        Assumes browse_browse() has already been called to navigate to the
+        desired position. Must be called while holding self._browse_lock.
+        """
+        all_items: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            page = self._api.browse_load(
+                {"hierarchy": hierarchy, "count": batch_size, "offset": offset}
+            )
+            items = page.get("items", []) if page else []
+            all_items.extend(items)
+            if len(items) < batch_size:
+                break
+            offset += batch_size
+        return all_items
+
     def get_all_raw_tracks(self) -> list[dict[str, Any]]:
         """Get all tracks by browsing Library → Albums → tracks per album.
 
         Returns a flat list of dicts representing Roon browse items with
         keys: title, subtitle, item_key, image_key, hint.
+        Albums are paginated in batches of 500 to handle libraries >5000 albums.
         """
         if not self.is_connected():
             return []
 
         all_tracks: list[dict[str, Any]] = []
         try:
-            # Load the library root
-            opts: dict[str, Any] = {
-                "hierarchy": "browse",
-                "pop_all": True,
-            }
-            self._api.browse_browse(opts)
-            items = self._api.browse_load({"hierarchy": "browse", "count": 1000}).get("items", [])
+            with self._browse_lock:
+                # Load the library root
+                opts: dict[str, Any] = {
+                    "hierarchy": "browse",
+                    "pop_all": True,
+                }
+                self._api.browse_browse(opts)
+                items = self._api.browse_load({"hierarchy": "browse", "count": 1000}).get("items", [])
 
-            # Find "Library" item
-            library_item = next((i for i in items if "library" in i.get("title", "").lower()), None)
-            if not library_item:
-                # Try navigating directly
-                self._api.browse_browse({"hierarchy": "albums"})
-                album_items = self._api.browse_load({"hierarchy": "albums", "count": 5000}).get("items", [])
-            else:
-                # Navigate into Library → Albums
-                self._api.browse_browse({"hierarchy": "browse", "item_key": library_item["item_key"]})
-                sub_items = self._api.browse_load({"hierarchy": "browse", "count": 200}).get("items", [])
-                albums_item = next((i for i in sub_items if "album" in i.get("title", "").lower()), None)
-                if albums_item:
-                    self._api.browse_browse({"hierarchy": "browse", "item_key": albums_item["item_key"]})
-                    album_items = self._api.browse_load({"hierarchy": "browse", "count": 5000}).get("items", [])
+                # Find "Library" item
+                library_item = next((i for i in items if "library" in i.get("title", "").lower()), None)
+                if not library_item:
+                    # Try navigating directly via the albums hierarchy
+                    self._api.browse_browse({"hierarchy": "albums"})
+                    album_items = self._paginate_browse_load("albums")
                 else:
-                    album_items = []
+                    # Navigate into Library → Albums
+                    self._api.browse_browse({"hierarchy": "browse", "item_key": library_item["item_key"]})
+                    sub_items = self._api.browse_load({"hierarchy": "browse", "count": 200}).get("items", [])
+                    albums_item = next((i for i in sub_items if "album" in i.get("title", "").lower()), None)
+                    if albums_item:
+                        self._api.browse_browse({"hierarchy": "browse", "item_key": albums_item["item_key"]})
+                        album_items = self._paginate_browse_load("browse")
+                    else:
+                        album_items = []
 
-            logger.info("Found %d albums in Roon library", len(album_items))
+                logger.info("Found %d albums in Roon library", len(album_items))
 
-            for album in album_items:
-                album_key = album.get("item_key")
-                if not album_key:
-                    continue
-                try:
-                    self._api.browse_browse({"hierarchy": "browse", "item_key": album_key})
-                    track_page = self._api.browse_load({"hierarchy": "browse", "count": 500})
-                    for t in track_page.get("items", []):
-                        if t.get("hint") == "action" or t.get("hint") == "list":
-                            # It's a track (action = playable)
-                            t["_album_title"] = album.get("title", "")
-                            t["_album_subtitle"] = album.get("subtitle", "")
-                            t["_album_item_key"] = album.get("item_key", "")
-                            all_tracks.append(t)
-                except Exception as e:
-                    logger.debug("Failed to load tracks for album %s: %s", album.get("title"), e)
-                    continue
+                for album in album_items:
+                    album_key = album.get("item_key")
+                    if not album_key:
+                        continue
+                    try:
+                        self._api.browse_browse({"hierarchy": "browse", "item_key": album_key})
+                        track_page = self._api.browse_load({"hierarchy": "browse", "count": 500})
+                        for t in track_page.get("items", []):
+                            if t.get("hint") == "action" or t.get("hint") == "list":
+                                # It's a track (action = playable)
+                                t["_album_title"] = album.get("title", "")
+                                t["_album_subtitle"] = album.get("subtitle", "")
+                                t["_album_item_key"] = album.get("item_key", "")
+                                all_tracks.append(t)
+                    except Exception as e:
+                        logger.debug("Failed to load tracks for album %s: %s", album.get("title"), e)
+                        continue
 
             logger.info("Total tracks fetched from Roon: %d", len(all_tracks))
             return all_tracks
@@ -342,15 +386,17 @@ class RoonClient:
         """Browse albums and extract genres/year.
 
         Returns dict mapping album item_key → {genres, year, title, artist}.
+        Albums are paginated in batches of 500 to handle large libraries.
         """
         if not self.is_connected():
             return {}
 
         metadata: dict[str, dict[str, Any]] = {}
         try:
-            self._api.browse_browse({"hierarchy": "albums"})
-            result = self._api.browse_load({"hierarchy": "albums", "count": 10000})
-            for album in result.get("items", []):
+            with self._browse_lock:
+                self._api.browse_browse({"hierarchy": "albums"})
+                album_items = self._paginate_browse_load("albums")
+            for album in album_items:
                 item_key = album.get("item_key", "")
                 if not item_key:
                     continue
@@ -413,8 +459,9 @@ class RoonClient:
         if not self.is_connected():
             return []
         try:
-            self._api.browse_browse({"hierarchy": "search", "input": query, "pop_all": True})
-            result = self._api.browse_load({"hierarchy": "search", "count": limit * 2})
+            with self._browse_lock:
+                self._api.browse_browse({"hierarchy": "search", "input": query, "pop_all": True})
+                result = self._api.browse_load({"hierarchy": "search", "count": limit * 2})
             tracks = []
             for item in result.get("items", []):
                 if item.get("hint") == "action":
@@ -433,8 +480,9 @@ class RoonClient:
         if not self.is_connected():
             return None
         try:
-            self._api.browse_browse({"hierarchy": "browse", "item_key": item_key})
-            result = self._api.browse_load({"hierarchy": "browse", "count": 1})
+            with self._browse_lock:
+                self._api.browse_browse({"hierarchy": "browse", "item_key": item_key})
+                result = self._api.browse_load({"hierarchy": "browse", "count": 1})
             items = result.get("items", [])
             if items:
                 return self._convert_track(items[0], {})
@@ -504,17 +552,18 @@ class RoonClient:
         try:
             for idx, key in enumerate(item_keys):
                 try:
-                    # Navigate to the track via Browse API
-                    self._api.browse_browse({
-                        "hierarchy": "browse",
-                        "item_key": key,
-                        "zone_or_output_id": zone_id,
-                    })
-                    result = self._api.browse_load({
-                        "hierarchy": "browse",
-                        "count": 20,
-                        "zone_or_output_id": zone_id,
-                    })
+                    with self._browse_lock:
+                        # Navigate to the track via Browse API
+                        self._api.browse_browse({
+                            "hierarchy": "browse",
+                            "item_key": key,
+                            "zone_or_output_id": zone_id,
+                        })
+                        result = self._api.browse_load({
+                            "hierarchy": "browse",
+                            "count": 20,
+                            "zone_or_output_id": zone_id,
+                        })
 
                     items = result.get("items", []) if result else []
 
@@ -548,11 +597,12 @@ class RoonClient:
                         continue
 
                     # Execute the action
-                    self._api.browse_browse({
-                        "hierarchy": "browse",
-                        "item_key": chosen["item_key"],
-                        "zone_or_output_id": zone_id,
-                    })
+                    with self._browse_lock:
+                        self._api.browse_browse({
+                            "hierarchy": "browse",
+                            "item_key": chosen["item_key"],
+                            "zone_or_output_id": zone_id,
+                        })
                     tracks_queued += 1
 
                 except Exception as e:
@@ -618,7 +668,6 @@ class RoonClient:
 
         genres = album_info.get("genres", [])
         year = album_info.get("year")
-        image_key = roon_item.get("image_key", "")
 
         # Build art_url via our proxy endpoint
         art_url = f"/api/art/{item_key}" if item_key else None

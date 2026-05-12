@@ -376,7 +376,7 @@ class TestStalenessCheck:
 
 
 class TestServerChangeDetection:
-    """Test Plex server change detection."""
+    """Test Roon Core change detection."""
 
     def test_first_sync_no_change(self, initialized_db):
         """First sync doesn't count as server change."""
@@ -430,9 +430,9 @@ class TestSyncLibrary:
         return _make
 
     @pytest.fixture
-    def mock_plex_client(self, mock_track):
-        """Create a mock Plex client."""
-        class MockPlexClient:
+    def mock_roon_client(self, mock_track):
+        """Create a mock Roon client."""
+        class MockRoonClient:
             def __init__(self):
                 # Roon album metadata is keyed by album item_key strings
                 self.album_metadata = {
@@ -454,7 +454,7 @@ class TestSyncLibrary:
             def get_all_raw_tracks(self):
                 return self.tracks
 
-        return MockPlexClient()
+        return MockRoonClient()
 
     @pytest.fixture
     def reset_sync_state(self, monkeypatch):
@@ -467,9 +467,9 @@ class TestSyncLibrary:
             "error": None,
         })
 
-    def test_sync_success(self, initialized_db, mock_plex_client, reset_sync_state):
+    def test_sync_success(self, initialized_db, mock_roon_client, reset_sync_state):
         """Sync completes successfully with correct track count."""
-        result = library_cache.sync_library(mock_plex_client)
+        result = library_cache.sync_library(mock_roon_client)
 
         assert result["success"] is True
         assert result["track_count"] == 3
@@ -479,9 +479,9 @@ class TestSyncLibrary:
         tracks = library_cache.get_cached_tracks()
         assert len(tracks) == 3
 
-    def test_sync_stores_genres_from_albums(self, initialized_db, mock_plex_client, reset_sync_state):
+    def test_sync_stores_genres_from_albums(self, initialized_db, mock_roon_client, reset_sync_state):
         """Sync correctly maps album genres to tracks."""
-        library_cache.sync_library(mock_plex_client)
+        library_cache.sync_library(mock_roon_client)
 
         tracks = library_cache.get_cached_tracks()
         track_by_key = {t["rating_key"]: t for t in tracks}
@@ -493,9 +493,9 @@ class TestSyncLibrary:
         # Track 2 is from Album Y (parent_key=101)
         assert track_by_key["2"]["genres"] == ["Electronic"]
 
-    def test_sync_stores_year_from_albums(self, initialized_db, mock_plex_client, reset_sync_state):
+    def test_sync_stores_year_from_albums(self, initialized_db, mock_roon_client, reset_sync_state):
         """Sync correctly maps album year to tracks."""
-        library_cache.sync_library(mock_plex_client)
+        library_cache.sync_library(mock_roon_client)
 
         tracks = library_cache.get_cached_tracks()
         track_by_key = {t["rating_key"]: t for t in tracks}
@@ -504,9 +504,9 @@ class TestSyncLibrary:
         assert track_by_key["2"]["year"] == 2020
         assert track_by_key["3"]["year"] == 1995
 
-    def test_sync_updates_sync_state(self, initialized_db, mock_plex_client, reset_sync_state):
+    def test_sync_updates_sync_state(self, initialized_db, mock_roon_client, reset_sync_state):
         """Sync updates the sync_state table."""
-        library_cache.sync_library(mock_plex_client)
+        library_cache.sync_library(mock_roon_client)
 
         state = library_cache.get_sync_state()
 
@@ -515,20 +515,20 @@ class TestSyncLibrary:
         assert state["plex_server_id"] == "test-server-123"
         assert state["is_syncing"] is False
 
-    def test_sync_progress_callback(self, initialized_db, mock_plex_client, reset_sync_state):
+    def test_sync_progress_callback(self, initialized_db, mock_roon_client, reset_sync_state):
         """Progress callback is invoked during sync."""
         progress_calls = []
 
         def on_progress(current, total):
             progress_calls.append((current, total))
 
-        library_cache.sync_library(mock_plex_client, on_progress=on_progress)
+        library_cache.sync_library(mock_roon_client, on_progress=on_progress)
 
         # With 3 tracks and SYNC_BATCH_SIZE=500, we won't hit the batch callback
         # but we can verify the function accepts the callback without error
         assert isinstance(progress_calls, list)
 
-    def test_sync_rejects_concurrent_sync(self, initialized_db, mock_plex_client, monkeypatch):
+    def test_sync_rejects_concurrent_sync(self, initialized_db, mock_roon_client, monkeypatch):
         """Second sync attempt is rejected while one is in progress."""
         # Simulate sync in progress
         monkeypatch.setattr(library_cache, "_sync_state", {
@@ -539,23 +539,23 @@ class TestSyncLibrary:
             "error": None,
         })
 
-        result = library_cache.sync_library(mock_plex_client)
+        result = library_cache.sync_library(mock_roon_client)
 
         assert result["success"] is False
         assert "already in progress" in result["error"]
 
     def test_sync_handles_missing_server_id(self, initialized_db, reset_sync_state):
         """Sync fails gracefully if server ID is unavailable."""
-        class BadPlexClient:
+        class BadRoonClient:
             def get_core_id(self):
                 return None
 
-        result = library_cache.sync_library(BadPlexClient())
+        result = library_cache.sync_library(BadRoonClient())
 
         assert result["success"] is False
         assert "identifier" in result["error"].lower()
 
-    def test_sync_clears_error_on_success(self, initialized_db, mock_plex_client, monkeypatch):
+    def test_sync_clears_error_on_success(self, initialized_db, mock_roon_client, monkeypatch):
         """Successful sync clears any previous error state."""
         # Set initial state with error
         monkeypatch.setattr(library_cache, "_sync_state", {
@@ -566,14 +566,14 @@ class TestSyncLibrary:
             "error": "Previous error",
         })
 
-        library_cache.sync_library(mock_plex_client)
+        library_cache.sync_library(mock_roon_client)
 
         state = library_cache.get_sync_state()
         assert state["error"] is None
         assert state["is_syncing"] is False
 
     def test_sync_removes_deleted_tracks(self, initialized_db, mock_track, reset_sync_state):
-        """Sync removes tracks that no longer exist in Plex."""
+        """Sync removes tracks that no longer exist in Roon."""
         # Pre-populate cache with a track that won't be in the sync
         conn = library_cache.get_db_connection()
         conn.execute(
@@ -590,7 +590,7 @@ class TestSyncLibrary:
         assert any(t["rating_key"] == "stale-track-999" for t in tracks_before)
 
         # Create mock client that returns different tracks
-        class MockPlexClient:
+        class MockRoonClient:
             def get_core_id(self):
                 return "test-server-123"
 
@@ -601,7 +601,7 @@ class TestSyncLibrary:
                 return [mock_track("new-1", "New Song", "New Artist", "New Album", 200000, "album-key-100")]
 
         # Run sync
-        result = library_cache.sync_library(MockPlexClient())
+        result = library_cache.sync_library(MockRoonClient())
 
         assert result["success"] is True
         assert result["track_count"] == 1
@@ -632,13 +632,13 @@ class TestSyncLibrary:
         # Reset sync state for next sync attempt
         library_cache._sync_state["is_syncing"] = False
 
-        # Now attempt a sync that fails during Plex API call
+        # Now attempt a sync that fails during Roon API call
         class FailingClient:
             def get_core_id(self):
                 return "test-server-123"
 
             def get_all_albums_metadata(self):
-                raise ConnectionError("Plex unreachable")
+                raise ConnectionError("Roon unreachable")
 
         result = library_cache.sync_library(FailingClient())
         assert result["success"] is False

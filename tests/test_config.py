@@ -172,7 +172,7 @@ class TestLoadConfig:
 
     def test_default_models_for_anthropic(self, tmp_path, monkeypatch):
         """Should use default Anthropic models when not specified."""
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
             monkeypatch.delenv(var, raising=False)
 
@@ -189,7 +189,7 @@ class TestLoadConfig:
 
     def test_default_models_for_openai(self, tmp_path, monkeypatch):
         """Should use default OpenAI models when not specified."""
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
             monkeypatch.delenv(var, raising=False)
 
@@ -206,7 +206,7 @@ class TestLoadConfig:
 
     def test_custom_models_override_defaults(self, tmp_path, monkeypatch):
         """Custom model settings should override defaults."""
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
             monkeypatch.delenv(var, raising=False)
 
@@ -357,7 +357,7 @@ class TestLocalProviderConfig:
 
     def test_loads_ollama_config_from_yaml(self, tmp_path, monkeypatch):
         """Should load Ollama config from YAML file."""
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS",
                     "LLM_MODEL_GENERATION", "OLLAMA_URL"]:
             monkeypatch.delenv(var, raising=False)
@@ -382,7 +382,7 @@ class TestLocalProviderConfig:
 
     def test_ollama_url_env_var_override(self, tmp_path, monkeypatch):
         """OLLAMA_URL env var should override YAML value."""
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
             monkeypatch.delenv(var, raising=False)
 
@@ -405,7 +405,7 @@ class TestLocalProviderConfig:
 
     def test_loads_custom_provider_config(self, tmp_path, monkeypatch):
         """Should load custom provider config from YAML."""
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS",
                     "LLM_MODEL_GENERATION", "CUSTOM_LLM_URL", "CUSTOM_CONTEXT_WINDOW"]:
             monkeypatch.delenv(var, raising=False)
@@ -431,7 +431,7 @@ class TestLocalProviderConfig:
 
     def test_custom_context_window_env_var(self, tmp_path, monkeypatch):
         """CUSTOM_CONTEXT_WINDOW env var should override YAML."""
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
             monkeypatch.delenv(var, raising=False)
 
@@ -455,7 +455,7 @@ class TestLocalProviderConfig:
 
     def test_default_ollama_url(self, tmp_path, monkeypatch):
         """Should use default Ollama URL when not specified."""
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS",
                     "LLM_MODEL_GENERATION", "OLLAMA_URL"]:
             monkeypatch.delenv(var, raising=False)
@@ -475,7 +475,7 @@ class TestLocalProviderConfig:
 
     def test_default_custom_context_window(self, tmp_path, monkeypatch):
         """Should use default custom context window when not specified."""
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS",
                     "LLM_MODEL_GENERATION", "CUSTOM_CONTEXT_WINDOW"]:
             monkeypatch.delenv(var, raising=False)

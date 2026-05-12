@@ -21,7 +21,7 @@ def _parse_sse_events(generator):
 class TestPlaylistGeneration:
     """Tests for playlist generation (streaming)."""
 
-    def test_generate_validates_tracks_against_library(self, mocker, mock_plex_tracks):
+    def test_generate_validates_tracks_against_library(self, mocker, mock_roon_tracks):
         """Generated playlist should only contain tracks from library."""
         from backend.generator import generate_playlist_stream
         from backend.llm_client import LLMResponse
@@ -49,10 +49,10 @@ class TestPlaylistGeneration:
             ]
             mock_llm.return_value = mock_client
 
-            with patch("backend.generator.get_roon_client") as mock_plex:
-                mock_plex_client = MagicMock()
-                mock_plex_client.get_tracks_by_filters.return_value = mock_plex_tracks[:5]
-                mock_plex.return_value = mock_plex_client
+            with patch("backend.generator.get_roon_client") as mock_roon:
+                mock_roon_client = MagicMock()
+                mock_roon_client.get_tracks_by_filters.return_value = mock_roon_tracks[:5]
+                mock_roon.return_value = mock_roon_client
 
                 with patch("backend.generator.library_cache.has_cached_tracks", return_value=False):
                     with patch("backend.generator.library_cache.save_result", return_value="abc123"):
@@ -70,7 +70,7 @@ class TestPlaylistGeneration:
                             if etype == "tracks":
                                 track_keys.extend(t["rating_key"] for t in data["batch"])
 
-                        library_keys = {t.rating_key for t in mock_plex_tracks}
+                        library_keys = {t.rating_key for t in mock_roon_tracks}
                         for key in track_keys:
                             assert key in library_keys
 
@@ -81,10 +81,10 @@ class TestPlaylistGeneration:
         with patch("backend.generator.get_llm_client") as mock_llm:
             mock_llm.return_value = MagicMock()
 
-            with patch("backend.generator.get_roon_client") as mock_plex:
-                mock_plex_client = MagicMock()
-                mock_plex_client.get_tracks_by_filters.return_value = []
-                mock_plex.return_value = mock_plex_client
+            with patch("backend.generator.get_roon_client") as mock_roon:
+                mock_roon_client = MagicMock()
+                mock_roon_client.get_tracks_by_filters.return_value = []
+                mock_roon.return_value = mock_roon_client
 
                 with patch("backend.generator.library_cache.has_cached_tracks", return_value=False):
                     events = _parse_sse_events(generate_playlist_stream(
@@ -99,7 +99,7 @@ class TestPlaylistGeneration:
                     assert len(error_events) == 1
                     assert "No tracks" in error_events[0]["message"]
 
-    def test_fuzzy_matching_finds_similar_titles(self, mocker, mock_plex_tracks):
+    def test_fuzzy_matching_finds_similar_titles(self, mocker, mock_roon_tracks):
         """Should fuzzy match LLM responses to library tracks."""
         from backend.generator import generate_playlist_stream
         from backend.llm_client import LLMResponse
@@ -126,10 +126,10 @@ class TestPlaylistGeneration:
             ]
             mock_llm.return_value = mock_client
 
-            with patch("backend.generator.get_roon_client") as mock_plex:
-                mock_plex_client = MagicMock()
-                mock_plex_client.get_tracks_by_filters.return_value = mock_plex_tracks[:5]
-                mock_plex.return_value = mock_plex_client
+            with patch("backend.generator.get_roon_client") as mock_roon:
+                mock_roon_client = MagicMock()
+                mock_roon_client.get_tracks_by_filters.return_value = mock_roon_tracks[:5]
+                mock_roon.return_value = mock_roon_client
 
                 with patch("backend.generator.library_cache.has_cached_tracks", return_value=False):
                     with patch("backend.generator.library_cache.save_result", return_value="abc123"):

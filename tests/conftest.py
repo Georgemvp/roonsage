@@ -7,7 +7,7 @@ from backend.models import Track, Dimension
 
 
 @pytest.fixture
-def mock_plex_tracks() -> list[Track]:
+def mock_roon_tracks() -> list[Track]:
     """Sample library tracks for testing filter/match logic."""
     return [
         Track(
@@ -163,15 +163,6 @@ def mock_llm_response_analysis() -> dict:
         "decades": ["1990s"],
         "reasoning": "The request for 'melancholy 90s alternative' suggests mid-90s alternative rock with emotionally introspective themes.",
     }
-
-
-@pytest.fixture
-def mock_plex_server(mocker):
-    """Mock PlexServer for testing."""
-    mock_server = MagicMock()
-    mock_library = MagicMock()
-    mock_server.library.section.return_value = mock_library
-    return mock_server
 
 
 @pytest.fixture

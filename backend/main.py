@@ -55,16 +55,12 @@ from backend.models import (
     ResultDetail,
     ResultListItem,
     ResultListResponse,
-    SavePlaylistRequest,
-    SavePlaylistResponse,
     SetupCompleteResponse,
     SetupStatusResponse,
     SyncProgress,
     SyncTriggerResponse,
     Track,
     UpdateConfigRequest,
-    UpdatePlaylistRequest,
-    UpdatePlaylistResponse,
     ValidateAIRequest,
     ValidateAIResponse,
     ValidateRoonRequest,
@@ -310,7 +306,7 @@ async def setup_validate_roon(request: ValidateRoonRequest) -> ValidateRoonRespo
 
     # Connected — save config and reinitialize global client
     core_name = temp_client.get_core_name()
-    token = getattr(temp_client._api, "token", "") or ""
+    token = temp_client.get_token() or ""
     core_id = temp_client.get_core_id() or ""
 
     try:

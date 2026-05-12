@@ -110,6 +110,8 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         CREATE INDEX IF NOT EXISTS idx_tracks_is_live ON tracks(is_live);
 
         -- Sync state: single-row metadata table
+        -- Column name 'plex_server_id' preserved from Plex era for database backward compatibility.
+        -- Stores the Roon Core ID despite the legacy column name.
         CREATE TABLE IF NOT EXISTS sync_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             plex_server_id TEXT,

@@ -30,13 +30,13 @@ class TestPromptAnalysis:
             mock_client.parse_json_response.return_value = json.loads(mock_response.content)
             mock_llm.return_value = mock_client
 
-            with patch("backend.analyzer.get_plex_client") as mock_plex:
-                mock_plex_client = MagicMock()
-                mock_plex_client.get_library_stats.return_value = {
+            with patch("backend.analyzer.get_roon_client") as mock_roon:
+                mock_roon_client = MagicMock()
+                mock_roon_client.get_library_stats.return_value = {
                     "genres": [{"name": "Alternative", "count": 100}, {"name": "Rock", "count": 200}],
                     "decades": [{"name": "1990s", "count": 150}]
                 }
-                mock_plex.return_value = mock_plex_client
+                mock_roon.return_value = mock_roon_client
 
                 result = analyze_prompt("melancholy 90s alternative")
 
@@ -61,13 +61,13 @@ class TestPromptAnalysis:
             mock_client.parse_json_response.side_effect = ValueError("Invalid JSON")
             mock_llm.return_value = mock_client
 
-            with patch("backend.analyzer.get_plex_client") as mock_plex:
-                mock_plex_client = MagicMock()
-                mock_plex_client.get_library_stats.return_value = {
+            with patch("backend.analyzer.get_roon_client") as mock_roon:
+                mock_roon_client = MagicMock()
+                mock_roon_client.get_library_stats.return_value = {
                     "genres": [{"name": "Rock", "count": 100}],
                     "decades": [{"name": "1990s", "count": 100}]
                 }
-                mock_plex.return_value = mock_plex_client
+                mock_roon.return_value = mock_roon_client
 
                 with pytest.raises(ValueError):
                     analyze_prompt("test prompt")
@@ -94,9 +94,9 @@ class TestPromptAnalysis:
             mock_client.parse_json_response.return_value = json.loads(mock_response.content)
             mock_llm.return_value = mock_client
 
-            with patch("backend.analyzer.get_plex_client") as mock_plex:
-                mock_plex_client = MagicMock()
-                mock_plex_client.get_library_stats.return_value = {
+            with patch("backend.analyzer.get_roon_client") as mock_roon:
+                mock_roon_client = MagicMock()
+                mock_roon_client.get_library_stats.return_value = {
                     "genres": [
                         {"name": "Rock", "count": 500},
                         {"name": "Jazz", "count": 200},
@@ -108,7 +108,7 @@ class TestPromptAnalysis:
                         {"name": "2000s", "count": 200}
                     ]
                 }
-                mock_plex.return_value = mock_plex_client
+                mock_roon.return_value = mock_roon_client
 
                 result = analyze_prompt("rock music from the 90s")
 
@@ -143,16 +143,16 @@ class TestFilterSuggestions:
             mock_client.parse_json_response.return_value = json.loads(mock_response.content)
             mock_llm.return_value = mock_client
 
-            with patch("backend.analyzer.get_plex_client") as mock_plex:
-                mock_plex_client = MagicMock()
-                mock_plex_client.get_library_stats.return_value = {
+            with patch("backend.analyzer.get_roon_client") as mock_roon:
+                mock_roon_client = MagicMock()
+                mock_roon_client.get_library_stats.return_value = {
                     "genres": [
                         {"name": "Alternative", "count": 500},
                         {"name": "Grunge", "count": 100}
                     ],
                     "decades": [{"name": "1990s", "count": 400}]
                 }
-                mock_plex.return_value = mock_plex_client
+                mock_roon.return_value = mock_roon_client
 
                 result = analyze_prompt("90s alt rock")
 

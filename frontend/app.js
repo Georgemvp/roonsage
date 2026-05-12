@@ -473,10 +473,12 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
 }
 
 async function savePlaylist(name, ratingKeys, description = '') {
-    return apiCall('/playlist', {
-        method: 'POST',
-        body: JSON.stringify({ name, rating_keys: ratingKeys, description }),
-    });
+    // Roon does not support playlist creation via the Extension API.
+    // Return a structured error so callers can display an appropriate message.
+    return {
+        success: false,
+        error: 'Roon does not support saving playlists via the Extension API. Use "Play Now" to queue tracks to a zone.',
+    };
 }
 
 // =============================================================================
@@ -2164,12 +2166,8 @@ function showSuccessModal(name, trackCount, playlistUrl) {
 
     summary.textContent = `"${name}" queued ${trackCount} track${trackCount !== 1 ? 's' : ''} to Roon.`;
 
-    if (playlistUrl) {
-        openBtn.href = playlistUrl;
-        openBtn.style.display = '';
-    } else {
-        openBtn.style.display = 'none';
-    }
+    // Roon has no web URLs — always hide the "Open in Roon" link button
+    openBtn.style.display = 'none';
 
     modal.classList.remove('hidden');
     lockScroll();
@@ -3678,12 +3676,8 @@ async function handleUpdatePlaylist() {
             document.getElementById('update-success-message').textContent = message;
 
             const openBtn = document.getElementById('update-open-in-roon-btn');
-            if (response.playlist_url) {
-                openBtn.href = response.playlist_url;
-                openBtn.style.display = '';
-            } else {
-                openBtn.style.display = 'none';
-            }
+            // Roon has no web URLs — always hide the "Open in Roon" link button
+            openBtn.style.display = 'none';
 
             const updateModal = document.getElementById('update-success-modal');
             updateModal.classList.remove('hidden');
@@ -4698,7 +4692,6 @@ function renderRecResults() {
                     <div class="rec-primary-actions">
                         ${primary.track_rating_keys?.length ? `
                             <button class="btn btn-primary rec-play-btn" data-rating-keys="${escapeHtml(primary.track_rating_keys.join(','))}">&#9654; Play Now</button>
-                            <button class="btn btn-secondary rec-save-btn" data-album="${escapeHtml(primary.album)}" data-artist="${escapeHtml(primary.artist)}" data-rating-keys="${escapeHtml(primary.track_rating_keys.join(','))}" data-pitch="${escapeHtml(pitch.full_text || '')}">Save to Playlist</button>
                         ` : ''}
                         ${state.rec.sessionId ? `
                             <button class="rec-action-link" id="rec-show-another">Show Me Another</button>
@@ -4730,7 +4723,6 @@ function renderRecResults() {
                             ${rec.track_rating_keys?.length ? `
                                 <div class="rec-secondary-actions">
                                     <button class="btn btn-secondary btn-sm rec-play-btn" data-rating-keys="${escapeHtml(rec.track_rating_keys.join(','))}">&#9654; Play</button>
-                                    <button class="btn btn-secondary btn-sm rec-save-btn" data-album="${escapeHtml(rec.album)}" data-artist="${escapeHtml(rec.artist)}" data-rating-keys="${escapeHtml(rec.track_rating_keys.join(','))}" data-pitch="${escapeHtml(rec.pitch?.full_text || '')}">Save</button>
                                 </div>
                             ` : ''}
                         </div>
@@ -5018,23 +5010,9 @@ function handleRecResultAction(e) {
 }
 
 async function handleRecSaveToPlaylist(album, artist, ratingKeys, pitch) {
-    try {
-        const response = await apiCall('/playlist', {
-            method: 'POST',
-            body: JSON.stringify({
-                name: `Recommended: ${album} - ${artist}`,
-                rating_keys: ratingKeys,
-                description: pitch,
-            }),
-        });
-        if (response.success) {
-            showSuccess(`Saved "${album}" to playlist`);
-        } else {
-            showError(response.error || 'Failed to save playlist');
-        }
-    } catch (e) {
-        showError(e.message);
-    }
+    // Roon does not support saving playlists via the Extension API.
+    // This recommendation is already saved automatically to local history.
+    showError('Roon does not support saving playlists via the Extension API. Use "Play Now" to queue tracks to a zone.');
 }
 
 // =============================================================================

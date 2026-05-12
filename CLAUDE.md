@@ -1,24 +1,17 @@
 # MediaSage Development Guidelines
 
-Auto-generated from feature plans. Last updated: 2026-02-04
+Last updated: 2026-05-12 (Roon conversion)
 
 ## Project Overview
 
-MediaSage is a self-hosted web application that generates Plex music playlists using LLMs with library awareness. It uses a filter-first approach to ensure 100% of suggested tracks are playable.
+MediaSage is a self-hosted web application that generates Roon music playlists using LLMs with library awareness. It uses a filter-first approach to ensure 100% of suggested tracks are playable. It connects to Roon as an Extension via the Python `roonapi` package and uses the Browse API (`browse_browse`/`browse_load`) for all library access.
 
 ## Active Technologies
-- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi, sqlite3 (stdlib), Pydantic (003-local-library-cache)
-- SQLite file at `data/library_cache.db` (003-local-library-cache)
-- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi, google-genai, anthropic, openai, pydantic, rapidfuzz (004-curator-narrative)
-- SQLite (library cache at `data/library_cache.db`) - no schema changes needed (004-curator-narrative)
-- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi (v4.18.0), Pydantic, httpx (005-instant-queue)
-- N/A (localStorage for frontend save mode persistence) (005-instant-queue)
-- Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi, httpx, Pydantic, anthropic/openai/google-genai SDKs (006-recommend-album)
-- SQLite file at `data/library_cache.db` (read-only for album aggregation from existing track cache) (006-recommend-album)
 
-- **Backend**: Python 3.11+, FastAPI, python-roonapi, anthropic SDK, openai SDK, pydantic, uvicorn, rapidfuzz, unidecode
+- **Backend**: Python 3.11+, FastAPI, python-roonapi, anthropic SDK, openai SDK, google-genai SDK, pydantic, uvicorn, rapidfuzz, unidecode, httpx
 - **Frontend**: Vanilla HTML/CSS/JS (no build step)
 - **Config**: YAML + environment variables
+- **Database**: SQLite at `data/library_cache.db` (library cache + results history)
 - **Deployment**: Docker
 
 ## Project Structure
@@ -27,15 +20,18 @@ MediaSage is a self-hosted web application that generates Plex music playlists u
 backend/
 ├── main.py              # FastAPI app, routes, static file serving
 ├── config.py            # Config loading (YAML + env vars)
-├── roon_client.py       # Plex connection, queries, playlist creation
-├── llm_client.py        # Claude/OpenAI abstraction
+├── roon_client.py       # Roon Core connection, library browsing via Browse API, zone/transport management
+├── llm_client.py        # Claude/OpenAI/Gemini/Ollama abstraction
 ├── analyzer.py          # Prompt analysis + seed track dimensions
 ├── generator.py         # Playlist generation
+├── library_cache.py     # SQLite cache for Roon library track metadata
+├── recommender.py       # Album recommendation pipeline
+├── music_research.py    # MusicBrainz/Wikipedia research client
 └── models.py            # Pydantic models
 
 frontend/
 ├── index.html           # Single page app
-├── style.css            # Dark theme (Plexamp aesthetic)
+├── style.css            # Dark theme
 └── app.js               # UI logic
 
 tests/
@@ -67,18 +63,20 @@ docker-compose up -d
 
 ## Constitution Principles
 
-1. **Library-First**: All playlist tracks MUST exist in user's library
+1. **Library-First**: All playlist tracks MUST exist in user's Roon library
 2. **Simplicity**: No build steps, no frameworks, single container
 3. **User Agency**: Users control filters and can remove/regenerate
 4. **Cost Transparency**: Display token counts and estimated costs
-5. **Plexamp Aesthetic**: Dark theme (#1a1a1a), amber accent (#e5a00d)
+5. **Dark Theme**: Dark UI (#1a1a1a background), amber accent (#e5a00d)
 
 ## Environment Variables
 
 ```bash
-PLEX_URL=http://your-plex-server:32400
-PLEX_TOKEN=your-plex-token
-LLM_PROVIDER=anthropic  # anthropic, openai, gemini, ollama, or custom
+ROON_HOST=192.168.1.x          # IP address of your Roon Core
+ROON_PORT=9100                  # Default Roon Extension port
+ROON_CORE_ID=                   # Roon Core unique ID (saved after first auth)
+ROON_TOKEN=                     # Roon Extension token (saved after authorization)
+LLM_PROVIDER=anthropic          # anthropic, openai, gemini, ollama, or custom
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 GEMINI_API_KEY=...
@@ -91,12 +89,25 @@ CUSTOM_CONTEXT_WINDOW=4096
 ## Key Design Decisions
 
 - **Filter-first**: Apply genre/decade filters before sending to LLM (handles 50k+ track libraries)
-- **No database**: Library data fetched from Plex on demand; config in YAML
+- **SQLite cache + Browse API**: Library data is synced once into SQLite via `library_cache.sync_library()`; all subsequent queries read from the local cache for instant response. The Roon Browse API is used for the initial sync and for playback.
 - **No auth**: Rely on network security (home LAN, VPN, reverse proxy)
-- **Album art proxy**: Backend proxies art to avoid exposing Plex token to browser
+- **Album art proxy**: Backend proxies art from Roon's image URL to avoid exposing the Roon token to the browser
 - **Two-model strategy**: Smart model for analysis, cheap model for generation
 - **Fuzzy track matching**: Use rapidfuzz (threshold ~60) to match LLM responses to library
 - **Live version filtering**: Exclude tracks with "live", "concert", dates in title/album
+- **Browse hierarchy**: All Roon library access follows: Root → Library → Albums → tracks per album
+
+## Roon API Limitations
+
+These are NOT bugs — they are Roon Extension API constraints:
+
+- **No user ratings**: `user_rating` is always `None` via Browse API. The min_rating filter in the UI does nothing.
+- **No play counts**: `view_count` is hardcoded to `0`. The "familiarity" feature classifies everything as "unplayed".
+- **No playlist creation**: Roon cannot save playlists via the Extension API. The frontend "Save to Playlist" concept is not available.
+- **No direct track queries**: All library access goes through Browse hierarchy (Root → Library → Albums → tracks per album).
+- **Metadata parsed from subtitle strings**: Genre, year, and artist are parsed from `"Artist • Year • Genre"` format using `•` separator. This is fragile.
+- **ARC zones invisible**: Roon ARC playback is not visible to the Extension API.
+- **Single-session Browse API**: Concurrent browse operations on the same hierarchy interfere. All browse sequences are serialized via `_browse_lock`.
 
 ## LLM Models
 
@@ -125,10 +136,6 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 - Uses openai SDK with custom `base_url`
 - Zero cost (local inference)
 
-<!-- MANUAL ADDITIONS START -->
-<!-- MANUAL ADDITIONS END -->
-
 ## Recent Changes
-- 006-recommend-album: Added Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi, httpx, Pydantic, anthropic/openai/google-genai SDKs
-- 005-instant-queue: Added Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi (v4.18.0), Pydantic, httpx
-- 004-curator-narrative: Added Python 3.11+ (backend), Vanilla JavaScript ES6+ (frontend) + FastAPI, python-roonapi, google-genai, anthropic, openai, pydantic, rapidfuzz
+
+- roon-support: Converted from Plex to Roon Labs Extension API. All library access via Browse API. SQLite cache for fast queries. Playlist creation not available (Roon API limitation).

@@ -1,7 +1,7 @@
 """Tests for the recommendation pipeline grounding improvements."""
 
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -152,7 +152,8 @@ class TestMusicResearchReviews:
         mock_http.get = AsyncMock(return_value=mock_response)
         client._http = mock_http
 
-        result = await client.fetch_review_text("https://example.com/review")
+        with patch("backend.music_research._is_safe_url", return_value=True):
+            result = await client.fetch_review_text("https://example.com/review")
 
         assert result is not None
         assert "detailed review" in result
@@ -199,7 +200,8 @@ class TestMusicResearchReviews:
         mock_http.get = AsyncMock(return_value=mock_response)
         client._http = mock_http
 
-        result = await client.fetch_review_text("https://example.com/review")
+        with patch("backend.music_research._is_safe_url", return_value=True):
+            result = await client.fetch_review_text("https://example.com/review")
 
         assert result is not None
         assert len(result) <= 2100  # Allow small margin for sentence boundary
