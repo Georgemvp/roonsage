@@ -7,7 +7,7 @@ from datetime import datetime
 
 from backend.llm_client import get_llm_client
 from backend.models import GenerateResponse, Track
-from backend.roon_client import RoonQueryError as PlexQueryError, get_roon_client
+from backend.roon_client import RoonQueryError, get_roon_client
 from backend import library_cache
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ def _cached_track_to_model(cached: dict) -> Track:
     )
 
 
-def _get_tracks_from_cache_or_plex(
+def _get_tracks_from_cache_or_roon(
     roon_client,
     genres: list[str] | None,
     decades: list[str] | None,
@@ -108,7 +108,7 @@ def _get_tracks_from_cache_or_plex(
     min_rating: int,
     max_tracks_to_ai: int,
 ) -> list[Track]:
-    """Get tracks from cache if available, otherwise from Plex.
+    """Get tracks from cache if available, otherwise from Roon.
 
     Returns:
         List of Track objects
@@ -128,8 +128,8 @@ def _get_tracks_from_cache_or_plex(
         )
         return [_cached_track_to_model(t) for t in cached_tracks]
 
-    # Fall back to Plex
-    logger.info("Cache empty, fetching from Plex")
+    # Fall back to Roon
+    logger.info("Cache empty, fetching from Roon")
     if not has_filters:
         return roon_client.get_random_tracks(
             count=effective_limit,
@@ -174,12 +174,12 @@ def generate_playlist_stream(
             yield emit("error", {"message": "LLM client not initialized"})
             return
         if not roon_client:
-            yield emit("error", {"message": "Plex client not initialized"})
+            yield emit("error", {"message": "Roon client not initialized"})
             return
 
         has_filters = genres or decades or min_rating > 0
 
-        # Step 1: Fetch tracks from cache or Plex
+        # Step 1: Fetch tracks from cache or Roon
         using_cache = library_cache.has_cached_tracks()
         if using_cache:
             yield emit("progress", {"step": "fetching", "message": "Loading tracks from cache..."})
@@ -191,7 +191,7 @@ def generate_playlist_stream(
         logger.info("Fetching tracks: genres=%s, decades=%s, min_rating=%s, using_cache=%s",
                     genres, decades, min_rating, using_cache)
         try:
-            filtered_tracks = _get_tracks_from_cache_or_plex(
+            filtered_tracks = _get_tracks_from_cache_or_roon(
                 roon_client=roon_client,
                 genres=genres,
                 decades=decades,
@@ -199,8 +199,8 @@ def generate_playlist_stream(
                 min_rating=min_rating,
                 max_tracks_to_ai=max_tracks_to_ai,
             )
-        except PlexQueryError as e:
-            yield emit("error", {"message": f"Plex server error: {e}"})
+        except RoonQueryError as e:
+            yield emit("error", {"message": f"Roon server error: {e}"})
             return
 
         logger.info("Got %d tracks", len(filtered_tracks))

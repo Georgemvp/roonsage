@@ -241,7 +241,7 @@ class RoonClient:
         return self._needs_authorization
 
     def get_core_id(self) -> str | None:
-        """Return the connected Roon Core's ID (equivalent of Plex machineIdentifier)."""
+        """Return the connected Roon Core's unique identifier."""
         if not self._api:
             return None
         return getattr(self._api, "core_id", None) or self.core_id or None
@@ -325,6 +325,7 @@ class RoonClient:
                             # It's a track (action = playable)
                             t["_album_title"] = album.get("title", "")
                             t["_album_subtitle"] = album.get("subtitle", "")
+                            t["_album_item_key"] = album.get("item_key", "")
                             all_tracks.append(t)
                 except Exception as e:
                     logger.debug("Failed to load tracks for album %s: %s", album.get("title"), e)
@@ -470,15 +471,20 @@ class RoonClient:
     def play_tracks(
         self, zone_id: str, item_keys: list[str], mode: str = "replace"
     ) -> dict[str, Any]:
-        """Queue and play tracks on a Roon zone.
+        """Queue and play tracks on a Roon zone via the Browse API.
+
+        The roonapi playback_control() method only accepts transport commands
+        (play/pause/stop/next/previous) and does not support item_key.  To
+        play a specific track we must navigate to it through browse_browse /
+        browse_load and execute the appropriate action item.
 
         Args:
             zone_id: Roon zone ID
-            item_keys: List of Roon item_keys
-            mode: 'replace' (play now) or 'play_next' (add after current)
+            item_keys: List of Roon item_keys for tracks to play
+            mode: 'replace' (play now, clears queue) or 'play_next' (add after current)
 
         Returns:
-            dict with success, tracks_queued, error
+            dict with success, tracks_queued, tracks_skipped, error
         """
         if not self.is_connected():
             return {"success": False, "error": "Not connected to Roon"}
@@ -486,17 +492,69 @@ class RoonClient:
         if not item_keys:
             return {"success": False, "error": "No tracks provided"}
 
-        try:
-            action = "play_now" if mode == "replace" else "add_next"
-            tracks_queued = 0
-            tracks_skipped = 0
+        # Action label keywords to match in browse result items.
+        # First track: start fresh ("Play Now" / "Play").
+        # Subsequent tracks: append ("Queue" / "Add to Queue" / "Add Next").
+        PLAY_NOW_KEYWORDS = {"play now", "play"}
+        QUEUE_KEYWORDS = {"queue", "add to queue", "add next"}
 
-            for key in item_keys:
+        tracks_queued = 0
+        tracks_skipped = 0
+
+        try:
+            for idx, key in enumerate(item_keys):
                 try:
-                    self._api.playback_control(zone_id, action, item_key=key)
+                    # Navigate to the track via Browse API
+                    self._api.browse_browse({
+                        "hierarchy": "browse",
+                        "item_key": key,
+                        "zone_or_output_id": zone_id,
+                    })
+                    result = self._api.browse_load({
+                        "hierarchy": "browse",
+                        "count": 20,
+                        "zone_or_output_id": zone_id,
+                    })
+
+                    items = result.get("items", []) if result else []
+
+                    # Decide which action label to look for
+                    if idx == 0 and mode == "replace":
+                        target_keywords = PLAY_NOW_KEYWORDS
+                        fallback_keywords = QUEUE_KEYWORDS
+                    else:
+                        target_keywords = QUEUE_KEYWORDS
+                        fallback_keywords = PLAY_NOW_KEYWORDS
+
+                    # Find the matching action item
+                    action_item = None
+                    fallback_item = None
+                    for item in items:
+                        title_lower = item.get("title", "").lower().strip()
+                        if title_lower in target_keywords:
+                            action_item = item
+                            break
+                        if title_lower in fallback_keywords and fallback_item is None:
+                            fallback_item = item
+
+                    chosen = action_item or fallback_item
+                    if not chosen or not chosen.get("item_key"):
+                        logger.warning(
+                            "No playable action found for track key %s (items: %s)",
+                            key,
+                            [i.get("title") for i in items],
+                        )
+                        tracks_skipped += 1
+                        continue
+
+                    # Execute the action
+                    self._api.browse_browse({
+                        "hierarchy": "browse",
+                        "item_key": chosen["item_key"],
+                        "zone_or_output_id": zone_id,
+                    })
                     tracks_queued += 1
-                    # After first track, switch to queue for subsequent tracks
-                    action = "queue"
+
                 except Exception as e:
                     logger.warning("Failed to queue track %s: %s", key, e)
                     tracks_skipped += 1
@@ -576,31 +634,6 @@ class RoonClient:
             art_url=art_url,
         )
 
-
-# ---------------------------------------------------------------------------
-# Global singleton
-# ---------------------------------------------------------------------------
-
-_roon_client: RoonClient | None = None
-
-
-def get_roon_client() -> RoonClient | None:
-    """Get the current Roon client instance."""
-    return _roon_client
-
-
-def init_roon_client(
-    host: str,
-    port: int = 9100,
-    core_id: str = "",
-    token: str = "",
-) -> RoonClient:
-    """Initialize or reinitialize the Roon client."""
-    global _roon_client
-    _roon_client = RoonClient(host=host, port=port, core_id=core_id, token=token)
-    return _roon_client
-
-
     def get_random_tracks(
         self,
         count: int,
@@ -674,3 +707,27 @@ def init_roon_client(
         tracks = self.get_tracks_by_filters(genres=genres, decades=decades,
                                              exclude_live=exclude_live, min_rating=min_rating)
         return len(tracks)
+
+
+# ---------------------------------------------------------------------------
+# Global singleton
+# ---------------------------------------------------------------------------
+
+_roon_client: RoonClient | None = None
+
+
+def get_roon_client() -> RoonClient | None:
+    """Get the current Roon client instance."""
+    return _roon_client
+
+
+def init_roon_client(
+    host: str,
+    port: int = 9100,
+    core_id: str = "",
+    token: str = "",
+) -> RoonClient:
+    """Initialize or reinitialize the Roon client."""
+    global _roon_client
+    _roon_client = RoonClient(host=host, port=port, core_id=core_id, token=token)
+    return _roon_client

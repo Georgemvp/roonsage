@@ -49,7 +49,7 @@ class TestPlaylistGeneration:
             ]
             mock_llm.return_value = mock_client
 
-            with patch("backend.generator.get_plex_client") as mock_plex:
+            with patch("backend.generator.get_roon_client") as mock_plex:
                 mock_plex_client = MagicMock()
                 mock_plex_client.get_tracks_by_filters.return_value = mock_plex_tracks[:5]
                 mock_plex.return_value = mock_plex_client
@@ -81,7 +81,7 @@ class TestPlaylistGeneration:
         with patch("backend.generator.get_llm_client") as mock_llm:
             mock_llm.return_value = MagicMock()
 
-            with patch("backend.generator.get_plex_client") as mock_plex:
+            with patch("backend.generator.get_roon_client") as mock_plex:
                 mock_plex_client = MagicMock()
                 mock_plex_client.get_tracks_by_filters.return_value = []
                 mock_plex.return_value = mock_plex_client
@@ -126,7 +126,7 @@ class TestPlaylistGeneration:
             ]
             mock_llm.return_value = mock_client
 
-            with patch("backend.generator.get_plex_client") as mock_plex:
+            with patch("backend.generator.get_roon_client") as mock_plex:
                 mock_plex_client = MagicMock()
                 mock_plex_client.get_tracks_by_filters.return_value = mock_plex_tracks[:5]
                 mock_plex.return_value = mock_plex_client
@@ -151,7 +151,7 @@ class TestTrackMatching:
 
     def test_simplify_string_removes_punctuation(self):
         """Should remove punctuation from strings."""
-        from backend.plex_client import simplify_string
+        from backend.roon_client import simplify_string
 
         assert simplify_string("Don't Stop") == "dont stop"
         assert simplify_string("Rock & Roll") == "rock  roll"
@@ -159,14 +159,14 @@ class TestTrackMatching:
 
     def test_simplify_string_normalizes_unicode(self):
         """Should normalize unicode characters."""
-        from backend.plex_client import simplify_string
+        from backend.roon_client import simplify_string
 
         assert simplify_string("Café") == "cafe"
         assert simplify_string("Motörhead") == "motorhead"
 
     def test_normalize_artist_handles_and_variations(self):
         """Should handle 'and' vs '&' variations."""
-        from backend.plex_client import normalize_artist
+        from backend.roon_client import normalize_artist
 
         variations = normalize_artist("Simon & Garfunkel")
         assert "Simon & Garfunkel" in variations
@@ -370,19 +370,20 @@ class TestNarrativeGeneration:
 
 
 class TestLiveVersionFiltering:
-    """Tests for live version detection."""
+    """Tests for live version detection.
+
+    is_live_version reads track.album as a plain string attribute (Roon style),
+    not as a method returning an object (legacy Plex style).
+    """
 
     def test_is_live_version_detects_live_keyword(self):
         """Should detect 'live' in track or album title."""
-        from backend.plex_client import is_live_version
+        from backend.roon_client import is_live_version
 
         class MockTrack:
             def __init__(self, title, album_title):
                 self.title = title
-                self._album_title = album_title
-
-            def album(self):
-                return MagicMock(title=self._album_title)
+                self.album = album_title  # string attribute, as in Roon client
 
         assert is_live_version(MockTrack("Song - Live", "Album")) is True
         assert is_live_version(MockTrack("Song", "Live at Madison Square Garden")) is True
@@ -390,29 +391,23 @@ class TestLiveVersionFiltering:
 
     def test_is_live_version_detects_concert_keyword(self):
         """Should detect 'concert' in track or album title."""
-        from backend.plex_client import is_live_version
+        from backend.roon_client import is_live_version
 
         class MockTrack:
             def __init__(self, title, album_title):
                 self.title = title
-                self._album_title = album_title
-
-            def album(self):
-                return MagicMock(title=self._album_title)
+                self.album = album_title
 
         assert is_live_version(MockTrack("Song", "Concert Recording")) is True
 
     def test_is_live_version_detects_date_patterns(self):
         """Should detect date patterns in album titles."""
-        from backend.plex_client import is_live_version
+        from backend.roon_client import is_live_version
 
         class MockTrack:
             def __init__(self, title, album_title):
                 self.title = title
-                self._album_title = album_title
-
-            def album(self):
-                return MagicMock(title=self._album_title)
+                self.album = album_title
 
         assert is_live_version(MockTrack("Song", "2023-05-15 Show")) is True
         assert is_live_version(MockTrack("Song", "1999/12/31 New Years")) is True

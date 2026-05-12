@@ -1,6 +1,6 @@
-"""Local SQLite cache for Plex library track metadata.
+"""Local SQLite cache for Roon library track metadata.
 
-This module provides fast local access to track data by caching Plex library
+This module provides fast local access to track data by caching Roon library
 metadata in a SQLite database. It eliminates the 2+ minute cold start time
 for large libraries by syncing once and loading from cache thereafter.
 """
@@ -89,7 +89,7 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         False if schema was already up-to-date or freshly created.
     """
     conn.executescript("""
-        -- Tracks table: cached Plex track metadata
+        -- Tracks table: cached Roon track metadata
         CREATE TABLE IF NOT EXISTS tracks (
             rating_key TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -387,10 +387,10 @@ def is_cache_stale(max_age_hours: int = 24) -> bool:
 
 
 def check_server_changed(current_server_id: str) -> bool:
-    """Check if Plex server has changed since last sync.
+    """Check if Roon Core has changed since last sync.
 
     Args:
-        current_server_id: Current Plex server's machineIdentifier
+        current_server_id: Current Roon Core's identifier
 
     Returns:
         True if server changed (cache should be cleared)
@@ -807,7 +807,7 @@ def get_cached_genre_decade_stats() -> dict[str, list[dict[str, Any]]]:
     """Get genre and decade stats from the local cache.
 
     Returns genre/decade lists derived from cached tracks, avoiding a
-    round-trip to the Plex server.
+    round-trip to the Roon Core.
 
     Returns:
         Dict with 'genres' and 'decades' lists, each containing

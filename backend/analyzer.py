@@ -71,7 +71,7 @@ def analyze_prompt(prompt: str) -> AnalyzePromptResponse:
     if not llm_client:
         raise RuntimeError("LLM client not initialized")
     if not roon_client:
-        raise RuntimeError("Plex client not initialized")
+        raise RuntimeError("Roon client not initialized")
 
     # Get library stats for available filters
     stats = roon_client.get_library_stats()

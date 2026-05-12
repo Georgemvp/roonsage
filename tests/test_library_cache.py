@@ -412,34 +412,40 @@ class TestSyncLibrary:
 
     @pytest.fixture
     def mock_track(self):
-        """Create a mock Plex track object."""
-        class MockTrack:
-            def __init__(self, rating_key, title, artist, album, duration, parent_key):
-                self.ratingKey = rating_key
-                self.title = title
-                self.grandparentTitle = artist
-                self.parentTitle = album
-                self.duration = duration
-                self.parentRatingKey = parent_key
-                self.userRating = None
-        return MockTrack
+        """Create a mock Roon track dict (Browse API format).
+
+        The sync_library function expects dicts with Roon browse-item keys:
+        item_key, title, subtitle ("Artist • Album"), _album_item_key, duration.
+        """
+        def _make(rating_key, title, artist, album, duration, album_item_key):
+            return {
+                "item_key": rating_key,
+                "title": title,
+                "subtitle": f"{artist} • {album}",
+                "_album_title": album,
+                "_album_subtitle": artist,
+                "_album_item_key": album_item_key,
+                "hint": "action",
+            }
+        return _make
 
     @pytest.fixture
     def mock_plex_client(self, mock_track):
         """Create a mock Plex client."""
         class MockPlexClient:
             def __init__(self):
-                self.tracks = [
-                    mock_track("1", "Song One", "Artist A", "Album X", 180000, "100"),
-                    mock_track("2", "Song Two", "Artist B", "Album Y", 200000, "101"),
-                    mock_track("3", "Song Three", "Artist A", "Album X", 220000, "100"),
-                ]
+                # Roon album metadata is keyed by album item_key strings
                 self.album_metadata = {
-                    "100": {"genres": ["Rock", "Alternative"], "year": 1995},
-                    "101": {"genres": ["Electronic"], "year": 2020},
+                    "album-key-100": {"genres": ["Rock", "Alternative"], "year": 1995, "title": "Album X"},
+                    "album-key-101": {"genres": ["Electronic"], "year": 2020, "title": "Album Y"},
                 }
+                self.tracks = [
+                    mock_track("1", "Song One", "Artist A", "Album X", 180000, "album-key-100"),
+                    mock_track("2", "Song Two", "Artist B", "Album Y", 200000, "album-key-101"),
+                    mock_track("3", "Song Three", "Artist A", "Album X", 220000, "album-key-100"),
+                ]
 
-            def get_machine_identifier(self):
+            def get_core_id(self):
                 return "test-server-123"
 
             def get_all_albums_metadata(self):
@@ -541,13 +547,13 @@ class TestSyncLibrary:
     def test_sync_handles_missing_server_id(self, initialized_db, reset_sync_state):
         """Sync fails gracefully if server ID is unavailable."""
         class BadPlexClient:
-            def get_machine_identifier(self):
+            def get_core_id(self):
                 return None
 
         result = library_cache.sync_library(BadPlexClient())
 
         assert result["success"] is False
-        assert "server identifier" in result["error"].lower()
+        assert "identifier" in result["error"].lower()
 
     def test_sync_clears_error_on_success(self, initialized_db, mock_plex_client, monkeypatch):
         """Successful sync clears any previous error state."""
@@ -585,14 +591,14 @@ class TestSyncLibrary:
 
         # Create mock client that returns different tracks
         class MockPlexClient:
-            def get_machine_identifier(self):
+            def get_core_id(self):
                 return "test-server-123"
 
             def get_all_albums_metadata(self):
-                return {"100": {"genres": ["Electronic"], "year": 2024}}
+                return {"album-key-100": {"genres": ["Electronic"], "year": 2024, "title": "New Album"}}
 
             def get_all_raw_tracks(self):
-                return [mock_track("new-1", "New Song", "New Artist", "New Album", 200000, "100")]
+                return [mock_track("new-1", "New Song", "New Artist", "New Album", 200000, "album-key-100")]
 
         # Run sync
         result = library_cache.sync_library(MockPlexClient())
@@ -610,14 +616,14 @@ class TestSyncLibrary:
         """Failed sync resets track_count so has_cached_tracks() returns False."""
         # First, do a successful sync to populate cache
         class SuccessfulClient:
-            def get_machine_identifier(self):
+            def get_core_id(self):
                 return "test-server-123"
 
             def get_all_albums_metadata(self):
-                return {"100": {"genres": ["Rock"], "year": 2020}}
+                return {"album-key-100": {"genres": ["Rock"], "year": 2020, "title": "Album"}}
 
             def get_all_raw_tracks(self):
-                return [mock_track("1", "Song", "Artist", "Album", 180000, "100")]
+                return [mock_track("1", "Song", "Artist", "Album", 180000, "album-key-100")]
 
         result = library_cache.sync_library(SuccessfulClient())
         assert result["success"] is True
@@ -628,7 +634,7 @@ class TestSyncLibrary:
 
         # Now attempt a sync that fails during Plex API call
         class FailingClient:
-            def get_machine_identifier(self):
+            def get_core_id(self):
                 return "test-server-123"
 
             def get_all_albums_metadata(self):

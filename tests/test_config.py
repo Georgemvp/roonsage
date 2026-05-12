@@ -91,16 +91,15 @@ class TestLoadConfig:
     def test_loads_from_yaml_file(self, tmp_path, monkeypatch):
         """Should load configuration from YAML file."""
         # Clear any existing env vars
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
             monkeypatch.delenv(var, raising=False)
 
         config_file = tmp_path / "config.yaml"
         config_data = {
-            "plex": {
-                "url": "http://plex.local:32400",
+            "roon": {
+                "host": "192.168.1.100",
                 "token": "yaml-token",
-                "music_library": "My Music",
             },
             "llm": {
                 "provider": "anthropic",
@@ -114,9 +113,8 @@ class TestLoadConfig:
         with patch("backend.config.load_user_yaml_config", return_value={}):
             config = load_config(config_file)
 
-        assert config.plex.url == "http://plex.local:32400"
-        assert config.plex.token == "yaml-token"
-        assert config.plex.music_library == "My Music"
+        assert config.roon.host == "192.168.1.100"
+        assert config.roon.token == "yaml-token"
         assert config.llm.provider == "anthropic"
         assert config.llm.api_key == "sk-yaml-key"
         assert config.defaults.track_count == 40
@@ -124,32 +122,32 @@ class TestLoadConfig:
     def test_env_vars_override_yaml(self, tmp_path, monkeypatch):
         """Environment variables should override YAML values."""
         # Clear any conflicting env vars first
-        for var in ["GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_PROVIDER",
-                    "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
+        for var in ["ROON_HOST", "ROON_TOKEN", "GEMINI_API_KEY", "OPENAI_API_KEY",
+                    "LLM_PROVIDER", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
             monkeypatch.delenv(var, raising=False)
 
         config_file = tmp_path / "config.yaml"
         config_data = {
-            "plex": {"url": "http://yaml:32400", "token": "yaml-token"},
+            "roon": {"host": "192.168.1.1", "token": "yaml-token"},
             "llm": {"provider": "anthropic", "api_key": "yaml-key"},
         }
         config_file.write_text(yaml.dump(config_data))
 
-        monkeypatch.setenv("PLEX_URL", "http://env:32400")
-        monkeypatch.setenv("PLEX_TOKEN", "env-token")
+        monkeypatch.setenv("ROON_HOST", "192.168.1.50")
+        monkeypatch.setenv("ROON_TOKEN", "env-token")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
 
         # Patch load_user_yaml_config to return empty dict (ignore config.user.yaml)
         with patch("backend.config.load_user_yaml_config", return_value={}):
             config = load_config(config_file)
 
-        assert config.plex.url == "http://env:32400"
-        assert config.plex.token == "env-token"
+        assert config.roon.host == "192.168.1.50"
+        assert config.roon.token == "env-token"
         assert config.llm.api_key == "env-key"
 
     def test_uses_correct_api_key_for_provider(self, tmp_path, monkeypatch):
         """Should use ANTHROPIC_API_KEY or OPENAI_API_KEY based on provider."""
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
             monkeypatch.delenv(var, raising=False)
 
@@ -232,7 +230,7 @@ class TestLoadConfig:
 
     def test_defaults_applied_when_no_config(self, tmp_path, monkeypatch):
         """Should use defaults when config file doesn't exist."""
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
             monkeypatch.delenv(var, raising=False)
 
@@ -242,7 +240,7 @@ class TestLoadConfig:
         with patch("backend.config.load_user_yaml_config", return_value={}):
             config = load_config(config_file)
 
-        assert config.plex.music_library == "Music"
+        assert config.roon.host == ""  # Default is empty until user configures Roon
         assert config.llm.provider == "gemini"
         assert config.defaults.track_count == 25
 
@@ -250,12 +248,12 @@ class TestLoadConfig:
         """Secrets should not be exposed when printing config."""
         config_file = tmp_path / "config.yaml"
         config_data = {
-            "plex": {"url": "http://test:32400", "token": "secret-token"},
+            "roon": {"host": "192.168.1.100", "token": "secret-token"},
             "llm": {"provider": "anthropic", "api_key": "secret-api-key"},
         }
         config_file.write_text(yaml.dump(config_data))
 
-        for var in ["PLEX_URL", "PLEX_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        for var in ["ROON_HOST", "ROON_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                     "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL_ANALYSIS", "LLM_MODEL_GENERATION"]:
             monkeypatch.delenv(var, raising=False)
 
@@ -265,7 +263,7 @@ class TestLoadConfig:
 
         # The token and api_key are stored, but we verify they exist
         # (actual masking would be in a different layer if needed)
-        assert config.plex.token == "secret-token"
+        assert config.roon.token == "secret-token"
         assert config.llm.api_key == "secret-api-key"
 
 
