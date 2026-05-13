@@ -13,7 +13,7 @@ services:
     environment:
       # Required: Roon Core settings
       - ROON_HOST=10.94.184.22
-      - ROON_PORT=9150
+      - ROON_PORT=9330
       # Optional: auto-filled after first authorization in Roon → Extensions
       - ROON_TOKEN=${ROON_TOKEN:-}
       - ROON_CORE_ID=${ROON_CORE_ID:-}
