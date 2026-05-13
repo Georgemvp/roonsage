@@ -177,6 +177,9 @@ class RoonClient:
         # same hierarchy corrupt each other's state. Serialize all browse sequences.
         self._browse_lock = threading.Lock()
         self._needs_authorization = False
+        # True while a _connect() call is in progress (in any thread).
+        # Checked by is_connected() to avoid launching a second concurrent attempt.
+        self._connecting = False
 
         if extension_info:
             self.EXTENSION_INFO = extension_info
@@ -187,8 +190,10 @@ class RoonClient:
 
     def _connect(self) -> None:
         """Attempt to connect to Roon Core."""
+        self._connecting = True
         if not self.host:
             self._error = "Roon host is required"
+            self._connecting = False
             return
 
         try:
@@ -224,22 +229,41 @@ class RoonClient:
         except Exception as e:
             self._error = f"Roon connection error: {e}"
             self._api = None
+        finally:
+            self._connecting = False
 
     def is_connected(self) -> bool:
-        """Return True if connected and authorized."""
+        """Return True if connected and authorized.
+
+        Never blocks the caller: if a connection attempt is already in progress
+        (_connecting is True), or if the reconnect cooldown has not elapsed yet,
+        this method returns False immediately without starting a new attempt.
+        When a reconnect *is* needed it is launched in a daemon thread so it
+        cannot freeze the asyncio event loop.
+        """
         if self._api is not None and not self._needs_authorization:
             return True
 
+        # If a _connect() call is already running in another thread, don't pile
+        # on — just report not-yet-connected.
+        if self._connecting:
+            return False
+
         now = time.time()
         with self._reconnect_lock:
+            # Re-check inside the lock in case another thread just connected.
             if self._api is not None and not self._needs_authorization:
                 return True
+            # Also re-check _connecting — another thread may have started.
+            if self._connecting:
+                return False
             if now - self._last_reconnect_attempt >= self.RECONNECT_COOLDOWN:
                 self._last_reconnect_attempt = now
                 logger.info("Attempting to reconnect to Roon Core…")
-                self._connect()
+                t = threading.Thread(target=self._connect, daemon=True)
+                t.start()
 
-        return self._api is not None and not self._needs_authorization
+        return False
 
     def needs_authorization(self) -> bool:
         """Return True if the extension needs to be authorized in Roon."""
