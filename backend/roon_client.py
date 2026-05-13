@@ -723,38 +723,42 @@ class RoonClient:
         Must be called while holding self._browse_lock.
         """
         try:
+            # Collect genre names first
             self._api.browse_browse({"hierarchy": "genres", "pop_all": True})
             genre_items = self._paginate_browse_load("genres")
-            logger.info("Found %d top-level genres in Roon", len(genre_items))
+            genre_names = [g.get("title", "") for g in genre_items if g.get("title")]
+            logger.info("Found %d top-level genres in Roon", len(genre_names))
 
             mapping: dict[str, list[str]] = {}
 
-            for idx, genre in enumerate(genre_items):
-                genre_name = genre.get("title", "")
-                genre_key = genre.get("item_key")
-                if not genre_key or not genre_name:
-                    continue
-
+            for idx, genre_name in enumerate(genre_names):
                 try:
+                    # Reset to root and re-load genre list for fresh item_keys
+                    self._api.browse_browse({"hierarchy": "genres", "pop_all": True})
+                    fresh_genres = self._paginate_browse_load("genres")
+
+                    # Find this genre by name with a fresh item_key
+                    genre_item = next(
+                        (g for g in fresh_genres if g.get("title") == genre_name),
+                        None,
+                    )
+                    if not genre_item or not genre_item.get("item_key"):
+                        continue
+
                     # Browse into genre
-                    self._api.browse_browse({"hierarchy": "genres", "item_key": genre_key})
+                    self._api.browse_browse({"hierarchy": "genres", "item_key": genre_item["item_key"]})
                     genre_contents = self._paginate_browse_load("genres")
 
                     # Find the "Albums" entry
                     albums_item = next(
-                        (
-                            i for i in genre_contents
-                            if (i.get("title") or "").lower() == "albums"
-                            and i.get("hint") == "list"
-                        ),
+                        (i for i in genre_contents
+                         if (i.get("title") or "").lower() == "albums"
+                         and i.get("hint") == "list"),
                         None,
                     )
 
                     if albums_item and albums_item.get("item_key"):
-                        # Browse into Albums to get the actual album list
-                        self._api.browse_browse(
-                            {"hierarchy": "genres", "item_key": albums_item["item_key"]}
-                        )
+                        self._api.browse_browse({"hierarchy": "genres", "item_key": albums_item["item_key"]})
                         albums = self._paginate_browse_load("genres")
 
                         for album in albums:
@@ -766,26 +770,17 @@ class RoonClient:
 
                         logger.info(
                             "Processed genre '%s' (%d/%d) — %d albums found",
-                            genre_name, idx + 1, len(genre_items), len(albums),
+                            genre_name, idx + 1, len(genre_names), len(albums),
                         )
                     else:
                         logger.info(
-                            "Processed genre '%s' (%d/%d) — no Albums entry found. Contents (%d items): %s",
-                            genre_name, idx + 1, len(genre_items),
-                            len(genre_contents),
-                            [(i.get("title"), i.get("hint"), (i.get("subtitle") or "")[:50]) for i in genre_contents[:10]],
+                            "Processed genre '%s' (%d/%d) — no Albums entry found. Contents: %s",
+                            genre_name, idx + 1, len(genre_names),
+                            [(i.get("title"), i.get("hint")) for i in genre_contents[:5]],
                         )
-
-                    # IMPORTANT: pop back to genre list level for next iteration
-                    self._api.browse_browse({"hierarchy": "genres", "pop_all": True})
 
                 except Exception as exc:
                     logger.warning("Failed to process genre '%s': %s", genre_name, exc)
-                    # Reset to root on error so subsequent genres still work
-                    try:
-                        self._api.browse_browse({"hierarchy": "genres", "pop_all": True})
-                    except Exception:
-                        pass
 
             logger.info(
                 "Genre mapping complete: %d unique albums mapped to genres", len(mapping)
