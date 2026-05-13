@@ -692,16 +692,14 @@ async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewRespons
 
     # Fall back to Roon if cache is empty
     if matching_tracks < 0:
-        # If a library sync is already running it holds _browse_lock, so the
-        # Roon fallback would block for several minutes.  Return 0 immediately
-        # instead — the UI will update once the sync completes.
-        sync_state = library_cache.get_sync_state()
-        if sync_state.get("is_syncing"):
+        # If sync is in progress, don't block on Roon fallback —
+        # _browse_lock is held by the sync and this would deadlock.
+        sync_progress = library_cache.get_sync_progress()
+        if sync_progress["is_syncing"]:
             matching_tracks = 0
+        elif not roon_client or not roon_client.is_connected():
+            raise HTTPException(status_code=503, detail="Roon not connected")
         else:
-            if not roon_client or not roon_client.is_connected():
-                raise HTTPException(status_code=503, detail="Roon not connected")
-
             matching_tracks = await asyncio.to_thread(
                 roon_client.count_tracks_by_filters,
                 genres=genres,
