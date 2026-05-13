@@ -654,12 +654,14 @@ def count_tracks_by_filters(
     Returns:
         Count of matching tracks, or -1 if cache is empty
     """
-    state = get_sync_state()
-    if state["track_count"] == 0:
-        return -1  # Cache empty, signal to use Roon
-
+    # Check actual tracks table rather than sync_state.track_count so that
+    # partial syncs (mid-run batch commits) and interrupted syncs report
+    # the real row count instead of always returning -1.
     conn = ensure_db_initialized()
     try:
+        has_rows = conn.execute("SELECT EXISTS(SELECT 1 FROM tracks LIMIT 1)").fetchone()[0]
+        if not has_rows:
+            return -1  # Cache truly empty, signal to use Roon
         conditions = []
         params: list[Any] = []
 
@@ -712,11 +714,18 @@ def count_tracks_by_filters(
 def has_cached_tracks() -> bool:
     """Check if cache has any tracks.
 
+    Queries the actual tracks table rather than sync_state.track_count so that
+    partial syncs (mid-run batch commits) and interrupted syncs (container
+    restart after batches were committed) both return True correctly.
+
     Returns:
         True if cache is populated
     """
-    state = get_sync_state()
-    return state["track_count"] > 0
+    conn = ensure_db_initialized()
+    try:
+        return conn.execute("SELECT EXISTS(SELECT 1 FROM tracks LIMIT 1)").fetchone()[0] == 1
+    finally:
+        conn.close()
 
 
 def needs_resync() -> bool:
