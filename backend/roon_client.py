@@ -295,12 +295,13 @@ class RoonClient:
     # ------------------------------------------------------------------
 
     def get_library_total_tracks(self) -> int:
-        """Return total track count.
+        """Return total track count from the SQLite cache.
 
-        Uses the SQLite cache as a fast path when available. Falls back to
-        fetching all tracks from Roon (expensive) only when the cache is empty.
+        Returns 0 when the cache is empty — the library sync process
+        (library_cache.sync_library) is responsible for populating the cache.
+        The expensive full-Roon scan must never happen here, as it blocks page
+        load for large libraries (10k+ albums).
         """
-        # Fast path: use the local SQLite cache to avoid a full Roon round-trip
         try:
             from backend import library_cache
             if library_cache.has_cached_tracks():
@@ -308,17 +309,11 @@ class RoonClient:
                 if count >= 0:
                     return count
         except Exception as e:
-            logger.debug("Cache fast-path failed, falling back to Roon: %s", e)
+            logger.debug("Cache track count failed: %s", e)
 
-        # Slow path: fetch all tracks from Roon
-        if not self.is_connected():
-            return 0
-        try:
-            tracks = self.get_all_raw_tracks()
-            return len(tracks)
-        except Exception as e:
-            logger.warning("Failed to get total tracks: %s", e)
-            return 0
+        # Cache is empty or unavailable — return 0 so the caller can trigger
+        # a sync via checkLibraryStatus() without blocking initialization.
+        return 0
 
     def _paginate_browse_load(
         self,

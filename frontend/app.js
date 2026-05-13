@@ -3218,13 +3218,13 @@ async function loadSettings() {
         updateFooter();
         updateConfigRequiredUI();
 
-        // Show library stats if connected
+        // Show library stats if connected — fire-and-forget so it never
+        // blocks the loading spinner from being removed.
         if (state.config.roon_connected) {
             const statsSection = document.getElementById('library-stats-section');
             statsSection.style.display = 'block';
 
-            try {
-                const stats = await fetchLibraryStats();
+            fetchLibraryStats().then(stats => {
                 // Cache genre/decade data so other views don't need a separate fetch
                 state.availableGenres = stats.genres;
                 state.availableDecades = stats.decades;
@@ -3233,9 +3233,10 @@ async function loadSettings() {
                     <p><strong>Genres:</strong> ${stats.genres.length}</p>
                     <p><strong>Decades:</strong> ${stats.decades.map(d => d.name).join(', ')}</p>
                 `;
-            } catch {
-                // Ignore library stats errors
-            }
+            }).catch(() => {
+                // Ignore library stats errors — sync modal handles the
+                // empty-cache case via checkLibraryStatus()
+            });
         }
     } catch (error) {
         showError('Failed to load settings: ' + error.message);
