@@ -189,7 +189,7 @@ def load_config(config_path: Path | None = None) -> AppConfig:
     provider_defaults = MODEL_DEFAULTS.get(provider, MODEL_DEFAULTS["gemini"])
 
     # Build configuration
-    roon_port_str = get_env_or_yaml("ROON_PORT", roon_yaml.get("port"), 9100)
+    roon_port_str = get_env_or_yaml("ROON_PORT", roon_yaml.get("port"), 9330)
     roon_config = RoonConfig(
         host=get_env_or_yaml("ROON_HOST", roon_yaml.get("host"), ""),
         port=int(roon_port_str) if isinstance(roon_port_str, str) else roon_port_str,

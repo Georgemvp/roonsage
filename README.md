@@ -161,7 +161,7 @@ Edit `docker-compose.yml` or create a `.env` file:
 
 ```bash
 ROON_HOST=192.168.1.x
-ROON_PORT=9100
+ROON_PORT=9330
 
 # Choose ONE provider:
 GEMINI_API_KEY=your-gemini-key
@@ -234,7 +234,7 @@ services:
       - "5765:5765"
     environment:
       - ROON_HOST=192.168.1.x
-      - ROON_PORT=9100
+      - ROON_PORT=9330
       - GEMINI_API_KEY=your-key
     volumes:
       - ./data:/app/data
@@ -259,7 +259,7 @@ Set your environment variables:
 
 ```bash
 export ROON_HOST=192.168.1.x
-export ROON_PORT=9100
+export ROON_PORT=9330
 export GEMINI_API_KEY=your-gemini-key
 ```
 
@@ -308,7 +308,7 @@ sudo systemctl start mediasage
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ROON_HOST` | Yes | IP address or hostname of your Roon Core |
-| `ROON_PORT` | No | Roon Core port (default: `9100`) |
+| `ROON_PORT` | No | Roon Core port (default: `9330`) |
 | `ROON_CORE_ID` | No | Auto-saved after first authorization |
 | `ROON_TOKEN` | No | Auto-saved after first authorization |
 | `GEMINI_API_KEY` | One required | Google Gemini API key |
@@ -332,7 +332,7 @@ Mount a config file for additional options (see `config.example.yaml`):
 ```yaml
 roon:
   host: "192.168.1.x"
-  port: 9100
+  port: 9330
   # core_id and token are auto-saved after authorization
   core_id: ""
   token: ""
@@ -457,7 +457,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 export ROON_HOST=192.168.1.x
-export ROON_PORT=9100
+export ROON_PORT=9330
 export GEMINI_API_KEY=your-key
 
 uvicorn backend.main:app --reload --port 5765

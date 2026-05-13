@@ -73,7 +73,7 @@ docker-compose up -d
 
 ```bash
 ROON_HOST=192.168.1.x          # IP address of your Roon Core
-ROON_PORT=9100                  # Default Roon Extension port
+ROON_PORT=9330                  # Default Roon Extension port
 ROON_CORE_ID=                   # Roon Core unique ID (saved after first auth)
 ROON_TOKEN=                     # Roon Extension token (saved after authorization)
 LLM_PROVIDER=anthropic          # anthropic, openai, gemini, ollama, or custom

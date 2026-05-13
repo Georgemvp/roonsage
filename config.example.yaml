@@ -5,8 +5,8 @@
 roon:
   # Roon Core host/IP address (override with ROON_HOST env var)
   host: "192.168.1.x"
-  # Roon Core port (override with ROON_PORT env var, default 9100)
-  port: 9100
+  # Roon Core port (override with ROON_PORT env var, default 9330)
+  port: 9330
   # Core ID and token are auto-saved after first authorization
   # in Roon → Settings → Extensions → Enable MediaSage
   core_id: ""

@@ -275,7 +275,7 @@ async function fetchSetupStatus() {
 async function validateRoon(host, port) {
     return apiCall('/setup/validate-roon', {
         method: 'POST',
-        body: JSON.stringify({ roon_host: host, roon_port: parseInt(port) || 9100 }),
+        body: JSON.stringify({ roon_host: host, roon_port: parseInt(port) || 9330 }),
     });
 }
 
@@ -3246,7 +3246,7 @@ async function handleSaveSettings() {
 
     const roonHost = document.getElementById('roon-host').value.trim();
     const roonPortStr = document.getElementById('roon-port').value.trim();
-    const roonPort = parseInt(roonPortStr) || 9100;
+    const roonPort = parseInt(roonPortStr) || 9330;
     const musicLibrary = document.getElementById('music-library').value.trim();
     const llmProvider = document.getElementById('llm-provider').value;
     const llmApiKey = document.getElementById('llm-api-key').value.trim();
@@ -5238,7 +5238,7 @@ function setupWizardEventListeners() {
     // Roon validation
     document.getElementById('setup-roon-btn').addEventListener('click', async () => {
         const host = document.getElementById('setup-roon-host').value.trim();
-        const port = document.getElementById('setup-roon-port').value.trim() || '9100';
+        const port = document.getElementById('setup-roon-port').value.trim() || '9330';
 
         if (!host) {
             setStepError('roon', 'Roon Core host is required');

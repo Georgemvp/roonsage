@@ -160,7 +160,7 @@ class RoonClient:
     def __init__(
         self,
         host: str,
-        port: int = 9100,
+        port: int = 9330,
         core_id: str = "",
         token: str = "",
         extension_info: dict[str, str] | None = None,
@@ -798,7 +798,7 @@ def get_roon_client() -> RoonClient | None:
 
 def init_roon_client(
     host: str,
-    port: int = 9100,
+    port: int = 9330,
     core_id: str = "",
     token: str = "",
 ) -> RoonClient:
