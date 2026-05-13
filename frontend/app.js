@@ -513,6 +513,17 @@ async function sendPlaylistUpdate(playlistId, ratingKeys, mode, description = ''
 }
 
 async function fetchLibraryStats() {
+    // Try the cached endpoint first — it reads SQLite and never holds _browse_lock.
+    // Fall back to the live Roon endpoint only when the cache has no genres yet
+    // (i.e., the library has never been synced).
+    try {
+        const cached = await apiCall('/library/stats/cached');
+        if (cached && cached.genres && cached.genres.length > 0) {
+            return cached;
+        }
+    } catch (_) {
+        // Cache unavailable — fall through to live endpoint
+    }
     return apiCall('/library/stats');
 }
 

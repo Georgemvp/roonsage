@@ -175,7 +175,12 @@ class RoonClient:
         self._reconnect_lock = threading.Lock()
         # The Browse API is single-session — concurrent browse operations on the
         # same hierarchy corrupt each other's state. Serialize all browse sequences.
-        self._browse_lock = threading.Lock()
+        # The Browse API is single-session *per hierarchy*.  Using three
+        # separate locks means "browse", "albums", and "genres" operations can
+        # run concurrently without blocking each other.
+        self._browse_lock = threading.Lock()         # "browse" hierarchy
+        self._albums_browse_lock = threading.Lock()  # "albums" hierarchy
+        self._genres_browse_lock = threading.Lock()  # "genres" hierarchy
         self._needs_authorization = False
         # True while a _connect() call is in progress (in any thread).
         # Checked by is_connected() to avoid launching a second concurrent attempt.
@@ -720,7 +725,7 @@ class RoonClient:
         """Browse genres hierarchy to build album_title -> [genres] mapping.
 
         Only uses top-level genres (skips sub-genres) for speed.
-        Must be called while holding self._browse_lock.
+        Must be called while holding self._genres_browse_lock.
         """
         try:
             # Collect genre names first
@@ -802,8 +807,10 @@ class RoonClient:
 
         metadata: dict[str, dict[str, Any]] = {}
         try:
-            with self._browse_lock:
-                # --- Step 1: load album list for artist/year from subtitles ---
+            # --- Step 1: load album list for artist/year from subtitles ---
+            # Uses the "albums" hierarchy — lock is independent of "browse" and
+            # "genres", so track sync can run concurrently.
+            with self._albums_browse_lock:
                 self._api.browse_browse({"hierarchy": "albums"})
                 album_items = self._paginate_browse_load("albums")
 
@@ -845,9 +852,10 @@ class RoonClient:
                         "artist": artist,
                     }
 
-                # --- Step 2: enrich with genres from the genres hierarchy ---
-                # _get_genre_mapping() must run inside _browse_lock because it
-                # issues its own browse_browse / browse_load calls.
+            # --- Step 2: enrich with genres from the genres hierarchy ---
+            # Uses the "genres" hierarchy — independent of "browse" and "albums",
+            # so this lock does not block or get blocked by track sync.
+            with self._genres_browse_lock:
                 genre_mapping = self._get_genre_mapping()
                 if genre_mapping:
                     enriched = 0

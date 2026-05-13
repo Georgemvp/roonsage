@@ -692,16 +692,23 @@ async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewRespons
 
     # Fall back to Roon if cache is empty
     if matching_tracks < 0:
-        if not roon_client or not roon_client.is_connected():
-            raise HTTPException(status_code=503, detail="Roon not connected")
+        # If a library sync is already running it holds _browse_lock, so the
+        # Roon fallback would block for several minutes.  Return 0 immediately
+        # instead — the UI will update once the sync completes.
+        sync_state = library_cache.get_sync_state()
+        if sync_state.get("is_syncing"):
+            matching_tracks = 0
+        else:
+            if not roon_client or not roon_client.is_connected():
+                raise HTTPException(status_code=503, detail="Roon not connected")
 
-        matching_tracks = await asyncio.to_thread(
-            roon_client.count_tracks_by_filters,
-            genres=genres,
-            decades=decades,
-            exclude_live=exclude_live,
-            min_rating=min_rating,
-        )
+            matching_tracks = await asyncio.to_thread(
+                roon_client.count_tracks_by_filters,
+                genres=genres,
+                decades=decades,
+                exclude_live=exclude_live,
+                min_rating=min_rating,
+            )
 
     # Calculate how many tracks will actually be sent to AI
     if matching_tracks <= 0:
