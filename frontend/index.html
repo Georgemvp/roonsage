@@ -72,17 +72,12 @@
                         <div class="setup-step-body" id="setup-roon-body">
                             <div class="setup-step-form" id="setup-roon-form">
                                 <div class="form-group">
-                                    <label for="setup-roon-url">Roon Server URL</label>
-                                    <input type="text" id="setup-roon-url" placeholder="http://your-roon-server:32400">
+                                    <label for="setup-roon-host">Roon Core Host / IP</label>
+                                    <input type="text" id="setup-roon-host" placeholder="192.168.1.x">
                                 </div>
                                 <div class="form-group">
-                                    <label for="setup-roon-token">Roon Token</label>
-                                    <input type="password" id="setup-roon-token" placeholder="Your Roon token">
-                                    <p class="setup-field-hint">Find your token: <a href="https://support.roon.tv/articles/204059436-finding-an-authentication-token-x-roon-token/" target="_blank" rel="noopener">Roon support article</a></p>
-                                </div>
-                                <div class="form-group">
-                                    <label for="setup-roon-library">Music Library</label>
-                                    <input type="text" id="setup-roon-library" value="Music" placeholder="Music library name">
+                                    <label for="setup-roon-port">Roon Core Port</label>
+                                    <input type="number" id="setup-roon-port" value="9100" placeholder="9100">
                                 </div>
                                 <div id="setup-roon-error" class="setup-inline-error hidden" role="alert"></div>
                                 <button id="setup-roon-btn" class="btn btn-primary">Connect</button>
