@@ -490,6 +490,13 @@ def sync_library(
         synced_count = 0
         batch_data = []
 
+        # Build reverse lookup by album title for flat browse tracks (no _album_item_key)
+        album_by_title: dict[str, dict] = {}
+        for meta in album_metadata.values():
+            title_lower = meta.get("title", "").lower()
+            if title_lower and title_lower not in album_by_title:
+                album_by_title[title_lower] = meta
+
         for i, track in enumerate(all_tracks):
             # Extract track data from Roon browse item dict
             title = track.get("title", "Unknown Track")
@@ -502,12 +509,11 @@ def sync_library(
             # Look up genres and year from album metadata using item_key of the album
             album_item_key = track.get("_album_item_key", "")
             album_data = album_metadata.get(album_item_key, {})
-            if not album_data and track.get("_album_title"):
-                # Try matching by album title as fallback
-                for meta in album_metadata.values():
-                    if meta.get("title", "").lower() == track.get("_album_title", "").lower():
-                        album_data = meta
-                        break
+            if not album_data:
+                # Try _album_title first (per-album path), then parsed album name (flat browse path)
+                fallback_title = track.get("_album_title") or album
+                if fallback_title and fallback_title != "Unknown Album":
+                    album_data = album_by_title.get(fallback_title.lower(), {})
             genres = album_data.get("genres", [])
             year = album_data.get("year")
 
