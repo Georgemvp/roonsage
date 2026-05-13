@@ -799,6 +799,7 @@ class SetupStatusResponse(BaseModel):
     llm_from_env: bool = False
     library_synced: bool
     track_count: int = 0
+    synced_at: str | None = None
     is_syncing: bool = False
     sync_progress: SyncProgress | None = None
     setup_complete: bool

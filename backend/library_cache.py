@@ -453,22 +453,32 @@ def sync_library(
 
         conn = ensure_db_initialized()
 
-        # Clear existing tracks and reset sync state to avoid stale "cache available"
-        # signal if sync fails partway through
-        conn.execute("DELETE FROM tracks")
-        conn.execute("UPDATE sync_state SET track_count = 0 WHERE id = 1")
-        conn.commit()
+        # Record a SQLite-format UTC timestamp just before we begin writing.
+        # After a successful sync we delete any track whose updated_at is older
+        # than this — those are rows from a previous sync that no longer exist
+        # in the Roon library.  We do NOT delete upfront so the existing cache
+        # remains fully readable while the new sync is running; if sync fails
+        # halfway the old data is still intact.
+        sync_start_time: str = conn.execute("SELECT datetime('now')").fetchone()[0]
 
         # Phase 1: Fetch albums for genre/year mapping
         logger.info("Fetching album metadata from Roon...")
         album_metadata = roon_client.get_all_albums_metadata()
         logger.info("Got metadata for %d albums", len(album_metadata))
 
-        # Phase 2: Fetch all tracks from Roon
+        # Phase 2: Fetch all tracks from Roon — report per-album progress so
+        # the UI can show "Scanning albums: N / total" instead of a frozen bar.
         with _sync_lock:
             _sync_state["phase"] = "fetching"
+
+        def _on_album_progress(current: int, total: int) -> None:
+            with _sync_lock:
+                _sync_state["phase"] = "fetching"
+                _sync_state["current"] = current
+                _sync_state["total"] = total
+
         logger.info("Fetching all tracks from Roon (this may take a while)...")
-        all_tracks = roon_client.get_all_raw_tracks()
+        all_tracks = roon_client.get_all_raw_tracks(on_album_progress=_on_album_progress)
         total = len(all_tracks)
         logger.info("Got %d tracks from Roon", total)
 
@@ -558,7 +568,18 @@ def sync_library(
             with _sync_lock:
                 _sync_state["current"] = synced_count
 
-        # Final commit
+        # Final commit for the last batch
+        conn.commit()
+
+        # Remove tracks that were NOT written during this sync run.  These are
+        # albums/tracks that have been deleted from the Roon library since the
+        # last sync.  INSERT OR REPLACE refreshes updated_at to now() for every
+        # row it touches, so anything still at the old timestamp is stale.
+        stale_deleted = conn.execute(
+            "DELETE FROM tracks WHERE updated_at < ?", (sync_start_time,)
+        ).rowcount
+        if stale_deleted:
+            logger.info("Removed %d stale tracks (deleted from Roon library)", stale_deleted)
         conn.commit()
 
         # Update sync state

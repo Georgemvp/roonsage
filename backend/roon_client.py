@@ -5,7 +5,7 @@ import logging
 import re
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 from unidecode import unidecode
 
@@ -338,12 +338,20 @@ class RoonClient:
             offset += batch_size
         return all_items
 
-    def get_all_raw_tracks(self) -> list[dict[str, Any]]:
+    def get_all_raw_tracks(
+        self,
+        on_album_progress: Callable[[int, int], None] | None = None,
+    ) -> list[dict[str, Any]]:
         """Get all tracks by browsing Library → Albums → tracks per album.
 
         Returns a flat list of dicts representing Roon browse items with
         keys: title, subtitle, item_key, image_key, hint.
         Albums are paginated in batches of 500 to handle libraries >5000 albums.
+
+        Args:
+            on_album_progress: Optional callback(albums_done, total_albums) called
+                after each album is processed. Use to report live progress to the
+                caller without blocking the browse loop.
         """
         if not self.is_connected():
             return []
@@ -376,9 +384,10 @@ class RoonClient:
                     else:
                         album_items = []
 
-                logger.info("Found %d albums in Roon library", len(album_items))
+                total_albums = len(album_items)
+                logger.info("Found %d albums in Roon library", total_albums)
 
-                for album in album_items:
+                for album_idx, album in enumerate(album_items):
                     album_key = album.get("item_key")
                     if not album_key:
                         continue
@@ -395,6 +404,14 @@ class RoonClient:
                     except Exception as e:
                         logger.debug("Failed to load tracks for album %s: %s", album.get("title"), e)
                         continue
+
+                    # Fire progress callback after every album so the caller can
+                    # update its progress UI without waiting for all albums to load.
+                    if on_album_progress:
+                        try:
+                            on_album_progress(album_idx + 1, total_albums)
+                        except Exception:
+                            pass  # Never let a progress callback break the browse loop
 
             logger.info("Total tracks fetched from Roon: %d", len(all_tracks))
             return all_tracks

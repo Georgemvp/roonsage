@@ -2252,20 +2252,23 @@ function updateSyncProgress(phase, current, total) {
     const bar = fill?.parentElement;
 
     if (phase === 'fetching_albums') {
-        // Indeterminate state - fetching album genres
+        // Indeterminate — browsing for album metadata (fast, no count available)
         fill.style.width = '0%';
-        text.textContent = 'Fetching album genres...';
+        text.textContent = 'Fetching album metadata…';
         if (bar) bar.setAttribute('aria-valuenow', '0');
     } else if (phase === 'fetching') {
-        // Indeterminate state - fetching tracks from Roon
-        fill.style.width = '0%';
-        text.textContent = 'Fetching tracks from Roon...';
-        if (bar) bar.setAttribute('aria-valuenow', '0');
-    } else if (phase === 'processing') {
-        // Processing phase - show progress
+        // Determinate — album-by-album track scan (the slow phase)
         const percent = total > 0 ? (current / total) * 100 : 0;
         fill.style.width = `${percent}%`;
-        text.textContent = `${current.toLocaleString()} / ${total.toLocaleString()} tracks`;
+        text.textContent = total > 0
+            ? `Scanning albums for tracks: ${current.toLocaleString()} / ${total.toLocaleString()}`
+            : 'Fetching tracks from Roon…';
+        if (bar) bar.setAttribute('aria-valuenow', Math.round(percent).toString());
+    } else if (phase === 'processing') {
+        // Processing tracks into the cache
+        const percent = total > 0 ? (current / total) * 100 : 0;
+        fill.style.width = `${percent}%`;
+        text.textContent = `Processing tracks: ${current.toLocaleString()} / ${total.toLocaleString()}`;
         if (bar) bar.setAttribute('aria-valuenow', Math.round(percent).toString());
     } else {
         // Unknown or null phase - show generic message
@@ -2316,9 +2319,10 @@ function updateFooterLibraryStatus(status) {
     }
 
     if (status.is_syncing) {
-        // Show percentage if we have progress on processing phase
-        if (status.sync_progress?.phase === 'processing' && status.sync_progress.total > 0) {
-            const pct = Math.round((status.sync_progress.current / status.sync_progress.total) * 100);
+        // Show percentage during both the album-scan (fetching) and processing phases
+        const p = status.sync_progress;
+        if (p && p.total > 0 && (p.phase === 'fetching' || p.phase === 'processing')) {
+            const pct = Math.round((p.current / p.total) * 100);
             syncTime.textContent = `Syncing ${pct}%`;
         } else {
             syncTime.textContent = 'Syncing...';
@@ -5097,7 +5101,8 @@ function renderSetupState(status) {
 
     // Step 3: Sync
     if (status.library_synced && !status.is_syncing) {
-        setStepDone('sync', `${status.track_count.toLocaleString()} tracks synced`);
+        const syncedWhen = status.synced_at ? ` · synced ${formatRelativeTime(status.synced_at)}` : '';
+        setStepDone('sync', `${status.track_count.toLocaleString()} tracks${syncedWhen}`);
     } else if (status.is_syncing) {
         showSyncProgress(status);
         startSetupSyncPolling();
@@ -5169,16 +5174,25 @@ function showSyncProgress(status) {
     document.getElementById('setup-sync-progress-wrap').classList.remove('hidden');
 
     if (status.sync_progress) {
-        const pct = status.sync_progress.total > 0
-            ? Math.round((status.sync_progress.current / status.sync_progress.total) * 100) : 0;
+        const sp = status.sync_progress;
+        const pct = sp.total > 0 ? Math.round((sp.current / sp.total) * 100) : 0;
         const fill = document.getElementById('setup-sync-progress-fill');
         fill.style.width = `${pct}%`;
         fill.parentElement.setAttribute('aria-valuenow', pct);
-        const phaseLabel = status.sync_progress.phase === 'fetching_albums'
-            ? 'Fetching albums' : status.sync_progress.phase === 'fetching'
-            ? 'Fetching tracks' : 'Processing';
-        document.getElementById('setup-sync-progress-text').textContent =
-            `${phaseLabel}: ${status.sync_progress.current.toLocaleString()} / ${status.sync_progress.total.toLocaleString()}`;
+
+        let progressText;
+        if (sp.phase === 'fetching_albums') {
+            progressText = 'Fetching album metadata…';
+        } else if (sp.phase === 'fetching') {
+            progressText = sp.total > 0
+                ? `Scanning albums for tracks: ${sp.current.toLocaleString()} / ${sp.total.toLocaleString()}`
+                : 'Fetching tracks from Roon…';
+        } else {
+            progressText = sp.total > 0
+                ? `Processing tracks: ${sp.current.toLocaleString()} / ${sp.total.toLocaleString()}`
+                : 'Processing…';
+        }
+        document.getElementById('setup-sync-progress-text').textContent = progressText;
         document.getElementById('setup-sync-message').textContent = 'Syncing your library...';
     }
 }

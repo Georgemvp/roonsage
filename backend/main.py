@@ -245,8 +245,10 @@ async def setup_status() -> SetupStatusResponse:
         for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OLLAMA_URL", "CUSTOM_LLM_URL")
     )
 
-    # Library cache status
-    library_synced = library_cache.has_cached_tracks()
+    # Library cache status — "synced" means tracks exist AND the cache is fresh
+    library_synced = (
+        library_cache.has_cached_tracks() and not library_cache.is_cache_stale()
+    )
     sync_state = library_cache.get_sync_state()
     sync_progress = None
     if sync_state["sync_progress"]:
@@ -273,6 +275,7 @@ async def setup_status() -> SetupStatusResponse:
         llm_from_env=llm_from_env,
         library_synced=library_synced,
         track_count=sync_state["track_count"],
+        synced_at=sync_state.get("synced_at"),
         is_syncing=sync_state["is_syncing"],
         sync_progress=sync_progress,
         setup_complete=setup_complete,
