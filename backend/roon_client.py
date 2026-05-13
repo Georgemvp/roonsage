@@ -181,7 +181,9 @@ class RoonClient:
         if extension_info:
             self.EXTENSION_INFO = extension_info
 
-        self._connect()
+        # Run connection in a background thread so startup is never blocked
+        t = threading.Thread(target=self._connect, daemon=True)
+        t.start()
 
     def _connect(self) -> None:
         """Attempt to connect to Roon Core."""
