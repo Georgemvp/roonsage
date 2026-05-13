@@ -497,15 +497,15 @@ class RoonClient:
                     ],
                 )
 
-            # Keep only directly-playable track items (hint == "action")
+            # Keep only directly-playable track items (hint == "action" or "action_list")
             track_items = [
                 t for t in all_items
-                if t.get("hint") == "action" and t.get("item_key")
+                if t.get("hint") in ("action", "action_list") and t.get("item_key")
             ]
 
             if not track_items:
                 logger.warning(
-                    "Flat browse: 0 action items from %d total items — "
+                    "Flat browse: 0 action/action_list items from %d total items — "
                     "hints seen: %s",
                     len(all_items),
                     list({t.get("hint") for t in all_items}),
