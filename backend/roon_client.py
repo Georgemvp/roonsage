@@ -730,6 +730,12 @@ class RoonClient:
             with self._browse_lock:
                 self._api.browse_browse({"hierarchy": "albums"})
                 album_items = self._paginate_browse_load("albums")
+            # Log sample album data to diagnose genre/year parsing
+            if album_items:
+                logger.info(
+                    "Sample album subtitles (first 10): %s",
+                    [(a.get("title"), a.get("subtitle", ""), a.get("hint")) for a in album_items[:10]],
+                )
             for album in album_items:
                 item_key = album.get("item_key", "")
                 if not item_key:
@@ -757,6 +763,13 @@ class RoonClient:
                     "artist": artist,
                 }
             logger.info("Got metadata for %d albums", len(metadata))
+            # Log how many albums actually have genres/year populated
+            albums_with_genres = sum(1 for m in metadata.values() if m.get("genres"))
+            albums_with_year = sum(1 for m in metadata.values() if m.get("year"))
+            logger.info(
+                "Album metadata summary: %d total, %d with genres, %d with year",
+                len(metadata), albums_with_genres, albums_with_year,
+            )
         except Exception as e:
             logger.exception("Failed to get album metadata: %s", e)
         return metadata
