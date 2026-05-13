@@ -453,14 +453,6 @@ def sync_library(
 
         conn = ensure_db_initialized()
 
-        # Record a SQLite-format UTC timestamp just before we begin writing.
-        # After a successful sync we delete any track whose updated_at is older
-        # than this — those are rows from a previous sync that no longer exist
-        # in the Roon library.  We do NOT delete upfront so the existing cache
-        # remains fully readable while the new sync is running; if sync fails
-        # halfway the old data is still intact.
-        sync_start_time: str = conn.execute("SELECT datetime('now')").fetchone()[0]
-
         # Phase 1: Fetch albums for genre/year mapping
         logger.info("Fetching album metadata from Roon...")
         album_metadata = roon_client.get_all_albums_metadata()
@@ -577,15 +569,24 @@ def sync_library(
         # Final commit for the last batch
         conn.commit()
 
-        # Remove tracks that were NOT written during this sync run.  These are
-        # albums/tracks that have been deleted from the Roon library since the
-        # last sync.  INSERT OR REPLACE refreshes updated_at to now() for every
-        # row it touches, so anything still at the old timestamp is stale.
-        stale_deleted = conn.execute(
-            "DELETE FROM tracks WHERE updated_at < ?", (sync_start_time,)
-        ).rowcount
-        if stale_deleted:
-            logger.info("Removed %d stale tracks (deleted from Roon library)", stale_deleted)
+        # Remove tracks that no longer exist in Roon.
+        # Build a set of all item_keys we just synced, then delete anything
+        # not in that set.  This is clock-independent — no timestamp comparison.
+        synced_keys = {track.get("item_key", "") for track in all_tracks}
+        synced_keys.discard("")  # don't match empty keys
+
+        if synced_keys:
+            # Use a temp table for efficient NOT IN with large sets
+            conn.execute("CREATE TEMP TABLE IF NOT EXISTS _sync_keys (key TEXT PRIMARY KEY)")
+            conn.execute("DELETE FROM _sync_keys")  # clear from any previous run
+            conn.executemany("INSERT OR IGNORE INTO _sync_keys (key) VALUES (?)",
+                             [(k,) for k in synced_keys])
+            stale_deleted = conn.execute(
+                "DELETE FROM tracks WHERE rating_key NOT IN (SELECT key FROM _sync_keys)"
+            ).rowcount
+            conn.execute("DROP TABLE IF EXISTS _sync_keys")
+            if stale_deleted:
+                logger.info("Removed %d stale tracks (deleted from Roon library)", stale_deleted)
         conn.commit()
 
         # Update sync state
