@@ -446,13 +446,23 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
     if not updates:
         raise HTTPException(status_code=400, detail="No configuration values provided")
 
+    # Snapshot current Roon connection values before applying updates
+    current_config = get_config()
+    prev_roon_host = current_config.roon.host
+    prev_roon_port = current_config.roon.port
+
     try:
         config = update_config_values(updates)
     except ConfigSaveError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Reinitialize clients if relevant config changed
-    if any(k in updates for k in ["roon_host", "roon_port", "roon_token"]):
+    # Reinitialize Roon client only if host, port, or token actually changed
+    roon_connection_changed = (
+        config.roon.host != prev_roon_host
+        or config.roon.port != prev_roon_port
+        or "roon_token" in updates
+    )
+    if roon_connection_changed:
         init_roon_client(
             config.roon.host,
             config.roon.port,
