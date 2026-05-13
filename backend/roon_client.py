@@ -717,95 +717,118 @@ class RoonClient:
         return tracks
 
     def _get_genre_mapping(self) -> dict[str, list[str]]:
-        """Browse the genres hierarchy to build album_title_lower → [genre_names].
+        """Browse genres hierarchy to build album_title_lower → [genre_names].
+
+        Roon's genre hierarchy structure::
+
+            genres → [genre list]
+            genre  → [Play Genre, Artists, Albums (list), sub-genre1, sub-genre2, …]
+            Albums → [actual album items]
+            sub-genre → [Play Genre, Artists, Albums (list), sub-sub-genres, …]
+
+        For each top-level genre we:
+          1. Navigate into it and find the "Albums" list item.
+          2. Browse into "Albums" and collect every album → mapped to genre_name.
+          3. Find sub-genre items (hint == "list", subtitle contains "Albums").
+          4. For each sub-genre, navigate in, find its "Albums" item, browse it,
+             and map albums to the *sub-genre* name for more specific tags.
 
         Must be called while holding self._browse_lock.
-
-        Roon's genres hierarchy exposes genres at the top level; browsing into
-        each genre typically yields either albums directly or an intermediate
-        "Albums" sub-list (hint == "list").  We handle both shapes.
         """
         try:
             self._api.browse_browse({"hierarchy": "genres"})
             genre_items = self._paginate_browse_load("genres")
-
-            logger.info("Found %d genres in Roon", len(genre_items))
-            if genre_items:
-                logger.debug(
-                    "Sample genres: %s",
-                    [g.get("title") for g in genre_items[:10]],
-                )
+            logger.info("Found %d top-level genres in Roon", len(genre_items))
 
             mapping: dict[str, list[str]] = {}  # album_title_lower → [genre_names]
 
-            for genre in genre_items:
+            for idx, genre in enumerate(genre_items):
                 genre_name = genre.get("title", "")
                 genre_key = genre.get("item_key")
                 if not genre_key or not genre_name:
                     continue
 
-                # Browse into this genre to see what items we get
+                # Browse into genre to find its "Albums" entry and sub-genres
                 self._api.browse_browse({"hierarchy": "genres", "item_key": genre_key})
-                genre_children = self._paginate_browse_load("genres")
+                genre_contents = self._paginate_browse_load("genres")
 
-                # Debug: log the first genre's children to understand the shape
-                if genre is genre_items[0]:
-                    logger.info(
-                        "First genre '%s' contains %d items, sample: %s",
-                        genre_name,
-                        len(genre_children),
-                        [
-                            (a.get("title"), a.get("subtitle"), a.get("hint"))
-                            for a in genre_children[:5]
-                        ],
+                albums_item: dict[str, Any] | None = None
+                sub_genres: list[dict[str, Any]] = []
+
+                for item in genre_contents:
+                    title = (item.get("title") or "").strip()
+                    hint = item.get("hint", "")
+                    subtitle = item.get("subtitle") or ""
+
+                    if title.lower() == "albums" and hint == "list":
+                        albums_item = item
+                    elif hint == "list" and "Albums" in subtitle:
+                        # Sub-genre: subtitle is like "597 Artists, 1618 Albums"
+                        sub_genres.append(item)
+
+                # --- Albums directly under this top-level genre ---
+                if albums_item and albums_item.get("item_key"):
+                    self._api.browse_browse(
+                        {"hierarchy": "genres", "item_key": albums_item["item_key"]}
                     )
+                    albums = self._paginate_browse_load("genres")
+                    for album in albums:
+                        album_title = (album.get("title") or "").strip().lower()
+                        if album_title:
+                            mapping.setdefault(album_title, [])
+                            if genre_name not in mapping[album_title]:
+                                mapping[album_title].append(genre_name)
 
-                # Determine shape:
-                # Shape A — children are album items directly (hint == "list" with
-                #            no further sub-list, or hint == "action_list")
-                # Shape B — children are sub-categories / an "Albums" list entry;
-                #            albums live one level deeper inside a hint == "list" item.
+                # --- Sub-genres: browse for more specific genre tags ---
+                for sub in sub_genres:
+                    sub_name = (sub.get("title") or "").strip()
+                    sub_key = sub.get("item_key")
+                    if not sub_key or not sub_name:
+                        continue
 
-                # Collect album items from children
-                album_items_here: list[dict[str, Any]] = []
-                list_entries: list[dict[str, Any]] = []
+                    try:
+                        self._api.browse_browse(
+                            {"hierarchy": "genres", "item_key": sub_key}
+                        )
+                        sub_contents = self._paginate_browse_load("genres")
 
-                for child in genre_children:
-                    hint = child.get("hint", "")
-                    if hint in ("list", "action_list") and child.get("item_key"):
-                        # Could be an album item OR a sub-list containing albums
-                        # Heuristic: if it has a subtitle it looks like an album row
-                        if child.get("subtitle"):
-                            album_items_here.append(child)
-                        else:
-                            list_entries.append(child)
-
-                if not album_items_here and list_entries:
-                    # Shape B — navigate into each sub-list to find albums
-                    for sub in list_entries:
-                        try:
+                        sub_albums_item = next(
+                            (
+                                i for i in sub_contents
+                                if (i.get("title") or "").lower() == "albums"
+                                and i.get("hint") == "list"
+                            ),
+                            None,
+                        )
+                        if sub_albums_item and sub_albums_item.get("item_key"):
                             self._api.browse_browse(
-                                {"hierarchy": "genres", "item_key": sub["item_key"]}
+                                {
+                                    "hierarchy": "genres",
+                                    "item_key": sub_albums_item["item_key"],
+                                }
                             )
-                            sub_items = self._paginate_browse_load("genres")
-                            album_items_here.extend(sub_items)
-                        except Exception as sub_exc:
-                            logger.debug(
-                                "Genre '%s' sub-list browse failed: %s",
-                                genre_name,
-                                sub_exc,
-                            )
+                            sub_albums = self._paginate_browse_load("genres")
+                            for album in sub_albums:
+                                album_title = (album.get("title") or "").strip().lower()
+                                if album_title:
+                                    mapping.setdefault(album_title, [])
+                                    if sub_name not in mapping[album_title]:
+                                        mapping[album_title].append(sub_name)
+                    except Exception as exc:
+                        logger.debug(
+                            "Failed to browse sub-genre '%s': %s", sub_name, exc
+                        )
 
-                # Build mapping from whatever album items we collected
-                for album in album_items_here:
-                    album_title = (album.get("title") or "").strip().lower()
-                    if album_title:
-                        mapping.setdefault(album_title, [])
-                        if genre_name not in mapping[album_title]:
-                            mapping[album_title].append(genre_name)
+                logger.info(
+                    "Processed genre '%s' (%d/%d) — mapping size so far: %d albums",
+                    genre_name,
+                    idx + 1,
+                    len(genre_items),
+                    len(mapping),
+                )
 
             logger.info(
-                "Genre mapping complete: %d albums mapped to at least one genre",
+                "Genre mapping complete: %d unique albums mapped to genres",
                 len(mapping),
             )
             return mapping
