@@ -1716,6 +1716,7 @@ function updateSettings() {
     if (!state.config) return;
 
     document.getElementById('roon-host').value = state.config.roon_host || '';
+    document.getElementById('roon-port').value = state.config.roon_port || 9330;
     document.getElementById('music-library').value = state.config.music_library || 'Music';
     document.getElementById('llm-provider').value = state.config.llm_provider || 'gemini';
 
