@@ -717,22 +717,9 @@ class RoonClient:
         return tracks
 
     def _get_genre_mapping(self) -> dict[str, list[str]]:
-        """Browse genres hierarchy to build album_title_lower → [genre_names].
+        """Browse genres hierarchy to build album_title -> [genres] mapping.
 
-        Roon's genre hierarchy structure::
-
-            genres → [genre list]
-            genre  → [Play Genre, Artists, Albums (list), sub-genre1, sub-genre2, …]
-            Albums → [actual album items]
-            sub-genre → [Play Genre, Artists, Albums (list), sub-sub-genres, …]
-
-        For each top-level genre we:
-          1. Navigate into it and find the "Albums" list item.
-          2. Browse into "Albums" and collect every album → mapped to genre_name.
-          3. Find sub-genre items (hint == "list", subtitle contains "Albums").
-          4. For each sub-genre, navigate in, find its "Albums" item, browse it,
-             and map albums to the *sub-genre* name for more specific tags.
-
+        Only uses top-level genres (skips sub-genres) for speed.
         Must be called while holding self._browse_lock.
         """
         try:
@@ -740,7 +727,7 @@ class RoonClient:
             genre_items = self._paginate_browse_load("genres")
             logger.info("Found %d top-level genres in Roon", len(genre_items))
 
-            mapping: dict[str, list[str]] = {}  # album_title_lower → [genre_names]
+            mapping: dict[str, list[str]] = {}
 
             for idx, genre in enumerate(genre_items):
                 genre_name = genre.get("title", "")
@@ -748,88 +735,58 @@ class RoonClient:
                 if not genre_key or not genre_name:
                     continue
 
-                # Browse into genre to find its "Albums" entry and sub-genres
-                self._api.browse_browse({"hierarchy": "genres", "item_key": genre_key})
-                genre_contents = self._paginate_browse_load("genres")
+                try:
+                    # Browse into genre
+                    self._api.browse_browse({"hierarchy": "genres", "item_key": genre_key})
+                    genre_contents = self._paginate_browse_load("genres")
 
-                albums_item: dict[str, Any] | None = None
-                sub_genres: list[dict[str, Any]] = []
-
-                for item in genre_contents:
-                    title = (item.get("title") or "").strip()
-                    hint = item.get("hint", "")
-                    subtitle = item.get("subtitle") or ""
-
-                    if title.lower() == "albums" and hint == "list":
-                        albums_item = item
-                    elif hint == "list" and "Albums" in subtitle:
-                        # Sub-genre: subtitle is like "597 Artists, 1618 Albums"
-                        sub_genres.append(item)
-
-                # --- Albums directly under this top-level genre ---
-                if albums_item and albums_item.get("item_key"):
-                    self._api.browse_browse(
-                        {"hierarchy": "genres", "item_key": albums_item["item_key"]}
+                    # Find the "Albums" entry
+                    albums_item = next(
+                        (
+                            i for i in genre_contents
+                            if (i.get("title") or "").lower() == "albums"
+                            and i.get("hint") == "list"
+                        ),
+                        None,
                     )
-                    albums = self._paginate_browse_load("genres")
-                    for album in albums:
-                        album_title = (album.get("title") or "").strip().lower()
-                        if album_title:
-                            mapping.setdefault(album_title, [])
-                            if genre_name not in mapping[album_title]:
-                                mapping[album_title].append(genre_name)
 
-                # --- Sub-genres: browse for more specific genre tags ---
-                for sub in sub_genres:
-                    sub_name = (sub.get("title") or "").strip()
-                    sub_key = sub.get("item_key")
-                    if not sub_key or not sub_name:
-                        continue
-
-                    try:
+                    if albums_item and albums_item.get("item_key"):
+                        # Browse into Albums to get the actual album list
                         self._api.browse_browse(
-                            {"hierarchy": "genres", "item_key": sub_key}
+                            {"hierarchy": "genres", "item_key": albums_item["item_key"]}
                         )
-                        sub_contents = self._paginate_browse_load("genres")
+                        albums = self._paginate_browse_load("genres")
 
-                        sub_albums_item = next(
-                            (
-                                i for i in sub_contents
-                                if (i.get("title") or "").lower() == "albums"
-                                and i.get("hint") == "list"
-                            ),
-                            None,
+                        for album in albums:
+                            album_title = (album.get("title") or "").strip().lower()
+                            if album_title:
+                                mapping.setdefault(album_title, [])
+                                if genre_name not in mapping[album_title]:
+                                    mapping[album_title].append(genre_name)
+
+                        logger.info(
+                            "Processed genre '%s' (%d/%d) — %d albums found",
+                            genre_name, idx + 1, len(genre_items), len(albums),
                         )
-                        if sub_albums_item and sub_albums_item.get("item_key"):
-                            self._api.browse_browse(
-                                {
-                                    "hierarchy": "genres",
-                                    "item_key": sub_albums_item["item_key"],
-                                }
-                            )
-                            sub_albums = self._paginate_browse_load("genres")
-                            for album in sub_albums:
-                                album_title = (album.get("title") or "").strip().lower()
-                                if album_title:
-                                    mapping.setdefault(album_title, [])
-                                    if sub_name not in mapping[album_title]:
-                                        mapping[album_title].append(sub_name)
-                    except Exception as exc:
-                        logger.debug(
-                            "Failed to browse sub-genre '%s': %s", sub_name, exc
+                    else:
+                        logger.info(
+                            "Processed genre '%s' (%d/%d) — no Albums entry found",
+                            genre_name, idx + 1, len(genre_items),
                         )
 
-                logger.info(
-                    "Processed genre '%s' (%d/%d) — mapping size so far: %d albums",
-                    genre_name,
-                    idx + 1,
-                    len(genre_items),
-                    len(mapping),
-                )
+                    # IMPORTANT: pop back to genre list level for next iteration
+                    self._api.browse_browse({"hierarchy": "genres", "pop_all": True})
+
+                except Exception as exc:
+                    logger.warning("Failed to process genre '%s': %s", genre_name, exc)
+                    # Reset to root on error so subsequent genres still work
+                    try:
+                        self._api.browse_browse({"hierarchy": "genres", "pop_all": True})
+                    except Exception:
+                        pass
 
             logger.info(
-                "Genre mapping complete: %d unique albums mapped to genres",
-                len(mapping),
+                "Genre mapping complete: %d unique albums mapped to genres", len(mapping)
             )
             return mapping
 
