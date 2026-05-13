@@ -770,8 +770,10 @@ class RoonClient:
                         )
                     else:
                         logger.info(
-                            "Processed genre '%s' (%d/%d) — no Albums entry found",
+                            "Processed genre '%s' (%d/%d) — no Albums entry found. Contents (%d items): %s",
                             genre_name, idx + 1, len(genre_items),
+                            len(genre_contents),
+                            [(i.get("title"), i.get("hint"), (i.get("subtitle") or "")[:50]) for i in genre_contents[:10]],
                         )
 
                     # IMPORTANT: pop back to genre list level for next iteration
