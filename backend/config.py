@@ -158,8 +158,8 @@ def load_config(config_path: Path | None = None) -> AppConfig:
 
     # Check which API keys are available
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or llm_yaml.get("api_key", "")
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    openai_key = os.environ.get("OPENAI_API_KEY") or llm_yaml.get("api_key", "")
+    gemini_key = os.environ.get("GEMINI_API_KEY") or llm_yaml.get("api_key", "")
 
     # Auto-detect provider if not explicitly set
     if explicit_provider:
