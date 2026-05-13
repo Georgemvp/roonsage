@@ -736,7 +736,7 @@ class RoonClient:
         Must be called while holding self._browse_lock.
         """
         try:
-            self._api.browse_browse({"hierarchy": "genres"})
+            self._api.browse_browse({"hierarchy": "genres", "pop_all": True})
             genre_items = self._paginate_browse_load("genres")
             logger.info("Found %d top-level genres in Roon", len(genre_items))
 
