@@ -716,6 +716,104 @@ class RoonClient:
 
         return tracks
 
+    def _get_genre_mapping(self) -> dict[str, list[str]]:
+        """Browse the genres hierarchy to build album_title_lower → [genre_names].
+
+        Must be called while holding self._browse_lock.
+
+        Roon's genres hierarchy exposes genres at the top level; browsing into
+        each genre typically yields either albums directly or an intermediate
+        "Albums" sub-list (hint == "list").  We handle both shapes.
+        """
+        try:
+            self._api.browse_browse({"hierarchy": "genres"})
+            genre_items = self._paginate_browse_load("genres")
+
+            logger.info("Found %d genres in Roon", len(genre_items))
+            if genre_items:
+                logger.debug(
+                    "Sample genres: %s",
+                    [g.get("title") for g in genre_items[:10]],
+                )
+
+            mapping: dict[str, list[str]] = {}  # album_title_lower → [genre_names]
+
+            for genre in genre_items:
+                genre_name = genre.get("title", "")
+                genre_key = genre.get("item_key")
+                if not genre_key or not genre_name:
+                    continue
+
+                # Browse into this genre to see what items we get
+                self._api.browse_browse({"hierarchy": "genres", "item_key": genre_key})
+                genre_children = self._paginate_browse_load("genres")
+
+                # Debug: log the first genre's children to understand the shape
+                if genre is genre_items[0]:
+                    logger.info(
+                        "First genre '%s' contains %d items, sample: %s",
+                        genre_name,
+                        len(genre_children),
+                        [
+                            (a.get("title"), a.get("subtitle"), a.get("hint"))
+                            for a in genre_children[:5]
+                        ],
+                    )
+
+                # Determine shape:
+                # Shape A — children are album items directly (hint == "list" with
+                #            no further sub-list, or hint == "action_list")
+                # Shape B — children are sub-categories / an "Albums" list entry;
+                #            albums live one level deeper inside a hint == "list" item.
+
+                # Collect album items from children
+                album_items_here: list[dict[str, Any]] = []
+                list_entries: list[dict[str, Any]] = []
+
+                for child in genre_children:
+                    hint = child.get("hint", "")
+                    if hint in ("list", "action_list") and child.get("item_key"):
+                        # Could be an album item OR a sub-list containing albums
+                        # Heuristic: if it has a subtitle it looks like an album row
+                        if child.get("subtitle"):
+                            album_items_here.append(child)
+                        else:
+                            list_entries.append(child)
+
+                if not album_items_here and list_entries:
+                    # Shape B — navigate into each sub-list to find albums
+                    for sub in list_entries:
+                        try:
+                            self._api.browse_browse(
+                                {"hierarchy": "genres", "item_key": sub["item_key"]}
+                            )
+                            sub_items = self._paginate_browse_load("genres")
+                            album_items_here.extend(sub_items)
+                        except Exception as sub_exc:
+                            logger.debug(
+                                "Genre '%s' sub-list browse failed: %s",
+                                genre_name,
+                                sub_exc,
+                            )
+
+                # Build mapping from whatever album items we collected
+                for album in album_items_here:
+                    album_title = (album.get("title") or "").strip().lower()
+                    if album_title:
+                        mapping.setdefault(album_title, [])
+                        if genre_name not in mapping[album_title]:
+                            mapping[album_title].append(genre_name)
+
+            logger.info(
+                "Genre mapping complete: %d albums mapped to at least one genre",
+                len(mapping),
+            )
+            return mapping
+
+        except Exception as exc:
+            logger.warning("Genre mapping failed: %s", exc)
+            return {}
+
     def get_all_albums_metadata(self) -> dict[str, dict[str, Any]]:
         """Browse albums and extract genres/year.
 
@@ -728,47 +826,80 @@ class RoonClient:
         metadata: dict[str, dict[str, Any]] = {}
         try:
             with self._browse_lock:
+                # --- Step 1: load album list for artist/year from subtitles ---
                 self._api.browse_browse({"hierarchy": "albums"})
                 album_items = self._paginate_browse_load("albums")
-            # Log sample album data to diagnose genre/year parsing
-            if album_items:
-                logger.info(
-                    "Sample album subtitles (first 10): %s",
-                    [(a.get("title"), a.get("subtitle", ""), a.get("hint")) for a in album_items[:10]],
-                )
-            for album in album_items:
-                item_key = album.get("item_key", "")
-                if not item_key:
-                    continue
-                # subtitle typically contains "Artist • Year • Genre" in Roon
-                subtitle = album.get("subtitle", "") or ""
-                parts = [p.strip() for p in subtitle.split("•")]
-                year = None
-                genres: list[str] = []
-                artist = ""
-                for part in parts:
-                    if re.match(r"^\d{4}$", part):
-                        year = int(part)
-                    elif part and not year and re.match(r"^\d{4}", part):
-                        pass  # skip decade-ish strings
-                    elif part:
-                        if not artist:
-                            artist = part
-                        else:
-                            genres.append(part)
-                metadata[item_key] = {
-                    "genres": genres,
-                    "year": year,
-                    "title": album.get("title", ""),
-                    "artist": artist,
-                }
+
+                # Log sample album data to diagnose subtitle format
+                if album_items:
+                    logger.info(
+                        "Sample album subtitles (first 10): %s",
+                        [
+                            (a.get("title"), a.get("subtitle", ""), a.get("hint"))
+                            for a in album_items[:10]
+                        ],
+                    )
+
+                for album in album_items:
+                    item_key = album.get("item_key", "")
+                    if not item_key:
+                        continue
+                    # subtitle format varies by Roon version/locale.
+                    # Common formats: "Artist", "Artist • Year", "Artist • Year • Genre"
+                    subtitle = album.get("subtitle", "") or ""
+                    parts = [p.strip() for p in subtitle.split("•")]
+                    year = None
+                    genres: list[str] = []
+                    artist = ""
+                    for part in parts:
+                        if re.match(r"^\d{4}$", part):
+                            year = int(part)
+                        elif part and not year and re.match(r"^\d{4}", part):
+                            pass  # skip decade-ish strings
+                        elif part:
+                            if not artist:
+                                artist = part
+                            else:
+                                genres.append(part)
+                    metadata[item_key] = {
+                        "genres": genres,
+                        "year": year,
+                        "title": album.get("title", ""),
+                        "artist": artist,
+                    }
+
+                # --- Step 2: enrich with genres from the genres hierarchy ---
+                # _get_genre_mapping() must run inside _browse_lock because it
+                # issues its own browse_browse / browse_load calls.
+                genre_mapping = self._get_genre_mapping()
+                if genre_mapping:
+                    enriched = 0
+                    for meta in metadata.values():
+                        album_title_lower = meta.get("title", "").strip().lower()
+                        mapped_genres = genre_mapping.get(album_title_lower)
+                        if mapped_genres:
+                            # Merge: keep any genres already parsed from subtitle,
+                            # then append mapped genres that aren't already present.
+                            existing = set(meta["genres"])
+                            for g in mapped_genres:
+                                if g not in existing:
+                                    meta["genres"].append(g)
+                                    existing.add(g)
+                            enriched += 1
+                    logger.info(
+                        "Genre enrichment: %d / %d albums now have genres from mapping",
+                        enriched,
+                        len(metadata),
+                    )
+
             logger.info("Got metadata for %d albums", len(metadata))
-            # Log how many albums actually have genres/year populated
             albums_with_genres = sum(1 for m in metadata.values() if m.get("genres"))
             albums_with_year = sum(1 for m in metadata.values() if m.get("year"))
             logger.info(
                 "Album metadata summary: %d total, %d with genres, %d with year",
-                len(metadata), albums_with_genres, albums_with_year,
+                len(metadata),
+                albums_with_genres,
+                albums_with_year,
             )
         except Exception as e:
             logger.exception("Failed to get album metadata: %s", e)
