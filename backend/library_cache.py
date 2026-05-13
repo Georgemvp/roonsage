@@ -543,8 +543,8 @@ def sync_library(
                 conn.executemany(
                     "INSERT OR REPLACE INTO tracks "
                     "(rating_key, title, artist, album, duration_ms, year, genres, "
-                    "user_rating, is_live, parent_rating_key, view_count, last_viewed_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "user_rating, is_live, parent_rating_key, view_count, last_viewed_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
                     batch_data,
                 )
                 synced_count += len(batch_data)
@@ -566,8 +566,8 @@ def sync_library(
             conn.executemany(
                 "INSERT OR REPLACE INTO tracks "
                 "(rating_key, title, artist, album, duration_ms, year, genres, "
-                "user_rating, is_live, parent_rating_key, view_count, last_viewed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "user_rating, is_live, parent_rating_key, view_count, last_viewed_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
                 batch_data,
             )
             synced_count += len(batch_data)
