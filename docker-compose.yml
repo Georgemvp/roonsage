@@ -8,7 +8,8 @@ services:
     container_name: mediasage
     # Optional: Run as specific user for NAS/Synology (use your PUID:PGID)
     # user: "1000:1000"
-    network_mode: host
+    ports:
+      - "5765:5765"
     environment:
       # Required: Roon Core settings
       - ROON_HOST=10.94.184.22
