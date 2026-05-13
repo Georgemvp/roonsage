@@ -569,24 +569,6 @@ def sync_library(
         # Final commit for the last batch
         conn.commit()
 
-        # Remove tracks that no longer exist in Roon.
-        # Build a set of all item_keys we just synced, then delete anything
-        # not in that set.  This is clock-independent — no timestamp comparison.
-        synced_keys = {track.get("item_key", "") for track in all_tracks}
-        synced_keys.discard("")  # don't match empty keys
-
-        if synced_keys:
-            # Use a temp table for efficient NOT IN with large sets
-            conn.execute("CREATE TEMP TABLE IF NOT EXISTS _sync_keys (key TEXT PRIMARY KEY)")
-            conn.execute("DELETE FROM _sync_keys")  # clear from any previous run
-            conn.executemany("INSERT OR IGNORE INTO _sync_keys (key) VALUES (?)",
-                             [(k,) for k in synced_keys])
-            stale_deleted = conn.execute(
-                "DELETE FROM tracks WHERE rating_key NOT IN (SELECT key FROM _sync_keys)"
-            ).rowcount
-            conn.execute("DROP TABLE IF EXISTS _sync_keys")
-            if stale_deleted:
-                logger.info("Removed %d stale tracks (deleted from Roon library)", stale_deleted)
         conn.commit()
 
         # Update sync state
