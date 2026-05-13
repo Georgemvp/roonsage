@@ -342,83 +342,359 @@ class RoonClient:
         self,
         on_album_progress: Callable[[int, int], None] | None = None,
     ) -> list[dict[str, Any]]:
-        """Get all tracks by browsing Library → Albums → tracks per album.
+        """Get all tracks from the Roon library.
 
-        Returns a flat list of dicts representing Roon browse items with
-        keys: title, subtitle, item_key, image_key, hint.
-        Albums are paginated in batches of 500 to handle libraries >5000 albums.
+        Tries two strategies in order:
+
+        1. **Flat tracks browse** (Library → Tracks): navigates directly to the
+           Tracks section and paginates the full list.  O(N/500) API calls —
+           roughly 200 calls for 100k tracks instead of 22k for the per-album
+           approach.
+
+        2. **Per-album fallback**: navigates Library → Albums → each album.
+           Fixed to navigate one level deeper into ``hint == "list"`` sub-items
+           (the actual track rows are usually behind a "Tracks" list entry,
+           not at the album-menu level).
+
+        Returns a flat list of dicts with keys: title, subtitle, item_key,
+        image_key, hint, _album_title, _album_subtitle, _album_item_key.
 
         Args:
-            on_album_progress: Optional callback(albums_done, total_albums) called
-                after each album is processed. Use to report live progress to the
-                caller without blocking the browse loop.
+            on_album_progress: Optional callback(albums_done, total_albums)
+                fired after each album in the per-album fallback path.
         """
         if not self.is_connected():
             return []
 
-        all_tracks: list[dict[str, Any]] = []
         try:
             with self._browse_lock:
-                # Load the library root
-                opts: dict[str, Any] = {
-                    "hierarchy": "browse",
-                    "pop_all": True,
-                }
-                self._api.browse_browse(opts)
-                items = self._api.browse_load({"hierarchy": "browse", "count": 1000}).get("items", [])
+                # --- Strategy 1: flat Library → Tracks browse ---
+                flat_tracks = self._try_flat_tracks_browse()
+                if flat_tracks is not None:
+                    logger.info(
+                        "Flat tracks browse succeeded: %d tracks", len(flat_tracks)
+                    )
+                    return flat_tracks
 
-                # Find "Library" item
-                library_item = next((i for i in items if "library" in i.get("title", "").lower()), None)
-                if not library_item:
-                    # Try navigating directly via the albums hierarchy
-                    self._api.browse_browse({"hierarchy": "albums"})
-                    album_items = self._paginate_browse_load("albums")
-                else:
-                    # Navigate into Library → Albums
-                    self._api.browse_browse({"hierarchy": "browse", "item_key": library_item["item_key"]})
-                    sub_items = self._api.browse_load({"hierarchy": "browse", "count": 200}).get("items", [])
-                    albums_item = next((i for i in sub_items if "album" in i.get("title", "").lower()), None)
-                    if albums_item:
-                        self._api.browse_browse({"hierarchy": "browse", "item_key": albums_item["item_key"]})
-                        album_items = self._paginate_browse_load("browse")
-                    else:
-                        album_items = []
+                logger.info(
+                    "Flat tracks browse unavailable, falling back to per-album browsing"
+                )
 
-                total_albums = len(album_items)
-                logger.info("Found %d albums in Roon library", total_albums)
-
-                for album_idx, album in enumerate(album_items):
-                    album_key = album.get("item_key")
-                    if not album_key:
-                        continue
-                    try:
-                        self._api.browse_browse({"hierarchy": "browse", "item_key": album_key})
-                        track_page = self._api.browse_load({"hierarchy": "browse", "count": 500})
-                        for t in track_page.get("items", []):
-                            if t.get("hint") == "action" or t.get("hint") == "list":
-                                # It's a track (action = playable)
-                                t["_album_title"] = album.get("title", "")
-                                t["_album_subtitle"] = album.get("subtitle", "")
-                                t["_album_item_key"] = album.get("item_key", "")
-                                all_tracks.append(t)
-                    except Exception as e:
-                        logger.debug("Failed to load tracks for album %s: %s", album.get("title"), e)
-                        continue
-
-                    # Fire progress callback after every album so the caller can
-                    # update its progress UI without waiting for all albums to load.
-                    if on_album_progress:
-                        try:
-                            on_album_progress(album_idx + 1, total_albums)
-                        except Exception:
-                            pass  # Never let a progress callback break the browse loop
-
-            logger.info("Total tracks fetched from Roon: %d", len(all_tracks))
-            return all_tracks
+                # --- Strategy 2: per-album browsing with fixed hint handling ---
+                return self._browse_tracks_per_album(on_album_progress)
 
         except Exception as e:
             logger.exception("Failed to get all tracks from Roon: %s", e)
             return []
+
+    # ------------------------------------------------------------------
+    # Internal track-fetch helpers (must be called while _browse_lock held)
+    # ------------------------------------------------------------------
+
+    def _try_flat_tracks_browse(self) -> list[dict[str, Any]] | None:
+        """Navigate Library → Tracks for a flat, paginated track list.
+
+        This is the fast path: instead of 2 API calls per album (22k+ calls
+        for large libraries), it does ~5 navigation calls plus one paginated
+        load.  For 100k tracks at batch_size=500 that is ≈205 total calls
+        (~41 seconds) vs the per-album approach (~41 minutes).
+
+        Must be called while holding ``self._browse_lock``.
+
+        Returns:
+            List of track dicts on success, or ``None`` if the Tracks section
+            could not be found (caller should fall back to per-album browsing).
+        """
+        try:
+            # Reset to browse root
+            self._api.browse_browse({"hierarchy": "browse", "pop_all": True})
+            root_page = self._api.browse_load({"hierarchy": "browse", "count": 100})
+            root_items = root_page.get("items", []) if root_page else []
+
+            logger.debug(
+                "Flat browse root items: %s",
+                [i.get("title") for i in root_items],
+            )
+
+            # Find the Library section
+            library_item = next(
+                (i for i in root_items if "library" in i.get("title", "").lower()),
+                None,
+            )
+            if not library_item:
+                logger.debug(
+                    "Flat browse: no Library item found in browse root"
+                )
+                return None
+
+            # Navigate into Library
+            self._api.browse_browse(
+                {"hierarchy": "browse", "item_key": library_item["item_key"]}
+            )
+            lib_page = self._api.browse_load({"hierarchy": "browse", "count": 100})
+            lib_items = lib_page.get("items", []) if lib_page else []
+
+            logger.debug(
+                "Library sub-items: %s",
+                [(i.get("title"), i.get("hint")) for i in lib_items],
+            )
+
+            # Find the Tracks section (title varies by Roon locale)
+            tracks_item = next(
+                (
+                    i for i in lib_items
+                    if i.get("title", "").lower() in (
+                        "tracks", "all tracks", "songs", "all songs"
+                    )
+                ),
+                None,
+            )
+            if not tracks_item:
+                logger.info(
+                    "Flat browse: no Tracks item found in Library — "
+                    "available: %s",
+                    [i.get("title") for i in lib_items],
+                )
+                return None
+
+            # Navigate into Tracks and load everything
+            self._api.browse_browse(
+                {"hierarchy": "browse", "item_key": tracks_item["item_key"]}
+            )
+            all_items = self._paginate_browse_load("browse")
+
+            logger.info(
+                "Flat tracks browse: loaded %d raw items", len(all_items)
+            )
+
+            # Log a sample for future diagnosis
+            if all_items:
+                logger.debug(
+                    "Flat tracks sample (first 5): %s",
+                    [
+                        (t.get("title"), t.get("hint"), t.get("subtitle", "")[:50])
+                        for t in all_items[:5]
+                    ],
+                )
+
+            # Keep only directly-playable track items (hint == "action")
+            track_items = [
+                t for t in all_items
+                if t.get("hint") == "action" and t.get("item_key")
+            ]
+
+            if not track_items:
+                logger.warning(
+                    "Flat browse: 0 action items from %d total items — "
+                    "hints seen: %s",
+                    len(all_items),
+                    list({t.get("hint") for t in all_items}),
+                )
+                return None
+
+            logger.info(
+                "Flat browse: %d tracks (from %d items)",
+                len(track_items),
+                len(all_items),
+            )
+            return track_items
+
+        except Exception as exc:
+            logger.warning("Flat tracks browse failed: %s", exc)
+            return None
+
+    def _browse_tracks_per_album(
+        self,
+        on_album_progress: Callable[[int, int], None] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Per-album fallback: Library → Albums → each album → tracks.
+
+        Fixed vs the original implementation:
+        - Adds debug logging per album so the hint structure is visible in logs.
+        - Navigates one level deeper into ``hint == "list"`` sub-items when the
+          album level returns a menu (Play Album / Add to Queue) rather than
+          individual track rows.
+        - Identifies actual tracks by ``subtitle`` presence, not just by hint,
+          so menu action items are excluded.
+
+        Must be called while holding ``self._browse_lock``.
+        """
+        all_tracks: list[dict[str, Any]] = []
+
+        # Reset and load browse root
+        self._api.browse_browse({"hierarchy": "browse", "pop_all": True})
+        root_page = self._api.browse_load({"hierarchy": "browse", "count": 1000})
+        root_items = root_page.get("items", []) if root_page else []
+
+        library_item = next(
+            (i for i in root_items if "library" in i.get("title", "").lower()),
+            None,
+        )
+        if not library_item:
+            logger.warning("Per-album fallback: Library item not found in browse root")
+            return []
+
+        # Navigate Library → Albums
+        self._api.browse_browse(
+            {"hierarchy": "browse", "item_key": library_item["item_key"]}
+        )
+        lib_sub_page = self._api.browse_load({"hierarchy": "browse", "count": 200})
+        lib_sub_items = lib_sub_page.get("items", []) if lib_sub_page else []
+
+        albums_item = next(
+            (i for i in lib_sub_items if "album" in i.get("title", "").lower()),
+            None,
+        )
+        if not albums_item:
+            logger.warning(
+                "Per-album fallback: Albums item not found in Library — "
+                "available: %s",
+                [i.get("title") for i in lib_sub_items],
+            )
+            return []
+
+        self._api.browse_browse(
+            {"hierarchy": "browse", "item_key": albums_item["item_key"]}
+        )
+        album_items = self._paginate_browse_load("browse")
+
+        total_albums = len(album_items)
+        logger.info("Per-album fallback: %d albums to process", total_albums)
+
+        for album_idx, album in enumerate(album_items):
+            album_key = album.get("item_key")
+            if not album_key:
+                continue
+
+            try:
+                self._api.browse_browse(
+                    {"hierarchy": "browse", "item_key": album_key}
+                )
+                album_page = self._api.browse_load(
+                    {"hierarchy": "browse", "count": 500}
+                )
+                page_items = album_page.get("items", []) if album_page else []
+
+                logger.debug(
+                    "Album '%s' returned %d items: %s",
+                    album.get("title"),
+                    len(page_items),
+                    [
+                        (t.get("title"), t.get("hint"), t.get("subtitle", "")[:50])
+                        for t in page_items
+                    ],
+                )
+
+                tracks = self._extract_tracks_from_album_items(page_items, album)
+                all_tracks.extend(tracks)
+
+            except Exception as exc:
+                logger.debug(
+                    "Failed to load tracks for album '%s': %s",
+                    album.get("title"),
+                    exc,
+                )
+
+            if on_album_progress:
+                try:
+                    on_album_progress(album_idx + 1, total_albums)
+                except Exception:
+                    pass  # never let a progress callback break the loop
+
+        logger.info(
+            "Per-album fallback complete: %d tracks from %d albums",
+            len(all_tracks),
+            total_albums,
+        )
+        return all_tracks
+
+    def _extract_tracks_from_album_items(
+        self,
+        items: list[dict[str, Any]],
+        album: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Extract playable track rows from an album's browse result.
+
+        When Roon navigates into an album it can return two very different
+        shapes:
+
+        A) **Direct tracks** — each item is a playable track row:
+           ``hint == "action"``, non-empty ``subtitle`` (e.g. "Artist Name")
+           These are collected immediately.
+
+        B) **Album action menu** — items are "Play Now", "Add to Queue",
+           plus a ``hint == "list"`` entry titled "Tracks" (or similar).
+           Individual track rows live one level deeper inside that list.
+
+        The original code treated everything with ``hint == "action"`` or
+        ``hint == "list"`` as a track, which collected the album-level menu
+        items (Play Album, Add to Queue) instead of the actual track rows.
+
+        This method handles both shapes correctly.
+
+        Must be called while holding ``self._browse_lock``.
+        """
+        tracks: list[dict[str, Any]] = []
+        list_sub_items: list[dict[str, Any]] = []
+
+        for item in items:
+            hint = item.get("hint", "")
+            subtitle = (item.get("subtitle") or "").strip()
+            item_key = item.get("item_key", "")
+
+            if hint == "action" and subtitle and item_key:
+                # Has a subtitle → looks like an actual track, not a menu action
+                # (menu actions like "Play Album Now" have no subtitle)
+                tagged = dict(item)
+                tagged["_album_title"] = album.get("title", "")
+                tagged["_album_subtitle"] = album.get("subtitle", "")
+                tagged["_album_item_key"] = album.get("item_key", "")
+                tracks.append(tagged)
+            elif hint == "list" and item_key:
+                # Sub-list that may contain track rows — collect for later
+                list_sub_items.append(item)
+
+        if tracks:
+            # Shape A — got direct track rows from this level
+            return tracks
+
+        # Shape B — no direct tracks found; navigate into list sub-items
+        for sub in list_sub_items:
+            try:
+                self._api.browse_browse(
+                    {"hierarchy": "browse", "item_key": sub["item_key"]}
+                )
+                # Use paginator in case album has >500 tracks
+                sub_items = self._paginate_browse_load("browse")
+
+                logger.debug(
+                    "Album '%s' → list '%s' returned %d items",
+                    album.get("title"),
+                    sub.get("title"),
+                    len(sub_items),
+                )
+
+                for t in sub_items:
+                    if t.get("hint") == "action" and t.get("item_key"):
+                        tagged = dict(t)
+                        tagged["_album_title"] = album.get("title", "")
+                        tagged["_album_subtitle"] = album.get("subtitle", "")
+                        tagged["_album_item_key"] = album.get("item_key", "")
+                        tracks.append(tagged)
+
+                if tracks:
+                    # Found tracks in the first matching sub-list; stop
+                    break
+
+            except Exception as exc:
+                logger.debug(
+                    "Failed to navigate list sub-item '%s' for album '%s': %s",
+                    sub.get("title"),
+                    album.get("title"),
+                    exc,
+                )
+
+        return tracks
 
     def get_all_albums_metadata(self) -> dict[str, dict[str, Any]]:
         """Browse albums and extract genres/year.
