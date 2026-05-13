@@ -223,6 +223,26 @@ class RoonClient:
             logger.info(
                 "Connected to Roon Core '%s'", self._api.core_name
             )
+
+            # Persist token + core_id so they survive container restarts.
+            # Imported here to avoid a circular import at module level
+            # (config imports models; roon_client is imported by main).
+            if self._api.token:
+                try:
+                    from backend.config import save_user_config  # noqa: PLC0415
+                    save_user_config({
+                        "roon": {
+                            "token": self._api.token,
+                            "core_id": getattr(self._api, "core_id", None)
+                                       or self.core_id
+                                       or "",
+                        }
+                    })
+                    logger.info("Roon token persisted to data/config.user.yaml")
+                except Exception as save_err:
+                    logger.warning(
+                        "Failed to persist Roon token to config: %s", save_err
+                    )
         except ImportError:
             self._error = "roonapi package is not installed. Run: pip install roonapi"
             self._api = None
