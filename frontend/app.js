@@ -489,10 +489,10 @@ async function fetchRoonZones() {
     return apiCall('/roon/zones');
 }
 
-async function createPlayQueue(ratingKeys, clientId, mode) {
-    return apiCall('/play-queue', {
+async function createPlayQueue(ratingKeys, zoneId, mode) {
+    return apiCall('/queue', {
         method: 'POST',
-        body: JSON.stringify({ rating_keys: ratingKeys, client_id: clientId, mode }),
+        body: JSON.stringify({ rating_keys: ratingKeys, zone_id: zoneId, mode }),
     });
 }
 
