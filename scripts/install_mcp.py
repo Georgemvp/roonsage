@@ -45,13 +45,40 @@ def get_mcp_server_path() -> Path:
 
 
 def detect_python() -> str:
-    """Return 'python3' if available on PATH, falling back to 'python'."""
-    return shutil.which("python3") and "python3" or "python"
+    """Return the absolute path to the best available Python interpreter.
+
+    Priority:
+    1. If a virtualenv is active (sys.prefix != sys.base_prefix), use
+       sys.executable — this guarantees Claude Desktop runs inside the same
+       environment where the MCP dependencies are installed.
+    2. Otherwise fall back to the first python3 / python found on PATH.
+
+    Always returns an absolute path so the entry works regardless of the
+    user's PATH when Claude Desktop is launched.
+    """
+    if sys.prefix != sys.base_prefix:
+        # Running inside a virtualenv — use its interpreter directly.
+        return sys.executable
+
+    # No active venv — find the system Python.
+    python = shutil.which("python3") or shutil.which("python")
+    if python is None:
+        print(
+            "[!] Geen Python binary gevonden op PATH.\n"
+            "    Installeer Python 3 of activeer een virtualenv.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return python
 
 
 def build_server_entry(mcp_server_path: Path) -> dict:
+    python_bin = detect_python()
+    in_venv = sys.prefix != sys.base_prefix
+    source = "virtualenv" if in_venv else "system PATH"
+    print(f"[i] Python binary gedetecteerd via {source}: {python_bin}")
     return {
-        "command": detect_python(),
+        "command": python_bin,
         "args": [str(mcp_server_path)],
     }
 
