@@ -139,3 +139,13 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 ## Recent Changes
 
 - roon-support: Converted from Plex to Roon Labs Extension API. All library access via Browse API. SQLite cache for fast queries. Playlist creation not available (Roon API limitation).
+
+## MCP Server
+
+- `mcp_server.py` in de repo root is een MCP server die de MediaSage REST API wrapt als tools voor Claude Desktop
+- Het gebruikt `mcp[cli]` (FastMCP) en `httpx` voor async HTTP calls
+- De server praat met de MediaSage API op `MEDIASAGE_URL` (default: `http://localhost:5765`)
+- Transport: stdio
+- Tools: `get_library_stats`, `search_library`, `filter_tracks`, `list_zones`, `play_tracks`, `queue_tracks`
+- De MCP server bevat GEEN eigen LLM logica — Claude Desktop doet het denkwerk
+- Bij wijzigingen aan de API endpoints in `main.py`, update ook de corresponderende tool in `mcp_server.py`

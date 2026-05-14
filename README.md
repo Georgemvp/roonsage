@@ -395,6 +395,58 @@ For LM Studio, text-generation-webui, vLLM, or any OpenAI-compatible server:
 
 </details>
 
+### Claude Desktop (MCP)
+
+Use Claude Desktop as a natural-language interface for MediaSage via [MCP](https://modelcontextprotocol.io) (Model Context Protocol). Instead of using the web UI, you can just tell Claude what you want and it will search your library, build a playlist, and send it to Roon — all in a single conversation.
+
+**How it works:** Claude Desktop talks to `mcp_server.py` over stdio. The MCP server calls the MediaSage REST API, which handles library lookups and Roon playback. Claude does the thinking (interpreting your prompt, choosing tracks); MediaSage supplies the library data and Roon connection. No extra API key is needed — your Claude Pro or Claude Team subscription covers it.
+
+**Setup:**
+
+1. Install the MCP package:
+   ```bash
+   pip install "mcp[cli]"
+   ```
+
+2. Make sure MediaSage is running on `http://localhost:5765`.
+
+3. Add the MCP server to your Claude Desktop config at  
+   `~/Library/Application Support/Claude/claude_desktop_config.json`:
+   ```json
+   {
+     "mcpServers": {
+       "roon-mediasage": {
+         "command": "python",
+         "args": ["/FULL/PATH/TO/roon-mediasage/mcp_server.py"]
+       }
+     }
+   }
+   ```
+   Replace `/FULL/PATH/TO/roon-mediasage` with the absolute path to the repo on your machine.
+
+4. Restart Claude Desktop.
+
+**Optional:** If MediaSage runs on a different host or port, set the `MEDIASAGE_URL` environment variable:
+```json
+{
+  "mcpServers": {
+    "roon-mediasage": {
+      "command": "python",
+      "args": ["/FULL/PATH/TO/roon-mediasage/mcp_server.py"],
+      "env": {
+        "MEDIASAGE_URL": "http://192.168.1.x:5765"
+      }
+    }
+  }
+}
+```
+
+**Example prompts in Claude Desktop:**
+
+- *"Wat voor jazz heb ik in mijn library?"*
+- *"Maak een playlist met rustige elektronische muziek uit de jaren 90 en speel het af in de woonkamer."*
+- *"Zoek alles van Radiohead en voeg het toe aan de queue."*
+
 ---
 
 ## Roon Authorization
