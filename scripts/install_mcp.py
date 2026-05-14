@@ -14,6 +14,7 @@ Supported platforms:
 
 import json
 import platform
+import shutil
 import sys
 from pathlib import Path
 
@@ -43,9 +44,14 @@ def get_mcp_server_path() -> Path:
     return (Path(__file__).parent.parent / "mcp_server.py").resolve()
 
 
+def detect_python() -> str:
+    """Return 'python3' if available on PATH, falling back to 'python'."""
+    return shutil.which("python3") and "python3" or "python"
+
+
 def build_server_entry(mcp_server_path: Path) -> dict:
     return {
-        "command": "python",
+        "command": detect_python(),
         "args": [str(mcp_server_path)],
     }
 

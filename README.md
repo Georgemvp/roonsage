@@ -158,12 +158,12 @@ Use Claude Desktop as a conversational interface for MediaSage. Ask for playlist
 
 1. Install the MCP dependency locally (not inside Docker):
    ```bash
-   pip install "mcp[cli]"
+   pip3 install "mcp[cli]"
    ```
 
 2. Run the install script to configure Claude Desktop automatically:
    ```bash
-   python scripts/install_mcp.py
+   python3 scripts/install_mcp.py
    ```
    This adds the MCP server to your Claude Desktop config. You only need to do this once per machine.
 
@@ -227,7 +227,7 @@ Then **authorize MediaSage in Roon** — see [Roon Authorization](#roon-authoriz
 
 **Optional:** Set up Claude Desktop integration (natural-language playlist control):
 ```bash
-python scripts/install_mcp.py
+python3 scripts/install_mcp.py
 ```
 
 ### NAS Platforms

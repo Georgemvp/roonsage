@@ -2,7 +2,7 @@
 # {
 #   "mcpServers": {
 #     "roon-mediasage": {
-#       "command": "python",
+#       "command": "python3",
 #       "args": ["/FULL/PATH/TO/roon-mediasage/mcp_server.py"]
 #     }
 #   }
