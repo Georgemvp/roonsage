@@ -149,3 +149,7 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 - Tools: `get_library_stats`, `search_library`, `filter_tracks`, `list_zones`, `play_tracks`, `queue_tracks`
 - De MCP server bevat GEEN eigen LLM logica — Claude Desktop doet het denkwerk
 - Bij wijzigingen aan de API endpoints in `main.py`, update ook de corresponderende tool in `mcp_server.py`
+- The MCP server runs LOCALLY on the user's machine, not inside Docker
+- `pip install "mcp[cli]"` must be done locally, not in the Docker container
+- `scripts/install_mcp.py` configures Claude Desktop — it's a one-time local setup per machine
+- The MCP server connects to MediaSage via HTTP, so MediaSage must be running (Docker or bare metal)

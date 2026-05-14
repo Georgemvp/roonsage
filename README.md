@@ -146,6 +146,54 @@ Estimated cost displays before you generate. MediaSage auto-detects your provide
 - Remove tracks you don't want
 - See actual token usage and cost
 
+### Claude Desktop Integration
+
+Use Claude Desktop as a conversational interface for MediaSage. Ask for playlists in natural language, and Claude will search your library, pick tracks, and play them on Roon — all using your Claude Pro subscription (no separate API key needed).
+
+**How it works:** Claude Desktop connects to the running MediaSage API via MCP (Model Context Protocol). MediaSage provides the library data and Roon connection. Claude does the thinking.
+
+> **Important:** The MCP server runs locally on your Mac/PC — not inside Docker. Claude Desktop needs to start `mcp_server.py` as a local process. This is a one-time setup per machine.
+
+#### Setup
+
+1. Install the MCP dependency locally (not inside Docker):
+   ```bash
+   pip install "mcp[cli]"
+   ```
+
+2. Run the install script to configure Claude Desktop automatically:
+   ```bash
+   python scripts/install_mcp.py
+   ```
+   This adds the MCP server to your Claude Desktop config. You only need to do this once per machine.
+
+3. Restart Claude Desktop.
+
+4. Make sure MediaSage is running (via Docker or bare metal) — the MCP server connects to it on `http://localhost:5765`.
+
+If MediaSage runs on a different address, set the `MEDIASAGE_URL` environment variable before starting Claude Desktop.
+
+#### Example prompts
+
+- *"What jazz albums do I have in my library?"*
+- *"Make a playlist of mellow 90s electronic music and play it in the living room."*
+- *"Find everything by Radiohead and add it to the queue."*
+
+#### Manual setup (alternative)
+
+If you prefer not to use the install script, add this to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/claude/claude_desktop_config.json` (Linux):
+
+```json
+{
+  "mcpServers": {
+    "roon-mediasage": {
+      "command": "python",
+      "args": ["/full/path/to/roon-mediasage/mcp_server.py"]
+    }
+  }
+}
+```
+
 ---
 
 ## Installation
@@ -399,69 +447,6 @@ For LM Studio, text-generation-webui, vLLM, or any OpenAI-compatible server:
    - **Context Window:** Your model's context size
 
 </details>
-
-### Claude Desktop (MCP)
-
-Use Claude Desktop as a natural-language interface for MediaSage via [MCP](https://modelcontextprotocol.io) (Model Context Protocol). Instead of using the web UI, you can just tell Claude what you want and it will search your library, build a playlist, and send it to Roon — all in a single conversation.
-
-**How it works:** Claude Desktop talks to `mcp_server.py` over stdio. The MCP server calls the MediaSage REST API, which handles library lookups and Roon playback. Claude does the thinking (interpreting your prompt, choosing tracks); MediaSage supplies the library data and Roon connection. No extra API key is needed — your Claude Pro or Claude Team subscription covers it.
-
-**Setup:**
-
-1. Make sure MediaSage is running on `http://localhost:5765` and dependencies are installed:
-   ```bash
-   pip install -r requirements.txt
-   ```
-   `mcp[cli]` is included in `requirements.txt`, so no separate install step is needed.
-
-2. Run the install script — it automatically detects the repo path and updates the Claude Desktop config:
-   ```bash
-   python scripts/install_mcp.py
-   ```
-   The script is idempotent: running it multiple times is safe. It never overwrites existing MCP server entries.
-
-3. Restart Claude Desktop.
-
-<details>
-<summary><strong>Manual alternative: edit claude_desktop_config.json yourself</strong></summary>
-
-Add the following to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/claude/claude_desktop_config.json` (Linux):
-
-```json
-{
-  "mcpServers": {
-    "roon-mediasage": {
-      "command": "python",
-      "args": ["/FULL/PATH/TO/roon-mediasage/mcp_server.py"]
-    }
-  }
-}
-```
-
-Replace `/FULL/PATH/TO/roon-mediasage` with the absolute path to the repo on your machine.
-
-</details>
-
-**Optional:** If MediaSage runs on a different host or port, set `MEDIASAGE_URL` in the config:
-```json
-{
-  "mcpServers": {
-    "roon-mediasage": {
-      "command": "python",
-      "args": ["/FULL/PATH/TO/roon-mediasage/mcp_server.py"],
-      "env": {
-        "MEDIASAGE_URL": "http://192.168.1.x:5765"
-      }
-    }
-  }
-}
-```
-
-**Example prompts in Claude Desktop:**
-
-- *"Wat voor jazz heb ik in mijn library?"*
-- *"Maak een playlist met rustige elektronische muziek uit de jaren 90 en speel het af in de woonkamer."*
-- *"Zoek alles van Radiohead en voeg het toe aan de queue."*
 
 ---
 
