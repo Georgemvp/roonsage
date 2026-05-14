@@ -52,7 +52,7 @@ MODEL_DEFAULTS = {
     },
     "gemini": {
         "analysis": "gemini-2.5-flash",
-        "generation": "gemini-2.5-flash",
+        "generation": "gemini-2.5-flash-lite",
     },
     "ollama": {
         "analysis": "",  # Populated from Ollama API
