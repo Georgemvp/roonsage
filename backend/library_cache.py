@@ -509,6 +509,12 @@ def sync_library(
             genres = album_data.get("genres", [])
             year = album_data.get("year")
 
+            # Flat browse tracks have no _album_item_key, so album_item_key is
+            # still "". Generate a deterministic synthetic key from artist +
+            # album so get_album_candidates() can group these tracks into albums.
+            if not album_item_key:
+                album_item_key = f"synth:{artist}|||{album}"
+
             # Roon does not expose play counts via Browse API
             view_count = 0
             last_viewed_at = None
