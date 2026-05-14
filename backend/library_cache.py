@@ -123,6 +123,19 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         -- Ensure sync_state has exactly one row
         INSERT OR IGNORE INTO sync_state (id) VALUES (1);
 
+        -- Albums table: direct store of Roon album metadata (populated during sync)
+        CREATE TABLE IF NOT EXISTS albums (
+            item_key TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            artist TEXT NOT NULL,
+            year INTEGER,
+            genres TEXT,
+            image_key TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist);
+
         -- Results table: persistent storage for generated playlists and recommendations
         CREATE TABLE IF NOT EXISTS results (
             id TEXT PRIMARY KEY,
@@ -170,6 +183,20 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         logger.info("Migration applied: added subtitle column to results")
     except sqlite3.OperationalError:
         pass  # Column already exists
+
+    # Migration: create albums table if it was added after the DB was created
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS albums (
+            item_key TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            artist TEXT NOT NULL,
+            year INTEGER,
+            genres TEXT,
+            image_key TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist);
+    """)
 
     # Index on parent_rating_key (must come after migration adds the column)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tracks_parent_key ON tracks(parent_rating_key)")
@@ -458,6 +485,39 @@ def sync_library(
         album_metadata = roon_client.get_all_albums_metadata()
         logger.info("Got metadata for %d albums", len(album_metadata))
 
+        # Store album metadata directly in the albums table
+        album_batch = []
+        for item_key, meta in album_metadata.items():
+            album_batch.append((
+                item_key,
+                meta.get("title", "Unknown Album"),
+                meta.get("artist", "Unknown Artist"),
+                meta.get("year"),
+                json.dumps(meta.get("genres", [])),
+                meta.get("image_key", ""),
+            ))
+
+        conn.execute("DELETE FROM albums")  # Full replace each sync
+        conn.executemany(
+            "INSERT INTO albums (item_key, title, artist, year, genres, image_key, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+            album_batch,
+        )
+        conn.commit()
+        logger.info("Stored %d albums in albums table", len(album_batch))
+
+        # Build artist → genres mapping for track-level genre enrichment fallback
+        artist_genres: dict[str, list[str]] = {}
+        for meta in album_metadata.values():
+            artist_lower = meta.get("artist", "").strip().lower()
+            if not artist_lower:
+                continue
+            if artist_lower not in artist_genres:
+                artist_genres[artist_lower] = []
+            for g in meta.get("genres", []):
+                if g not in artist_genres[artist_lower]:
+                    artist_genres[artist_lower].append(g)
+
         # Phase 2: Fetch all tracks from Roon — report per-album progress so
         # the UI can show "Scanning albums: N / total" instead of a frozen bar.
         with _sync_lock:
@@ -507,6 +567,10 @@ def sync_library(
                 if fallback_title and fallback_title != "Unknown Album":
                     album_data = album_by_title.get(fallback_title.lower(), {})
             genres = album_data.get("genres", [])
+            # Fallback: enrich genres via artist → genres mapping when album lookup missed
+            if not genres:
+                artist_lower = artist.strip().lower()
+                genres = artist_genres.get(artist_lower, [])
             year = album_data.get("year")
 
             # Flat browse tracks have no _album_item_key, so album_item_key is
@@ -575,6 +639,16 @@ def sync_library(
         # Final commit for the last batch
         conn.commit()
 
+        # Remove tracks from previous syncs that were not refreshed.
+        # Every track touched by this sync has updated_at = now; anything
+        # older belongs to a previous (possibly broken) sync run.
+        sync_start_iso = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        stale_deleted = conn.execute(
+            "DELETE FROM tracks WHERE updated_at < ?",
+            (sync_start_iso,),
+        ).rowcount
+        if stale_deleted:
+            logger.info("Removed %d stale tracks from previous syncs", stale_deleted)
         conn.commit()
 
         # Update sync state
@@ -733,10 +807,14 @@ def get_album_candidates(
     decades: list[str] | None = None,
     exclude_live: bool = True,
 ) -> list[dict[str, Any]]:
-    """Get album candidates aggregated from cached tracks.
+    """Get album candidates from the albums table.
 
-    Groups tracks by parent_rating_key to produce album-level data.
-    Supports genre/decade filtering.
+    Queries the dedicated albums table (populated during sync) rather than
+    aggregating from tracks. This provides accurate genre/year data for all
+    11k+ albums and is significantly faster.
+
+    Falls back to the legacy track-aggregation path when the albums table
+    is empty (i.e., the user has not yet run a post-migration sync).
 
     Args:
         genres: Optional genre filter (OR matching)
@@ -749,85 +827,169 @@ def get_album_candidates(
     """
     conn = ensure_db_initialized()
     try:
-        conditions = ["parent_rating_key IS NOT NULL", "parent_rating_key != ''"]
-        if exclude_live:
-            conditions.append("is_live = 0")
-        params: list[Any] = []
+        # Check if albums table has been populated
+        has_albums = conn.execute("SELECT EXISTS(SELECT 1 FROM albums LIMIT 1)").fetchone()[0]
 
-        if decades:
-            decade_conditions = []
-            for decade in decades:
-                try:
-                    start_year = int(decade.rstrip("s"))
-                except ValueError:
-                    continue
-                end_year = start_year + 9
-                decade_conditions.append("(year >= ? AND year <= ?)")
-                params.extend([start_year, end_year])
-            if decade_conditions:
-                conditions.append(f"({' OR '.join(decade_conditions)})")
-
-        where_clause = " AND ".join(conditions)
-        query = (
-            f"SELECT rating_key, title, artist, album, year, genres, parent_rating_key "
-            f"FROM tracks WHERE {where_clause} "
-            f"ORDER BY parent_rating_key, rating_key"
-        )
-
-        rows = conn.execute(query, params).fetchall()
-
-        # Aggregate tracks into albums
-        albums: dict[str, dict[str, Any]] = {}
-        for row in rows:
-            prk = row["parent_rating_key"]
-            track_genres = json.loads(row["genres"]) if row["genres"] else []
-
-            if prk not in albums:
-                # Derive decade from year
-                year = row["year"]
-                decade = ""
-                if year:
-                    decade_start = (year // 10) * 10
-                    decade = f"{decade_start}s"
-
-                albums[prk] = {
-                    "parent_rating_key": prk,
-                    "album": row["album"],
-                    # artist column stores album artist from Roon subtitle parsing
-                    "album_artist": row["artist"],
-                    "year": year,
-                    "genres": [],
-                    "decade": decade,
-                    "track_count": 0,
-                    "track_rating_keys": [],
-                    "_genre_set": set(),
-                }
-
-            album = albums[prk]
-            album["track_count"] += 1
-            album["track_rating_keys"].append(row["rating_key"])
-            for g in track_genres:
-                if g not in album["_genre_set"]:
-                    album["_genre_set"].add(g)
-                    album["genres"].append(g)
-
-        # Apply genre filter in Python (genres stored as JSON)
-        result = []
-        genres_lower = [g.lower() for g in genres] if genres else None
-        for album in albums.values():
-            # Remove internal tracking set
-            del album["_genre_set"]
-
-            if genres_lower:
-                album_genres_lower = [g.lower() for g in album["genres"]]
-                if not any(g in album_genres_lower for g in genres_lower):
-                    continue
-
-            result.append(album)
-
-        return result
+        if has_albums:
+            return _get_album_candidates_from_albums_table(conn, genres, decades, exclude_live)
+        else:
+            # Legacy fallback: aggregate from tracks table (pre-migration databases)
+            logger.info("albums table empty, falling back to track-aggregation for album candidates")
+            return _get_album_candidates_legacy(conn, genres, decades, exclude_live)
     finally:
         conn.close()
+
+
+def _get_album_candidates_from_albums_table(
+    conn: sqlite3.Connection,
+    genres: list[str] | None,
+    decades: list[str] | None,
+    exclude_live: bool,
+) -> list[dict[str, Any]]:
+    """Query album candidates directly from the albums table."""
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    if decades:
+        decade_conditions = []
+        for decade in decades:
+            try:
+                start_year = int(decade.rstrip("s"))
+            except ValueError:
+                continue
+            end_year = start_year + 9
+            decade_conditions.append("(year >= ? AND year <= ?)")
+            params.extend([start_year, end_year])
+        if decade_conditions:
+            conditions.append(f"({' OR '.join(decade_conditions)})")
+
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
+    query = f"SELECT item_key, title, artist, year, genres, image_key FROM albums WHERE {where_clause}"
+    rows = conn.execute(query, params).fetchall()
+
+    result = []
+    genres_lower = [g.lower() for g in genres] if genres else None
+
+    for row in rows:
+        album_genres = json.loads(row["genres"]) if row["genres"] else []
+
+        # Genre filter in Python (JSON field)
+        if genres_lower:
+            album_genres_lower = [g.lower() for g in album_genres]
+            if not any(g in album_genres_lower for g in genres_lower):
+                continue
+
+        # Derive decade from year
+        year = row["year"]
+        decade = ""
+        if year:
+            decade = f"{(year // 10) * 10}s"
+
+        # Exclude live albums by title
+        if exclude_live:
+            title = row["title"] or ""
+            if re.search(r"\b(?:live|concert|bootleg)\b", title, re.IGNORECASE):
+                continue
+            if re.search(r"\d{4}[-/]\d{2}[-/]\d{2}", title):
+                continue
+
+        result.append({
+            "parent_rating_key": row["item_key"],
+            "album": row["title"],
+            "album_artist": row["artist"],
+            "year": year,
+            "genres": album_genres,
+            "decade": decade,
+            "track_count": 0,       # Not needed for recommendation selection
+            "track_rating_keys": [],  # Populated lazily at play time
+        })
+
+    return result
+
+
+def _get_album_candidates_legacy(
+    conn: sqlite3.Connection,
+    genres: list[str] | None,
+    decades: list[str] | None,
+    exclude_live: bool,
+) -> list[dict[str, Any]]:
+    """Legacy fallback: aggregate album candidates from the tracks table.
+
+    Used when the albums table has not yet been populated (first sync after
+    the migration that added the albums table).
+    """
+    conditions = ["parent_rating_key IS NOT NULL", "parent_rating_key != ''"]
+    if exclude_live:
+        conditions.append("is_live = 0")
+    params: list[Any] = []
+
+    if decades:
+        decade_conditions = []
+        for decade in decades:
+            try:
+                start_year = int(decade.rstrip("s"))
+            except ValueError:
+                continue
+            end_year = start_year + 9
+            decade_conditions.append("(year >= ? AND year <= ?)")
+            params.extend([start_year, end_year])
+        if decade_conditions:
+            conditions.append(f"({' OR '.join(decade_conditions)})")
+
+    where_clause = " AND ".join(conditions)
+    query = (
+        f"SELECT rating_key, title, artist, album, year, genres, parent_rating_key "
+        f"FROM tracks WHERE {where_clause} "
+        f"ORDER BY parent_rating_key, rating_key"
+    )
+
+    rows = conn.execute(query, params).fetchall()
+
+    albums: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        prk = row["parent_rating_key"]
+        track_genres = json.loads(row["genres"]) if row["genres"] else []
+
+        if prk not in albums:
+            year = row["year"]
+            decade = ""
+            if year:
+                decade_start = (year // 10) * 10
+                decade = f"{decade_start}s"
+
+            albums[prk] = {
+                "parent_rating_key": prk,
+                "album": row["album"],
+                "album_artist": row["artist"],
+                "year": year,
+                "genres": [],
+                "decade": decade,
+                "track_count": 0,
+                "track_rating_keys": [],
+                "_genre_set": set(),
+            }
+
+        album = albums[prk]
+        album["track_count"] += 1
+        album["track_rating_keys"].append(row["rating_key"])
+        for g in track_genres:
+            if g not in album["_genre_set"]:
+                album["_genre_set"].add(g)
+                album["genres"].append(g)
+
+    result = []
+    genres_lower = [g.lower() for g in genres] if genres else None
+    for album in albums.values():
+        del album["_genre_set"]
+
+        if genres_lower:
+            album_genres_lower = [g.lower() for g in album["genres"]]
+            if not any(g in album_genres_lower for g in genres_lower):
+                continue
+
+        result.append(album)
+
+    return result
 
 
 def get_cached_genre_decade_stats() -> dict[str, list[dict[str, Any]]]:

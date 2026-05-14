@@ -1274,6 +1274,23 @@ async def recommend_generate(request: RecommendGenerateRequest, raw_request: Req
                     "Try broadening your prompt or adjusting filters."
                 )
 
+            # Lazily populate track_rating_keys for library-mode recommendations
+            # that came from the albums table (which stores no track lists).
+            if not is_discovery:
+                roon_client_for_tracks = get_roon_client()
+                for rec in recommendations:
+                    if not rec.track_rating_keys and rec.rating_key:
+                        try:
+                            track_keys = await asyncio.to_thread(
+                                roon_client_for_tracks.get_album_track_keys,
+                                rec.rating_key,
+                            )
+                            rec.track_rating_keys = track_keys
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to get track keys for album %s: %s", rec.album, e
+                            )
+
             # Step 2: Research primary album
             if await _check_disconnect():
                 return

@@ -850,6 +850,7 @@ class RoonClient:
                         "year": year,
                         "title": album.get("title", ""),
                         "artist": artist,
+                        "image_key": album.get("image_key", ""),
                     }
 
             # --- Step 2: enrich with genres from the genres hierarchy ---
@@ -1091,6 +1092,32 @@ class RoonClient:
             return zone.get("display_name") or zone_id
         except Exception:
             return zone_id
+
+    def get_album_track_keys(self, album_item_key: str) -> list[str]:
+        """Browse into an album and return its track item_keys.
+
+        Used to lazily populate track_rating_keys for album recommendations
+        at play time, so the albums table doesn't need to store track lists.
+
+        Args:
+            album_item_key: The Roon item_key of the album in the albums hierarchy
+
+        Returns:
+            List of track item_keys, empty on failure or if not connected
+        """
+        if not self.is_connected():
+            return []
+        try:
+            with self._albums_browse_lock:
+                self._api.browse_browse({"hierarchy": "albums", "item_key": album_item_key})
+                items = self._paginate_browse_load("albums")
+                return [
+                    item["item_key"] for item in items
+                    if item.get("hint") in ("action", "action_list") and item.get("item_key")
+                ]
+        except Exception as e:
+            logger.warning("get_album_track_keys failed for %s: %s", album_item_key, e)
+            return []
 
     def get_image_url(self, image_key: str, width: int = 500, height: int = 500) -> str | None:
         """Return a URL for a Roon image by image_key."""
