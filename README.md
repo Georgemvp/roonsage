@@ -173,6 +173,22 @@ Use Claude Desktop as a conversational interface for MediaSage. Ask for playlist
 
 If MediaSage runs on a different address, set the `MEDIASAGE_URL` environment variable before starting Claude Desktop.
 
+#### Model Selection in Claude Desktop
+
+Claude Desktop lets you choose which model to use via the model dropdown at the top of the conversation. The model you pick determines how well Claude interprets your music request and selects tracks — the MCP tools themselves work identically with every model.
+
+| Model | Best for | Playlist quality | Album discovery | Cost |
+|-------|----------|-----------------|-----------------|------|
+| **Claude Sonnet 4.6** | Daily use — fast, accurate, great value | Understands mood, era, and genre nuances well. Picks coherent playlists from large filtered sets. | Solid album recommendations with good editorial reasoning. | Included in Claude Pro ($20/mo) |
+| **Claude Opus 4.7** | Complex or conversational sessions | Best at interpreting abstract prompts ("something that feels like driving at night"). Excels at multi-turn refinement — "more like this, but darker." Strongest at finding unexpected connections between artists. | Most detailed and opinionated album write-ups. Best at discovery mode — finding overlooked albums in your library. | Included in Claude Pro ($20/mo) but may have lower daily limits |
+| **Claude Haiku 4.5** | Quick, simple requests | Good for straightforward genre/decade filters. Less nuanced with abstract mood descriptions. | Basic recommendations, shorter explanations. | Included in Claude Pro ($20/mo) |
+
+All models are included in your Claude Pro subscription — there are no per-token API costs when using MCP. The difference is purely in quality: Opus handles abstract prompts and multi-turn conversations best, Sonnet is the sweet spot for daily use, and Haiku is fastest for simple requests. You can switch models mid-conversation using the dropdown at the top of the Claude Desktop chat.
+
+**Tip:** Start with Sonnet for most sessions. Switch to Opus when you want Claude to dig deeper — for example, when you're exploring your library for albums you've forgotten about, or when you want highly curated playlists based on abstract moods.
+
+**MCP vs. Web UI:** The MediaSage web UI uses its own LLM calls (Gemini, OpenAI, or Anthropic API) and charges per token. The MCP integration uses your Claude Pro subscription instead — no separate API key or per-token costs. The web UI is single-shot (one prompt → one playlist), while Claude Desktop lets you have a conversation: refine your request, ask follow-up questions, and iterate on playlists across multiple turns.
+
 #### Example prompts
 
 - *"What jazz albums do I have in my library?"*
