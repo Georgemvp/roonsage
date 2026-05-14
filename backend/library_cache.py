@@ -1010,18 +1010,28 @@ def _get_album_candidates_legacy(
     return result
 
 
-def get_cached_genre_decade_stats() -> dict[str, list[dict[str, Any]]]:
-    """Get genre and decade stats from the local cache.
+def get_cached_genre_decade_stats() -> dict[str, Any]:
+    """Get genre, decade stats, and total track count from the local cache.
 
     Returns genre/decade lists derived from cached tracks, avoiding a
     round-trip to the Roon Core.
 
     Returns:
-        Dict with 'genres' and 'decades' lists, each containing
-        {'name': str, 'count': int} dicts sorted by name.
+        Dict with 'total_tracks' (int), 'genres' and 'decades' lists,
+        each containing {'name': str, 'count': int} dicts sorted by name.
+
+    Notes:
+        Many tracks have year=NULL in the tracks table because year is only
+        populated when the track's album item_key matches album metadata during
+        sync (year has no artist-based fallback like genres do). When track-level
+        year data is sparse, decades are supplemented from the albums table via
+        a parent_rating_key join, which has better year coverage.
     """
     conn = ensure_db_initialized()
     try:
+        # Total track count
+        total_tracks: int = conn.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
+
         rows = conn.execute("SELECT genres, year FROM tracks").fetchall()
 
         genre_counts: dict[str, int] = {}
@@ -1033,12 +1043,30 @@ def get_cached_genre_decade_stats() -> dict[str, list[dict[str, Any]]]:
                 for g in json.loads(row["genres"]):
                     genre_counts[g] = genre_counts.get(g, 0) + 1
 
-            # Tally decades
+            # Tally decades from track-level year (may be NULL for many tracks)
             year = row["year"]
             if year:
                 decade_start = (year // 10) * 10
                 decade_name = f"{decade_start}s"
                 decade_counts[decade_name] = decade_counts.get(decade_name, 0) + 1
+
+        # Fallback: if track-level year data is sparse (covers <10% of tracks),
+        # supplement decade counts from the albums table via parent_rating_key join.
+        # The albums table is populated directly from Roon album metadata during
+        # Phase 1 of sync and has better year coverage than the per-track year field.
+        tracks_with_year = sum(decade_counts.values())
+        if total_tracks > 0 and tracks_with_year < total_tracks * 0.10:
+            album_rows = conn.execute(
+                "SELECT a.year, COUNT(t.rating_key) AS cnt "
+                "FROM albums a "
+                "JOIN tracks t ON t.parent_rating_key = a.item_key "
+                "WHERE a.year IS NOT NULL "
+                "GROUP BY a.year"
+            ).fetchall()
+            for album_row in album_rows:
+                decade_start = (album_row["year"] // 10) * 10
+                decade_name = f"{decade_start}s"
+                decade_counts[decade_name] = decade_counts.get(decade_name, 0) + album_row["cnt"]
 
         genres = sorted(
             [{"name": name, "count": count} for name, count in genre_counts.items()],
@@ -1049,7 +1077,7 @@ def get_cached_genre_decade_stats() -> dict[str, list[dict[str, Any]]]:
             key=lambda x: x["name"],
         )
 
-        return {"genres": genres, "decades": decades}
+        return {"total_tracks": total_tracks, "genres": genres, "decades": decades}
     finally:
         conn.close()
 

@@ -598,7 +598,7 @@ async def get_library_stats_cached() -> LibraryStatsResponse:
     """Get genre/decade stats from the local cache (no Roon round-trip)."""
     stats = await asyncio.to_thread(library_cache.get_cached_genre_decade_stats)
     return LibraryStatsResponse(
-        total_tracks=0,  # Not needed for filter chips
+        total_tracks=stats.get("total_tracks", 0),
         genres=[GenreCount(**g) for g in stats["genres"]],
         decades=[DecadeCount(**d) for d in stats["decades"]],
     )
