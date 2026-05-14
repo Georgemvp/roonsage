@@ -177,6 +177,11 @@ docker compose up -d
 
 Then **authorize MediaSage in Roon** — see [Roon Authorization](#roon-authorization).
 
+**Optional:** Set up Claude Desktop integration (natural-language playlist control):
+```bash
+python scripts/install_mcp.py
+```
+
 ### NAS Platforms
 
 <details>
@@ -403,30 +408,41 @@ Use Claude Desktop as a natural-language interface for MediaSage via [MCP](https
 
 **Setup:**
 
-1. Install the MCP package:
+1. Make sure MediaSage is running on `http://localhost:5765` and dependencies are installed:
    ```bash
-   pip install "mcp[cli]"
+   pip install -r requirements.txt
    ```
+   `mcp[cli]` is included in `requirements.txt`, so no separate install step is needed.
 
-2. Make sure MediaSage is running on `http://localhost:5765`.
-
-3. Add the MCP server to your Claude Desktop config at  
-   `~/Library/Application Support/Claude/claude_desktop_config.json`:
-   ```json
-   {
-     "mcpServers": {
-       "roon-mediasage": {
-         "command": "python",
-         "args": ["/FULL/PATH/TO/roon-mediasage/mcp_server.py"]
-       }
-     }
-   }
+2. Run the install script — it automatically detects the repo path and updates the Claude Desktop config:
+   ```bash
+   python scripts/install_mcp.py
    ```
-   Replace `/FULL/PATH/TO/roon-mediasage` with the absolute path to the repo on your machine.
+   The script is idempotent: running it multiple times is safe. It never overwrites existing MCP server entries.
 
-4. Restart Claude Desktop.
+3. Restart Claude Desktop.
 
-**Optional:** If MediaSage runs on a different host or port, set the `MEDIASAGE_URL` environment variable:
+<details>
+<summary><strong>Manual alternative: edit claude_desktop_config.json yourself</strong></summary>
+
+Add the following to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/claude/claude_desktop_config.json` (Linux):
+
+```json
+{
+  "mcpServers": {
+    "roon-mediasage": {
+      "command": "python",
+      "args": ["/FULL/PATH/TO/roon-mediasage/mcp_server.py"]
+    }
+  }
+}
+```
+
+Replace `/FULL/PATH/TO/roon-mediasage` with the absolute path to the repo on your machine.
+
+</details>
+
+**Optional:** If MediaSage runs on a different host or port, set `MEDIASAGE_URL` in the config:
 ```json
 {
   "mcpServers": {

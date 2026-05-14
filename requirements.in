@@ -13,3 +13,4 @@ unidecode
 httpx
 json-repair
 readability-lxml
+mcp[cli]
