@@ -119,18 +119,38 @@ def main() -> None:
     # Ensure mcpServers key exists
     mcp_servers: dict = config.setdefault("mcpServers", {})
 
-    # Idempotency check
+    # Build the desired entry (also prints the detected Python path)
+    desired_entry = build_server_entry(mcp_server_path)
+    desired_command = desired_entry["command"]
+
+    # Idempotency check — update if the command path changed, skip if identical
     if server_name in mcp_servers:
-        existing_path = mcp_servers[server_name].get("args", [None])[0]
+        existing_command = mcp_servers[server_name].get("command", "")
+        if existing_command == desired_command:
+            existing_args = mcp_servers[server_name].get("args", [None])[0]
+            print(
+                f"[=] '{server_name}' staat al correct in Claude Desktop config.\n"
+                f"    Command: {existing_command}\n"
+                f"    Server:  {existing_args}\n"
+                "    Niets gewijzigd."
+            )
+            return
+        # Command path differs — update the entry
+        mcp_servers[server_name] = desired_entry
+        config_path.write_text(
+            json.dumps(config, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
         print(
-            f"[=] '{server_name}' staat al in Claude Desktop config.\n"
-            f"    Pad: {existing_path}\n"
-            "    Niets gewijzigd."
+            f"[~] Config bijgewerkt: command gewijzigd naar {desired_command}\n"
+            f"    Config: {config_path}\n"
+            "\n"
+            "    Herstart Claude Desktop om de wijziging te activeren."
         )
         return
 
     # Add the new entry
-    mcp_servers[server_name] = build_server_entry(mcp_server_path)
+    mcp_servers[server_name] = desired_entry
 
     # Write back (pretty-printed, UTF-8)
     config_path.write_text(
