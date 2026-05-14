@@ -3394,13 +3394,10 @@ function openPlaylistRestartModal() {
 }
 
 function getClientStatusText(client) {
-    if (client.is_playing) {
+    if (client.state === 'playing') {
         return { text: 'Playing', cls: 'status-playing' };
     }
-    if (client.is_mobile) {
-        return { text: 'Idle — start playing on device first', cls: 'status-mobile' };
-    }
-    return { text: 'Idle — may be slow to respond', cls: 'status-idle' };
+    return { text: 'Idle', cls: 'status-idle' };
 }
 
 function populateClientList(clients) {
@@ -3420,15 +3417,15 @@ function populateClientList(clients) {
     hintEl.classList.remove('hidden');
     listEl.innerHTML = clients.map(client => {
         const status = getClientStatusText(client);
+        const outputsText = (client.outputs && client.outputs.length > 1) ? escapeHtml(client.outputs.join(', ')) : '';
         return `
-        <div class="client-item" data-client-id="${escapeHtml(client.client_id)}"
+        <div class="client-item" data-client-id="${escapeHtml(client.zone_id)}"
              role="option" tabindex="0"
-             aria-label="${escapeHtml(client.name)} — ${escapeHtml(client.product)} on ${escapeHtml(client.platform)} — ${status.text}">
-            <div class="client-status-dot ${client.is_playing ? 'playing' : (client.is_mobile ? 'mobile' : 'idle')}" aria-hidden="true"></div>
+             aria-label="${escapeHtml(client.display_name)} — ${status.text}">
+            <div class="client-status-dot ${client.state === 'playing' ? 'playing' : 'idle'}" aria-hidden="true"></div>
             <div class="client-info">
-                <div class="client-name">${escapeHtml(client.name)}</div>
-                <span class="client-product-badge">${escapeHtml(client.product)}</span>
-                <span class="client-platform">${escapeHtml(client.platform)}</span>
+                <div class="client-name">${escapeHtml(client.display_name)}</div>
+                ${outputsText ? `<span class="client-platform">${outputsText}</span>` : ''}
                 <div class="client-status-text ${status.cls}">${status.text}</div>
             </div>
         </div>`;
@@ -3516,7 +3513,7 @@ async function executePlayQueue(clientId, mode) {
 
         setLoading(false);
         if (response.success) {
-            const message = `${response.tracks_queued} tracks sent to ${response.client_name}`;
+            const message = `${response.tracks_queued} tracks sent to ${response.zone_name}`;
             document.getElementById('play-success-message').textContent = message;
             const playSuccessModal = document.getElementById('play-success-modal');
             playSuccessModal.classList.remove('hidden');
