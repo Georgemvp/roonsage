@@ -146,7 +146,7 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 - Het gebruikt `mcp[cli]` (FastMCP) en `httpx` voor async HTTP calls
 - De server praat met de MediaSage API op `MEDIASAGE_URL` (default: `http://localhost:5765`)
 - Transport: stdio
-- Tools: `get_library_stats`, `search_library`, `filter_tracks`, `list_zones`, `play_tracks`, `queue_tracks`
+- Tools: `get_library_stats`, `search_library`, `filter_tracks`, `list_zones`, `play_tracks`, `queue_tracks`, `sync_library`
 - De MCP server bevat GEEN eigen LLM logica — Claude Desktop doet het denkwerk
 - Bij wijzigingen aan de API endpoints in `main.py`, update ook de corresponderende tool in `mcp_server.py`
 - The MCP server runs LOCALLY on the user's machine, not inside Docker

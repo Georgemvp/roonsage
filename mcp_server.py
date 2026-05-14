@@ -244,6 +244,21 @@ async def queue_tracks(item_keys: list[str], zone_id: str) -> str:
             return f"Fout van MediaSage API: {exc.response.status_code} — {exc.response.text}"
 
 
+@mcp.tool()
+async def sync_library() -> str:
+    """Trigger a library sync to refresh the local cache from Roon.
+    Use this when library stats show 0 tracks or when the user asks to refresh/sync their library.
+    The sync runs in the background — it may take a minute for large libraries."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            r = await client.post(f"{MEDIASAGE_URL}/api/library/sync")
+            return r.text
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"Fout van MediaSage API: {exc.response.status_code} — {exc.response.text}"
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
