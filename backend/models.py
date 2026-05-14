@@ -216,6 +216,24 @@ class FilterPreviewResponse(BaseModel):
     estimated_cost: float
 
 
+class FilterLibraryRequest(BaseModel):
+    """Request to retrieve filtered tracks from the local library cache."""
+
+    genres: list[str] = []
+    decades: list[str] = []
+    min_rating: int = 0  # 0 = any; currently no-op (Roon API limitation)
+    exclude_live: bool = True
+    max_tracks: int = 500  # Cap to protect context windows
+
+
+class FilterLibraryResponse(BaseModel):
+    """Response with filtered tracks from the local library cache."""
+
+    total_matching: int
+    returned: int
+    tracks: list[Track]
+
+
 class SeedTrackInput(BaseModel):
     """Seed track input for generation."""
 

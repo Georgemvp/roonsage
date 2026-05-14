@@ -30,6 +30,8 @@ from backend.models import (
     AnalyzeTrackResponse,
     ConfigResponse,
     DecadeCount,
+    FilterLibraryRequest,
+    FilterLibraryResponse,
     FilterPreviewRequest,
     FilterPreviewResponse,
     GenerateRequest,
@@ -614,6 +616,57 @@ async def search_library(q: str = Query(..., description="Search query")) -> lis
     # Normalize smart/curly quotes to straight quotes (iOS auto-correction)
     normalized = q.replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
     return await asyncio.to_thread(roon_client.search_tracks, normalized)
+
+
+@app.post("/api/library/filter", response_model=FilterLibraryResponse)
+async def filter_library_tracks(request: FilterLibraryRequest) -> FilterLibraryResponse:
+    """Return filtered tracks from the local SQLite library cache.
+
+    Applies genre, decade, live-exclusion, and rating filters, then returns
+    actual Track objects (with item_key / rating_key) ready for playback.
+    Results are capped at ``max_tracks`` to keep API responses manageable.
+    """
+    if not library_cache.has_cached_tracks():
+        raise HTTPException(status_code=400, detail="Library cache is empty. Please sync your library first.")
+
+    genres = request.genres if request.genres else None
+    decades = request.decades if request.decades else None
+
+    # Fetch all matching tracks (no SQL limit \u2014 genre filtering is done in Python)
+    raw_tracks = await asyncio.to_thread(
+        library_cache.get_tracks_by_filters,
+        genres=genres,
+        decades=decades,
+        min_rating=request.min_rating,
+        exclude_live=request.exclude_live,
+        limit=0,  # fetch all, we cap below
+    )
+
+    total_matching = len(raw_tracks)
+
+    # Cap to max_tracks with random sampling so callers get a representative set
+    import random as _random
+    if request.max_tracks > 0 and total_matching > request.max_tracks:
+        raw_tracks = _random.sample(raw_tracks, request.max_tracks)
+
+    tracks = [
+        Track(
+            rating_key=t["rating_key"],
+            title=t["title"],
+            artist=t["artist"],
+            album=t["album"],
+            duration_ms=t.get("duration_ms") or 0,
+            year=t.get("year"),
+            genres=t.get("genres") or [],
+        )
+        for t in raw_tracks
+    ]
+
+    return FilterLibraryResponse(
+        total_matching=total_matching,
+        returned=len(tracks),
+        tracks=tracks,
+    )
 
 
 # =============================================================================

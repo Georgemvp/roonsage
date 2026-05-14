@@ -127,7 +127,7 @@ async def filter_tracks(
         max_tracks:   Maximum number of tracks to return (default 200). The full
                       total is always reported so you know the real pool size.
     """
-    body: dict = {"exclude_live": exclude_live}
+    body: dict = {"exclude_live": exclude_live, "max_tracks": max_tracks}
     if genres:
         body["genres"] = genres
     if decades:
@@ -138,7 +138,7 @@ async def filter_tracks(
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         try:
             response = await client.post(
-                f"{MEDIASAGE_URL}/api/filter/preview",
+                f"{MEDIASAGE_URL}/api/library/filter",
                 json=body,
             )
             response.raise_for_status()
@@ -148,24 +148,19 @@ async def filter_tracks(
         except httpx.HTTPStatusError as exc:
             return f"Fout van MediaSage API: {exc.response.status_code} — {exc.response.text}"
 
-    # Truncate to max_tracks to protect Claude's context window
-    tracks = data if isinstance(data, list) else data.get("tracks", data)
-    total = len(tracks)
-    truncated = tracks[:max_tracks]
-
-    result = {
-        "total_matching": total,
-        "returned": len(truncated),
-        "truncated": total > max_tracks,
-        "tracks": truncated,
-    }
-    if total > max_tracks:
-        result["note"] = (
-            f"Resultaat bevat {total} tracks; alleen de eerste {max_tracks} worden "
-            "teruggegeven om de context beheersbaar te houden."
+    # Response already has the right shape: total_matching, returned, tracks
+    # Add a note when results are capped so Claude knows the real pool size
+    total = data.get("total_matching", 0)
+    returned = data.get("returned", 0)
+    if total > returned:
+        data["note"] = (
+            f"De library bevat {total} matching tracks; {returned} worden teruggegeven "
+            "(willekeurige steekproef). Gebruik de item_key / rating_key van elke track voor afspelen."
         )
+    else:
+        data["note"] = "Gebruik de rating_key van elke track als item_key voor play_tracks / queue_tracks."
 
-    return json.dumps(result, ensure_ascii=False, indent=2)
+    return json.dumps(data, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
