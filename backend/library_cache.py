@@ -567,10 +567,28 @@ def sync_library(
                 if fallback_title and fallback_title != "Unknown Album":
                     album_data = album_by_title.get(fallback_title.lower(), {})
             genres = album_data.get("genres", [])
-            # Fallback: enrich genres via artist → genres mapping when album lookup missed
+            # Fallback: enrich genres via artist → genres mapping when album lookup missed.
+            # Flat browse subtitles often contain full performer credits like
+            # "10cc, Eric Stewart, Graham Gouldman" while the albums table only
+            # stores the main artist ("10cc"), so we try multiple strategies.
             if not genres:
                 artist_lower = artist.strip().lower()
+                # Strategy 1: exact match on full artist string
                 genres = artist_genres.get(artist_lower, [])
+
+                if not genres and ',' in artist:
+                    # Strategy 2: match on first artist (most common credit position)
+                    first_artist = artist.split(',')[0].strip().lower()
+                    genres = artist_genres.get(first_artist, [])
+
+                if not genres and ',' in artist:
+                    # Strategy 3: match any individual artist in the credits list
+                    for individual in artist.split(','):
+                        individual = individual.strip().lower()
+                        matched = artist_genres.get(individual, [])
+                        if matched:
+                            genres = matched
+                            break
             year = album_data.get("year")
 
             # Flat browse tracks have no _album_item_key, so album_item_key is
