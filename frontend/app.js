@@ -492,7 +492,7 @@ async function fetchRoonZones() {
 async function createPlayQueue(ratingKeys, zoneId, mode) {
     return apiCall('/queue', {
         method: 'POST',
-        body: JSON.stringify({ rating_keys: ratingKeys, zone_id: zoneId, mode }),
+        body: JSON.stringify({ item_keys: ratingKeys, zone_id: zoneId, mode }),
     });
 }
 
