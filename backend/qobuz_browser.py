@@ -16,9 +16,13 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Simple TTL cache for qobuz_available so the setup status endpoint doesn't
-# hammer the Browse API on every poll.  60-second TTL.
+# hammer the Browse API on every poll.
+# Positive results (True) are cached for 5 minutes — availability rarely changes.
+# Negative results (False) are cached for only 30 seconds so that enabling
+# Qobuz in Roon is detected quickly on the next status poll.
 _qobuz_available_cache: tuple[bool, float] | None = None
-_QOBUZ_CACHE_TTL = 300.0  # 5-minute TTL — availability rarely changes
+_QOBUZ_CACHE_TTL_TRUE = 300.0   # 5 minutes when Qobuz IS available
+_QOBUZ_CACHE_TTL_FALSE = 30.0   # 30 seconds when Qobuz is NOT available
 
 # Titles that indicate a Qobuz section in the Roon browse root.
 _QOBUZ_TITLE_HINTS = {"qobuz", "my qobuz"}
@@ -42,9 +46,18 @@ def _find_item_by_title(items: list[dict[str, Any]], hints: set[str]) -> dict[st
 
 def _browse_root_items(roon) -> list[dict[str, Any]]:
     """Navigate to browse root and return its items. Must hold _browse_lock."""
-    roon._api.browse_browse({"hierarchy": "browse", "pop_all": True})
-    root_page = roon._api.browse_load({"hierarchy": "browse", "count": 100})
-    return root_page.get("items", []) if root_page else []
+    result = roon._api.browse_browse({"hierarchy": "browse", "pop_all": True})
+    if not result:
+        logger.warning("_browse_root_items: browse_browse returned None/empty")
+        return []
+    count = result.get("list", {}).get("count", 0)
+    if count == 0:
+        logger.warning("_browse_root_items: browse_browse list count is 0")
+        return []
+    root_page = roon._api.browse_load({"hierarchy": "browse", "count": count})
+    items = root_page.get("items", []) if root_page else []
+    logger.debug("_browse_root_items: loaded %d root items (count=%d)", len(items), count)
+    return items
 
 
 def search_qobuz_tracks_sync(roon, query: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -208,12 +221,14 @@ def check_qobuz_available_sync(roon) -> bool:
     across versions and configurations — Qobuz may appear at root or one level
     down depending on how the user has configured their Roon setup.
     """
+    logger.info("check_qobuz_available_sync: starting check...")
     try:
         with roon._browse_lock:
+            logger.info("check_qobuz_available_sync: lock acquired, loading root items")
             root_items = _browse_root_items(roon)
 
-            logger.debug(
-                "Qobuz availability check: root has %d items: %s",
+            logger.info(
+                "check_qobuz_available_sync: root has %d items: %s",
                 len(root_items),
                 [i.get("title") for i in root_items],
             )
@@ -222,9 +237,13 @@ def check_qobuz_available_sync(roon) -> bool:
             qobuz_item = _find_item_by_title(root_items, _QOBUZ_TITLE_HINTS)
             if qobuz_item and qobuz_item.get("item_key"):
                 logger.info(
-                    "Qobuz found at Browse root: '%s'", qobuz_item.get("title")
+                    "check_qobuz_available_sync: Qobuz FOUND at Browse root: '%s'",
+                    qobuz_item.get("title"),
                 )
                 return True
+            logger.info(
+                "check_qobuz_available_sync: Qobuz NOT found at root level, checking sub-containers"
+            )
 
             # Step 2 — look one level deeper in service-like containers
             service_keywords = {"service", "streaming", "internet"}
@@ -246,19 +265,20 @@ def check_qobuz_available_sync(roon) -> bool:
                 sub_qobuz = _find_item_by_title(sub_items, _QOBUZ_TITLE_HINTS)
                 if sub_qobuz and sub_qobuz.get("item_key"):
                     logger.info(
-                        "Qobuz found under '%s': '%s'",
+                        "check_qobuz_available_sync: Qobuz FOUND under '%s': '%s'",
                         item.get("title"),
                         sub_qobuz.get("title"),
                     )
                     return True
 
             logger.info(
-                "Qobuz not found in Roon Browse hierarchy (root + 1 level deep)"
+                "check_qobuz_available_sync: Qobuz NOT found in Browse hierarchy "
+                "(root + 1 level deep). Returning False."
             )
             return False
 
     except Exception as exc:
-        logger.warning("Qobuz availability check failed: %s", exc)
+        logger.warning("check_qobuz_available_sync: exception: %s", exc, exc_info=True)
         return False
 
 
@@ -268,22 +288,35 @@ async def check_qobuz_available() -> bool:
     Browses to root and checks whether a Qobuz service entry is visible.
     Returns False if Roon is not connected or Qobuz is not logged in.
 
-    Result is cached for 60 seconds to avoid hammering the Browse API.
+    Positive results are cached for 5 minutes; negative results are cached
+    for only 30 seconds so that newly enabled Qobuz is detected quickly.
     """
     global _qobuz_available_cache
 
-    # Return cached result if still fresh
+    # Return cached result if still fresh — use different TTL for True vs False
     if _qobuz_available_cache is not None:
         cached_result, cached_at = _qobuz_available_cache
-        if time.monotonic() - cached_at < _QOBUZ_CACHE_TTL:
+        ttl = _QOBUZ_CACHE_TTL_TRUE if cached_result else _QOBUZ_CACHE_TTL_FALSE
+        age = time.monotonic() - cached_at
+        if age < ttl:
+            logger.debug(
+                "check_qobuz_available: cache hit (result=%s, age=%.1fs, ttl=%.1fs)",
+                cached_result, age, ttl,
+            )
             return cached_result
+        logger.debug(
+            "check_qobuz_available: cache expired (result=%s, age=%.1fs)", cached_result, age
+        )
 
     from backend.roon_client import get_roon_client
 
     roon = get_roon_client()
     if not roon or not roon.is_connected():
+        logger.info("check_qobuz_available: Roon not connected — returning False (no cache)")
         return False
 
+    logger.info("check_qobuz_available: running synchronous check via asyncio.to_thread")
     result = await asyncio.to_thread(check_qobuz_available_sync, roon)
     _qobuz_available_cache = (result, time.monotonic())
+    logger.info("check_qobuz_available: result=%s — cached", result)
     return result
