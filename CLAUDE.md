@@ -177,6 +177,12 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 - **MCP v4.1 (2026-05-15):** Qobuz source mode voor seed_track_playlist:
   - `seed_track_playlist` accepts `source_mode` and `qobuz_percentage` parameters (same as `generate_playlist`)
   - Discovery album Qobuz lookup was already implemented in `recommend.py`; frontend already handles `source="qobuz"` and `playable=False` display
+- **MCP v4.2 (2026-05-15):** Claude-native curation for ALL flows (playlists, seeds, albums, Qobuz):
+  - `filter_tracks` now has `output_format` parameter: "json" (default) or "compact" (numbered list + key_map, token-efficient, max_tracks auto-raised to 500)
+  - New tool `curate_and_play`: translates track numbers from key_map to item_keys and starts playback; handles missing numbers gracefully
+  - `system_prompt.md` fully rewritten: 3 native flows (prompt/seed/album) × 3 source modes (library/hybrid/qobuz)
+  - `CLAUDE.md` Tool Selection Guide updated: native curation is now primary for all flows; backend LLM tools demoted to fallback
+  - Web UI flow unchanged — backend LLM tools (`generate_playlist`, `seed_track_playlist`, `recommend_album`) still used by the web interface
 
 ## MCP Server
 
@@ -186,7 +192,7 @@ The MCP server contains NO own LLM logic — Claude Desktop does the thinking. W
 
 The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip install "mcp[cli]"` must be done locally. `scripts/install_mcp.py` configures Claude Desktop — one-time setup per machine.
 
-### Full Tool List (24 tools)
+### Full Tool List (25 tools)
 
 | Tool | Backend endpoint | Purpose |
 |------|-----------------|---------|
@@ -218,34 +224,49 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 
 ### Tool Selection Guide (for Claude Desktop)
 
-**Library playlists (primary path — Claude curates natively):**
-- **User describes a mood/genre/occasion** → `get_library_stats` → `filter_tracks(output_format="compact")` → curate tracks self → `curate_and_play`
-- **User mentions a SPECIFIC SONG** as inspiration → `search_library` → `filter_tracks(output_format="compact")` with matching genre/decade filters → curate tracks self → `curate_and_play`
+**Playlist curatie (primaire flow — Claude curates natively):**
+- **Mood/genre/occasion → library** → `get_library_stats` → `filter_tracks(output_format="compact")` → curate zelf → `curate_and_play`
+- **Mood/genre/occasion → hybrid** → `filter_tracks(output_format="compact")` + `search_qobuz` → meng en curate → `play_tracks`
+- **Mood/genre/occasion → qobuz only** → meerdere `search_qobuz` calls → curate → `play_tracks`
 
-**Qobuz / new music (requires backend pipeline):**
-- **User wants to discover new music via a seed song** → `seed_track_playlist` with source_mode="hybrid" or "qobuz"
-- **User wants a playlist mixing owned + new music** → `generate_playlist` with source_mode="hybrid"
-- **User wants only new/unknown music** → `generate_playlist` with source_mode="qobuz"
+**Seed playlist (primaire flow — Claude curates natively):**
+- **"Meer zoals X" → library** → `search_library` → `filter_tracks(output_format="compact")` → curate → `curate_and_play`
+- **"Meer zoals X" → hybrid** → `search_library` (analyse) → `filter_tracks(output_format="compact")` + `search_qobuz` → meng → `play_tracks`
+- **"Meer zoals X" → qobuz only** → `search_library` (analyse) → meerdere `search_qobuz` calls → curate → `play_tracks`
 
-**`generate_playlist` / `seed_track_playlist` as fallback only:**
-- source_mode is "hybrid" or "qobuz" (Qobuz integration requires backend)
-- Filtered pool >1000 tracks and Claude's context is running tight
-- User explicitly asks for the "automatic" or "AI-generated" mode
+**Album aanbeveling (primaire flow — Claude curates natively):**
+- **Album uit library** → `filter_tracks(output_format="compact")` of `get_artist_albums` → kies album → editorial pitch → `play_album`
+- **Album ontdekken (nieuw)** → eigen muziekkennis → `search_qobuz` per album → editorial pitch → `play_tracks` met Qobuz item_keys
 
-**Other actions:**
-- **User wants a specific album** → `play_album`
-- **User wants an album recommendation from their library** → `recommend_album` with mode="library"
-- **User wants to discover albums they don't own** → `recommend_album` with mode="discovery" (found albums are played via Qobuz)
-- **User wants internet radio** → `play_radio`
-- **User wants to control volume** → `volume_control`
-- **User moves rooms** → `transfer_zone`
-- **User wants to sync multiple rooms** → `zone_grouping`
-- **User wants shuffle/repeat** → `transport_control` with action="shuffle"/"repeat"
-- **Library search returns nothing** → try `search_qobuz` as fallback
+**Overige acties (ongewijzigd):**
+- **Specifiek album afspelen** → `play_album`
+- **Internet radio** → `play_radio`
+- **Volume** → `volume_control`
+- **Verplaatsen naar andere kamer** → `transfer_zone`
+- **Zones groeperen** → `zone_grouping`
+- **Shuffle/repeat** → `transport_control` with action="shuffle"/"repeat"
+- **Library search levert niets op** → `search_qobuz` als fallback
 
-### Claude-Native Playlist Flow
+**Fallback tools (alleen bij problemen of op expliciet verzoek):**
+- `generate_playlist` — backend-LLM generatie (bij context-overflow of op verzoek)
+- `seed_track_playlist` — backend seed-generatie (fallback)
+- `recommend_album` / `recommend_album_interactive` — backend aanbeveling (fallback)
 
-For all library playlist requests, Claude curates the tracks itself instead of delegating to the backend LLM pipeline:
+### Claude-Native Curatie Flow
+
+Claude Desktop doet zelf het curatie-werk voor playlists, seed-playlists en albumaanbevelingen.
+De backend levert alleen data (`filter_tracks`, `search_library`, `search_qobuz`) en connectiviteit
+(`play_tracks`, `queue_tracks`). Geen backend LLM-calls nodig voor de MCP-flow.
+
+**Voordelen:**
+- Betere kwaliteit bij abstracte/mood-based verzoeken (Claude > goedkope generation models)
+- Multi-turn verfijning ("iets minder jazz, meer post-rock") zonder nieuwe generatie
+- Geen aparte API-key of per-token kosten (Claude Pro dekt alles)
+- Qobuz-integratie via `search_qobuz` voor hybrid/discovery modes
+
+De backend tools (`generate_playlist`, `seed_track_playlist`, `recommend_album`) blijven beschikbaar als fallback en worden nog steeds gebruikt door de Web UI.
+
+**Stap-voor-stap voor library playlist:**
 
 1. **Analyse** — understand mood, genre, tempo, era from the user's request.
 2. **`get_library_stats`** — check which genres and decades are available.
@@ -259,7 +280,9 @@ For all library playlist requests, Claude curates the tracks itself instead of d
 5. **`curate_and_play(track_numbers=[...], key_map={...}, zone_id="...")`** — translate numbers to item_keys and start playback.
 6. **Present** — title, numbered tracklist with artist – title, brief note on why the tracks fit.
 
-This flow is faster (no backend LLM calls), more transparent, and lets Claude apply its own musical judgment.
+**Voor hybrid playlists:** combineer stap 1–4 met `search_qobuz` calls voor Qobuz-tracks; meng gelijkmatig door de library-selectie; gebruik `play_tracks` met gecombineerde item_keys.
+
+**Voor discovery albums:** gebruik eigen muziekkennis → `search_qobuz` per album → `play_tracks` met Qobuz item_keys.
 
 ### Playlist Generation Output Format (v2)
 
