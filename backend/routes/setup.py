@@ -75,16 +75,48 @@ async def setup_status() -> SetupStatusResponse:
     user_config = load_user_yaml_config()
     setup_complete = user_config.get("setup", {}).get("complete", False)
 
-    # Check Qobuz availability only when Roon is connected.
-    # The browse call is serialized via _browse_lock so we run it in a thread.
-    # Use a short TTL cache to avoid hitting the Browse API on every status poll.
+    # Inline Qobuz availability check — runs in a thread to avoid blocking the
+    # event loop.  Deliberately skips _browse_lock so it never blocks behind a
+    # long library-sync operation; for a status endpoint the occasional race is
+    # acceptable.
     qobuz_available = False
-    if roon_connected:
+    if roon_connected and roon_client and roon_client._api:
+        def _check_qobuz_inline() -> bool:
+            try:
+                browse_result = roon_client._api.browse_browse({
+                    "hierarchy": "browse",
+                    "pop_all": True,
+                })
+                if not browse_result:
+                    logger.warning("Qobuz inline check: browse_browse returned None")
+                    return False
+                count = browse_result.get("list", {}).get("count", 0)
+                logger.info("Qobuz inline check: browse root count=%d", count)
+                if count == 0:
+                    return False
+                loaded = roon_client._api.browse_load({
+                    "hierarchy": "browse",
+                    "count": count,
+                })
+                items = loaded.get("items", []) if loaded else []
+                logger.info(
+                    "Qobuz inline check: root items=%s",
+                    [i.get("title") for i in items],
+                )
+                for item in items:
+                    if "qobuz" in (item.get("title") or "").lower():
+                        logger.info("Qobuz inline check: FOUND '%s'", item.get("title"))
+                        return True
+                logger.info("Qobuz inline check: not found in root items")
+                return False
+            except Exception as _e:
+                logger.warning("Qobuz inline check exception: %s", _e, exc_info=True)
+                return False
+
         try:
-            from backend.qobuz_browser import check_qobuz_available
-            qobuz_available = await check_qobuz_available()
+            qobuz_available = await asyncio.to_thread(_check_qobuz_inline)
         except Exception as _qe:
-            logger.warning("Qobuz availability check failed: %s", _qe, exc_info=True)
+            logger.warning("Qobuz availability thread failed: %s", _qe, exc_info=True)
 
     return SetupStatusResponse(
         data_dir_writable=data_dir_writable,

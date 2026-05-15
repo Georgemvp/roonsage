@@ -1145,7 +1145,13 @@ function updateStep() {
         document.getElementById('step-dimensions').classList.add('active');
     } else if (state.step === 'source') {
         document.getElementById('step-source').classList.add('active');
-        renderSourceModeStep();
+        // Refresh Qobuz availability each time the source step is shown so that
+        // logging into Qobuz in Roon after app-start is picked up without a full
+        // page reload.
+        fetchSetupStatus().then(s => {
+            state.qobuzAvailable = !!s.qobuz_available;
+            renderSourceModeStep();
+        }).catch(() => renderSourceModeStep());
     } else if (state.step === 'filters') {
         document.getElementById('step-filters').classList.add('active');
     } else if (state.step === 'results') {
@@ -5642,12 +5648,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (state.view === 'home' && !initHash.startsWith('result/')) {
             try {
                 const setupStatus = await fetchSetupStatus();
+                // Persist Qobuz availability for the source mode UI — must be set
+                // BEFORE enterSetupWizard() because that function returns early and
+                // the line below would otherwise never execute during wizard sessions.
+                state.qobuzAvailable = !!setupStatus.qobuz_available;
                 if (!setupStatus.setup_complete) {
                     enterSetupWizard(setupStatus);
                     return; // Wizard handles its own lifecycle
                 }
-                // Persist Qobuz availability for the source mode UI
-                state.qobuzAvailable = !!setupStatus.qobuz_available;
             } catch (e) {
                 // Setup endpoint unavailable — skip wizard, continue normally
                 console.warn('Setup status check failed:', e);
