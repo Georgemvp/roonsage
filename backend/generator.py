@@ -130,6 +130,7 @@ def _get_tracks_from_cache_or_roon(
     genres: list[str] | None,
     decades: list[str] | None,
     exclude_live: bool,
+    min_rating: int,
     max_tracks_to_ai: int,
 ) -> list[Track]:
     """Get tracks from cache if available, otherwise from Roon.
@@ -137,7 +138,7 @@ def _get_tracks_from_cache_or_roon(
     Returns:
         List of Track objects
     """
-    has_filters = bool(genres or decades)
+    has_filters = genres or decades or min_rating > 0
     effective_limit = max_tracks_to_ai if max_tracks_to_ai > 0 else 2000
 
     # Try cache first
@@ -146,6 +147,7 @@ def _get_tracks_from_cache_or_roon(
         cached_tracks = library_cache.get_tracks_by_filters(
             genres=genres,
             decades=decades,
+            min_rating=min_rating,
             exclude_live=exclude_live,
             limit=effective_limit,
         )
@@ -163,6 +165,7 @@ def _get_tracks_from_cache_or_roon(
             genres=genres,
             decades=decades,
             exclude_live=exclude_live,
+            min_rating=min_rating,
             limit=effective_limit,
         )
 
@@ -177,6 +180,7 @@ def generate_playlist_stream(
     decades: list[str] | None = None,
     track_count: int = 25,
     exclude_live: bool = True,
+    min_rating: int = 0,
     max_tracks_to_ai: int = 500,
 ) -> Generator[str, None, None]:
     """Generate a playlist with streaming progress updates.
@@ -198,7 +202,7 @@ def generate_playlist_stream(
             yield emit("error", {"message": "Roon client not initialized"})
             return
 
-        has_filters = bool(genres or decades)
+        has_filters = genres or decades or min_rating > 0
 
         # Step 1: Fetch tracks from cache or Roon
         using_cache = library_cache.has_cached_tracks()
@@ -209,14 +213,15 @@ def generate_playlist_stream(
         else:
             yield emit("progress", {"step": "fetching", "message": "Fetching tracks from library..."})
 
-        logger.info("Fetching tracks: genres=%s, decades=%s, using_cache=%s",
-                    genres, decades, using_cache)
+        logger.info("Fetching tracks: genres=%s, decades=%s, min_rating=%s, using_cache=%s",
+                    genres, decades, min_rating, using_cache)
         try:
             filtered_tracks = _get_tracks_from_cache_or_roon(
                 roon_client=roon_client,
                 genres=genres,
                 decades=decades,
                 exclude_live=exclude_live,
+                min_rating=min_rating,
                 max_tracks_to_ai=max_tracks_to_ai,
             )
         except RoonQueryError as e:
@@ -245,27 +250,6 @@ def generate_playlist_stream(
 
         # Build the generation prompt
         generation_parts = []
-
-        # Add time-of-day context for better mood matching
-        now = datetime.now()
-        day_names_nl = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
-        day_name = day_names_nl[now.weekday()]
-        hour = now.hour
-        if 5 <= hour < 9:
-            time_context = f"Het is {day_name}ochtend vroeg ({hour}:00)"
-        elif 9 <= hour < 12:
-            time_context = f"Het is {day_name}ochtend ({hour}:00)"
-        elif 12 <= hour < 14:
-            time_context = f"Het is {day_name}middag ({hour}:00)"
-        elif 14 <= hour < 17:
-            time_context = f"Het is {day_name}middag ({hour}:00)"
-        elif 17 <= hour < 21:
-            time_context = f"Het is {day_name}avond ({hour}:00)"
-        elif 21 <= hour < 24:
-            time_context = f"Het is late {day_name}avond ({hour}:00)"
-        else:
-            time_context = f"Het is {day_name}nacht ({hour}:00)"
-        generation_parts.append(f"Context: {time_context}. Houd hier subtiel rekening mee bij de sfeer van de selectie.")
 
         if prompt:
             generation_parts.append(f"User's request: {prompt}")
