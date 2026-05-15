@@ -1,6 +1,6 @@
 # RoonSage Development Guidelines
 
-Last updated: 2026-05-15 (MCP v4.1 — 24 tools)
+Last updated: 2026-05-15 (MCP v4.2 — 25 tools, Claude-native curation)
 
 ## Project Overview
 
@@ -214,14 +214,25 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 | `zone_grouping` | `POST /api/roon/group` | Group/ungroup/list zone groups |
 | `play_radio` | `POST /api/roon/radio` | Play internet radio station (fuzzy match) |
 | `browse_playlists` | `POST /api/roon/playlists` | List/play Roon playlists (all playlists, not just RoonSage) |
+| `curate_and_play` | `POST /api/queue` or `/api/queue/append` | Play Claude-curated track selection from filter_tracks compact output |
 
 ### Tool Selection Guide (for Claude Desktop)
 
-- **User mentions a SPECIFIC SONG** as inspiration → `search_library` first, then `seed_track_playlist`
-- **User describes a mood/genre/occasion** → `generate_playlist`
+**Library playlists (primary path — Claude curates natively):**
+- **User describes a mood/genre/occasion** → `get_library_stats` → `filter_tracks(output_format="compact")` → curate tracks self → `curate_and_play`
+- **User mentions a SPECIFIC SONG** as inspiration → `search_library` → `filter_tracks(output_format="compact")` with matching genre/decade filters → curate tracks self → `curate_and_play`
+
+**Qobuz / new music (requires backend pipeline):**
 - **User wants to discover new music via a seed song** → `seed_track_playlist` with source_mode="hybrid" or "qobuz"
-- **User wants a playlist mixing owned + new music** → `generate_playlist` or `seed_track_playlist` with source_mode="hybrid"
-- **User wants only new/unknown music** → `generate_playlist` or `seed_track_playlist` with source_mode="qobuz"
+- **User wants a playlist mixing owned + new music** → `generate_playlist` with source_mode="hybrid"
+- **User wants only new/unknown music** → `generate_playlist` with source_mode="qobuz"
+
+**`generate_playlist` / `seed_track_playlist` as fallback only:**
+- source_mode is "hybrid" or "qobuz" (Qobuz integration requires backend)
+- Filtered pool >1000 tracks and Claude's context is running tight
+- User explicitly asks for the "automatic" or "AI-generated" mode
+
+**Other actions:**
 - **User wants a specific album** → `play_album`
 - **User wants an album recommendation from their library** → `recommend_album` with mode="library"
 - **User wants to discover albums they don't own** → `recommend_album` with mode="discovery" (found albums are played via Qobuz)
@@ -231,6 +242,24 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 - **User wants to sync multiple rooms** → `zone_grouping`
 - **User wants shuffle/repeat** → `transport_control` with action="shuffle"/"repeat"
 - **Library search returns nothing** → try `search_qobuz` as fallback
+
+### Claude-Native Playlist Flow
+
+For all library playlist requests, Claude curates the tracks itself instead of delegating to the backend LLM pipeline:
+
+1. **Analyse** — understand mood, genre, tempo, era from the user's request.
+2. **`get_library_stats`** — check which genres and decades are available.
+3. **`filter_tracks(output_format="compact", genres=[...], decades=[...], max_tracks=500)`** — retrieve a numbered list of filtered tracks + `key_map`.
+4. **Curate** — select the best 15–50 tracks using musical knowledge:
+   - Artist diversity: max 1 track per artist (2 only when exceptional)
+   - Album diversity: max 2 tracks per album
+   - Flow: alternate tempo, decades, and styles; start strong, end memorably
+   - No clustering: never two tracks from the same artist consecutively
+   - Aim for ≥80% unique artists (e.g. 20 unique in a 25-track playlist)
+5. **`curate_and_play(track_numbers=[...], key_map={...}, zone_id="...")`** — translate numbers to item_keys and start playback.
+6. **Present** — title, numbered tracklist with artist – title, brief note on why the tracks fit.
+
+This flow is faster (no backend LLM calls), more transparent, and lets Claude apply its own musical judgment.
 
 ### Playlist Generation Output Format (v2)
 

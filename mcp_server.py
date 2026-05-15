@@ -125,6 +125,7 @@ async def filter_tracks(
     decades: Optional[list[str]] = None,
     exclude_live: bool = True,
     max_tracks: int = 200,
+    output_format: str = "json",
 ) -> str:
     """Filter the Roon library by genre, decade, and/or live-version exclusion.
 
@@ -138,16 +139,30 @@ async def filter_tracks(
     returned; the response also reports the full total so you know how large the
     filtered pool is.
 
+    OUTPUT FORMAT:
+    - Use output_format='json' (default) for full JSON with all track metadata.
+      Use this when you need detailed metadata for other operations.
+    - Use output_format='compact' when you want to personally curate a playlist
+      from the results. Returns a numbered text list (token-efficient) plus a
+      key_map dict to translate track numbers back to item_keys for playback.
+      Default max_tracks is raised to 500 in compact mode.
+
     Args:
-        genres:       List of genre strings to include, e.g. ["Jazz", "Blues"].
-                      Pass None or omit to include all genres.
-        decades:      List of decade strings to include, e.g. ["1990s", "2000s"].
-                      Pass None or omit to include all decades.
-        exclude_live: When True (default), tracks with "live", "concert", or year
-                      patterns in their title or album name are excluded.
-        max_tracks:   Maximum number of tracks to return (default 200). The full
-                      total is always reported so you know the real pool size.
+        genres:        List of genre strings to include, e.g. ["Jazz", "Blues"].
+                       Pass None or omit to include all genres.
+        decades:       List of decade strings to include, e.g. ["1990s", "2000s"].
+                       Pass None or omit to include all decades.
+        exclude_live:  When True (default), tracks with "live", "concert", or year
+                       patterns in their title or album name are excluded.
+        max_tracks:    Maximum number of tracks to return (default 200 for json,
+                       500 for compact). The full total is always reported.
+        output_format: "json" (default) — full JSON per track.
+                       "compact" — numbered text list + key_map, token-efficient.
     """
+    # Raise default max_tracks for compact mode to give more curation material
+    if output_format == "compact" and max_tracks == 200:
+        max_tracks = 500
+
     body: dict = {"exclude_live": exclude_live, "max_tracks": max_tracks}
     if genres:
         body["genres"] = genres
@@ -163,19 +178,54 @@ async def filter_tracks(
     except httpx.HTTPStatusError as exc:
         return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
 
-    # Strip each track to only the fields needed for playlist curation.
-    # This keeps the response well under Claude Desktop's 1 MB tool-result limit.
-    _KEEP = {"item_key", "rating_key", "title", "artist", "album", "genres"}
-    if "tracks" in data:
-        data["tracks"] = [
-            {k: v for k, v in track.items() if k in _KEEP}
-            for track in data["tracks"]
-        ]
-
-    # Response already has the right shape: total_matching, returned, tracks
-    # Add a note when results are capped so Claude knows the real pool size
+    tracks = data.get("tracks", [])
     total = data.get("total_matching", 0)
-    returned = data.get("returned", 0)
+    returned = data.get("returned", len(tracks))
+
+    # -----------------------------------------------------------------------
+    # Compact output: numbered text list + key_map for native curation
+    # -----------------------------------------------------------------------
+    if output_format == "compact":
+        lines: list[str] = []
+        key_map: dict[str, str] = {}
+        for i, track in enumerate(tracks, start=1):
+            item_key = track.get("rating_key") or track.get("item_key") or ""
+            key_map[str(i)] = item_key
+            genres_str = ", ".join(track.get("genres") or [])
+            year = track.get("year") or ""
+            line = (
+                f"{i}. {track.get('artist', '?')} — {track.get('title', '?')} "
+                f"[{track.get('album', '?')}] ({year}) | {genres_str}"
+            )
+            lines.append(line)
+
+        result: dict = {
+            "total_matching": total,
+            "returned": returned,
+            "tracks": "\n".join(lines),
+            "key_map": key_map,
+            "note": (
+                "Selecteer tracks op nummer. Gebruik key_map om nummers terug te "
+                "vertalen naar item_keys voor curate_and_play / play_tracks / queue_tracks."
+            ),
+        }
+        if total > returned:
+            result["pool_note"] = (
+                f"Library bevat {total} matching tracks; {returned} geretourneerd "
+                "(willekeurige steekproef)."
+            )
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    # -----------------------------------------------------------------------
+    # JSON output (default): strip to essential fields
+    # -----------------------------------------------------------------------
+    _KEEP = {"item_key", "rating_key", "title", "artist", "album", "genres"}
+    data["tracks"] = [
+        {k: v for k, v in track.items() if k in _KEEP}
+        for track in tracks
+    ]
+
+    # Add a note when results are capped so Claude knows the real pool size
     if total > returned:
         data["note"] = (
             f"Library contains {total} matching tracks; {returned} returned "
@@ -251,6 +301,82 @@ async def queue_tracks(item_keys: list[str], zone_id: str) -> str:
         return _unavailable_msg()
     except httpx.HTTPStatusError as exc:
         return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
+@mcp.tool()
+async def curate_and_play(
+    track_numbers: list[int],
+    key_map: dict[str, str],
+    zone_id: str,
+    playlist_name: str = "Claude Curated",
+    append: bool = False,
+) -> str:
+    """Play a curated selection of tracks chosen by Claude from filter_tracks compact output.
+
+    After calling filter_tracks with output_format='compact', select the best tracks
+    by number and pass them here together with the key_map from the filter response.
+    This tool translates the chosen track numbers to Roon item_keys and starts
+    (or appends to) playback in the specified zone.
+
+    Curation guidelines to apply before calling this tool:
+    - Aim for 15–50 tracks depending on the request.
+    - Artiest diversity: max 1 track per artist; 2 only when exceptional.
+    - Album diversity: max 2 tracks per album.
+    - Flow: alternate tempo, decades, and styles.
+    - No clustering: never place 2 tracks from the same artist consecutively.
+
+    Args:
+        track_numbers: List of track numbers from the compact list, in the desired
+                       play order. E.g. [3, 17, 42, 8, ...].
+        key_map:       The key_map dict returned by filter_tracks (maps number
+                       strings like "3" to Roon item_key strings).
+        zone_id:       Roon zone ID to play in — obtain via list_zones.
+        playlist_name: Optional label for the playlist (used in the response
+                       summary only; Roon cannot save playlists via the API).
+        append:        If True, append tracks to the current queue instead of
+                       replacing it. Default False (replaces queue).
+    """
+    # Translate track numbers to item_keys, preserving order
+    item_keys: list[str] = []
+    missing: list[int] = []
+    for num in track_numbers:
+        key = key_map.get(str(num))
+        if key:
+            item_keys.append(key)
+        else:
+            missing.append(num)
+
+    if not item_keys:
+        return json.dumps({
+            "success": False,
+            "error": "None of the provided track_numbers matched entries in key_map.",
+            "missing_numbers": missing,
+        }, ensure_ascii=False, indent=2)
+
+    endpoint = "/api/queue/append" if append else "/api/queue"
+    try:
+        response = await _client.post(
+            f"{ROONSAGE_URL}{endpoint}",
+            json={"item_keys": item_keys, "zone_id": zone_id},
+        )
+        response.raise_for_status()
+        data = response.json()
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.HTTPStatusError as exc:
+        return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    result: dict = {
+        "success": data.get("success", False),
+        "playlist_name": playlist_name,
+        "tracks_queued": data.get("tracks_queued", len(item_keys)),
+        "zone_name": data.get("zone_name", zone_id),
+        "action": "appended" if append else "replaced queue",
+    }
+    if missing:
+        result["warning"] = f"Track numbers not found in key_map (skipped): {missing}"
+
+    return json.dumps(result, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
