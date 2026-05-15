@@ -75,17 +75,6 @@ async def setup_status() -> SetupStatusResponse:
     user_config = load_user_yaml_config()
     setup_complete = user_config.get("setup", {}).get("complete", False)
 
-    # Check Qobuz availability only when Roon is connected.
-    # The browse call is serialized via _browse_lock so we run it in a thread.
-    # Use a short TTL cache to avoid hitting the Browse API on every status poll.
-    qobuz_available = False
-    if roon_connected:
-        try:
-            from backend.qobuz_browser import check_qobuz_available
-            qobuz_available = await check_qobuz_available()
-        except Exception as _qe:
-            logger.debug("Qobuz availability check skipped: %s", _qe)
-
     return SetupStatusResponse(
         data_dir_writable=data_dir_writable,
         process_uid=getattr(os, "getuid", lambda: 0)(),
@@ -103,7 +92,6 @@ async def setup_status() -> SetupStatusResponse:
         is_syncing=sync_state["is_syncing"],
         sync_progress=sync_progress,
         setup_complete=setup_complete,
-        qobuz_available=qobuz_available,
     )
 
 

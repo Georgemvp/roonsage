@@ -130,6 +130,7 @@ def _get_tracks_from_cache_or_roon(
     genres: list[str] | None,
     decades: list[str] | None,
     exclude_live: bool,
+    min_rating: int,
     max_tracks_to_ai: int,
 ) -> list[Track]:
     """Get tracks from cache if available, otherwise from Roon.
@@ -137,7 +138,7 @@ def _get_tracks_from_cache_or_roon(
     Returns:
         List of Track objects
     """
-    has_filters = bool(genres or decades)
+    has_filters = genres or decades or min_rating > 0
     effective_limit = max_tracks_to_ai if max_tracks_to_ai > 0 else 2000
 
     # Try cache first
@@ -146,6 +147,7 @@ def _get_tracks_from_cache_or_roon(
         cached_tracks = library_cache.get_tracks_by_filters(
             genres=genres,
             decades=decades,
+            min_rating=min_rating,
             exclude_live=exclude_live,
             limit=effective_limit,
         )
@@ -163,6 +165,7 @@ def _get_tracks_from_cache_or_roon(
             genres=genres,
             decades=decades,
             exclude_live=exclude_live,
+            min_rating=min_rating,
             limit=effective_limit,
         )
 
@@ -177,26 +180,18 @@ def generate_playlist_stream(
     decades: list[str] | None = None,
     track_count: int = 25,
     exclude_live: bool = True,
+    min_rating: int = 0,
     max_tracks_to_ai: int = 500,
-    source_mode: str = "library",   # "library" | "hybrid" | "qobuz"
-    qobuz_percentage: int = 30,     # % of Qobuz tracks in hybrid mode
 ) -> Generator[str, None, None]:
     """Generate a playlist with streaming progress updates.
 
     Yields SSE-formatted events with progress updates and final result.
-
-    source_mode:
-        "library"  — existing flow, 100% from Roon library cache
-        "hybrid"   — library tracks + Qobuz discoveries (qobuz_percentage %)
-        "qobuz"    — 100% Qobuz tracks discovered via LLM suggestions
     """
     def emit(event: str, data: dict) -> str:
         return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
     try:
-        logger.info(
-            "Starting playlist generation (streaming) source_mode=%s", source_mode
-        )
+        logger.info("Starting playlist generation (streaming)")
         llm_client = get_llm_client()
         roon_client = get_roon_client()
 
@@ -207,64 +202,43 @@ def generate_playlist_stream(
             yield emit("error", {"message": "Roon client not initialized"})
             return
 
-        has_filters = bool(genres or decades)
-        use_library = source_mode in ("library", "hybrid")
-        use_qobuz = source_mode in ("hybrid", "qobuz")
+        has_filters = genres or decades or min_rating > 0
 
-        # Clamp qobuz_percentage to sensible range
-        qobuz_percentage = max(10, min(70, qobuz_percentage))
-
-        # Determine how many library vs qobuz tracks to target
-        if source_mode == "library":
-            library_target = track_count
-            qobuz_target = 0
-        elif source_mode == "qobuz":
-            library_target = 0
-            qobuz_target = track_count
-        else:  # hybrid
-            qobuz_target = max(1, round(track_count * qobuz_percentage / 100))
-            library_target = track_count - qobuz_target
-
-        # Step 1: Fetch tracks from cache or Roon (library modes only)
-        filtered_tracks: list[Track] = []
-
-        if use_library:
-            using_cache = library_cache.has_cached_tracks()
-            if using_cache:
-                yield emit("progress", {"step": "fetching", "message": "Loading tracks from cache..."})
-            elif not has_filters:
-                yield emit("progress", {"step": "fetching", "message": "Sampling random tracks from library..."})
-            else:
-                yield emit("progress", {"step": "fetching", "message": "Fetching tracks from library..."})
-
-            logger.info("Fetching tracks: genres=%s, decades=%s, using_cache=%s",
-                        genres, decades, using_cache)
-            try:
-                filtered_tracks = _get_tracks_from_cache_or_roon(
-                    roon_client=roon_client,
-                    genres=genres,
-                    decades=decades,
-                    exclude_live=exclude_live,
-                    max_tracks_to_ai=max_tracks_to_ai,
-                )
-            except RoonQueryError as e:
-                yield emit("error", {"message": f"Roon server error: {e}"})
-                return
-
-            logger.info("Got %d library tracks", len(filtered_tracks))
-
-            if not filtered_tracks and source_mode == "library":
-                yield emit("error", {"message": "No tracks match the selected filters. Try broadening your selection."})
-                return
+        # Step 1: Fetch tracks from cache or Roon
+        using_cache = library_cache.has_cached_tracks()
+        if using_cache:
+            yield emit("progress", {"step": "fetching", "message": "Loading tracks from cache..."})
+        elif not has_filters:
+            yield emit("progress", {"step": "fetching", "message": "Sampling random tracks from library..."})
         else:
-            yield emit("progress", {"step": "fetching", "message": "Skipping library — Qobuz discovery mode..."})
+            yield emit("progress", {"step": "fetching", "message": "Fetching tracks from library..."})
 
-        # Step 2: Report track count
-        if use_library and filtered_tracks:
-            if has_filters:
-                yield emit("progress", {"step": "filtering", "message": f"Using {len(filtered_tracks)} tracks..."})
-            else:
-                yield emit("progress", {"step": "filtering", "message": f"Using {len(filtered_tracks)} random tracks..."})
+        logger.info("Fetching tracks: genres=%s, decades=%s, min_rating=%s, using_cache=%s",
+                    genres, decades, min_rating, using_cache)
+        try:
+            filtered_tracks = _get_tracks_from_cache_or_roon(
+                roon_client=roon_client,
+                genres=genres,
+                decades=decades,
+                exclude_live=exclude_live,
+                min_rating=min_rating,
+                max_tracks_to_ai=max_tracks_to_ai,
+            )
+        except RoonQueryError as e:
+            yield emit("error", {"message": f"Roon server error: {e}"})
+            return
+
+        logger.info("Got %d tracks", len(filtered_tracks))
+
+        if not filtered_tracks:
+            yield emit("error", {"message": "No tracks match the selected filters. Try broadening your selection."})
+            return
+
+        # Step 2: Report track count (sampling already done server-side)
+        if has_filters:
+            yield emit("progress", {"step": "filtering", "message": f"Using {len(filtered_tracks)} tracks..."})
+        else:
+            yield emit("progress", {"step": "filtering", "message": f"Using {len(filtered_tracks)} random tracks..."})
 
         # Step 3: Build track list
         yield emit("progress", {"step": "preparing", "message": f"Preparing {len(filtered_tracks)} tracks for AI..."})
@@ -276,27 +250,6 @@ def generate_playlist_stream(
 
         # Build the generation prompt
         generation_parts = []
-
-        # Add time-of-day context for better mood matching
-        now = datetime.now()
-        day_names_nl = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
-        day_name = day_names_nl[now.weekday()]
-        hour = now.hour
-        if 5 <= hour < 9:
-            time_context = f"Het is {day_name}ochtend vroeg ({hour}:00)"
-        elif 9 <= hour < 12:
-            time_context = f"Het is {day_name}ochtend ({hour}:00)"
-        elif 12 <= hour < 14:
-            time_context = f"Het is {day_name}middag ({hour}:00)"
-        elif 14 <= hour < 17:
-            time_context = f"Het is {day_name}middag ({hour}:00)"
-        elif 17 <= hour < 21:
-            time_context = f"Het is {day_name}avond ({hour}:00)"
-        elif 21 <= hour < 24:
-            time_context = f"Het is late {day_name}avond ({hour}:00)"
-        else:
-            time_context = f"Het is {day_name}nacht ({hour}:00)"
-        generation_parts.append(f"Context: {time_context}. Houd hier subtiel rekening mee bij de sfeer van de selectie.")
 
         if prompt:
             generation_parts.append(f"User's request: {prompt}")
@@ -418,35 +371,6 @@ def generate_playlist_stream(
 
         # Shuffle to break any artist/genre clustering from the LLM output order
         random.shuffle(matched_tracks)
-
-        # Step 6b: Qobuz discovery (hybrid / qobuz modes)
-        qobuz_tracks: list[Track] = []
-        if use_qobuz and qobuz_target > 0:
-            yield emit("progress", {"step": "qobuz_search", "message": "Zoeken in Qobuz..."})
-            user_request_text = prompt or (
-                f"{seed_track.title} by {seed_track.artist}" if seed_track else ""
-            )
-            try:
-                qobuz_tracks = _discover_qobuz_tracks(
-                    llm_client=llm_client,
-                    roon_client=roon_client,
-                    user_request=user_request_text,
-                    target_count=qobuz_target,
-                    library_tracks=matched_tracks,
-                )
-                logger.info("Added %d Qobuz tracks to playlist", len(qobuz_tracks))
-            except Exception as qe:
-                logger.warning("Qobuz discovery failed (non-fatal): %s", qe)
-
-            # For pure qobuz mode: replace matched_tracks entirely
-            if source_mode == "qobuz":
-                matched_tracks = qobuz_tracks
-            else:
-                # hybrid: append Qobuz tracks to library tracks
-                matched_tracks = matched_tracks[:library_target] + qobuz_tracks
-
-            # Re-shuffle so Qobuz tracks are interspersed
-            random.shuffle(matched_tracks)
 
         # Step 7: Generate narrative
         yield emit("progress", {"step": "narrative", "message": "Writing playlist narrative..."})
@@ -588,116 +512,6 @@ Return ONLY valid JSON:
 {"title": "Creative Title Here", "narrative": "Your brief narrative with 'song names' in single quotes..."}
 
 No markdown formatting, no explanations - just the JSON object."""
-
-
-QOBUZ_SUGGESTION_SYSTEM = """You are a music expert recommending tracks available on Qobuz.
-
-Given a user request and optionally existing library tracks as context, suggest tracks that fit the request.
-These tracks do NOT need to be in the user's library — recommend anything available commercially.
-
-Return ONLY a JSON array:
-[
-  {"artist": "Artist Name", "title": "Track Title", "album": "Album Name", "reason": "Why this fits"},
-  ...
-]
-
-Guidelines:
-- Pick tracks that closely match the mood, genre, era, or style of the request
-- Avoid picking tracks already in the library list (if provided)
-- Be specific with artist and title for accurate search results
-- No markdown formatting, no explanations — just the JSON array."""
-
-
-def _discover_qobuz_tracks(
-    llm_client,
-    roon_client,
-    user_request: str,
-    target_count: int,
-    library_tracks: list[Track],
-) -> list[Track]:
-    """Ask LLM to suggest tracks and search for them in Qobuz via Roon Browse API.
-
-    This is a synchronous function safe to call from a sync generator.
-
-    Args:
-        llm_client: LLM client for suggestions
-        roon_client: Roon client for Browse API search
-        user_request: Original user prompt
-        target_count: How many Qobuz tracks to find
-        library_tracks: Already-selected library tracks (context for hybrid mode)
-
-    Returns:
-        List of Track objects with source="qobuz"
-    """
-    from backend.qobuz_browser import search_qobuz_tracks_sync
-
-    # Build the suggestion prompt
-    parts = [f"User request: {user_request}"]
-    if library_tracks:
-        lib_summary = "\n".join(
-            f"- {t.artist} - {t.title} ({t.album})"
-            for t in library_tracks[:30]
-        )
-        parts.append(
-            f"Already selected from library (do NOT suggest these):\n{lib_summary}"
-        )
-    parts.append(f"Suggest {target_count} tracks for the request above.")
-    suggestion_prompt = "\n\n".join(parts)
-
-    try:
-        response = llm_client.generate(suggestion_prompt, QOBUZ_SUGGESTION_SYSTEM)
-        suggestions = llm_client.parse_json_response(response)
-    except Exception as e:
-        logger.warning("Qobuz LLM suggestion call failed: %s", e)
-        return []
-
-    if not isinstance(suggestions, list):
-        logger.warning("Qobuz suggestion response is not a list: %s", type(suggestions).__name__)
-        return []
-
-    # Search each suggestion in Qobuz
-    found_tracks: list[Track] = []
-    seen_keys: set[str] = set()
-
-    for suggestion in suggestions:
-        if len(found_tracks) >= target_count:
-            break
-
-        artist = suggestion.get("artist", "")
-        title = suggestion.get("title", "")
-        if not artist and not title:
-            continue
-
-        search_query = f"{artist} {title}".strip()
-        try:
-            results = search_qobuz_tracks_sync(roon_client, search_query, limit=5)
-        except Exception as e:
-            logger.debug("Qobuz search error for '%s': %s", search_query, e)
-            continue
-
-        for result in results:
-            item_key = result.get("item_key", "")
-            if not item_key or item_key in seen_keys:
-                continue
-            seen_keys.add(item_key)
-
-            track = Track(
-                rating_key=item_key,
-                title=result.get("title") or title,
-                artist=result.get("artist") or artist,
-                album=result.get("album") or suggestion.get("album", ""),
-                duration_ms=0,
-                art_url=f"/api/art/{item_key}",
-                source="qobuz",
-            )
-            found_tracks.append(track)
-            break  # Take first match per suggestion
-
-    logger.info(
-        "Qobuz discovery: requested=%d, suggestions=%d, found=%d",
-        target_count, len(suggestions), len(found_tracks),
-    )
-    return found_tracks
 
 
 def _tracks_match(llm_artist: str, llm_title: str, library_track: Track) -> bool:

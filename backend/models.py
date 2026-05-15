@@ -28,7 +28,6 @@ class Track(BaseModel):
     year: int | None = None
     genres: list[str] = []
     art_url: str | None = None
-    source: str = "library"  # "library" or "qobuz"
 
     @property
     def duration_formatted(self) -> str:
@@ -203,6 +202,7 @@ class FilterPreviewRequest(BaseModel):
     decades: list[str] = []
     track_count: int = 25
     max_tracks_to_ai: int = 500  # 0 = no limit
+    min_rating: int = 0  # 0 = any, 2/4/6/8/10 = minimum rating
     exclude_live: bool = True
 
 
@@ -221,6 +221,7 @@ class FilterLibraryRequest(BaseModel):
 
     genres: list[str] = []
     decades: list[str] = []
+    min_rating: int = 0  # 0 = any; currently no-op (Roon API limitation)
     exclude_live: bool = True
     max_tracks: int = 500  # Cap to protect context windows
 
@@ -251,9 +252,8 @@ class GenerateRequest(BaseModel):
     decades: list[str] = []
     track_count: int = 25
     exclude_live: bool = True
+    min_rating: int = 0  # 0 = any, 2/4/6/8/10 = minimum rating
     max_tracks_to_ai: int = 500  # 0 = no limit
-    source_mode: str = "library"  # "library", "hybrid", or "qobuz"
-    qobuz_percentage: int = 30    # % of Qobuz tracks in "hybrid" mode (10-70)
 
     @model_validator(mode="after")
     def check_flow(self) -> "GenerateRequest":
@@ -515,22 +515,6 @@ class PlayRadioResponse(BaseModel):
 # =============================================================================
 # Browse Playlists Models
 # =============================================================================
-
-
-class QobuzSearchRequest(BaseModel):
-    """Request to search Qobuz via Roon Browse API."""
-
-    query: str = Field(..., min_length=1, max_length=500)
-    limit: int = 10
-
-
-class QobuzSearchResponse(BaseModel):
-    """Response from Qobuz search."""
-
-    tracks: list[dict] = []   # [{item_key, title, artist, album, source}]
-    query: str
-    available: bool = True    # False if Qobuz not configured in Roon
-    error: str | None = None
 
 
 class BrowsePlaylistsRequest(BaseModel):
@@ -971,7 +955,6 @@ class SetupStatusResponse(BaseModel):
     is_syncing: bool = False
     sync_progress: SyncProgress | None = None
     setup_complete: bool
-    qobuz_available: bool = False  # True if Qobuz service is visible in Roon browse
 
 
 class ValidateRoonRequest(BaseModel):

@@ -201,6 +201,7 @@ All models are included in your Claude Pro subscription — there are no per-tok
 | `filter_tracks` | Filter by genre, decade, live exclusion |
 | `get_artist_albums` | List all albums by an artist from the SQLite cache |
 | `sync_library` | Trigger a background library sync from Roon |
+| `search_qobuz` | Search the Qobuz catalog via Roon's streaming integration |
 
 **Playlist Generation**
 

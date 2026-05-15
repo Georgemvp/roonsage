@@ -126,11 +126,6 @@ const state = {
     // Refinement — stores the last generation request so it can be replayed with additional_notes
     lastRequest: null,
 
-    // Source mode (Qobuz integration)
-    sourceMode: 'library',     // 'library' | 'hybrid' | 'qobuz'
-    qobuzPercentage: 30,       // % of Qobuz tracks in hybrid mode (10-70)
-    qobuzAvailable: false,     // populated from /api/setup/status
-
     // Results UX — selection
     selectedTrackKey: null,    // Currently selected track in detail panel
 
@@ -1089,8 +1084,8 @@ function updateStep() {
 
     // Steps array is mode-dependent: prompt uses refine, seed uses dimensions
     const steps = state.mode === 'prompt'
-        ? ['input', 'refine', 'source', 'filters', 'results']
-        : ['input', 'dimensions', 'source', 'filters', 'results'];
+        ? ['input', 'refine', 'filters', 'results']
+        : ['input', 'dimensions', 'filters', 'results'];
     const currentIndex = steps.indexOf(state.step);
 
     document.querySelectorAll('#playlist-steps .step').forEach((stepEl, index) => {
@@ -1133,9 +1128,6 @@ function updateStep() {
         document.getElementById('step-refine').classList.add('active');
     } else if (state.step === 'dimensions') {
         document.getElementById('step-dimensions').classList.add('active');
-    } else if (state.step === 'source') {
-        document.getElementById('step-source').classList.add('active');
-        renderSourceModeStep();
     } else if (state.step === 'filters') {
         document.getElementById('step-filters').classList.add('active');
     } else if (state.step === 'results') {
@@ -1655,10 +1647,7 @@ function updatePlaylist() {
             <span class="track-number">${index + 1}</span>
             ${trackArtHtml(track)}
             <div class="track-info">
-                <div class="track-title">
-                    ${escapeHtml(track.title)}
-                    ${track.source === 'qobuz' ? '<span class="qobuz-badge" title="Via Qobuz">Qobuz</span>' : ''}
-                </div>
+                <div class="track-title">${escapeHtml(track.title)}</div>
                 <div class="track-artist">${escapeHtml(track.artist)} - ${escapeHtml(track.album)}</div>
             </div>
             <button class="track-remove" tabindex="0" data-rating-key="${escapeHtml(track.rating_key)}"
@@ -2714,24 +2703,6 @@ function setupEventListeners() {
     // Regenerate
     document.getElementById('regenerate-btn').addEventListener('click', handleGenerate);
 
-    // Source mode cards
-    document.getElementById('source-mode-cards')?.addEventListener('click', e => {
-        const card = e.target.closest('.source-card');
-        if (!card || card.disabled) return;
-        state.sourceMode = card.dataset.source;
-        renderSourceModeStep();
-    });
-
-    // Qobuz percentage slider
-    document.getElementById('qobuz-percentage-slider')?.addEventListener('input', e => {
-        state.qobuzPercentage = parseInt(e.target.value);
-        const label = document.getElementById('qobuz-pct-label');
-        if (label) label.textContent = state.qobuzPercentage;
-    });
-
-    // Source step continue button
-    document.getElementById('source-continue-btn')?.addEventListener('click', handleContinueFromSource);
-
     // Back to filters
     document.getElementById('back-to-filters-btn').addEventListener('click', () => {
         state.step = 'filters';
@@ -3101,71 +3072,6 @@ function renderDimensions() {
     }
 }
 
-function renderSourceModeStep() {
-    const cards = document.querySelectorAll('#source-mode-cards .source-card');
-    const pctRow = document.getElementById('qobuz-percentage-row');
-    const unavailMsg = document.getElementById('qobuz-unavailable-msg');
-    const slider = document.getElementById('qobuz-percentage-slider');
-    const pctLabel = document.getElementById('qobuz-pct-label');
-
-    // Show unavailability warning if Qobuz not configured
-    if (!state.qobuzAvailable) {
-        unavailMsg?.classList.remove('hidden');
-    } else {
-        unavailMsg?.classList.add('hidden');
-    }
-
-    // Render card states
-    cards.forEach(card => {
-        const src = card.dataset.source;
-        const isSelected = state.sourceMode === src;
-        const isQobuzCard = src === 'hybrid' || src === 'qobuz';
-        const disabled = isQobuzCard && !state.qobuzAvailable;
-
-        card.classList.toggle('selected', isSelected);
-        card.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-        card.disabled = disabled;
-        card.classList.toggle('source-card--disabled', disabled);
-        if (disabled) {
-            card.title = 'Configureer Qobuz in Roon om deze optie te gebruiken';
-        } else {
-            card.title = '';
-        }
-    });
-
-    // Show percentage slider only for hybrid mode
-    if (state.sourceMode === 'hybrid' && state.qobuzAvailable) {
-        pctRow?.classList.remove('hidden');
-        if (slider) slider.value = state.qobuzPercentage;
-        if (pctLabel) pctLabel.textContent = state.qobuzPercentage;
-    } else {
-        pctRow?.classList.add('hidden');
-    }
-}
-
-async function handleContinueFromSource() {
-    // Load library stats for the filters step
-    setLoading(true, 'Bibliotheek laden...');
-    try {
-        const stats = await fetchLibraryStats();
-        state.availableGenres = stats.genres;
-        state.availableDecades = stats.decades;
-        state.selectedGenres = stats.genres.map(g => g.name);
-        state.selectedDecades = stats.decades.map(d => d.name);
-    } catch {
-        // Non-fatal: filters step will show empty chips
-        state.availableGenres = [];
-        state.availableDecades = [];
-    } finally {
-        setLoading(false);
-    }
-
-    state.step = 'filters';
-    updateStep();
-    updateFilters();
-    updateFilterPreview();
-}
-
 async function handleContinueToFilters() {
     if (!state.selectedDimensions.length) {
         showError('Please select at least one dimension');
@@ -3182,8 +3088,10 @@ async function handleContinueToFilters() {
         state.selectedGenres = stats.genres.map(g => g.name);
         state.selectedDecades = stats.decades.map(d => d.name);
 
-        state.step = 'source';
+        state.step = 'filters';
         updateStep();
+        updateFilters();
+        updateFilterPreview();
     } catch (error) {
         showError(error.message);
     } finally {
@@ -3199,8 +3107,6 @@ async function handleGenerate() {
         track_count: state.trackCount,
         exclude_live: state.excludeLive,
         max_tracks_to_ai: state.maxTracksToAI,
-        source_mode: state.sourceMode,
-        qobuz_percentage: state.qobuzPercentage,
     };
 
     if (state.mode === 'prompt') {
@@ -4568,8 +4474,10 @@ async function handlePlaylistRefineNext() {
         }
     }
 
-    state.step = 'source';
+    state.step = 'filters';
     updateStep();
+    updateFilters();
+    updateFilterPreview();
 }
 
 async function handleRecSwitchToDiscovery() {
@@ -5630,8 +5538,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     enterSetupWizard(setupStatus);
                     return; // Wizard handles its own lifecycle
                 }
-                // Persist Qobuz availability for the source mode UI
-                state.qobuzAvailable = !!setupStatus.qobuz_available;
             } catch (e) {
                 // Setup endpoint unavailable — skip wizard, continue normally
                 console.warn('Setup status check failed:', e);

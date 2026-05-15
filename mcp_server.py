@@ -123,11 +123,10 @@ async def search_library(query: str) -> str:
 async def filter_tracks(
     genres: Optional[list[str]] = None,
     decades: Optional[list[str]] = None,
-    min_rating: Optional[int] = None,
     exclude_live: bool = True,
     max_tracks: int = 200,
 ) -> str:
-    """Filter the Roon library by genre, decade, rating, and/or live-version exclusion.
+    """Filter the Roon library by genre, decade, and/or live-version exclusion.
 
     Returns a list of tracks that match all specified criteria. Each track includes
     its item_key (required for play/queue), title, artist, and album.
@@ -139,16 +138,11 @@ async def filter_tracks(
     returned; the response also reports the full total so you know how large the
     filtered pool is.
 
-    Note: min_rating filtering has no effect because Roon does not expose user
-    ratings via the Extension API.
-
     Args:
         genres:       List of genre strings to include, e.g. ["Jazz", "Blues"].
                       Pass None or omit to include all genres.
         decades:      List of decade strings to include, e.g. ["1990s", "2000s"].
                       Pass None or omit to include all decades.
-        min_rating:   Minimum star rating (1–5). Currently has no effect due to
-                      Roon API limitations — all tracks are returned regardless.
         exclude_live: When True (default), tracks with "live", "concert", or year
                       patterns in their title or album name are excluded.
         max_tracks:   Maximum number of tracks to return (default 200). The full
@@ -159,8 +153,6 @@ async def filter_tracks(
         body["genres"] = genres
     if decades:
         body["decades"] = decades
-    if min_rating is not None:
-        body["min_rating"] = min_rating
 
     try:
         response = await _client.post(f"{MEDIASAGE_URL}/api/library/filter", json=body)
@@ -373,6 +365,8 @@ async def generate_playlist(
     decades: Optional[list[str]] = None,
     track_count: int = 25,
     exclude_live: bool = True,
+    source_mode: str = "library",
+    qobuz_percentage: int = 30,
 ) -> str:
     """Generate an AI-curated playlist from the Roon library using a natural language prompt.
 
@@ -391,20 +385,27 @@ async def generate_playlist(
     add them.
 
     Args:
-        prompt:       Natural language description, e.g. "upbeat 90s indie rock for a
-                      road trip" or "calm jazz for late-night studying".
-        genres:       Optional genre filters, e.g. ["Jazz", "Rock"].
-                      Pass None to let the AI choose from the full library.
-        decades:      Optional decade filters, e.g. ["1990s", "2000s"].
-                      Pass None to include all decades.
-        track_count:  Exact number of tracks to generate (default 25). Any positive integer.
-        exclude_live: When True (default), live and concert recordings are excluded.
-                      Pass False to include live versions.
+        prompt:           Natural language description, e.g. "upbeat 90s indie rock for a
+                          road trip" or "calm jazz for late-night studying".
+        genres:           Optional genre filters, e.g. ["Jazz", "Rock"].
+                          Pass None to let the AI choose from the full library.
+        decades:          Optional decade filters, e.g. ["1990s", "2000s"].
+                          Pass None to include all decades.
+        track_count:      Exact number of tracks to generate (default 25). Any positive integer.
+        exclude_live:     When True (default), live and concert recordings are excluded.
+                          Pass False to include live versions.
+        source_mode:      "library" (default) — only tracks from the Roon library.
+                          "hybrid" — mix of library tracks + Qobuz discoveries.
+                          "qobuz" — only new music from Qobuz streaming.
+        qobuz_percentage: For hybrid mode, percentage of tracks sourced from Qobuz (default 30).
+                          Ignored when source_mode is "library" or "qobuz".
     """
     body: dict = {
         "prompt": prompt,
         "track_count": track_count,
         "exclude_live": exclude_live,
+        "source_mode": source_mode,
+        "qobuz_percentage": qobuz_percentage,
     }
     if genres:
         body["genres"] = genres
@@ -1077,6 +1078,25 @@ async def browse_playlists(
     }
 
     result = await _api_call("POST", "/api/roon/playlists", json=body)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+
+
+@mcp.tool()
+async def search_qobuz(query: str, limit: int = 10) -> str:
+    """Search for tracks on Qobuz via Roon's streaming integration.
+
+    Requires Qobuz to be configured in Roon. Returns tracks with item_keys
+    that can be used directly with play_tracks / queue_tracks.
+
+    Use this when the user wants to discover new music, play something they
+    don't own, or when a library search returns no results and you want to
+    check if it's available on Qobuz.
+
+    Args:
+        query: Search string, e.g. "Miles Davis So What" or "Radiohead"
+        limit: Max results (default 10)
+    """
+    result = await _api_call("POST", "/api/roon/qobuz-search", json={"query": query, "limit": limit})
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 

@@ -46,6 +46,18 @@ Bij het genereren van playlists:
 * **404 op seed track**: Track niet gevonden. Zoek opnieuw via `search_library` met de artiest/titel.
 * **Timeout**: Bij een timeout op `generate_playlist`, probeer opnieuw met een kleiner aantal tracks (bijv. 2.500 in plaats van 5.000).
 
+## Muziekbron keuze
+
+Bij het genereren van playlists, vraag ALTIJD eerst of de gebruiker muziek wil uit:
+1. **Mijn bibliotheek** — alleen eigen muziek (standaard)
+2. **Mix** — bibliotheek aangevuld met nieuwe ontdekkingen via Qobuz
+3. **Volledig nieuw** — alleen nieuwe muziek via Qobuz
+
+Detecteer context: als de gebruiker zegt "iets nieuws", "ontdek", "ken ik nog niet" → stel hybride of Qobuz voor.
+Als de gebruiker zegt "uit mijn collectie", "wat ik heb" → gebruik library mode.
+
+Bij twijfel: vraag het. Voorbeeld: "Wil je dat ik alleen uit je eigen bibliotheek kies, of mag ik ook nieuwe muziek via Qobuz toevoegen?"
+
 ## Kwaliteitsregels voor playlists
 
 * **Artiest diversiteit**: Een goede playlist van 25 tracks heeft minimaal 20 unieke artiesten. Als je minder dan 80% unieke artiesten ziet, is de playlist niet divers genoeg.

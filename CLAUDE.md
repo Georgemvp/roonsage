@@ -1,6 +1,6 @@
 # MediaSage Development Guidelines
 
-Last updated: 2026-05-15 (MCP v3 — 25 tools)
+Last updated: 2026-05-15 (MCP v3 — 27 tools)
 
 ## Project Overview
 
@@ -111,7 +111,7 @@ CUSTOM_CONTEXT_WINDOW=4096
 
 These are NOT bugs — they are Roon Extension API constraints:
 
-- **No user ratings**: `user_rating` is always `None` via Browse API. The min_rating filter in the UI does nothing.
+- **No user ratings**: `user_rating` is always `None` via Browse API. The `min_rating` filter and `user_rating` column have been removed from the codebase.
 - **No play counts**: `view_count` is hardcoded to `0`. The "familiarity" feature classifies everything as "unplayed".
 - **No playlist creation**: Roon cannot save playlists via the Extension API. The frontend "Save to Playlist" concept is not available.
 - **No direct track queries**: All library access goes through Browse hierarchy (Root → Library → Albums → tracks per album).
@@ -178,6 +178,7 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 | `get_library_stats` | `GET /api/library/stats/cached` | Genre/decade/total stats from cache |
 | `get_library_status` | `GET /api/library/status` | Cache freshness, needs_resync flag |
 | `search_library` | `GET /api/library/search` | Search by track/artist/album name |
+| `search_qobuz` | `POST /api/roon/qobuz-search` | Search Qobuz catalog via Roon |
 | `filter_tracks` | `POST /api/library/filter` | Filter by genre, decade, live exclusion |
 | `get_artist_albums` | `GET /api/library/artist-albums` | All albums by artist from SQLite cache |
 | `sync_library` | `POST /api/library/sync` | Trigger background library sync |
@@ -209,6 +210,8 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 - **User moves rooms** → `transfer_zone`
 - **User wants to sync multiple rooms** → `zone_grouping`
 - **User wants shuffle/repeat** → `transport_control` with action="shuffle"/"repeat"
+- **User wants new/unknown music** → `search_qobuz` or `generate_playlist` with source_mode="hybrid"
+- **Library search returns nothing** → try `search_qobuz` as fallback
 
 ### Playlist Generation Output Format (v2)
 
