@@ -557,6 +557,57 @@ async def recommend_generate(request: RecommendGenerateRequest, raw_request: Req
             if not research_data:
                 research_warning = "Research was unavailable — factual details could not be verified and may be approximate."
 
+            # For discovery mode: try to find albums on Qobuz so they're playable.
+            # Run searches in parallel to keep latency low (1-3 s per album).
+            if is_discovery:
+                from rapidfuzz import fuzz
+                from backend.qobuz_browser import search_qobuz_tracks
+
+                discovery_recs = [r for r in recommendations if not r.track_rating_keys]
+                if discovery_recs:
+                    yield f"event: progress\ndata: {json.dumps({'step': 'qobuz_lookup', 'message': 'Zoeken naar album op Qobuz...'})}\n\n"
+
+                    async def _qobuz_lookup(rec):
+                        """Search Qobuz for rec; mutate rec in place. Never raises."""
+                        try:
+                            query = f"{rec.artist} {rec.album}"
+                            results = await search_qobuz_tracks(query, limit=20)
+                            if not results:
+                                rec.playable = False
+                                return
+                            # Filter to tracks that belong to this album (fuzzy match)
+                            album_tracks = [
+                                t for t in results
+                                if fuzz.ratio(
+                                    (t.get("album") or "").lower(),
+                                    rec.album.lower(),
+                                ) >= 70
+                            ]
+                            if not album_tracks:
+                                # Relax: use any result from this artist
+                                album_tracks = [
+                                    t for t in results
+                                    if fuzz.partial_ratio(
+                                        (t.get("artist") or "").lower(),
+                                        rec.artist.lower(),
+                                    ) >= 70
+                                ]
+                            if album_tracks:
+                                rec.track_rating_keys = [t["item_key"] for t in album_tracks]
+                                rec.rating_key = album_tracks[0]["item_key"]
+                                rec.source = "qobuz"
+                                rec.playable = True
+                            else:
+                                rec.playable = False
+                        except Exception as exc:
+                            logger.warning(
+                                "Qobuz lookup failed for %s — %s: %s",
+                                rec.artist, rec.album, exc,
+                            )
+                            rec.playable = False
+
+                    await asyncio.gather(*[_qobuz_lookup(r) for r in discovery_recs])
+
             total_tokens, total_cost = pipeline.get_session_costs(request.session_id)
             result = RecommendGenerateResponse(
                 recommendations=recommendations,

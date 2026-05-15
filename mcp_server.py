@@ -565,6 +565,8 @@ async def recommend_album(
             "hook": pitch.get("hook", ""),
             "body": pitch.get("body", ""),
             "reason": primary.get("reason", ""),
+            "playable": primary.get("playable", True),
+            "source": primary.get("source", "library"),
         }
 
     secondaries = [r for r in recommendations if r.get("rank") == "secondary"]
@@ -575,6 +577,8 @@ async def recommend_album(
             "year": sec.get("year"),
             "rating_key": sec.get("rating_key", ""),
             "track_rating_keys": sec.get("track_rating_keys", []),
+            "playable": sec.get("playable", True),
+            "source": sec.get("source", "library"),
         })
 
     if result_payload.get("result_id"):
@@ -815,6 +819,8 @@ async def recommend_album_interactive(
                 "hook": pitch.get("hook", ""),
                 "body": pitch.get("body", ""),
                 "reason": primary.get("reason", ""),
+                "playable": primary.get("playable", True),
+                "source": primary.get("source", "library"),
             }
         secondaries = [r for r in recommendations if r.get("rank") == "secondary"]
         for sec in secondaries:
@@ -824,6 +830,8 @@ async def recommend_album_interactive(
                 "year": sec.get("year"),
                 "rating_key": sec.get("rating_key", ""),
                 "track_rating_keys": sec.get("track_rating_keys", []),
+                "playable": sec.get("playable", True),
+                "source": sec.get("source", "library"),
             })
         return json.dumps(summary, ensure_ascii=False, indent=2)
 

@@ -4921,7 +4921,9 @@ function renderRecResults() {
                         </div>` : ''}
                     <div class="rec-primary-actions">
                         ${primary.track_rating_keys?.length ? `
-                            <button class="btn btn-primary rec-play-btn" data-rating-keys="${escapeHtml(primary.track_rating_keys.join(','))}">&#9654; Play Now</button>
+                            <button class="btn btn-primary rec-play-btn" data-rating-keys="${escapeHtml(primary.track_rating_keys.join(','))}">${primary.source === 'qobuz' ? '&#9654; Speel via Qobuz' : '&#9654; Play Now'}</button>
+                        ` : primary.playable === false ? `
+                            <span class="rec-unavailable">Niet beschikbaar voor streaming</span>
                         ` : ''}
                         ${state.rec.sessionId ? `
                             <button class="rec-action-link" id="rec-show-another">Show Me Another</button>
@@ -4952,7 +4954,11 @@ function renderRecResults() {
                             <div class="rec-secondary-artist">${escapeHtml(rec.artist)}${rec.year ? ` (${rec.year})` : ''}</div>
                             ${rec.track_rating_keys?.length ? `
                                 <div class="rec-secondary-actions">
-                                    <button class="btn btn-secondary btn-sm rec-play-btn" data-rating-keys="${escapeHtml(rec.track_rating_keys.join(','))}">&#9654; Play</button>
+                                    <button class="btn btn-secondary btn-sm rec-play-btn" data-rating-keys="${escapeHtml(rec.track_rating_keys.join(','))}">${rec.source === 'qobuz' ? '&#9654; Qobuz' : '&#9654; Play'}</button>
+                                </div>
+                            ` : rec.playable === false ? `
+                                <div class="rec-secondary-actions">
+                                    <span class="rec-unavailable rec-unavailable--sm">Niet beschikbaar</span>
                                 </div>
                             ` : ''}
                         </div>

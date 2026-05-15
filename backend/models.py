@@ -743,6 +743,8 @@ class AlbumRecommendation(BaseModel):
     art_url: str | None = None
     pitch: SommelierPitch = SommelierPitch()
     research_available: bool = False
+    playable: bool = True       # False when no library keys and Qobuz search also failed
+    source: str = "library"     # "library" or "qobuz"
 
 
 class ResearchData(BaseModel):
