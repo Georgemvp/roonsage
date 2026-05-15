@@ -3640,18 +3640,50 @@ async function handleSaveSettings() {
 async function handleValidateQobuz() {
     const btn = document.getElementById('validate-qobuz-btn');
     const statusEl = document.getElementById('qobuz-settings-status');
+
+    // Read the currently filled-in fields
+    const appId = document.getElementById('qobuz-app-id')?.value.trim() || '';
+    const email = document.getElementById('qobuz-email')?.value.trim() || '';
+    const password = document.getElementById('qobuz-password')?.value || '';
+
     if (btn) {
         btn.disabled = true;
         btn.textContent = 'Valideren...';
     }
     try {
-        const res = await fetch('/api/qobuz/save-status');
+        const res = await fetch('/api/qobuz/validate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ app_id: appId, email, password }),
+        });
         const data = await res.json();
         if (statusEl) {
             statusEl.classList.toggle('connected', !!data.available);
             statusEl.querySelector('.status-text').textContent = data.available
-                ? 'Geconfigureerd en verbonden'
-                : (data.error || 'Niet geconfigureerd of verbinding mislukt');
+                ? 'Verbonden met Qobuz ✓'
+                : (data.error || 'Verbinding mislukt');
+        }
+
+        // On success, persist the credentials via POST /api/config
+        if (data.available) {
+            const updates = {};
+            if (appId) updates.qobuz_app_id = appId;
+            if (email) updates.qobuz_email = email;
+            if (password) updates.qobuz_password = password;
+            if (Object.keys(updates).length > 0) {
+                try {
+                    state.config = await updateConfig(updates);
+                    updateSettings();
+                    // Clear password field after successful save
+                    const qobuzPwField = document.getElementById('qobuz-password');
+                    if (qobuzPwField) {
+                        qobuzPwField.value = '';
+                        qobuzPwField.placeholder = '••••••••••••  (opgeslagen)';
+                    }
+                } catch (saveErr) {
+                    console.warn('Qobuz credentials validated but could not be saved:', saveErr);
+                }
+            }
         }
     } catch (err) {
         if (statusEl) {

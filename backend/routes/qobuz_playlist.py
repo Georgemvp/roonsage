@@ -7,7 +7,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.qobuz_api import get_qobuz_api_client
+from backend.config import get_qobuz_config
+from backend.qobuz_api import (
+    get_qobuz_api_client,
+    get_qobuz_api_error,
+    init_qobuz_api_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +70,48 @@ async def save_qobuz_playlist(req: SaveQobuzPlaylistRequest):
 async def qobuz_save_status():
     """Check if Qobuz playlist save is configured and available."""
     client = get_qobuz_api_client()
+    error = get_qobuz_api_error()
     return {
         "available": client is not None and client.is_authenticated(),
+        "error": error,
+    }
+
+
+class ValidateQobuzRequest(BaseModel):
+    app_id: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
+
+
+@router.post("/api/qobuz/validate")
+async def validate_qobuz_credentials(req: ValidateQobuzRequest):
+    """Validate Qobuz credentials by attempting to log in.
+
+    Accepts {"app_id": "...", "email": "...", "password": "..."} in the body
+    to test specific credentials. If no body fields are provided, uses the
+    currently configured credentials from environment / config.user.yaml.
+    """
+    if req.app_id and req.email and req.password:
+        app_id = req.app_id
+        email = req.email
+        password = req.password
+    else:
+        qobuz_cfg = get_qobuz_config()
+        app_id = qobuz_cfg.get("app_id", "")
+        email = qobuz_cfg.get("email", "")
+        password = qobuz_cfg.get("password", "")
+
+    if not (app_id and email and password):
+        return {
+            "available": False,
+            "error": "Vul App ID, email en wachtwoord in.",
+        }
+
+    # Re-initialize the singleton with the provided credentials
+    client = await asyncio.to_thread(init_qobuz_api_client, app_id, email, password)
+    error = get_qobuz_api_error()
+
+    return {
+        "available": client is not None and client.is_authenticated(),
+        "error": error,
     }

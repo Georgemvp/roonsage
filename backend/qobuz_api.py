@@ -5,8 +5,10 @@ addition via Qobuz's JSON API. Independent of Roon — uses the user's
 own Qobuz credentials.
 """
 
+import hashlib
 import logging
 import time
+import uuid
 from typing import Any
 
 import httpx
@@ -31,26 +33,60 @@ class QobuzClient:
         self._login(email, password)
 
     def _login(self, email: str, password: str) -> None:
-        """Authenticate with Qobuz and store user_auth_token."""
+        """Authenticate with Qobuz and store user_auth_token.
+
+        The Qobuz API uses GET for login with query parameters.
+        Tries plain-text password first, then MD5-hashed password as fallback.
+        """
+        # Generate a stable device ID based on the email
+        device_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"roonsage.{email}"))
+
+        base_params = {
+            "app_id": self.app_id,
+            "username": email,  # Qobuz accepts email as username
+            "device_manufacturer_id": device_id,
+        }
+
+        # Attempt 1: plain-text password
         try:
-            resp = self._client.post(
+            resp = self._client.get(
                 f"{QOBUZ_API_BASE}/user/login",
-                data={
-                    "email": email,
-                    "password": password,
-                    "app_id": self.app_id,
-                },
+                params={**base_params, "password": password},
             )
+            if resp.status_code in (400, 401):
+                # Attempt 2: MD5-hashed password
+                logger.info(
+                    "Qobuz login: plain-text failed (%d), trying MD5 hash",
+                    resp.status_code,
+                )
+                md5_password = hashlib.md5(password.encode("utf-8")).hexdigest()
+                resp = self._client.get(
+                    f"{QOBUZ_API_BASE}/user/login",
+                    params={**base_params, "password": md5_password},
+                )
+
             resp.raise_for_status()
             data = resp.json()
             self._token = data["user_auth_token"]
             self._user_id = data["user"]["id"]
             logger.info("Qobuz API: logged in as user %s", self._user_id)
         except httpx.HTTPStatusError as exc:
-            logger.error("Qobuz login failed: %s", exc.response.text)
-            raise QobuzAPIError(f"Qobuz login failed: {exc.response.status_code}") from exc
+            error_text = exc.response.text
+            try:
+                error_data = exc.response.json()
+                error_text = error_data.get("message", error_text)
+            except Exception:
+                pass
+            logger.error(
+                "Qobuz login failed (%d): %s", exc.response.status_code, error_text
+            )
+            raise QobuzAPIError(
+                f"Qobuz login mislukt ({exc.response.status_code}): {error_text}"
+            ) from exc
         except KeyError as exc:
-            raise QobuzAPIError("Qobuz login response missing expected fields") from exc
+            raise QobuzAPIError(
+                "Qobuz login response mist verwachte velden"
+            ) from exc
 
     def _auth_params(self, **extra: Any) -> dict[str, Any]:
         """Return base params with app_id and auth token."""
