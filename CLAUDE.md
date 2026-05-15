@@ -97,9 +97,9 @@ OLLAMA_URL=http://localhost:11434
 CUSTOM_LLM_URL=http://localhost:5000/v1
 CUSTOM_CONTEXT_WINDOW=4096
 # Qobuz playlist save (optional)
-QOBUZ_APP_ID=               # Qobuz API app ID
-QOBUZ_EMAIL=                # Qobuz account email
-QOBUZ_PASSWORD=             # Qobuz account password
+QOBUZ_EMAIL=                # Qobuz account email (for playlist save)
+QOBUZ_PASSWORD=             # Qobuz account password (for playlist save)
+# app_id is auto-detected — no manual configuration needed
 ```
 
 ## Key Design Decisions
@@ -114,7 +114,7 @@ QOBUZ_PASSWORD=             # Qobuz account password
 - **Live version filtering**: Exclude tracks with "live", "concert", dates in title/album
 - **Browse hierarchy**: All Roon library access follows: Root → Library → Albums → tracks per album
 - **Qobuz via Roon Browse API**: No separate Qobuz API key needed. RoonSage navigates Roon's Browse hierarchy (Root → Qobuz → Search) to find and play Qobuz tracks. Detected automatically at startup.
-- **Qobuz playlist save via direct API**: Roon's Extension API cannot create playlists. RoonSage connects directly to the Qobuz JSON API (`https://www.qobuz.com/api.json/0.2/`) for playlist creation. Track resolution uses search + fuzzy matching (rapidfuzz) to translate artist+title to Qobuz track IDs. Rate limited at 150ms between searches.
+- **Qobuz playlist save via direct API**: Roon's Extension API cannot create playlists. RoonSage connects directly to the Qobuz JSON API (`https://www.qobuz.com/api.json/0.2/`) for playlist creation. The app_id is obtained automatically by trying known working app_ids (from LMS plugin, QobuzDL, streamrip) with fallback to web player extraction. Track resolution uses search + fuzzy matching (rapidfuzz) to translate artist+title to Qobuz track IDs. Rate limited at 150ms between searches.
 - **Time-of-day context**: Day and hour are prepended to generation prompts as subtle mood hints. Dutch day names used for consistency with the UI language.
 
 ## Roon API Limitations
@@ -123,7 +123,7 @@ These are NOT bugs — they are Roon Extension API constraints:
 
 - **No user ratings**: `user_rating` is always `None` via Browse API. The `min_rating` filter code has been removed since Roon never exposes this data.
 - **No play counts**: `view_count` is hardcoded to `0`. The "familiarity" feature classifies everything as "unplayed".
-- **No playlist creation**: Roon cannot save playlists via the Extension API. RoonSage uses the Qobuz API directly for playlist save (requires separate QOBUZ_* credentials).
+- **No playlist creation**: Roon cannot save playlists via the Extension API. RoonSage uses the Qobuz API directly for playlist save (requires `QOBUZ_EMAIL` + `QOBUZ_PASSWORD`; app_id is auto-detected).
 - **No direct track queries**: All library access goes through Browse hierarchy (Root → Library → Albums → tracks per album).
 - **Metadata parsed from subtitle strings**: Genre, year, and artist are parsed from `"Artist • Year • Genre"` format using `•` separator. This is fragile.
 - **ARC zones invisible**: Roon ARC playback is not visible to the Extension API.
@@ -197,12 +197,14 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
   - Server-side key_map opslag: session_id in plaats van key_map in context (~10-20K tokens bespaard)
   - `validate_playlist` tool: controleer duplicaten, clustering en overrepresentatie vóór afspelen
 - **MCP v4.4 (2026-05-15):** Qobuz playlist save:
-  - New module `backend/qobuz_api.py`: direct Qobuz API client (login, search, create playlist, add tracks, resolve tracks via fuzzy matching)
+  - New module `backend/qobuz_api.py`: direct Qobuz API client with auto-detected app_id (tries known working app_ids from LMS plugin/QobuzDL/streamrip, falls back to web player extraction), email/password login with MD5 fallback, track search, playlist create, playlist addTracks, fuzzy track resolution
   - New endpoint `POST /api/qobuz/playlist/save`: full pipeline — resolve tracks to Qobuz IDs → create playlist → add tracks
+  - New endpoint `POST /api/qobuz/validate`: test credentials with live login attempt
   - New endpoint `GET /api/qobuz/save-status`: check if Qobuz save is configured
   - New MCP tool `save_to_qobuz`: save curated playlists to Qobuz from Claude Desktop
-  - Frontend: "Opslaan in Qobuz" button on playlist results (visible when configured)
-  - Config: `QOBUZ_APP_ID`, `QOBUZ_EMAIL`, `QOBUZ_PASSWORD` environment variables
+  - Frontend: Qobuz settings section (email + password only, app_id auto-detected) with validate button
+  - Frontend: "Opslaan in Qobuz" button on playlist results (visible when Qobuz is configured)
+  - Config: `QOBUZ_EMAIL`, `QOBUZ_PASSWORD` environment variables (no app_id needed)
 
 ## MCP Server
 

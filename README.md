@@ -176,7 +176,7 @@ The web interface works without Claude Desktop and offers the same playlist and 
 
 **Qobuz integration** — three source modes: Library only, Mix (library + Qobuz discoveries), and Qobuz Discovery (new music only). Automatically detected when Qobuz is configured in Roon.
 
-**Opslaan in Qobuz** — sla gegenereerde playlists direct op in je Qobuz-account. Vereist `QOBUZ_APP_ID`, `QOBUZ_EMAIL` en `QOBUZ_PASSWORD` — configureerbaar via de Instellingen-pagina. De app zoekt elke track op in de Qobuz-catalogus via artiest + titel en voegt gevonden tracks toe aan een nieuwe Qobuz-afspeellijst. Tracks die niet op Qobuz staan worden overgeslagen met melding.
+**Opslaan in Qobuz** — sla gegenereerde playlists direct op als Qobuz-afspeellijst in je account. Configureer je Qobuz e-mail en wachtwoord via de Instellingen-pagina — de app haalt automatisch de benodigde API-credentials op. Elke track wordt opgezocht in de Qobuz-catalogus via artiest + titel; gevonden tracks worden toegevoegd aan een nieuwe Qobuz-playlist. Tracks die niet op Qobuz staan worden overgeslagen met melding.
 
 **Smart filtering** — filter by genre, decade, and live exclusion before the LLM sees anything. Real-time track counts show exactly how your choices narrow the pool. Estimated token costs are shown before you generate.
 
@@ -373,8 +373,7 @@ sudo systemctl enable roonsage && sudo systemctl start roonsage
 | `CUSTOM_CONTEXT_WINDOW` | No | `32768` | Context window for custom provider |
 | `ROONSAGE_PASSWORD` | No | — | Enable HTTP Basic Auth on all endpoints |
 | `ROONSAGE_URL` | No | `http://localhost:5765` | Address at which the MCP server reaches RoonSage |
-| `QOBUZ_APP_ID` | No | — | Qobuz API app ID (voor playlist-opslag) |
-| `QOBUZ_EMAIL` | No | — | Qobuz account email (voor playlist-opslag) |
+| `QOBUZ_EMAIL` | No | — | Qobuz account email (voor playlist-opslag in Qobuz) |
 | `QOBUZ_PASSWORD` | No | — | Qobuz account wachtwoord (voor playlist-opslag) |
 
 Settings can also be adjusted via the web UI (Settings page). UI-saved settings go to `data/config.user.yaml`. Environment variables always take precedence.
@@ -501,8 +500,9 @@ Interactive docs at `/docs` when the server is running.
 | `/api/roon/radio` | POST | Play an internet radio station |
 | `/api/roon/playlists` | POST | List or play Roon playlists |
 | `/api/roon/qobuz-search` | POST | Search Qobuz catalogue via Roon |
-| `/api/qobuz/playlist/save` | POST | Playlist opslaan in Qobuz |
+| `/api/qobuz/playlist/save` | POST | Playlist opslaan in Qobuz-account |
 | `/api/qobuz/save-status` | GET | Check of Qobuz-opslag beschikbaar is |
+| `/api/qobuz/validate` | POST | Qobuz credentials valideren |
 | `/api/queue` | POST | Send tracks to a Roon zone |
 | `/api/queue/append` | POST | Append tracks to a zone queue |
 | `/api/recommend/questions` | POST | Generate clarifying questions |
