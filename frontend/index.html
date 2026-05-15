@@ -232,13 +232,18 @@
                         <span class="step-label">Dimensions</span>
                     </div>
                     <div class="step-connector" aria-hidden="true"></div>
-                    <div class="step" data-step="filters">
+                    <div class="step" data-step="source">
                         <span class="step-circle">3</span>
+                        <span class="step-label">Bron</span>
+                    </div>
+                    <div class="step-connector" aria-hidden="true"></div>
+                    <div class="step" data-step="filters">
+                        <span class="step-circle">4</span>
                         <span class="step-label">Filters</span>
                     </div>
                     <div class="step-connector" aria-hidden="true"></div>
                     <div class="step" data-step="results">
-                        <span class="step-circle">4</span>
+                        <span class="step-circle">5</span>
                         <span class="step-label">Results</span>
                     </div>
                 </div>
@@ -315,11 +320,43 @@
                             ></textarea>
                         </div>
                         <button id="continue-to-filters-btn" class="btn btn-primary">
-                            Continue to Filters
+                            Continue
                         </button>
                         <p id="llm-required-hint-dimensions" class="llm-required-hint" hidden>
                             <a href="#" data-view="settings">Configure an LLM provider</a> to continue
                         </p>
+                    </div>
+
+                    <!-- Source Mode Step -->
+                    <div id="step-source" class="step-panel">
+                        <h2>Muziekbron</h2>
+                        <p class="step-description">Kies waar de tracks vandaan komen.</p>
+                        <div id="source-mode-cards" class="source-mode-cards" role="group" aria-label="Muziekbron kiezen">
+                            <button class="source-card selected" data-source="library" aria-pressed="true">
+                                <span class="source-card-icon">📀</span>
+                                <span class="source-card-title">Mijn Bibliotheek</span>
+                                <span class="source-card-desc">Alleen tracks die je bezit</span>
+                            </button>
+                            <button class="source-card" data-source="hybrid" aria-pressed="false" id="source-card-hybrid">
+                                <span class="source-card-icon">🔀</span>
+                                <span class="source-card-title">Mix</span>
+                                <span class="source-card-desc">Bibliotheek + nieuwe ontdekkingen via Qobuz</span>
+                            </button>
+                            <button class="source-card" data-source="qobuz" aria-pressed="false" id="source-card-qobuz">
+                                <span class="source-card-icon">🔍</span>
+                                <span class="source-card-title">Qobuz Ontdekking</span>
+                                <span class="source-card-desc">Nieuwe muziek buiten je bibliotheek</span>
+                            </button>
+                        </div>
+                        <div id="qobuz-percentage-row" class="qobuz-percentage-row hidden">
+                            <label for="qobuz-percentage-slider">Nieuwe muziek: <span id="qobuz-pct-label">30</span>%</label>
+                            <input type="range" id="qobuz-percentage-slider" min="10" max="70" step="5" value="30"
+                                   aria-label="Percentage nieuwe Qobuz-tracks">
+                        </div>
+                        <p id="qobuz-unavailable-msg" class="qobuz-unavailable hidden">
+                            ⚠️ Configureer Qobuz in Roon om Mix en Qobuz Ontdekking te gebruiken.
+                        </p>
+                        <button id="source-continue-btn" class="btn btn-primary">Volgende</button>
                     </div>
 
                     <!-- Filters Step -->

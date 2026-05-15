@@ -14,6 +14,8 @@ from backend.models import (
     PlayQueueResponse,
     PlayRadioRequest,
     PlayRadioResponse,
+    QobuzSearchRequest,
+    QobuzSearchResponse,
     QueueAppendRequest,
     QueueAppendResponse,
     RoonZoneInfo,
@@ -224,6 +226,41 @@ async def browse_playlists(request: BrowsePlaylistsRequest) -> BrowsePlaylistsRe
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result.get("error", "Browse playlists failed"))
     return BrowsePlaylistsResponse(**result)
+
+
+@router.post("/roon/qobuz-search", response_model=QobuzSearchResponse)
+async def qobuz_search(request: QobuzSearchRequest) -> QobuzSearchResponse:
+    """Search Qobuz for tracks via Roon's Browse API.
+
+    Requires Qobuz to be configured and logged in within Roon.
+    Returns empty tracks list (not an error) when Qobuz is unavailable.
+    """
+    from backend.qobuz_browser import check_qobuz_available, search_qobuz_tracks
+
+    roon_client = get_roon_client()
+    if not roon_client or not roon_client.is_connected():
+        return QobuzSearchResponse(
+            tracks=[],
+            query=request.query,
+            available=False,
+            error="Roon not connected",
+        )
+
+    try:
+        tracks = await search_qobuz_tracks(request.query, request.limit)
+        return QobuzSearchResponse(
+            tracks=tracks,
+            query=request.query,
+            available=True,
+        )
+    except Exception as e:
+        logger.warning("Qobuz search endpoint error: %s", e)
+        return QobuzSearchResponse(
+            tracks=[],
+            query=request.query,
+            available=False,
+            error=str(e),
+        )
 
 
 @router.get("/external-art")

@@ -53,8 +53,9 @@ async def generate_playlist_sse(request: GenerateRequest) -> StreamingResponse:
             decades=request.decades,
             track_count=request.track_count,
             exclude_live=request.exclude_live,
-            min_rating=request.min_rating,
             max_tracks_to_ai=request.max_tracks_to_ai,
+            source_mode=request.source_mode,
+            qobuz_percentage=request.qobuz_percentage,
         )
 
     return StreamingResponse(
