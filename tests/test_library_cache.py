@@ -451,7 +451,7 @@ class TestSyncLibrary:
             def get_all_albums_metadata(self):
                 return self.album_metadata
 
-            def get_all_raw_tracks(self):
+            def get_all_raw_tracks(self, on_album_progress=None):
                 return self.tracks
 
         return MockRoonClient()
@@ -574,13 +574,15 @@ class TestSyncLibrary:
 
     def test_sync_removes_deleted_tracks(self, initialized_db, mock_track, reset_sync_state):
         """Sync removes tracks that no longer exist in Roon."""
-        # Pre-populate cache with a track that won't be in the sync
+        # Pre-populate cache with a track that won't be in the sync.
+        # updated_at must be set to a past timestamp so the sync's stale-track
+        # deletion (DELETE WHERE updated_at < sync_start) can find it.
         conn = library_cache.get_db_connection()
         conn.execute(
             "INSERT INTO tracks (rating_key, title, artist, album, duration_ms, "
-            "year, genres, user_rating, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "year, genres, user_rating, is_live, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             ("stale-track-999", "Stale Song", "Old Artist", "Deleted Album",
-             180000, 2000, json.dumps(["Rock"]), 5, False),
+             180000, 2000, json.dumps(["Rock"]), 5, False, "2020-01-01 00:00:00"),
         )
         conn.commit()
         conn.close()
@@ -597,7 +599,7 @@ class TestSyncLibrary:
             def get_all_albums_metadata(self):
                 return {"album-key-100": {"genres": ["Electronic"], "year": 2024, "title": "New Album"}}
 
-            def get_all_raw_tracks(self):
+            def get_all_raw_tracks(self, on_album_progress=None):
                 return [mock_track("new-1", "New Song", "New Artist", "New Album", 200000, "album-key-100")]
 
         # Run sync
@@ -613,7 +615,12 @@ class TestSyncLibrary:
         assert not any(t["rating_key"] == "stale-track-999" for t in tracks_after)
 
     def test_failed_sync_resets_cache_state(self, initialized_db, mock_track, reset_sync_state):
-        """Failed sync resets track_count so has_cached_tracks() returns False."""
+        """Failed sync reports failure while preserving previously-cached tracks.
+
+        has_cached_tracks() queries the actual tracks table (not sync_state.track_count)
+        so that partial / interrupted syncs still return True. A failed sync therefore
+        leaves previous data intact — callers can keep serving from the old cache.
+        """
         # First, do a successful sync to populate cache
         class SuccessfulClient:
             def get_core_id(self):
@@ -622,7 +629,7 @@ class TestSyncLibrary:
             def get_all_albums_metadata(self):
                 return {"album-key-100": {"genres": ["Rock"], "year": 2020, "title": "Album"}}
 
-            def get_all_raw_tracks(self):
+            def get_all_raw_tracks(self, on_album_progress=None):
                 return [mock_track("1", "Song", "Artist", "Album", 180000, "album-key-100")]
 
         result = library_cache.sync_library(SuccessfulClient())
@@ -642,7 +649,8 @@ class TestSyncLibrary:
 
         result = library_cache.sync_library(FailingClient())
         assert result["success"] is False
+        assert "Roon unreachable" in result["error"]
 
-        # Cache should now report as empty to avoid using stale data
-        assert library_cache.has_cached_tracks() is False
-        assert library_cache.get_sync_state()["track_count"] == 0
+        # Previous tracks are preserved — has_cached_tracks() uses the actual
+        # tracks table so a failed re-sync never empties a working cache.
+        assert library_cache.has_cached_tracks() is True
