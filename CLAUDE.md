@@ -1,6 +1,6 @@
 # MediaSage Development Guidelines
 
-Last updated: 2026-05-15 (MCP v3 — 27 tools)
+Last updated: 2026-05-15 (MCP v4 — 24 tools)
 
 ## Project Overview
 
@@ -34,6 +34,7 @@ backend/
 ├── analyzer.py
 ├── generator.py
 ├── library_cache.py
+├── qobuz_browser.py     # Qobuz search and playback via Roon Browse API
 ├── recommender.py
 ├── music_research.py
 └── models.py
@@ -106,12 +107,14 @@ CUSTOM_CONTEXT_WINDOW=4096
 - **Genre junction table**: `track_genres` table enables SQL-native genre filtering instead of Python-side JSON parsing.
 - **Live version filtering**: Exclude tracks with "live", "concert", dates in title/album
 - **Browse hierarchy**: All Roon library access follows: Root → Library → Albums → tracks per album
+- **Qobuz via Roon Browse API**: No separate Qobuz API key needed. MediaSage navigates Roon's Browse hierarchy (Root → Qobuz → Search) to find and play Qobuz tracks. Detected automatically at startup.
+- **Time-of-day context**: Day and hour are prepended to generation prompts as subtle mood hints. Dutch day names used for consistency with the UI language.
 
 ## Roon API Limitations
 
 These are NOT bugs — they are Roon Extension API constraints:
 
-- **No user ratings**: `user_rating` is always `None` via Browse API. The `min_rating` filter and `user_rating` column have been removed from the codebase.
+- **No user ratings**: `user_rating` is always `None` via Browse API. The `min_rating` filter code has been removed since Roon never exposes this data.
 - **No play counts**: `view_count` is hardcoded to `0`. The "familiarity" feature classifies everything as "unplayed".
 - **No playlist creation**: Roon cannot save playlists via the Extension API. The frontend "Save to Playlist" concept is not available.
 - **No direct track queries**: All library access goes through Browse hierarchy (Root → Library → Albums → tracks per album).
@@ -161,7 +164,16 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 - Backend: added `transport_control()` to `roon_client.py` via `roonapi.playback_control()`
 - Backend: added `POST /api/roon/transport` endpoint + `TransportControlRequest/Response` models
 - Backend: added `get_albums_by_artist()` to `library_cache.py` + `GET /api/library/artist-albums` endpoint
-- MCP v2 (2026-05-15): 7 new tools + playlist/generation improvements (see below)
+- MCP v3 (2026-05-15): 7 new tools + playlist/generation improvements
+- **MCP v4 (2026-05-15):** Qobuz integration, playlist refinement, time-aware context, and code cleanup:
+  - Qobuz integration: source mode selection (library/hybrid/qobuz) for playlist generation, Qobuz search via Roon Browse API, discovery album playback via Qobuz
+  - Playlist refinement: "Refine" button in web UI for iterative playlist generation using `additional_notes` parameter
+  - Time-of-day context: playlist and album recommendation prompts now include day/time for mood-appropriate suggestions
+  - MCP server refactored: centralized `_api_call()` helper, persistent httpx client, shared SSE parser — reduced ~400 lines of duplication
+  - Removed dead `min_rating` code path (Roon API doesn't expose user ratings)
+  - Removed `commit_fix.sh` and `commit_prompt5.sh` from repo tracking
+  - New MCP tool: `search_qobuz` for Qobuz catalog search via Roon Browse API
+  - `generate_playlist` MCP tool now accepts `source_mode` and `qobuz_percentage` parameters
 
 ## MCP Server
 
@@ -171,7 +183,7 @@ The MCP server contains NO own LLM logic — Claude Desktop does the thinking. W
 
 The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip install "mcp[cli]"` must be done locally. `scripts/install_mcp.py` configures Claude Desktop — one-time setup per machine.
 
-### Full Tool List (25 tools)
+### Full Tool List (24 tools)
 
 | Tool | Backend endpoint | Purpose |
 |------|-----------------|---------|

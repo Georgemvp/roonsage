@@ -90,6 +90,15 @@ Create playlists two ways:
 
 **Start from a song** — Pick a track you love, then explore musical dimensions: mood, era, instrumentation, genre, production style. Select which qualities you want more of.
 
+**Music Source Selection** — Choose where tracks come from:
+- **My Library** — Only tracks you own (default)
+- **Mix** — Your library enriched with new discoveries via Qobuz
+- **Qobuz Discovery** — Explore new music outside your library
+
+Requires Qobuz configured in Roon. MediaSage detects Qobuz availability automatically.
+
+**Refine & Iterate** — Not quite right? Use the "Refine" button to adjust a generated playlist without starting over. Ask for "darker", "more 80s", or "less jazz" and get an updated playlist.
+
 ### Album Recommendations
 
 Describe a mood or moment, answer two quick questions about your preferences, and get a single perfect album to listen to—with an editorial pitch explaining why it fits.
@@ -105,10 +114,13 @@ Describe a mood or moment, answer two quick questions about your preferences, an
 Before the AI sees anything, you control the pool:
 - **Genres** — Select from your library's actual genre tags
 - **Decades** — Filter by era
-- **Minimum rating** — Only tracks rated 3+, 4+, etc.
 - **Exclude live versions** — Skip concert recordings automatically
 
 Real-time track counts show exactly how your filters narrow results.
+
+### Time-Aware Suggestions
+
+MediaSage considers the current day and time when curating playlists. Friday evening selections naturally differ from Tuesday morning picks, and the AI adapts its mood recommendations accordingly.
 
 ### Local Library Cache
 
@@ -198,16 +210,16 @@ All models are included in your Claude Pro subscription — there are no per-tok
 | `get_library_stats` | Get genre, decade, and total track counts from the library cache |
 | `get_library_status` | Check if the cache is up-to-date; surfaces `needs_resync` flag |
 | `search_library` | Search by track, artist, or album name |
+| `search_qobuz` | Search the Qobuz catalog via Roon for tracks not in your library |
 | `filter_tracks` | Filter by genre, decade, live exclusion |
 | `get_artist_albums` | List all albums by an artist from the SQLite cache |
 | `sync_library` | Trigger a background library sync from Roon |
-| `search_qobuz` | Search the Qobuz catalog via Roon's streaming integration |
 
 **Playlist Generation**
 
 | Tool | What it does |
 |------|-------------|
-| `generate_playlist` | AI-curated playlist from a natural language prompt — with album/year info, genre breakdown, live-exclusion note, and exact track count |
+| `generate_playlist` | AI-curated playlist from a natural language prompt — supports library, hybrid (library+Qobuz), and Qobuz-only source modes; returns album/year info, genre breakdown, live-exclusion note, and exact track count |
 | `seed_track_playlist` | "More like this" — playlist seeded from a specific track; use when a user mentions a specific song as inspiration |
 | `analyze_prompt` | Preview how a prompt maps to genre/decade filters |
 | `recommend_album` | AI album recommendation (library or discovery mode) |
