@@ -75,6 +75,7 @@ async def qobuz_save_status():
     return {
         "available": client is not None and client.is_authenticated(),
         "error": error,
+        "display_name": client._user_display_name if client else None,
     }
 
 
