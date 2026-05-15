@@ -30,14 +30,15 @@ from mcp.server.fastmcp import FastMCP
 
 MEDIASAGE_URL = os.environ.get("MEDIASAGE_URL", "http://localhost:5765").rstrip("/")
 TIMEOUT = 30.0
+STREAM_TIMEOUT = 300.0  # 5 minutes for SSE streams
 
 mcp = FastMCP("roon-mediasage")
 
 
 def _unavailable_msg() -> str:
     return (
-        f"MediaSage is niet bereikbaar op {MEDIASAGE_URL}. "
-        "Zorg dat de applicatie draait (uvicorn backend.main:app --port 5765)."
+        f"MediaSage is not reachable at {MEDIASAGE_URL}. "
+        "Make sure the application is running (uvicorn backend.main:app --port 5765)."
     )
 
 
@@ -63,7 +64,7 @@ async def get_library_stats() -> str:
         except httpx.ConnectError:
             return _unavailable_msg()
         except httpx.HTTPStatusError as exc:
-            return f"Fout van MediaSage API: {exc.response.status_code} — {exc.response.text}"
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
 
 
 @mcp.tool()
@@ -89,7 +90,7 @@ async def search_library(query: str) -> str:
         except httpx.ConnectError:
             return _unavailable_msg()
         except httpx.HTTPStatusError as exc:
-            return f"Fout van MediaSage API: {exc.response.status_code} — {exc.response.text}"
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
 
 
 @mcp.tool()
@@ -146,7 +147,7 @@ async def filter_tracks(
         except httpx.ConnectError:
             return _unavailable_msg()
         except httpx.HTTPStatusError as exc:
-            return f"Fout van MediaSage API: {exc.response.status_code} — {exc.response.text}"
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
 
     # Strip each track to only the fields needed for playlist curation.
     # This keeps the response well under Claude Desktop's 1 MB tool-result limit.
@@ -163,11 +164,11 @@ async def filter_tracks(
     returned = data.get("returned", 0)
     if total > returned:
         data["note"] = (
-            f"De library bevat {total} matching tracks; {returned} worden teruggegeven "
-            "(willekeurige steekproef). Gebruik de item_key / rating_key van elke track voor afspelen."
+            f"Library contains {total} matching tracks; {returned} returned "
+            "(random sample). Use the item_key / rating_key of each track for playback."
         )
     else:
-        data["note"] = "Gebruik de rating_key van elke track als item_key voor play_tracks / queue_tracks."
+        data["note"] = "Use the rating_key of each track as item_key for play_tracks / queue_tracks."
 
     return json.dumps(data, ensure_ascii=False, indent=2)
 
@@ -189,7 +190,7 @@ async def list_zones() -> str:
         except httpx.ConnectError:
             return _unavailable_msg()
         except httpx.HTTPStatusError as exc:
-            return f"Fout van MediaSage API: {exc.response.status_code} — {exc.response.text}"
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
 
 
 @mcp.tool()
@@ -217,7 +218,7 @@ async def play_tracks(item_keys: list[str], zone_id: str) -> str:
         except httpx.ConnectError:
             return _unavailable_msg()
         except httpx.HTTPStatusError as exc:
-            return f"Fout van MediaSage API: {exc.response.status_code} — {exc.response.text}"
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
 
 
 @mcp.tool()
@@ -245,7 +246,7 @@ async def queue_tracks(item_keys: list[str], zone_id: str) -> str:
         except httpx.ConnectError:
             return _unavailable_msg()
         except httpx.HTTPStatusError as exc:
-            return f"Fout van MediaSage API: {exc.response.status_code} — {exc.response.text}"
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
 
 
 @mcp.tool()
@@ -260,7 +261,305 @@ async def sync_library() -> str:
         except httpx.ConnectError:
             return _unavailable_msg()
         except httpx.HTTPStatusError as exc:
-            return f"Fout van MediaSage API: {exc.response.status_code} — {exc.response.text}"
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
+@mcp.tool()
+async def generate_playlist(
+    prompt: str,
+    genres: Optional[list[str]] = None,
+    decades: Optional[list[str]] = None,
+    track_count: int = 25,
+    exclude_live: bool = True,
+) -> str:
+    """Generate an AI-curated playlist from the Roon library using a natural language prompt.
+
+    Calls the MediaSage streaming generation endpoint, collects all SSE events,
+    and returns the final playlist with track list and metadata. This may take
+    30–90 seconds for the AI to curate and match tracks.
+
+    Use this when the user describes a mood, activity, genre, or occasion and
+    wants a ready-made playlist. After generation, use play_tracks or queue_tracks
+    with the returned item_keys to start playback.
+
+    Args:
+        prompt:       Natural language description, e.g. "upbeat 90s indie rock for a
+                      road trip" or "calm jazz for late-night studying".
+        genres:       Optional list of genre filters, e.g. ["Jazz", "Rock"].
+                      Pass None to let the AI choose from the full library.
+        decades:      Optional list of decade filters, e.g. ["1990s", "2000s"].
+                      Pass None to include all decades.
+        track_count:  Number of tracks to generate (default 25). Must be 15, 25, 50, or 100.
+        exclude_live: When True (default), live and concert recordings are excluded.
+    """
+    body: dict = {
+        "prompt": prompt,
+        "track_count": track_count,
+        "exclude_live": exclude_live,
+    }
+    if genres:
+        body["genres"] = genres
+    if decades:
+        body["decades"] = decades
+
+    tracks_batches: list[list[dict]] = []
+    complete_data: dict = {}
+    errors: list[str] = []
+
+    try:
+        async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
+            async with client.stream(
+                "POST",
+                f"{MEDIASAGE_URL}/api/generate/stream",
+                json=body,
+            ) as response:
+                if response.status_code != 200:
+                    await response.aread()
+                    return f"MediaSage API error: {response.status_code} — {response.text}"
+
+                event_type = "message"
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line:
+                        event_type = "message"
+                        continue
+                    if line.startswith("event:"):
+                        event_type = line[6:].strip()
+                    elif line.startswith("data:"):
+                        raw = line[5:].strip()
+                        try:
+                            payload = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+
+                        if event_type == "tracks":
+                            batch = payload.get("batch", [])
+                            if batch:
+                                tracks_batches.append(batch)
+                        elif event_type == "complete":
+                            complete_data = payload
+                        elif event_type == "error":
+                            errors.append(payload.get("message", "Unknown error"))
+
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.ReadTimeout:
+        return "Playlist generation timed out. The library may be very large or the LLM is slow. Try again."
+    except httpx.HTTPStatusError as exc:
+        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    if errors:
+        return f"Playlist generation failed: {'; '.join(errors)}"
+
+    # Flatten all track batches
+    all_tracks = [track for batch in tracks_batches for track in batch]
+
+    if not all_tracks and not complete_data:
+        return "Playlist generation produced no results. Try a different prompt or check that the library is synced."
+
+    # Build a compact summary for Claude
+    result: dict = {
+        "playlist_title": complete_data.get("playlist_title", "Generated Playlist"),
+        "narrative": complete_data.get("narrative", ""),
+        "track_count": complete_data.get("track_count", len(all_tracks)),
+        "token_count": complete_data.get("token_count", 0),
+        "estimated_cost_usd": complete_data.get("estimated_cost", 0.0),
+        "tracks": [
+            {
+                "item_key": t.get("rating_key", t.get("item_key", "")),
+                "title": t.get("title", ""),
+                "artist": t.get("artist", ""),
+                "album": t.get("album", ""),
+            }
+            for t in all_tracks
+        ],
+    }
+    if complete_data.get("result_id"):
+        result["result_id"] = complete_data["result_id"]
+
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def get_now_playing() -> str:
+    """Return the currently playing track info for each active Roon zone.
+
+    Calls the Roon zones endpoint and returns all zones with their playback
+    state. Use this for context-aware requests like "more like what's playing
+    now" — first call this tool to find out what's currently playing, then
+    use that info to craft a prompt for generate_playlist.
+
+    Note: The Roon Extension API exposes zone state (playing/paused/stopped)
+    but not the currently playing track title or artist directly. Use
+    search_library to find a specific track if needed.
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            response = await client.get(f"{MEDIASAGE_URL}/api/roon/zones")
+            response.raise_for_status()
+            zones = response.json()
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    if not zones:
+        return json.dumps({"zones": [], "note": "No Roon zones found. Check that Roon Core is running and MediaSage is authorized."})
+
+    # Filter to active (non-stopped) zones and annotate
+    active = [z for z in zones if z.get("state") != "stopped"]
+    result = {
+        "zones": zones,
+        "active_zones": active,
+        "note": (
+            f"{len(active)} of {len(zones)} zone(s) currently playing. "
+            "Use zone_id from this list with play_tracks or queue_tracks."
+        ),
+    }
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def recommend_album(
+    prompt: str,
+    mode: str = "library",
+) -> str:
+    """Get an AI album recommendation based on a mood or moment description.
+
+    Runs the full MediaSage recommendation pipeline: generates clarifying questions
+    (skipped for MCP simplicity), then selects and pitches an album. For library mode
+    the recommendation comes from the user's own Roon library; for discovery mode it
+    suggests albums the user may not have.
+
+    This may take 60–120 seconds as it involves multiple LLM calls and optional
+    MusicBrainz research.
+
+    Args:
+        prompt: Mood, occasion, or taste description, e.g. "something warm and
+                melancholic for a rainy Sunday evening" or "energetic album to
+                kick off a workout".
+        mode:   "library" (default) — recommend from the user's Roon library.
+                "discovery" — suggest albums the user probably doesn't own yet.
+    """
+    # Step 1: Create a session via the questions endpoint (required to get a session_id)
+    questions_body = {"prompt": prompt}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            q_resp = await client.post(
+                f"{MEDIASAGE_URL}/api/recommend/questions",
+                json=questions_body,
+            )
+            q_resp.raise_for_status()
+            q_data = q_resp.json()
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.HTTPStatusError as exc:
+        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    session_id = q_data.get("session_id")
+    if not session_id:
+        return "Failed to create recommendation session — no session_id returned."
+
+    # Step 2: Generate recommendation with empty answers (skip Q&A for MCP simplicity)
+    generate_body = {
+        "session_id": session_id,
+        "answers": [],
+        "answer_texts": [],
+        "mode": mode,
+        "familiarity_pref": "any",
+        "max_albums": 2500,
+    }
+
+    result_payload: dict = {}
+    errors: list[str] = []
+
+    try:
+        async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
+            async with client.stream(
+                "POST",
+                f"{MEDIASAGE_URL}/api/recommend/generate",
+                json=generate_body,
+            ) as response:
+                if response.status_code != 200:
+                    await response.aread()
+                    return f"MediaSage API error: {response.status_code} — {response.text}"
+
+                event_type = "message"
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line:
+                        event_type = "message"
+                        continue
+                    if line.startswith("event:"):
+                        event_type = line[6:].strip()
+                    elif line.startswith("data:"):
+                        raw = line[5:].strip()
+                        try:
+                            payload = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+
+                        if event_type == "result":
+                            result_payload = payload
+                        elif event_type == "error":
+                            errors.append(payload.get("message", "Unknown error"))
+
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.ReadTimeout:
+        return "Album recommendation timed out. The library may be large or the LLM is slow. Try again."
+    except httpx.HTTPStatusError as exc:
+        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    if errors:
+        return f"Album recommendation failed: {'; '.join(errors)}"
+
+    if not result_payload:
+        return "No recommendation was returned. Try a different prompt or check that the library is synced."
+
+    # Extract the primary recommendation for a compact summary
+    recommendations = result_payload.get("recommendations", [])
+    primary = next((r for r in recommendations if r.get("rank") == "primary"), None)
+    if not primary and recommendations:
+        primary = recommendations[0]
+
+    summary: dict = {
+        "mode": mode,
+        "token_count": result_payload.get("token_count", 0),
+        "estimated_cost_usd": result_payload.get("estimated_cost", 0.0),
+        "research_warning": result_payload.get("research_warning"),
+        "primary_recommendation": None,
+        "additional_picks": [],
+    }
+
+    if primary:
+        pitch = primary.get("pitch") or {}
+        summary["primary_recommendation"] = {
+            "album": primary.get("album", ""),
+            "artist": primary.get("artist", ""),
+            "year": primary.get("year"),
+            "genres": primary.get("genres", []),
+            "rating_key": primary.get("rating_key", ""),
+            "track_rating_keys": primary.get("track_rating_keys", []),
+            "hook": pitch.get("hook", ""),
+            "body": pitch.get("body", ""),
+            "reason": primary.get("reason", ""),
+        }
+
+    secondaries = [r for r in recommendations if r.get("rank") == "secondary"]
+    for sec in secondaries:
+        summary["additional_picks"].append({
+            "album": sec.get("album", ""),
+            "artist": sec.get("artist", ""),
+            "year": sec.get("year"),
+            "rating_key": sec.get("rating_key", ""),
+            "track_rating_keys": sec.get("track_rating_keys", []),
+        })
+
+    if result_payload.get("result_id"):
+        summary["result_id"] = result_payload["result_id"]
+
+    return json.dumps(summary, ensure_ascii=False, indent=2)
 
 
 # ---------------------------------------------------------------------------
