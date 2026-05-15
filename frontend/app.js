@@ -1824,11 +1824,9 @@ function updateSettings() {
     // Show provider-specific settings
     showProviderSettings(state.config.llm_provider);
 
-    // Update Qobuz settings fields
-    const qobuzAppId = document.getElementById('qobuz-app-id');
+    // Update Qobuz settings fields (app_id is auto-extracted, no field for it)
     const qobuzEmail = document.getElementById('qobuz-email');
     const qobuzPassword = document.getElementById('qobuz-password');
-    if (qobuzAppId) qobuzAppId.value = state.config.qobuz_app_id || '';
     if (qobuzEmail) qobuzEmail.value = state.config.qobuz_email || '';
     if (qobuzPassword) {
         qobuzPassword.value = '';
@@ -3596,11 +3594,9 @@ async function handleSaveSettings() {
         if (llmApiKey) updates.llm_api_key = llmApiKey;
     }
 
-    // Qobuz playlist save settings
-    const qobuzAppId = document.getElementById('qobuz-app-id')?.value.trim();
+    // Qobuz playlist save settings (app_id is auto-extracted, no field for it)
     const qobuzEmail = document.getElementById('qobuz-email')?.value.trim();
     const qobuzPassword = document.getElementById('qobuz-password')?.value.trim();
-    if (qobuzAppId) updates.qobuz_app_id = qobuzAppId;
     if (qobuzEmail) updates.qobuz_email = qobuzEmail;
     if (qobuzPassword) updates.qobuz_password = qobuzPassword;
 
@@ -3641,8 +3637,7 @@ async function handleValidateQobuz() {
     const btn = document.getElementById('validate-qobuz-btn');
     const statusEl = document.getElementById('qobuz-settings-status');
 
-    // Read the currently filled-in fields
-    const appId = document.getElementById('qobuz-app-id')?.value.trim() || '';
+    // Read the currently filled-in fields (app_id is auto-extracted by backend)
     const email = document.getElementById('qobuz-email')?.value.trim() || '';
     const password = document.getElementById('qobuz-password')?.value || '';
 
@@ -3654,30 +3649,19 @@ async function handleValidateQobuz() {
         const res = await fetch('/api/qobuz/validate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ app_id: appId, email, password }),
+            body: JSON.stringify({ email, password }),
         });
         const data = await res.json();
         if (statusEl) {
             statusEl.classList.toggle('connected', !!data.available);
             statusEl.querySelector('.status-text').textContent = data.available
-                ? 'Verbonden met Qobuz ✓'
+                ? `Verbonden met Qobuz als ${data.user_display || email}${data.subscription ? ' (' + data.subscription + ')' : ''} ✓`
                 : (data.error || 'Verbinding mislukt');
         }
 
-        // On success, persist the credentials via POST /api/config
+        // On success, persist the credentials
         if (data.available) {
-            // If app_id was auto-detected, show it in the field
-            if (data.auto_detected && data.app_id_used) {
-                const appIdField = document.getElementById('qobuz-app-id');
-                if (appIdField) appIdField.value = data.app_id_used;
-                if (statusEl) {
-                    statusEl.querySelector('.status-text').textContent =
-                        `Verbonden ✓ (app_id auto-gedetecteerd: ${data.app_id_used})`;
-                }
-            }
             const updates = {};
-            const effectiveAppId = data.app_id_used || appId;
-            if (effectiveAppId) updates.qobuz_app_id = effectiveAppId;
             if (email) updates.qobuz_email = email;
             if (password) updates.qobuz_password = password;
             if (Object.keys(updates).length > 0) {

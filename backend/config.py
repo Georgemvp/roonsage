@@ -283,15 +283,15 @@ def get_config() -> AppConfig:
 
 
 def get_qobuz_config() -> dict[str, str]:
-    """Return Qobuz API credentials from environment variables or config.user.yaml.
+    """Return Qobuz credentials from environment variables or config.user.yaml.
 
     Priority: environment variables > config.user.yaml > empty string.
-    Returns a dict with keys: app_id, email, password.
+    Returns a dict with keys: email, password.
+    (app_id is auto-extracted from the Qobuz web player — not configurable.)
     """
     user_config = load_user_yaml_config()
     qobuz_yaml = user_config.get("qobuz", {})
     return {
-        "app_id": get_env_or_yaml("QOBUZ_APP_ID", qobuz_yaml.get("app_id"), ""),
         "email": get_env_or_yaml("QOBUZ_EMAIL", qobuz_yaml.get("email"), ""),
         "password": get_env_or_yaml("QOBUZ_PASSWORD", qobuz_yaml.get("password"), ""),
     }
@@ -367,9 +367,7 @@ def update_config_values(updates: dict[str, Any]) -> AppConfig:
     if "custom_context_window" in updates and updates["custom_context_window"]:
         llm_updates["custom_context_window"] = updates["custom_context_window"]
 
-    # Qobuz playlist save settings
-    if "qobuz_app_id" in updates and updates["qobuz_app_id"]:
-        qobuz_updates["app_id"] = updates["qobuz_app_id"]
+    # Qobuz playlist save settings (app_id auto-extracted — not stored)
     if "qobuz_email" in updates and updates["qobuz_email"]:
         qobuz_updates["email"] = updates["qobuz_email"]
     if "qobuz_password" in updates and updates["qobuz_password"]:

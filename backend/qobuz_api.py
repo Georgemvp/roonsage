@@ -3,13 +3,19 @@
 Provides authentication, track search, playlist creation, and track
 addition via Qobuz's JSON API. Independent of Roon — uses the user's
 own Qobuz credentials.
+
+App credentials (app_id + app_secret) are auto-extracted from the Qobuz
+web player JavaScript bundle on every initialisation so that they never
+need to be configured manually (they expire with each Qobuz deploy).
+
+Approach inspired by SoulSync (github.com/Nezreka/SoulSync).
 """
 
+import base64
 import hashlib
 import logging
 import re
 import time
-import uuid
 from typing import Any
 
 import httpx
@@ -17,186 +23,338 @@ import httpx
 logger = logging.getLogger(__name__)
 
 QOBUZ_API_BASE = "https://www.qobuz.com/api.json/0.2"
+QOBUZ_PLAY_URL = "https://play.qobuz.com"
+
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+    "Version/17.4 Safari/605.1.15"
+)
 
 
-def fetch_qobuz_app_id() -> str | None:
-    """Extract the current app_id from the Qobuz web player.
+# ---------------------------------------------------------------------------
+# Credential extraction helpers
+# ---------------------------------------------------------------------------
 
-    Fetches the Qobuz login page, finds the JavaScript bundle URL,
-    then extracts the app_id from the bundle source code.
-    Returns None if extraction fails.
+def _extract_app_credentials() -> tuple[str, str]:
+    """Extract current app_id and app_secret from the Qobuz web player bundle.
+
+    Steps:
+      1. Fetch https://play.qobuz.com/login to find the bundle.js URL.
+      2. Download bundle.js.
+      3. Extract app_id via the production API config pattern.
+      4. Extract app_secret via the timezone seed/info/extras obfuscation.
+      5. Validate each candidate secret with a signed API call.
+
+    Returns:
+        (app_id, app_secret) as strings.
+
+    Raises:
+        QobuzAPIError: If credentials cannot be extracted.
     """
-    try:
-        client = httpx.Client(timeout=15.0, follow_redirects=True)
+    logger.info("Extracting Qobuz app credentials from web player…")
 
-        # Step 1: Fetch the Qobuz login page to find the JS bundle
+    with httpx.Client(timeout=20.0, follow_redirects=True) as client:
+        # ---- Step 1: find bundle URL ----------------------------------------
         resp = client.get(
-            "https://play.qobuz.com/login",
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/605.1.15 (KHTML, like Gecko) "
-                    "Version/17.2.1 Safari/605.1.15"
-                )
-            },
+            f"{QOBUZ_PLAY_URL}/login",
+            headers={"User-Agent": _BROWSER_UA},
         )
         resp.raise_for_status()
+        html = resp.text
 
-        # Find JS bundle URLs — look for app or main bundle
-        bundle_urls = re.findall(
-            r'<script[^>]+src="(/resources/\d+\.\d+\.\d+-[a-z0-9]+/bundle\.js)"',
-            resp.text,
+        bundle_match = re.search(
+            r'<script\s+src="(/resources/\d+\.\d+\.\d+-[a-z]\d+/bundle\.js)"',
+            html,
         )
-        if not bundle_urls:
-            # Try alternative pattern
-            bundle_urls = re.findall(
-                r'"(/resources/[^"]+\.js)"',
-                resp.text,
+        if not bundle_match:
+            # Broader fallback pattern
+            bundle_match = re.search(
+                r'src="(/resources/[^"]+bundle[^"]+\.js)"',
+                html,
+            )
+        if not bundle_match:
+            raise QobuzAPIError(
+                "Kon Qobuz app credentials niet ophalen. "
+                "Geen bundle.js URL gevonden in de login pagina. "
+                "Qobuz heeft mogelijk hun webplayer bijgewerkt."
             )
 
-        # Step 2: Fetch each bundle and look for app_id pattern
-        for bundle_path in bundle_urls[:5]:  # Check max 5 bundles
-            bundle_url = f"https://play.qobuz.com{bundle_path}"
-            bundle_resp = client.get(bundle_url)
-            if bundle_resp.status_code != 200:
-                continue
+        bundle_path = bundle_match.group(1)
+        bundle_url = f"{QOBUZ_PLAY_URL}{bundle_path}"
+        logger.info("Found Qobuz bundle URL: %s", bundle_url)
 
-            # Look for app_id patterns in the JS source
-            # Common patterns: {app_id:"579939560"} or app_id:"579939560"
-            matches = re.findall(
-                r'["\']?app_id["\']?\s*[:=]\s*["\'](\d{6,12})["\']',
-                bundle_resp.text,
+        # ---- Step 2: download bundle ----------------------------------------
+        bundle_resp = client.get(bundle_url, headers={"User-Agent": _BROWSER_UA})
+        bundle_resp.raise_for_status()
+        bundle = bundle_resp.text
+        logger.info("Downloaded bundle.js (%d bytes)", len(bundle))
+
+        # ---- Step 3: extract app_id -----------------------------------------
+        app_id = _extract_app_id(bundle)
+        if not app_id:
+            raise QobuzAPIError(
+                "Kon Qobuz app_id niet vinden in bundle.js. "
+                "Qobuz heeft mogelijk hun webplayer bijgewerkt."
             )
-            if matches:
-                app_id = matches[0]
-                logger.info("Auto-detected Qobuz app_id: %s", app_id)
-                client.close()
-                return app_id
+        logger.info("Extracted Qobuz app_id: %s", app_id)
 
-        client.close()
-        logger.warning("Could not auto-detect Qobuz app_id from web player")
-        return None
+        # ---- Step 4 + 5: extract and validate app_secret --------------------
+        app_secret = _extract_app_secret(bundle, app_id, client)
+        if not app_secret:
+            raise QobuzAPIError(
+                "Kon Qobuz app_secret niet valideren. "
+                "Qobuz heeft mogelijk hun webplayer bijgewerkt."
+            )
+        logger.info("Validated Qobuz app_secret (length=%d)", len(app_secret))
 
-    except Exception as exc:
-        logger.warning("Qobuz app_id auto-detection failed: %s", exc)
-        return None
+    return app_id, app_secret
 
+
+def _extract_app_id(bundle: str) -> str | None:
+    """Extract app_id from the bundle JavaScript source."""
+    # Primary pattern: production:{api:{appId:"579939560"
+    m = re.search(r'production:\{api:\{appId:"(\d{9})"', bundle)
+    if m:
+        return m.group(1)
+
+    # Fallback: any 9-digit number labelled app_id / appId
+    patterns = [
+        r'["\']?appId["\']?\s*:\s*["\'](\d{6,12})["\']',
+        r'["\']?app_id["\']?\s*[:=]\s*["\'](\d{6,12})["\']',
+    ]
+    for pat in patterns:
+        m = re.search(pat, bundle)
+        if m:
+            return m.group(1)
+
+    return None
+
+
+def _extract_app_secret(bundle: str, app_id: str, client: httpx.Client) -> str | None:
+    """Extract and validate app_secret from timezone seed/info/extras obfuscation."""
+    secrets: list[str] = []
+
+    # Build a lookup: timezone_name → (info, extras)
+    timezone_map: dict[str, tuple[str, str]] = {}
+    for m in re.finditer(
+        r'name:"[\w/]+/(?P<timezone>[a-z]+)"[^}]*'
+        r'info:"(?P<info>[\w=]+)"[^}]*'
+        r'extras:"(?P<extras>[\w=]+)"',
+        bundle,
+    ):
+        timezone_map[m.group("timezone")] = (m.group("info"), m.group("extras"))
+
+    # Find initialSeed calls and match against the timezone map
+    for seed_m in re.finditer(
+        r'[a-z]\.initialSeed\("(?P<seed>[\w=]+)",\s*window\.utimezone\.(?P<timezone>[a-z]+)\)',
+        bundle,
+    ):
+        seed = seed_m.group("seed")
+        tz = seed_m.group("timezone")
+        if tz not in timezone_map:
+            continue
+        info, extras = timezone_map[tz]
+        # Concatenate and strip trailing 44 chars, then base64-decode
+        raw = seed + info + extras
+        if len(raw) > 44:
+            raw = raw[:-44]
+        try:
+            candidate = base64.b64decode(raw + "==").decode("utf-8", errors="ignore").strip("\x00")
+        except Exception:
+            continue
+        if candidate and len(candidate) >= 16:
+            secrets.append(candidate)
+
+    # Fallback: look for 32-char hex strings that might be secrets
+    if not secrets:
+        for m in re.finditer(r'["\']([0-9a-f]{32})["\']', bundle):
+            secrets.append(m.group(1))
+
+    # Validate each candidate
+    for secret in secrets:
+        if _test_secret(app_id, secret, client):
+            return secret
+
+    return None
+
+
+def _test_secret(app_id: str, secret: str, client: httpx.Client) -> bool:
+    """Validate an app_secret by making a signed API call.
+
+    HTTP 400 = wrong secret; anything else (including 401) = valid secret.
+    """
+    try:
+        ts = int(time.time())
+        sig_raw = f"trackgetFileUrlformat_id27intentstreamtrack_id1{ts}{secret}"
+        sig = hashlib.md5(sig_raw.encode()).hexdigest()
+
+        resp = client.get(
+            f"{QOBUZ_API_BASE}/track/getFileUrl",
+            params={
+                "format_id": "27",
+                "intent": "stream",
+                "track_id": "1",
+                "request_ts": ts,
+                "request_sig": sig,
+                "app_id": app_id,
+            },
+            headers={"User-Agent": _BROWSER_UA, "X-App-Id": app_id},
+        )
+        # 400 = definitely wrong secret; any other response means the secret was accepted
+        return resp.status_code != 400
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
 
 class QobuzAPIError(Exception):
     """Raised when a Qobuz API call fails."""
 
 
-class QobuzClient:
-    """Client for the Qobuz JSON API (playlist management)."""
+# ---------------------------------------------------------------------------
+# Client
+# ---------------------------------------------------------------------------
 
-    def __init__(self, app_id: str, email: str, password: str):
-        self.app_id = app_id
+class QobuzClient:
+    """Client for the Qobuz JSON API (playlist management).
+
+    Authenticates once on construction. All subsequent API calls include
+    X-App-Id and X-User-Auth-Token headers via the persistent httpx Session.
+    """
+
+    def __init__(self, email: str, password: str):
+        self._email = email
+        self._password = password
+        self._app_id: str = ""
+        self._app_secret: str = ""
         self._token: str | None = None
         self._user_id: int | None = None
-        self._client = httpx.Client(timeout=20.0)
-        self._login_attempts = 0
+        self._user_display: str = ""
+        self._subscription: str = ""
 
-        # Auto-detect app_id if not provided
-        if not self.app_id:
-            logger.info("No Qobuz app_id provided, attempting auto-detection...")
-            detected = fetch_qobuz_app_id()
-            if detected:
-                self.app_id = detected
-            else:
-                raise QobuzAPIError("Geen app_id opgegeven en auto-detectie mislukt")
+        # Persistent session — headers are added after login
+        self._client = httpx.Client(
+            timeout=20.0,
+            headers={"User-Agent": _BROWSER_UA},
+        )
 
-        self._login(email, password)
+        self._authenticate()
 
-    def _login(self, email: str, password: str) -> None:
+    # ------------------------------------------------------------------
+    # Authentication
+    # ------------------------------------------------------------------
+
+    def _authenticate(self) -> None:
+        """Extract credentials and log in."""
+        # Step 1: auto-extract app_id + app_secret from web player
+        self._app_id, self._app_secret = _extract_app_credentials()
+
+        # Step 2: set X-App-Id header on the persistent client
+        self._client.headers.update({"X-App-Id": self._app_id})
+
+        # Step 3: login
+        self._login()
+
+    def _login(self) -> None:
         """Authenticate with Qobuz and store user_auth_token.
 
-        The Qobuz API uses GET for login with query parameters.
-        Tries plain-text password first, then MD5-hashed password as fallback.
-        On app_id rejection, auto-detects the current app_id and retries once.
+        Tries plain-text password first; falls back to MD5 hash if rejected.
         """
-        self._login_attempts += 1
+        logger.info("Logging in to Qobuz as %s…", self._email)
 
-        # Generate a stable device ID based on the email
-        device_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"roonsage.{email}"))
-
-        base_params = {
-            "app_id": self.app_id,
-            "username": email,  # Qobuz accepts email as username
-            "device_manufacturer_id": device_id,
-        }
-
-        # Attempt 1: plain-text password
-        try:
-            resp = self._client.get(
-                f"{QOBUZ_API_BASE}/user/login",
-                params={**base_params, "password": password},
-            )
-            if resp.status_code in (400, 401):
-                # Attempt 2: MD5-hashed password
-                logger.info(
-                    "Qobuz login: plain-text failed (%d), trying MD5 hash",
-                    resp.status_code,
-                )
-                md5_password = hashlib.md5(password.encode("utf-8")).hexdigest()
+        for attempt, password in enumerate(
+            [self._password, hashlib.md5(self._password.encode()).hexdigest()],
+            start=1,
+        ):
+            try:
                 resp = self._client.get(
                     f"{QOBUZ_API_BASE}/user/login",
-                    params={**base_params, "password": md5_password},
+                    params={
+                        "email": self._email,
+                        "password": password,
+                        "app_id": self._app_id,
+                    },
+                )
+                if resp.status_code in (400, 401) and attempt == 1:
+                    logger.info("Qobuz login: plain-text failed, trying MD5 hash…")
+                    continue
+
+                resp.raise_for_status()
+                data = resp.json()
+
+                self._token = data["user_auth_token"]
+                self._user_id = data["user"]["id"]
+
+                # Human-readable display name
+                user = data.get("user", {})
+                firstname = user.get("firstname", "")
+                lastname = user.get("lastname", "")
+                self._user_display = f"{firstname} {lastname}".strip() or user.get("login", "")
+
+                # Subscription label
+                sub = user.get("subscription") or {}
+                self._subscription = (
+                    sub.get("offer", {}).get("label", "")
+                    or sub.get("description", "")
+                    or "Onbekend"
                 )
 
-            resp.raise_for_status()
-            data = resp.json()
-            self._token = data["user_auth_token"]
-            self._user_id = data["user"]["id"]
-            logger.info("Qobuz API: logged in as user %s", self._user_id)
-        except httpx.HTTPStatusError as exc:
-            error_text = exc.response.text
-            try:
-                error_data = exc.response.json()
-                error_text = error_data.get("message", error_text)
-            except Exception:
-                pass
-
-            # If app_id was rejected and we haven't retried yet, auto-detect and retry
-            if (
-                exc.response.status_code == 400
-                and "app_id" in error_text.lower()
-                and self._login_attempts < 2
-            ):
+                # Attach auth token to all subsequent requests
+                self._client.headers.update({"X-User-Auth-Token": self._token})
                 logger.info(
-                    "app_id rejected by Qobuz, attempting auto-detection and retry..."
+                    "Qobuz: logged in as '%s' (subscription: %s)",
+                    self._user_display,
+                    self._subscription,
                 )
-                detected = fetch_qobuz_app_id()
-                if detected and detected != self.app_id:
-                    self.app_id = detected
-                    return self._login(email, password)
+                return
 
-            logger.error(
-                "Qobuz login failed (%d): %s", exc.response.status_code, error_text
-            )
-            raise QobuzAPIError(
-                f"Qobuz login mislukt ({exc.response.status_code}): {error_text}"
-            ) from exc
-        except KeyError as exc:
-            raise QobuzAPIError(
-                "Qobuz login response mist verwachte velden"
-            ) from exc
+            except httpx.HTTPStatusError as exc:
+                if attempt == 1:
+                    continue  # will retry with MD5
+                error_text = exc.response.text
+                try:
+                    error_data = exc.response.json()
+                    error_text = error_data.get("message", error_text)
+                except Exception:
+                    pass
+                logger.error(
+                    "Qobuz login failed (%d): %s", exc.response.status_code, error_text
+                )
+                raise QobuzAPIError(
+                    f"Qobuz login mislukt ({exc.response.status_code}): {error_text}"
+                ) from exc
 
-    def _auth_params(self, **extra: Any) -> dict[str, Any]:
-        """Return base params with app_id and auth token."""
-        return {"app_id": self.app_id, "user_auth_token": self._token, **extra}
+        raise QobuzAPIError("Qobuz login mislukt na beide pogingen (plain-text en MD5)")
+
+    # ------------------------------------------------------------------
+    # Public helpers
+    # ------------------------------------------------------------------
 
     def is_authenticated(self) -> bool:
         return self._token is not None
 
-    def search_track(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
-        """Search the Qobuz catalog for tracks.
+    @property
+    def user_display(self) -> str:
+        return self._user_display
 
-        Returns list of track dicts with 'id', 'title', 'performer', etc.
-        """
+    @property
+    def subscription(self) -> str:
+        return self._subscription
+
+    # ------------------------------------------------------------------
+    # API methods
+    # ------------------------------------------------------------------
+
+    def search_track(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Search the Qobuz catalog for tracks."""
         try:
             resp = self._client.get(
                 f"{QOBUZ_API_BASE}/track/search",
-                params=self._auth_params(query=query, limit=limit),
+                params={"query": query, "limit": limit, "app_id": self._app_id},
             )
             resp.raise_for_status()
             return resp.json().get("tracks", {}).get("items", [])
@@ -214,7 +372,7 @@ class QobuzClient:
         resp = self._client.post(
             f"{QOBUZ_API_BASE}/playlist/create",
             data={
-                **self._auth_params(),
+                "app_id": self._app_id,
                 "name": name,
                 "description": description,
                 "is_public": str(is_public).lower(),
@@ -237,7 +395,7 @@ class QobuzClient:
         resp = self._client.post(
             f"{QOBUZ_API_BASE}/playlist/addTracks",
             data={
-                **self._auth_params(),
+                "app_id": self._app_id,
                 "playlist_id": playlist_id,
                 "track_ids": ids_csv,
             },
@@ -255,8 +413,7 @@ class QobuzClient:
             tracks: List of {"artist": "...", "title": "..."} dicts.
 
         Returns:
-            {"matched": [{"artist", "title", "qobuz_id", "qobuz_title"}, ...],
-             "unmatched": [{"artist", "title", "reason"}, ...]}
+            {"matched": [...], "unmatched": [...]}
         """
         from rapidfuzz import fuzz
 
@@ -280,9 +437,11 @@ class QobuzClient:
                     or result.get("artist", {}).get("name", "")
                 )
                 title_score = fuzz.ratio(title.lower(), result_title.lower())
-                artist_score = fuzz.partial_ratio(
-                    artist.lower(), result_artist.lower()
-                ) if artist else 100.0
+                artist_score = (
+                    fuzz.partial_ratio(artist.lower(), result_artist.lower())
+                    if artist
+                    else 100.0
+                )
                 score = title_score * 0.6 + artist_score * 0.4
 
                 if score > best_score:
@@ -300,15 +459,19 @@ class QobuzClient:
                 unmatched.append({
                     "artist": artist,
                     "title": title,
-                    "reason": f"best_score={best_score:.0f}" if best_result else "no_results",
+                    "reason": (
+                        f"best_score={best_score:.0f}" if best_result else "no_results"
+                    ),
                 })
 
-            # Rate limit — Qobuz doesn't document limits, be conservative
+            # Rate-limit to be conservative — Qobuz doesn't document limits
             time.sleep(0.15)
 
         logger.info(
             "Qobuz resolve: %d matched, %d unmatched out of %d tracks",
-            len(matched), len(unmatched), len(tracks),
+            len(matched),
+            len(unmatched),
+            len(tracks),
         )
         return {"matched": matched, "unmatched": unmatched}
 
@@ -322,17 +485,14 @@ class QobuzClient:
         """Full pipeline: resolve tracks → create playlist → add tracks.
 
         Args:
-            name: Playlist name
+            name: Playlist name.
             tracks: [{"artist": "...", "title": "..."}, ...]
-            description: Optional playlist description
-            is_public: Whether the playlist is public
+            description: Optional playlist description.
+            is_public: Whether the playlist is public.
 
         Returns:
-            {"success": bool, "playlist_id": int, "playlist_name": str,
-             "tracks_saved": int, "tracks_unmatched": int,
-             "unmatched_details": [...]}
+            Success/failure dict with counts and unmatched details.
         """
-        # Step 1: Resolve tracks to Qobuz IDs
         resolved = self.resolve_tracks(tracks)
         matched = resolved["matched"]
         unmatched_list = resolved["unmatched"]
@@ -346,17 +506,15 @@ class QobuzClient:
                 "unmatched_details": unmatched_list[:10],
             }
 
-        # Step 2: Create playlist
         playlist = self.create_playlist(name, description, is_public)
         playlist_id = playlist["id"]
 
-        # Step 3: Add tracks in batches of 50 (Qobuz limit safety)
         qobuz_ids = [t["qobuz_id"] for t in matched]
         for i in range(0, len(qobuz_ids), 50):
             batch = qobuz_ids[i : i + 50]
             self.add_tracks_to_playlist(playlist_id, batch)
             if i + 50 < len(qobuz_ids):
-                time.sleep(0.3)  # Brief pause between batches
+                time.sleep(0.3)
 
         return {
             "success": True,
@@ -386,11 +544,14 @@ def get_qobuz_api_error() -> str | None:
     return _qobuz_init_error
 
 
-def init_qobuz_api_client(app_id: str, email: str, password: str) -> QobuzClient | None:
-    """Initialize the Qobuz API client. Returns None on failure."""
+def init_qobuz_api_client(email: str, password: str) -> QobuzClient | None:
+    """Initialize the Qobuz API client (auto-extracts app credentials).
+
+    Returns None on failure and stores the error in _qobuz_init_error.
+    """
     global _qobuz_client, _qobuz_init_error
     try:
-        _qobuz_client = QobuzClient(app_id=app_id, email=email, password=password)
+        _qobuz_client = QobuzClient(email=email, password=password)
         _qobuz_init_error = None
         return _qobuz_client
     except QobuzAPIError as exc:

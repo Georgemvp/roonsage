@@ -46,10 +46,10 @@ async def lifespan(app: FastAPI):
         init_llm_client(config.llm)
 
     # Initialize Qobuz direct API client (for playlist save — independent of Roon)
+    # app_id and app_secret are auto-extracted from the Qobuz web player.
     qobuz_cfg = get_qobuz_config()
-    if qobuz_cfg["app_id"] and qobuz_cfg["email"] and qobuz_cfg["password"]:
+    if qobuz_cfg["email"] and qobuz_cfg["password"]:
         init_qobuz_api_client(
-            qobuz_cfg["app_id"],
             qobuz_cfg["email"],
             qobuz_cfg["password"],
         )

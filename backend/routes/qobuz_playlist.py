@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from backend.config import get_qobuz_config
 from backend.qobuz_api import (
+    QobuzClient,
     get_qobuz_api_client,
     get_qobuz_api_error,
     init_qobuz_api_client,
@@ -44,7 +45,7 @@ async def save_qobuz_playlist(req: SaveQobuzPlaylistRequest):
             status_code=503,
             detail=(
                 "Qobuz API niet geconfigureerd. "
-                "Stel QOBUZ_APP_ID, QOBUZ_EMAIL en QOBUZ_PASSWORD in."
+                "Stel QOBUZ_EMAIL en QOBUZ_PASSWORD in."
             ),
         )
 
@@ -78,7 +79,6 @@ async def qobuz_save_status():
 
 
 class ValidateQobuzRequest(BaseModel):
-    app_id: Optional[str] = None
     email: Optional[str] = None
     password: Optional[str] = None
 
@@ -87,39 +87,36 @@ class ValidateQobuzRequest(BaseModel):
 async def validate_qobuz_credentials(req: ValidateQobuzRequest):
     """Validate Qobuz credentials by attempting to log in.
 
-    Accepts {"app_id": "...", "email": "...", "password": "..."} in the body
-    to test specific credentials. If no body fields are provided, uses the
-    currently configured credentials from environment / config.user.yaml.
+    Accepts {"email": "...", "password": "..."} in the body to test specific
+    credentials. If no body fields are provided, uses the currently configured
+    credentials from environment / config.user.yaml.
+
+    The app_id and app_secret are auto-extracted from the Qobuz web player —
+    the caller never needs to supply them.
     """
     if req.email and req.password:
-        # Credentials supplied in request body — app_id is optional (auto-detect if missing)
-        app_id = req.app_id or ""
         email = req.email
         password = req.password
     else:
         qobuz_cfg = get_qobuz_config()
-        app_id = qobuz_cfg.get("app_id", "")
         email = qobuz_cfg.get("email", "")
         password = qobuz_cfg.get("password", "")
 
     if not (email and password):
         return {
             "available": False,
-            "error": "Vul email en wachtwoord in. App ID is optioneel (wordt automatisch gedetecteerd).",
+            "error": "Vul e-mailadres en wachtwoord in.",
         }
 
-    original_app_id = app_id
-
-    # Re-initialize the singleton with the provided credentials
-    client = await asyncio.to_thread(init_qobuz_api_client, app_id, email, password)
+    # Re-initialize the singleton; app credentials extracted automatically
+    client = await asyncio.to_thread(init_qobuz_api_client, email, password)
     error = get_qobuz_api_error()
 
     available = client is not None and client.is_authenticated()
-    used_app_id = client.app_id if client else original_app_id
 
     return {
         "available": available,
         "error": error,
-        "app_id_used": used_app_id if available else None,
-        "auto_detected": available and (used_app_id != original_app_id),
+        "user_display": client.user_display if available else None,
+        "subscription": client.subscription if available else None,
     }
