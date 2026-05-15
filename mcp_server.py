@@ -623,6 +623,8 @@ async def seed_track_playlist(
     track_count: int = 25,
     decades: Optional[list[str]] = None,
     exclude_live: bool = True,
+    source_mode: str = "library",
+    qobuz_percentage: int = 30,
 ) -> str:
     """Generate a "more like this" playlist seeded from a specific track.
 
@@ -640,15 +642,20 @@ async def seed_track_playlist(
     about live-track exclusion.
 
     Args:
-        item_key:    The rating_key / item_key of the seed track (from search_library).
-        dimensions:  Musical dimensions to match. Choose from:
-                     "mood", "era", "genre", "production", "tempo", "energy".
-                     Recommended: ["mood", "genre"] for most requests.
-        track_count: Exact number of tracks to generate (default 25). Any positive integer.
-        decades:     Optional decade filters derived from the seed track's year,
-                     e.g. ["1960s", "1970s", "1980s"]. Pass None to include all decades.
-        exclude_live: When True (default), live and concert recordings are excluded.
-                      Pass False to include live versions.
+        item_key:         The rating_key / item_key of the seed track (from search_library).
+        dimensions:       Musical dimensions to match. Choose from:
+                          "mood", "era", "genre", "production", "tempo", "energy".
+                          Recommended: ["mood", "genre"] for most requests.
+        track_count:      Exact number of tracks to generate (default 25). Any positive integer.
+        decades:          Optional decade filters derived from the seed track's year,
+                          e.g. ["1960s", "1970s", "1980s"]. Pass None to include all decades.
+        exclude_live:     When True (default), live and concert recordings are excluded.
+                          Pass False to include live versions.
+        source_mode:      "library" (default) — only tracks from the Roon library.
+                          "hybrid" — mix of library tracks + Qobuz discoveries.
+                          "qobuz" — only new music from Qobuz streaming.
+        qobuz_percentage: For hybrid mode, percentage of tracks sourced from Qobuz (default 30).
+                          Ignored when source_mode is "library" or "qobuz".
     """
     body: dict = {
         "prompt": None,
@@ -660,6 +667,8 @@ async def seed_track_playlist(
         "decades": decades or [],
         "track_count": track_count,
         "exclude_live": exclude_live,
+        "source_mode": source_mode,
+        "qobuz_percentage": qobuz_percentage,
     }
 
     max_retries = 2
