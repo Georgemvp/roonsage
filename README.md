@@ -194,6 +194,9 @@ All models are included in your Claude Pro subscription — there are no per-tok
 - *"What jazz albums do I have in my library?"*
 - *"Make a playlist of mellow 90s electronic music and play it in the living room."*
 - *"Find everything by Radiohead and add it to the queue."*
+- *"Generate a chill Sunday morning playlist and play it in the kitchen."*
+- *"What's currently playing in the living room?"*
+- *"Recommend me a jazz album I haven't listened to in a while."*
 
 #### Manual setup (alternative)
 
@@ -502,8 +505,8 @@ MediaSage uses a **filter-first architecture** designed for large libraries (50,
 │     LLM selects best matches from available tracks               │
 ├─────────────────────────────────────────────────────────────────┤
 │  5. MATCH                                                        │
-│     Fuzzy matching links LLM selections to library               │
-│     Handles minor spelling/formatting differences                │
+│     Track number lookup links LLM selections to library          │
+│     Falls back to fuzzy matching if needed                       │
 ├─────────────────────────────────────────────────────────────────┤
 │  6. PLAY                                                         │
 │     Tracks sent to a Roon zone                                   │
@@ -584,6 +587,21 @@ Interactive documentation available at `/docs` when running.
 | `/api/ollama/status` | GET | Ollama connection status |
 | `/api/ollama/models` | GET | List available Ollama models |
 | `/api/ollama/model-info` | GET | Get model details (context window) |
+
+---
+
+## Security
+
+MediaSage is designed for home network use. By default, anyone on your network can access the web UI.
+
+**Password protection:** Set the `MEDIASAGE_PASSWORD` environment variable to require authentication:
+```
+MEDIASAGE_PASSWORD=your-secret-password
+```
+
+**Rate limiting:** LLM-powered endpoints are rate-limited to 30 requests per hour per IP to prevent accidental cost overruns.
+
+**API keys:** Stored locally in `data/config.user.yaml` (file permissions 600). Never exposed via the API.
 
 ---
 

@@ -1,6 +1,6 @@
 # MediaSage Development Guidelines
 
-Last updated: 2026-05-12 (Roon conversion)
+Last updated: 2026-05-15
 
 ## Project Overview
 
@@ -18,16 +18,25 @@ MediaSage is a self-hosted web application that generates Roon music playlists u
 
 ```text
 backend/
-├── main.py              # FastAPI app, routes, static file serving
-├── config.py            # Config loading (YAML + env vars)
-├── roon_client.py       # Roon Core connection, library browsing via Browse API, zone/transport management
-├── llm_client.py        # Claude/OpenAI/Gemini/Ollama abstraction
-├── analyzer.py          # Prompt analysis + seed track dimensions
-├── generator.py         # Playlist generation
-├── library_cache.py     # SQLite cache for Roon library track metadata
-├── recommender.py       # Album recommendation pipeline
-├── music_research.py    # MusicBrainz/Wikipedia research client
-└── models.py            # Pydantic models
+├── main.py              # FastAPI app, lifespan, router registration, static files
+├── dependencies.py      # Shared helpers, auth, rate limiting
+├── routes/
+│   ├── setup.py         # Setup/onboarding endpoints
+│   ├── library.py       # Library cache, sync, search, filter endpoints
+│   ├── generate.py      # Playlist generation + analysis endpoints
+│   ├── recommend.py     # Album recommendation pipeline endpoints
+│   ├── roon.py          # Roon zones, queue, art proxy endpoints
+│   ├── config_routes.py # Config, health, Ollama endpoints
+│   └── results.py       # Result history endpoints
+├── config.py
+├── roon_client.py
+├── llm_client.py
+├── analyzer.py
+├── generator.py
+├── library_cache.py
+├── recommender.py
+├── music_research.py
+└── models.py
 
 frontend/
 ├── index.html           # Single page app
@@ -90,10 +99,11 @@ CUSTOM_CONTEXT_WINDOW=4096
 
 - **Filter-first**: Apply genre/decade filters before sending to LLM (handles 50k+ track libraries)
 - **SQLite cache + Browse API**: Library data is synced once into SQLite via `library_cache.sync_library()`; all subsequent queries read from the local cache for instant response. The Roon Browse API is used for the initial sync and for playback.
-- **No auth**: Rely on network security (home LAN, VPN, reverse proxy)
+- **Optional auth**: Password protection via `MEDIASAGE_PASSWORD` env var. Rate limiting on LLM endpoints (30/hour/IP).
 - **Album art proxy**: Backend proxies art from Roon's image URL to avoid exposing the Roon token to the browser
 - **Two-model strategy**: Smart model for analysis, cheap model for generation
-- **Fuzzy track matching**: Use rapidfuzz (threshold ~60) to match LLM responses to library
+- **Track number matching**: LLM returns track numbers from the numbered list for O(1) lookup. Falls back to fuzzy matching (rapidfuzz, threshold ~60) for models that don't follow number instructions.
+- **Genre junction table**: `track_genres` table enables SQL-native genre filtering instead of Python-side JSON parsing.
 - **Live version filtering**: Exclude tracks with "live", "concert", dates in title/album
 - **Browse hierarchy**: All Roon library access follows: Root → Library → Albums → tracks per album
 
@@ -139,6 +149,14 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 ## Recent Changes
 
 - roon-support: Converted from Plex to Roon Labs Extension API. All library access via Browse API. SQLite cache for fast queries. Playlist creation not available (Roon API limitation).
+- Refactored `main.py` into FastAPI routers (`routes/` directory)
+- Track matching by number (with fuzzy fallback)
+- Genre junction table (`track_genres`) for SQL-native filtering
+- Optional password auth (`MEDIASAGE_PASSWORD`)
+- Rate limiting on LLM endpoints (30 requests/hour/IP)
+- Renamed `plex_server_id` → `roon_core_id` in `sync_state`
+- MCP server: added `generate_playlist`, `get_now_playing`, `recommend_album` tools
+- All backend error messages standardized to English
 
 ## MCP Server
 
@@ -146,7 +164,7 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 - Het gebruikt `mcp[cli]` (FastMCP) en `httpx` voor async HTTP calls
 - De server praat met de MediaSage API op `MEDIASAGE_URL` (default: `http://localhost:5765`)
 - Transport: stdio
-- Tools: `get_library_stats`, `search_library`, `filter_tracks`, `list_zones`, `play_tracks`, `queue_tracks`, `sync_library`
+- Tools: `get_library_stats`, `search_library`, `filter_tracks`, `list_zones`, `play_tracks`, `queue_tracks`, `sync_library`, `generate_playlist`, `get_now_playing`, `recommend_album`
 - De MCP server bevat GEEN eigen LLM logica — Claude Desktop doet het denkwerk
 - Bij wijzigingen aan de API endpoints in `main.py`, update ook de corresponderende tool in `mcp_server.py`
 - The MCP server runs LOCALLY on the user's machine, not inside Docker
