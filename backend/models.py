@@ -236,6 +236,8 @@ class FilterLibraryRequest(BaseModel):
     decades: list[str] = []
     exclude_live: bool = True
     max_tracks: int = 500  # Cap to protect context windows
+    artist_limit: int = 2  # Max tracks per artist in stratified sampling
+    exclude_keywords: list[str] | None = None  # Filter out tracks containing these words in title/album
 
 
 class FilterLibraryResponse(BaseModel):

@@ -126,6 +126,8 @@ async def filter_tracks(
     exclude_live: bool = True,
     max_tracks: int = 200,
     output_format: str = "json",
+    artist_limit: int = 2,
+    exclude_keywords: Optional[list[str]] = None,
 ) -> str:
     """Filter the Roon library by genre, decade, and/or live-version exclusion.
 
@@ -144,30 +146,43 @@ async def filter_tracks(
       Use this when you need detailed metadata for other operations.
     - Use output_format='compact' when you want to personally curate a playlist
       from the results. Returns a numbered text list (token-efficient) plus a
-      key_map dict to translate track numbers back to item_keys for playback.
-      Default max_tracks is 1500 in compact mode (user should be asked for preference).
+      session_id for playback via curate_and_play. Default max_tracks is 500.
+    - Use output_format='ultra' for the most token-efficient format. Each line
+      is only "nr. Artist — Title" — no album, year, or genres. Best for large
+      libraries. Default max_tracks is 500.
 
     Args:
-        genres:        List of genre strings to include, e.g. ["Jazz", "Blues"].
-                       Pass None or omit to include all genres.
-        decades:       List of decade strings to include, e.g. ["1990s", "2000s"].
-                       Pass None or omit to include all decades.
-        exclude_live:  When True (default), tracks with "live", "concert", or year
-                       patterns in their title or album name are excluded.
-        max_tracks:    Maximum number of tracks to return (default 200 for json,
-                       1500 for compact). The full total is always reported.
-        output_format: "json" (default) — full JSON per track.
-                       "compact" — numbered text list + key_map, token-efficient.
+        genres:           List of genre strings to include, e.g. ["Jazz", "Blues"].
+                          Pass None or omit to include all genres.
+        decades:          List of decade strings to include, e.g. ["1990s", "2000s"].
+                          Pass None or omit to include all decades.
+        exclude_live:     When True (default), tracks with "live", "concert", or year
+                          patterns in their title or album name are excluded.
+        max_tracks:       Maximum number of tracks to return (default 200 for json,
+                          500 for compact/ultra). The full total is always reported.
+        output_format:    "json" (default) — full JSON per track.
+                          "compact" — numbered text list + session_id, token-efficient.
+                          "ultra" — only "nr. Artist — Title" per line, most efficient.
+        artist_limit:     Max tracks per artist in stratified sampling (default 2).
+                          Use 1 to force maximum artist diversity.
+        exclude_keywords: Exclude tracks whose title or album contains any of these
+                          words (case-insensitive). E.g. ["christmas", "live", "karaoke"].
     """
-    # Default max_tracks for compact mode — Claude should ask user preference first
-    if output_format == "compact" and max_tracks == 200:
-        max_tracks = 1500
+    # Default max_tracks for compact/ultra modes
+    if output_format in ("compact", "ultra") and max_tracks == 200:
+        max_tracks = 500
 
-    body: dict = {"exclude_live": exclude_live, "max_tracks": max_tracks}
+    body: dict = {
+        "exclude_live": exclude_live,
+        "max_tracks": max_tracks,
+        "artist_limit": artist_limit,
+    }
     if genres:
         body["genres"] = genres
     if decades:
         body["decades"] = decades
+    if exclude_keywords:
+        body["exclude_keywords"] = exclude_keywords
 
     try:
         response = await _client.post(f"{ROONSAGE_URL}/api/library/filter", json=body)
@@ -181,6 +196,47 @@ async def filter_tracks(
     tracks = data.get("tracks", [])
     total = data.get("total_matching", 0)
     returned = data.get("returned", len(tracks))
+
+    # -----------------------------------------------------------------------
+    # Ultra-compact output: only "nr. Artist — Title" per line
+    # -----------------------------------------------------------------------
+    if output_format == "ultra":
+        lines: list[str] = []
+        key_map: dict[str, str] = {}
+        for i, track in enumerate(tracks, start=1):
+            item_key = track.get("rating_key") or track.get("item_key") or ""
+            key_map[str(i)] = item_key
+            lines.append(f"{i}. {track.get('artist', '?')} — {track.get('title', '?')}")
+
+        session_id = ""
+        try:
+            store_resp = await _client.post(
+                f"{ROONSAGE_URL}/api/library/filter/session",
+                json={"key_map": key_map, "total_matching": total, "returned": returned},
+            )
+            store_resp.raise_for_status()
+            session_id = store_resp.json().get("session_id", "")
+        except Exception:
+            pass
+
+        result: dict = {
+            "total_matching": total,
+            "returned": returned,
+            "tracks": "\n".join(lines),
+            "session_id": session_id,
+            "note": (
+                "Ultra-compact formaat. Selecteer tracks op nummer. "
+                "Gebruik session_id met curate_and_play."
+            ),
+        }
+        if not session_id:
+            result["key_map"] = key_map
+        if total > returned:
+            result["pool_note"] = (
+                f"Library bevat {total} matching tracks; {returned} geretourneerd "
+                "(stratified steekproef per artiest)."
+            )
+        return json.dumps(result, ensure_ascii=False, indent=2)
 
     # -----------------------------------------------------------------------
     # Compact output: numbered text list + server-side session for curation
@@ -234,7 +290,7 @@ async def filter_tracks(
         if total > returned:
             result["pool_note"] = (
                 f"Library bevat {total} matching tracks; {returned} geretourneerd "
-                "(willekeurige steekproef)."
+                "(stratified steekproef per artiest)."
             )
         return json.dumps(result, ensure_ascii=False, indent=2)
 
@@ -386,6 +442,45 @@ async def curate_and_play(
         result["warning"] = f"Track numbers not found (skipped): {data['missing_numbers']}"
 
     return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def validate_playlist(
+    session_id: str,
+    track_numbers: list[int],
+    max_per_artist: int = 2,
+) -> str:
+    """Validate a curated track selection for quality issues before playback.
+
+    After curating track numbers from filter_tracks compact/ultra output, call this
+    tool to detect common playlist mistakes:
+    - Duplicates: same artist + title selected at two different positions
+    - Clustering: same artist on consecutive positions (bad flow)
+    - Overrepresentation: more than max_per_artist tracks from the same artist
+
+    Returns {"valid": true/false, "warnings": [...]} where each warning has
+    "type", "positions", "artist", and optionally "title", "count", "max".
+
+    Fix warnings before calling curate_and_play:
+    - For duplicates: remove the second occurrence
+    - For clustering: swap or remove one of the consecutive tracks
+    - For overrepresentation: remove excess tracks from the overrepresented artist
+
+    Args:
+        session_id:     Session ID from filter_tracks (compact or ultra format).
+        track_numbers:  Ordered list of selected track numbers to validate.
+        max_per_artist: Maximum acceptable tracks per artist (default 2).
+    """
+    result = await _api_call(
+        "POST",
+        "/api/library/filter/validate",
+        json={
+            "session_id": session_id,
+            "track_numbers": track_numbers,
+            "max_per_artist": max_per_artist,
+        },
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()

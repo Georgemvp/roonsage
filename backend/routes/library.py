@@ -2,6 +2,7 @@
 
 import asyncio
 import random as _random
+from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -22,6 +23,93 @@ from backend.models import (
     SyncTriggerResponse,
     Track,
 )
+
+# ---------------------------------------------------------------------------
+# Playlist-validatie helpers
+# ---------------------------------------------------------------------------
+
+
+def _validate_track_selection(
+    track_numbers: list[int],
+    key_map: dict[str, str],
+    track_meta: dict[str, dict],
+    max_per_artist: int = 2,
+) -> dict:
+    """Validate a curated track selection for duplicates, clustering, overrepresentation.
+
+    Args:
+        track_numbers: Ordered list of track numbers selected by Claude.
+        key_map:       Maps str(number) → rating_key.
+        track_meta:    Maps rating_key → {artist, title, album}.
+        max_per_artist: Max acceptable count per artist.
+
+    Returns:
+        {"valid": bool, "warnings": [...]}
+    """
+    warnings: list[dict] = []
+
+    # Resolve numbers → metadata; skip unknown numbers (warn separately)
+    resolved: list[tuple[int, str, str, str]] = []  # (position, rating_key, artist, title)
+    for pos, num in enumerate(track_numbers, start=1):
+        rk = key_map.get(str(num))
+        if not rk:
+            warnings.append({"type": "unknown_number", "position": pos, "number": num})
+            continue
+        meta = track_meta.get(rk, {})
+        artist = meta.get("artist", "")
+        title = meta.get("title", "")
+        resolved.append((pos, rk, artist.lower(), title.lower()))
+
+    # 1. Duplicates (same artist + title at two different positions)
+    seen: dict[tuple[str, str], list[int]] = {}
+    for pos, rk, artist, title in resolved:
+        key = (artist, title)
+        seen.setdefault(key, []).append(pos)
+    for (artist, title), positions in seen.items():
+        if len(positions) > 1:
+            # Recover original casing from meta
+            orig_artist = ""
+            orig_title = ""
+            rk = key_map.get(str(track_numbers[positions[0] - 1]))
+            if rk and rk in track_meta:
+                orig_artist = track_meta[rk].get("artist", artist)
+                orig_title = track_meta[rk].get("title", title)
+            warnings.append({
+                "type": "duplicate",
+                "positions": positions,
+                "artist": orig_artist,
+                "title": orig_title,
+            })
+
+    # 2. Clustering (same artist on consecutive positions)
+    for idx in range(len(resolved) - 1):
+        pos_a, _, artist_a, _ = resolved[idx]
+        pos_b, _, artist_b, _ = resolved[idx + 1]
+        if artist_a and artist_a == artist_b:
+            orig_artist = track_meta.get(key_map.get(str(track_numbers[idx]), ""), {}).get("artist", artist_a)
+            warnings.append({
+                "type": "clustering",
+                "positions": [pos_a, pos_b],
+                "artist": orig_artist,
+            })
+
+    # 3. Overrepresentation (more than max_per_artist tracks from same artist)
+    artist_counts: dict[str, list[int]] = {}
+    for pos, rk, artist, title in resolved:
+        artist_counts.setdefault(artist, []).append(pos)
+    for artist, positions in artist_counts.items():
+        if len(positions) > max_per_artist:
+            rk = key_map.get(str(track_numbers[positions[0] - 1]), "")
+            orig_artist = track_meta.get(rk, {}).get("artist", artist)
+            warnings.append({
+                "type": "overrepresented",
+                "artist": orig_artist,
+                "count": len(positions),
+                "max": max_per_artist,
+                "positions": positions,
+            })
+
+    return {"valid": len(warnings) == 0, "warnings": warnings}
 from backend.roon_client import get_roon_client
 
 router = APIRouter(prefix="/api", tags=["library"])
@@ -166,10 +254,32 @@ async def filter_library_tracks(request: FilterLibraryRequest) -> FilterLibraryR
         limit=0,
     )
 
+    # --- Wijziging 3: exclude-keywords filter ---
+    if request.exclude_keywords:
+        kws = [kw.lower() for kw in request.exclude_keywords]
+        raw_tracks = [
+            t for t in raw_tracks
+            if not any(
+                kw in (t["title"].lower() + " " + t.get("album", "").lower())
+                for kw in kws
+            )
+        ]
+
     total_matching = len(raw_tracks)
 
+    # --- Wijziging 2: stratified sampling per artiest ---
     if request.max_tracks > 0 and total_matching > request.max_tracks:
-        raw_tracks = _random.sample(raw_tracks, request.max_tracks)
+        artist_groups: dict[str, list[dict]] = defaultdict(list)
+        for t in raw_tracks:
+            artist_groups[t.get("artist", "").lower()].append(t)
+
+        pool: list[dict] = []
+        for artist_tracks in artist_groups.values():
+            _random.shuffle(artist_tracks)
+            pool.extend(artist_tracks[: request.artist_limit])
+
+        _random.shuffle(pool)
+        raw_tracks = _random.sample(pool, min(request.max_tracks, len(pool)))
 
     tracks = [
         Track(
@@ -333,3 +443,41 @@ async def curate_from_session(request: dict) -> dict:
         "zone_name": result.get("zone_name", zone_id),
         "missing_numbers": missing if missing else None,
     }
+
+
+@router.post("/library/filter/validate")
+async def validate_playlist_selection(request: dict) -> dict:
+    """Validate a curated track selection for duplicates, clustering, and overrepresentation.
+
+    Input:
+        session_id:       Session ID from filter_tracks (compact/ultra format).
+        track_numbers:    Ordered list of selected track numbers.
+        max_per_artist:   Max acceptable tracks per artist (default 2).
+
+    Output:
+        {"valid": bool, "warnings": [{type, positions, artist, title?, count?, max?}]}
+    """
+    session_id = request.get("session_id")
+    track_numbers = request.get("track_numbers", [])
+    max_per_artist = request.get("max_per_artist", 2)
+
+    if not session_id or not track_numbers:
+        raise HTTPException(
+            status_code=400,
+            detail="session_id and track_numbers are required",
+        )
+
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="Filter session expired or not found. Call filter_tracks again.",
+        )
+
+    key_map = session["key_map"]
+
+    # Fetch track metadata from SQLite for all referenced rating_keys
+    rating_keys = [key_map[str(n)] for n in track_numbers if str(n) in key_map]
+    track_meta = await asyncio.to_thread(library_cache.get_tracks_by_rating_keys, rating_keys)
+
+    return _validate_track_selection(track_numbers, key_map, track_meta, max_per_artist)

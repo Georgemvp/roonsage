@@ -1285,6 +1285,27 @@ def search_cached_tracks(
 
 
 # =============================================================================
+def get_tracks_by_rating_keys(rating_keys: list[str]) -> dict[str, dict[str, Any]]:
+    """Fetch track metadata for a list of rating_keys from the local cache.
+
+    Returns a dict mapping rating_key → {title, artist, album} for fast lookup.
+    Missing rating_keys are simply absent from the result dict.
+    """
+    if not rating_keys:
+        return {}
+    conn = ensure_db_initialized()
+    try:
+        placeholders = ",".join("?" * len(rating_keys))
+        rows = conn.execute(
+            f"SELECT rating_key, title, artist, album FROM tracks WHERE rating_key IN ({placeholders})",
+            rating_keys,
+        ).fetchall()
+        return {row["rating_key"]: dict(row) for row in rows}
+    finally:
+        conn.close()
+
+
+# =============================================================================
 def get_albums_by_artist(artist: str, max_albums: int = 50) -> list[dict[str, Any]]:
     """Return all albums in the cache by a given artist (case-insensitive, partial match).
 
