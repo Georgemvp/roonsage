@@ -189,14 +189,43 @@ All models are included in your Claude Pro subscription — there are no per-tok
 
 **MCP vs. Web UI:** The MediaSage web UI uses its own LLM calls (Gemini, OpenAI, or Anthropic API) and charges per token. The MCP integration uses your Claude Pro subscription instead — no separate API key or per-token costs. The web UI is single-shot (one prompt → one playlist), while Claude Desktop lets you have a conversation: refine your request, ask follow-up questions, and iterate on playlists across multiple turns.
 
+#### Available MCP Tools
+
+| Tool | What it does |
+|------|-------------|
+| `get_library_stats` | Get genre, decade, and total track counts from the library cache |
+| `get_library_status` | Check if the cache is up-to-date; surfaces `needs_resync` flag |
+| `search_library` | Search by track, artist, or album name |
+| `filter_tracks` | Filter by genre, decade, live exclusion |
+| `get_artist_albums` | List all albums by an artist from the SQLite cache |
+| `sync_library` | Trigger a background library sync from Roon |
+| `generate_playlist` | AI-curated playlist from a natural language prompt |
+| `seed_track_playlist` | "More like this" — playlist seeded from a specific track |
+| `analyze_prompt` | Preview how a prompt maps to genre/decade filters |
+| `recommend_album` | AI album recommendation (library or discovery mode) |
+| `recommend_album_interactive` | 2-step Q&A flow for highly personalized picks |
+| `play_album` | Search for an album and play it in one step |
+| `list_zones` | List active Roon playback zones |
+| `get_now_playing` | What's currently playing in each zone |
+| `play_tracks` | Send tracks to a Roon zone (replaces queue) |
+| `queue_tracks` | Append tracks to a Roon zone queue |
+| `transport_control` | Play, pause, stop, next, or previous |
+| `get_result_history` | Browse previously generated playlists and recommendations |
+
 #### Example prompts
 
 - *"What jazz albums do I have in my library?"*
+- *"Show me all albums by Nick Cave I own."*
 - *"Make a playlist of mellow 90s electronic music and play it in the living room."*
+- *"More like what's playing right now — but a bit darker."*
 - *"Find everything by Radiohead and add it to the queue."*
 - *"Generate a chill Sunday morning playlist and play it in the kitchen."*
-- *"What's currently playing in the living room?"*
+- *"Pause the music in the living room."*
+- *"Skip to the next track."*
+- *"What's currently playing?"*
 - *"Recommend me a jazz album I haven't listened to in a while."*
+- *"Ask me a few questions and then recommend the perfect album for tonight."*
+- *"Play that lo-fi playlist you made last week."*
 
 #### Manual setup (alternative)
 
@@ -565,14 +594,17 @@ Interactive documentation available at `/docs` when running.
 | `/api/setup/complete` | POST | Mark setup wizard as complete |
 | `/api/library/stats` | GET | Library statistics |
 | `/api/library/stats/cached` | GET | Cached library statistics |
-| `/api/library/status` | GET | Cache state, track count, sync progress |
+| `/api/library/status` | GET | Cache state, track count, sync progress, needs_resync |
 | `/api/library/sync` | POST | Trigger background library sync |
 | `/api/library/search` | GET | Search library tracks |
+| `/api/library/artist-albums` | GET | All albums by artist from cache |
+| `/api/library/filter` | POST | Filter tracks by genre/decade/live |
 | `/api/analyze/prompt` | POST | Analyze natural language prompt |
 | `/api/analyze/track` | POST | Analyze a seed track |
 | `/api/filter/preview` | POST | Preview filtered track list |
 | `/api/generate/stream` | POST | Stream playlist generation (SSE) |
 | `/api/roon/zones` | GET | List active Roon zones |
+| `/api/roon/transport` | POST | Transport control (play/pause/stop/next/previous) |
 | `/api/queue` | POST | Send tracks to a Roon zone |
 | `/api/queue/append` | POST | Append tracks to a Roon zone queue |
 | `/api/recommend/albums/preview` | GET | Preview album candidates for filters |

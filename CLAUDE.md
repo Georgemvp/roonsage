@@ -1,6 +1,6 @@
 # MediaSage Development Guidelines
 
-Last updated: 2026-05-15
+Last updated: 2026-05-15 (MCP v2 — 18 tools)
 
 ## Project Overview
 
@@ -25,7 +25,7 @@ backend/
 │   ├── library.py       # Library cache, sync, search, filter endpoints
 │   ├── generate.py      # Playlist generation + analysis endpoints
 │   ├── recommend.py     # Album recommendation pipeline endpoints
-│   ├── roon.py          # Roon zones, queue, art proxy endpoints
+│   ├── roon.py          # Roon zones, queue, transport control, art proxy endpoints
 │   ├── config_routes.py # Config, health, Ollama endpoints
 │   └── results.py       # Result history endpoints
 ├── config.py
@@ -157,17 +157,38 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 - Renamed `plex_server_id` → `roon_core_id` in `sync_state`
 - MCP server: added `generate_playlist`, `get_now_playing`, `recommend_album` tools
 - All backend error messages standardized to English
+- MCP server expanded with 8 new tools: `get_library_status`, `get_artist_albums`, `seed_track_playlist`, `analyze_prompt`, `recommend_album_interactive`, `play_album`, `transport_control`, `get_result_history`
+- Backend: added `transport_control()` to `roon_client.py` via `roonapi.playback_control()`
+- Backend: added `POST /api/roon/transport` endpoint + `TransportControlRequest/Response` models
+- Backend: added `get_albums_by_artist()` to `library_cache.py` + `GET /api/library/artist-albums` endpoint
 
 ## MCP Server
 
-- `mcp_server.py` in de repo root is een MCP server die de MediaSage REST API wrapt als tools voor Claude Desktop
-- Het gebruikt `mcp[cli]` (FastMCP) en `httpx` voor async HTTP calls
-- De server praat met de MediaSage API op `MEDIASAGE_URL` (default: `http://localhost:5765`)
-- Transport: stdio
-- Tools: `get_library_stats`, `search_library`, `filter_tracks`, `list_zones`, `play_tracks`, `queue_tracks`, `sync_library`, `generate_playlist`, `get_now_playing`, `recommend_album`
-- De MCP server bevat GEEN eigen LLM logica — Claude Desktop doet het denkwerk
-- Bij wijzigingen aan de API endpoints in `main.py`, update ook de corresponderende tool in `mcp_server.py`
-- The MCP server runs LOCALLY on the user's machine, not inside Docker
-- `pip install "mcp[cli]"` must be done locally, not in the Docker container
-- `scripts/install_mcp.py` configures Claude Desktop — it's a one-time local setup per machine
-- The MCP server connects to MediaSage via HTTP, so MediaSage must be running (Docker or bare metal)
+`mcp_server.py` in the repo root is an MCP server that wraps the MediaSage REST API as tools for Claude Desktop. It uses `mcp[cli]` (FastMCP) and `httpx` for async HTTP calls. The server connects to the MediaSage API at `MEDIASAGE_URL` (default: `http://localhost:5765`). Transport: stdio.
+
+The MCP server contains NO own LLM logic — Claude Desktop does the thinking. When changing API endpoints in `main.py`, update the corresponding tool in `mcp_server.py` too.
+
+The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip install "mcp[cli]"` must be done locally. `scripts/install_mcp.py` configures Claude Desktop — one-time setup per machine.
+
+### Full Tool List (18 tools)
+
+| Tool | Backend endpoint | Purpose |
+|------|-----------------|---------|
+| `get_library_stats` | `GET /api/library/stats/cached` | Genre/decade/total stats from cache |
+| `get_library_status` | `GET /api/library/status` | Cache freshness, needs_resync flag |
+| `search_library` | `GET /api/library/search` | Search by track/artist/album name |
+| `filter_tracks` | `POST /api/library/filter` | Filter by genre, decade, live exclusion |
+| `get_artist_albums` | `GET /api/library/artist-albums` | All albums by artist from SQLite cache |
+| `sync_library` | `POST /api/library/sync` | Trigger background library sync |
+| `generate_playlist` | `POST /api/generate/stream` (SSE) | AI playlist from natural language prompt |
+| `seed_track_playlist` | `POST /api/generate/stream` (SSE) | "More like this" playlist from seed track |
+| `analyze_prompt` | `POST /api/analyze/prompt` | Preview prompt → filter mapping |
+| `recommend_album` | `POST /api/recommend/questions` + `generate` | Quick album recommendation |
+| `recommend_album_interactive` | `POST /api/recommend/questions` + `generate` | 2-step Q&A album recommendation |
+| `play_album` | `GET /api/library/search` + `POST /api/queue` | Search + play album in one step |
+| `list_zones` | `GET /api/roon/zones` | List active Roon zones |
+| `get_now_playing` | `GET /api/roon/zones` | Current playback state per zone |
+| `play_tracks` | `POST /api/queue` | Send tracks to zone (replaces queue) |
+| `queue_tracks` | `POST /api/queue/append` | Append tracks to zone queue |
+| `transport_control` | `POST /api/roon/transport` | play/pause/stop/next/previous |
+| `get_result_history` | `GET /api/results` | Previously generated playlists/recs |
