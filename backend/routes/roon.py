@@ -62,9 +62,9 @@ async def queue_tracks(request: PlayQueueRequest) -> PlayQueueResponse:
         request.item_keys,
         request.mode,
     )
-    if not result["success"]:
-        raise HTTPException(status_code=500, detail=result.get("error", "Queue failed"))
-    return PlayQueueResponse(**result)
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error or "Queue failed")
+    return PlayQueueResponse(**result.model_dump())
 
 
 @router.post("/queue/append", response_model=QueueAppendResponse)
@@ -81,13 +81,13 @@ async def queue_append(request: QueueAppendRequest) -> QueueAppendResponse:
         "play_next",
     )
 
-    if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Queue append failed"))
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error or "Queue append failed")
 
     return QueueAppendResponse(
         success=True,
-        tracks_added=result.get("tracks_queued", 0),
-        tracks_skipped=result.get("tracks_skipped", 0),
+        tracks_added=result.model_dump().get("tracks_queued", 0),
+        tracks_skipped=result.model_dump().get("tracks_skipped", 0),
     )
 
 
@@ -133,9 +133,9 @@ async def transport_control(request: TransportControlRequest) -> TransportContro
         request.position_seconds,
         request.seek_offset,
     )
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result.get("error", "Transport command failed"))
-    return TransportControlResponse(**result)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error or "Transport command failed")
+    return TransportControlResponse(**result.model_dump())
 
 
 @router.get("/roon/qobuz-browse-test")
@@ -271,9 +271,9 @@ async def volume_control(request: VolumeControlRequest) -> VolumeControlResponse
         request.action,
         request.value,
     )
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result.get("error", "Volume control failed"))
-    return VolumeControlResponse(**result)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error or "Volume control failed")
+    return VolumeControlResponse(**result.model_dump())
 
 
 @router.post("/roon/transfer", response_model=TransferZoneResponse)
@@ -288,9 +288,9 @@ async def transfer_zone(request: TransferZoneRequest) -> TransferZoneResponse:
         request.from_zone,
         request.to_zone,
     )
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result.get("error", "Zone transfer failed"))
-    return TransferZoneResponse(**result)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error or "Zone transfer failed")
+    return TransferZoneResponse(**result.model_dump())
 
 
 @router.post("/roon/group", response_model=ZoneGroupingResponse)
@@ -305,9 +305,9 @@ async def zone_grouping(request: ZoneGroupingRequest) -> ZoneGroupingResponse:
         request.action,
         request.zones,
     )
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result.get("error", "Zone grouping failed"))
-    return ZoneGroupingResponse(**result)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error or "Zone grouping failed")
+    return ZoneGroupingResponse(**result.model_dump())
 
 
 @router.post("/roon/radio", response_model=PlayRadioResponse)
@@ -322,9 +322,9 @@ async def play_radio(request: PlayRadioRequest) -> PlayRadioResponse:
         request.station,
         request.zone_id,
     )
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result.get("error", "Play radio failed"))
-    return PlayRadioResponse(**result)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error or "Play radio failed")
+    return PlayRadioResponse(**result.model_dump())
 
 
 @router.post("/roon/playlists", response_model=BrowsePlaylistsResponse)
@@ -340,9 +340,9 @@ async def browse_playlists(request: BrowsePlaylistsRequest) -> BrowsePlaylistsRe
         request.playlist_name,
         request.zone_id,
     )
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result.get("error", "Browse playlists failed"))
-    return BrowsePlaylistsResponse(**result)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error or "Browse playlists failed")
+    return BrowsePlaylistsResponse(**result.model_dump())
 
 
 @router.post("/roon/qobuz-search", response_model=QobuzSearchResponse)

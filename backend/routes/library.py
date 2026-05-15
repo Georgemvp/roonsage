@@ -437,10 +437,11 @@ async def curate_from_session(request: dict) -> dict:
     mode = "add_next" if append else "replace"
     result = await asyncio.to_thread(roon_client.play_tracks, zone_id, item_keys, mode)
 
+    result_dict = result.model_dump()
     return {
-        "success": result.get("success", False),
+        "success": result.success,
         "tracks_queued": len(item_keys),
-        "zone_name": result.get("zone_name", zone_id),
+        "zone_name": result_dict.get("zone_name", zone_id),
         "missing_numbers": missing if missing else None,
     }
 

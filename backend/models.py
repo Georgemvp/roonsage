@@ -1,8 +1,29 @@
 """Pydantic models for RoonSage API contracts and internal data structures."""
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class RoonResponse(BaseModel):
+    """Generic success/error response from a Roon client operation.
+
+    All roon_client methods that previously returned raw ``{"success": bool, ...}``
+    dicts should return this model instead.  ``extra="allow"`` lets methods attach
+    domain-specific fields (zone_name, action, …) at the top level so that
+    ``.model_dump()`` produces a flat dict that is wire-compatible with the
+    existing specific response models (TransportControlResponse etc.).
+
+    Route handlers call ``.model_dump()`` before building the HTTP response;
+    the MCP server reads ``result["success"]`` from the JSON, so it needs no
+    changes.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    success: bool
+    error: str | None = None
+    data: dict[str, Any] | None = None
 
 
 def album_key(artist: str, album: str, lower: bool = True) -> str:
