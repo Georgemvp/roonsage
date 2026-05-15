@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from backend import library_cache
 from backend.config import get_config
+from backend.filter_sessions import get_session, store_session
 from backend.llm_client import estimate_cost_for_model
 from backend.models import (
     DecadeCount,
@@ -259,3 +260,76 @@ async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewRespons
         estimated_output_tokens=estimated_output_tokens,
         estimated_cost=estimated_cost,
     )
+
+
+# ---------------------------------------------------------------------------
+# Filter session endpoints — server-side key_map storage for MCP curation
+# ---------------------------------------------------------------------------
+
+
+@router.post("/library/filter/session")
+async def store_filter_session(request: dict) -> dict:
+    """Store a key_map from filter results server-side and return a session_id.
+
+    Called by the MCP server after filter_tracks to avoid passing the full
+    key_map through Claude's context window.
+    """
+    key_map = request.get("key_map", {})
+    total = request.get("total_matching", 0)
+    returned = request.get("returned", 0)
+    session_id = store_session(key_map, total, returned)
+    return {"session_id": session_id}
+
+
+@router.post("/library/filter/curate")
+async def curate_from_session(request: dict) -> dict:
+    """Translate track numbers to Roon item_keys using a stored session and queue them.
+
+    Used by the MCP curate_and_play tool: Claude supplies track numbers (from the
+    compact numbered list) and the session_id returned by filter_tracks.  The server
+    looks up the key_map, translates numbers → item_keys, and starts/appends playback.
+    """
+    session_id = request.get("session_id")
+    track_numbers = request.get("track_numbers", [])
+    zone_id = request.get("zone_id")
+    append = request.get("append", False)
+
+    if not session_id or not track_numbers or not zone_id:
+        raise HTTPException(
+            status_code=400,
+            detail="session_id, track_numbers, and zone_id are required",
+        )
+
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="Filter session expired or not found. Call filter_tracks again.",
+        )
+
+    key_map = session["key_map"]
+    item_keys: list[str] = []
+    missing: list[int] = []
+    for num in track_numbers:
+        key = key_map.get(str(num))
+        if key:
+            item_keys.append(key)
+        else:
+            missing.append(num)
+
+    if not item_keys:
+        return {"success": False, "error": "No valid track numbers", "missing": missing}
+
+    roon_client = get_roon_client()
+    if not roon_client or not roon_client.is_connected():
+        raise HTTPException(status_code=503, detail="Roon not connected")
+
+    mode = "add_next" if append else "replace"
+    result = await asyncio.to_thread(roon_client.play_tracks, zone_id, item_keys, mode)
+
+    return {
+        "success": result.get("success", False),
+        "tracks_queued": len(item_keys),
+        "zone_name": result.get("zone_name", zone_id),
+        "missing_numbers": missing if missing else None,
+    }

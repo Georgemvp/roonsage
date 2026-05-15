@@ -183,7 +183,7 @@ async def filter_tracks(
     returned = data.get("returned", len(tracks))
 
     # -----------------------------------------------------------------------
-    # Compact output: numbered text list + key_map for native curation
+    # Compact output: numbered text list + server-side session for curation
     # -----------------------------------------------------------------------
     if output_format == "compact":
         lines: list[str] = []
@@ -199,16 +199,38 @@ async def filter_tracks(
             )
             lines.append(line)
 
+        # Store key_map server-side — get a session_id back so it doesn't
+        # need to travel through Claude's context window (~10-20k tokens saved).
+        session_id = ""
+        try:
+            store_resp = await _client.post(
+                f"{ROONSAGE_URL}/api/library/filter/session",
+                json={"key_map": key_map, "total_matching": total, "returned": returned},
+            )
+            store_resp.raise_for_status()
+            session_id = store_resp.json().get("session_id", "")
+        except Exception:
+            # Fallback: if server-side storage fails, include key_map directly
+            # so curate_and_play can still work (it handles both paths).
+            pass
+
         result: dict = {
             "total_matching": total,
             "returned": returned,
             "tracks": "\n".join(lines),
-            "key_map": key_map,
+            "session_id": session_id,
             "note": (
-                "Selecteer tracks op nummer. Gebruik key_map om nummers terug te "
-                "vertalen naar item_keys voor curate_and_play / play_tracks / queue_tracks."
+                "Selecteer tracks op nummer. Gebruik session_id met curate_and_play "
+                "om de selectie af te spelen. De key_map is server-side opgeslagen."
             ),
         }
+        if not session_id:
+            # Fallback: include key_map so curate_and_play can still work
+            result["key_map"] = key_map
+            result["note"] = (
+                "Server-side sessie-opslag mislukt. key_map is meegestuurd als fallback. "
+                "Gebruik curate_and_play met key_map in plaats van session_id."
+            )
         if total > returned:
             result["pool_note"] = (
                 f"Library bevat {total} matching tracks; {returned} geretourneerd "
@@ -306,7 +328,7 @@ async def queue_tracks(item_keys: list[str], zone_id: str) -> str:
 @mcp.tool()
 async def curate_and_play(
     track_numbers: list[int],
-    key_map: dict[str, str],
+    session_id: str,
     zone_id: str,
     playlist_name: str = "Claude Curated",
     append: bool = False,
@@ -314,9 +336,9 @@ async def curate_and_play(
     """Play a curated selection of tracks chosen by Claude from filter_tracks compact output.
 
     After calling filter_tracks with output_format='compact', select the best tracks
-    by number and pass them here together with the key_map from the filter response.
-    This tool translates the chosen track numbers to Roon item_keys and starts
-    (or appends to) playback in the specified zone.
+    by number and pass them here with the session_id from the filter response.
+    The server translates track numbers to Roon item_keys using the stored key_map
+    (which never needs to travel through Claude's context window).
 
     Curation guidelines to apply before calling this tool:
     - Aim for 15–50 tracks depending on the request.
@@ -328,36 +350,23 @@ async def curate_and_play(
     Args:
         track_numbers: List of track numbers from the compact list, in the desired
                        play order. E.g. [3, 17, 42, 8, ...].
-        key_map:       The key_map dict returned by filter_tracks (maps number
-                       strings like "3" to Roon item_key strings).
+        session_id:    The session_id returned by filter_tracks (compact mode).
+                       The server uses this to look up the stored key_map.
         zone_id:       Roon zone ID to play in — obtain via list_zones.
         playlist_name: Optional label for the playlist (used in the response
                        summary only; Roon cannot save playlists via the API).
         append:        If True, append tracks to the current queue instead of
                        replacing it. Default False (replaces queue).
     """
-    # Translate track numbers to item_keys, preserving order
-    item_keys: list[str] = []
-    missing: list[int] = []
-    for num in track_numbers:
-        key = key_map.get(str(num))
-        if key:
-            item_keys.append(key)
-        else:
-            missing.append(num)
-
-    if not item_keys:
-        return json.dumps({
-            "success": False,
-            "error": "None of the provided track_numbers matched entries in key_map.",
-            "missing_numbers": missing,
-        }, ensure_ascii=False, indent=2)
-
-    endpoint = "/api/queue/append" if append else "/api/queue"
     try:
         response = await _client.post(
-            f"{ROONSAGE_URL}{endpoint}",
-            json={"item_keys": item_keys, "zone_id": zone_id},
+            f"{ROONSAGE_URL}/api/library/filter/curate",
+            json={
+                "session_id": session_id,
+                "track_numbers": track_numbers,
+                "zone_id": zone_id,
+                "append": append,
+            },
         )
         response.raise_for_status()
         data = response.json()
@@ -369,12 +378,12 @@ async def curate_and_play(
     result: dict = {
         "success": data.get("success", False),
         "playlist_name": playlist_name,
-        "tracks_queued": data.get("tracks_queued", len(item_keys)),
+        "tracks_queued": data.get("tracks_queued", 0),
         "zone_name": data.get("zone_name", zone_id),
         "action": "appended" if append else "replaced queue",
     }
-    if missing:
-        result["warning"] = f"Track numbers not found in key_map (skipped): {missing}"
+    if data.get("missing_numbers"):
+        result["warning"] = f"Track numbers not found (skipped): {data['missing_numbers']}"
 
     return json.dumps(result, ensure_ascii=False, indent=2)
 
