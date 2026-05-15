@@ -123,6 +123,9 @@ const state = {
     // Cached filter preview (for local cost recalculation)
     lastFilterPreview: null,  // { matching_tracks, tracks_to_send }
 
+    // Refinement — stores the last generation request so it can be replayed with additional_notes
+    lastRequest: null,
+
     // Results UX — selection
     selectedTrackKey: null,    // Currently selected track in detail panel
 
@@ -1391,7 +1394,6 @@ async function updateFilterPreview() {
             decades: allDecadesSelected() ? [] : state.selectedDecades,
             track_count: state.trackCount,
             max_tracks_to_ai: state.maxTracksToAI,
-            min_rating: state.minRating,
             exclude_live: state.excludeLive,
         };
         console.log('[MediaSage] Filter preview request:', requestBody);
@@ -1690,6 +1692,12 @@ function updatePlaylist() {
     } else if (state.playlist.length === 0) {
         state.selectedTrackKey = null;
         showTrackReason(null);
+    }
+
+    // Show/hide refinement button depending on whether a request is stored
+    const refineBtn = document.getElementById('refine-playlist-btn');
+    if (refineBtn) {
+        refineBtn.classList.toggle('hidden', !state.lastRequest);
     }
 
     // Update footer
@@ -2214,7 +2222,18 @@ function resetPlaylistState() {
     state.trackReasons = {};
     state.userRequest = '';
     state.selectedTrackKey = null;
+    state.lastRequest = null;
     document.getElementById('prompt-input').value = '';
+    // Hide refinement panel and reset button
+    const refinePanel = document.getElementById('refine-panel');
+    if (refinePanel) refinePanel.classList.add('hidden');
+    const refineBtn = document.getElementById('refine-playlist-btn');
+    if (refineBtn) {
+        refineBtn.classList.add('hidden');
+        refineBtn.setAttribute('aria-expanded', 'false');
+    }
+    const refineInput = document.getElementById('refine-input');
+    if (refineInput) refineInput.value = '';
     updateStep();
 }
 
@@ -2774,6 +2793,17 @@ function setupEventListeners() {
     // Playlist Start Over link
     document.getElementById('playlist-start-over')?.addEventListener('click', resetPlaylistState);
 
+    // Playlist Refinement
+    document.getElementById('refine-playlist-btn')?.addEventListener('click', handleRefinePlaylist);
+    document.getElementById('refine-submit-btn')?.addEventListener('click', handleRefineSubmit);
+    document.getElementById('refine-input')?.addEventListener('keydown', (e) => {
+        // Ctrl+Enter / Cmd+Enter submits the refinement
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            handleRefineSubmit();
+        }
+    });
+
     // Refresh clients in client picker modal
     document.getElementById('refresh-clients-btn').addEventListener('click', refreshClientList);
 
@@ -3076,7 +3106,6 @@ async function handleGenerate() {
         decades: allDecadesSelected() ? [] : state.selectedDecades,
         track_count: state.trackCount,
         exclude_live: state.excludeLive,
-        min_rating: state.minRating,
         max_tracks_to_ai: state.maxTracksToAI,
     };
 
@@ -3100,6 +3129,9 @@ async function handleGenerate() {
             request.additional_notes = state.additionalNotes;
         }
     }
+
+    // Store original request for potential refinement passes
+    state.lastRequest = { ...request };
 
     showStepLoading(PLAYLIST_STEPS.map(s => ({ ...s })));
 
@@ -3153,6 +3185,88 @@ async function handleGenerate() {
             }
         },
         // onError
+        (error) => {
+            showError(error.message);
+            hideStepLoading();
+        }
+    );
+}
+
+// =============================================================================
+// Playlist Refinement (iterative generation)
+// =============================================================================
+
+function handleRefinePlaylist() {
+    const panel = document.getElementById('refine-panel');
+    const btn = document.getElementById('refine-playlist-btn');
+    if (!panel || !btn) return;
+    const isOpen = !panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', isOpen);
+    btn.setAttribute('aria-expanded', String(!isOpen));
+    if (!isOpen) {
+        document.getElementById('refine-input')?.focus();
+    }
+}
+
+function handleRefineSubmit() {
+    const refinementText = document.getElementById('refine-input')?.value.trim();
+    if (!refinementText) {
+        document.getElementById('refine-input')?.focus();
+        return;
+    }
+    if (!state.lastRequest) return;
+
+    const request = {
+        ...state.lastRequest,
+        additional_notes: refinementText,
+    };
+
+    // Collapse the refinement panel while generating
+    document.getElementById('refine-panel')?.classList.add('hidden');
+    document.getElementById('refine-playlist-btn')?.setAttribute('aria-expanded', 'false');
+
+    showStepLoading(PLAYLIST_STEPS.map(s => ({ ...s })));
+
+    generatePlaylistStream(
+        request,
+        (data) => {
+            const mapped = PLAYLIST_STEP_MAP[data.step];
+            if (mapped) updateStepProgress(mapped);
+        },
+        (response) => {
+            updateStepProgress('__done__');
+
+            state.sessionTokens += response.token_count || 0;
+            state.sessionCost += response.estimated_cost || 0;
+
+            state.playlist = response.tracks;
+            state.tokenCount = state.sessionTokens;
+            state.estimatedCost = state.sessionCost;
+
+            if (response.playlist_title) state.playlistTitle = response.playlist_title;
+            if (response.narrative) state.narrative = response.narrative;
+            if (response.track_reasons) state.trackReasons = response.track_reasons;
+
+            state.playlistName = state.playlistTitle || generatePlaylistName();
+            state.selectedTrackKey = null;
+
+            // Update lastRequest so subsequent refinements stack correctly
+            state.lastRequest = request;
+
+            // Clear input for next refinement
+            const refineInput = document.getElementById('refine-input');
+            if (refineInput) refineInput.value = '';
+
+            updateStep();
+            updatePlaylist();
+            window.scrollTo(0, 0);
+            hideStepLoading();
+
+            if (response.result_id) {
+                history.replaceState(null, '', `#result/${response.result_id}`);
+                markHistoryStale();
+            }
+        },
         (error) => {
             showError(error.message);
             hideStepLoading();

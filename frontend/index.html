@@ -446,6 +446,15 @@
                                     <button id="play-now-btn" class="btn btn-secondary btn-play-now">
                                         &#9654; Play Now
                                     </button>
+                                    <button id="refine-playlist-btn" class="btn btn-outline hidden" aria-expanded="false">
+                                        ✏️ Verfijn playlist
+                                    </button>
+                                    <div id="refine-panel" class="refine-panel hidden" role="region" aria-label="Playlist verfijnen">
+                                        <textarea id="refine-input" class="prompt-textarea refine-textarea"
+                                                  placeholder="Bijv: donkerder, meer 80s, minder jazz..."
+                                                  rows="2" aria-label="Verfijningsinstructies"></textarea>
+                                        <button id="refine-submit-btn" class="btn btn-primary">Genereer opnieuw</button>
+                                    </div>
                                     <button id="playlist-start-over" class="rec-action-link rec-action-link--subtle">Start over</button>
                                 </div>
                                 <aside id="track-reason-panel" class="track-reason-panel">

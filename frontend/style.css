@@ -2111,6 +2111,30 @@ input[type="number"]:focus:not(:focus-visible) {
     white-space: nowrap;
 }
 
+/* Outline Button (secondary action, e.g. Verfijn) */
+.btn-outline {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+}
+
+.btn-outline:hover {
+    background: rgba(229, 160, 13, 0.12);
+}
+
+/* Refinement Panel */
+.refine-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.refine-textarea {
+    min-height: 64px;
+    resize: vertical;
+    font-size: var(--font-size-sm);
+}
+
 /* Regenerate Link (demoted from button) */
 .btn-link {
     background: none;
