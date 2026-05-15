@@ -148,6 +148,15 @@ async def filter_tracks(
         except httpx.HTTPStatusError as exc:
             return f"Fout van MediaSage API: {exc.response.status_code} — {exc.response.text}"
 
+    # Strip each track to only the fields needed for playlist curation.
+    # This keeps the response well under Claude Desktop's 1 MB tool-result limit.
+    _KEEP = {"item_key", "rating_key", "title", "artist", "album", "genres"}
+    if "tracks" in data:
+        data["tracks"] = [
+            {k: v for k, v in track.items() if k in _KEEP}
+            for track in data["tracks"]
+        ]
+
     # Response already has the right shape: total_matching, returned, tracks
     # Add a note when results are capped so Claude knows the real pool size
     total = data.get("total_matching", 0)
