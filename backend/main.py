@@ -1,4 +1,4 @@
-"""FastAPI application for MediaSage."""
+"""FastAPI application for RoonSage."""
 
 import asyncio
 import base64
@@ -17,7 +17,7 @@ from backend.roon_client import get_roon_client, init_roon_client
 from backend import library_cache
 from backend.llm_client import init_llm_client
 from backend.routes import setup, library, generate, recommend, roon, config_routes, results
-from backend.dependencies import MEDIASAGE_PASSWORD
+from backend.dependencies import ROONSAGE_PASSWORD
 import backend.routes.recommend as _recommend_module
 
 logging.basicConfig(level=logging.INFO)
@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="MediaSage",
+    title="RoonSage",
     description="Roon AI playlist generator powered by LLMs",
     version=get_version(),
     lifespan=lifespan,
@@ -79,7 +79,7 @@ app = FastAPI(
 # =============================================================================
 # Optional HTTP Basic Auth middleware
 # =============================================================================
-# Activated only when MEDIASAGE_PASSWORD environment variable is set.
+# Activated only when ROONSAGE_PASSWORD environment variable is set.
 # Exempt routes that must work without auth:
 #   - GET /api/health    (Docker health checks)
 #   - GET /api/art/*     (album art images used in the UI after login)
@@ -91,8 +91,8 @@ _AUTH_EXEMPT_PREFIX = "/api/art/"
 
 @app.middleware("http")
 async def optional_basic_auth(request: Request, call_next):
-    """Enforce HTTP Basic Auth when MEDIASAGE_PASSWORD is configured."""
-    if not MEDIASAGE_PASSWORD:
+    """Enforce HTTP Basic Auth when ROONSAGE_PASSWORD is configured."""
+    if not ROONSAGE_PASSWORD:
         return await call_next(request)
 
     path = request.url.path
@@ -103,7 +103,7 @@ async def optional_basic_auth(request: Request, call_next):
     if not auth_header.startswith("Basic "):
         return JSONResponse(
             status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="MediaSage"'},
+            headers={"WWW-Authenticate": 'Basic realm="RoonSage"'},
             content={"detail": "Authentication required"},
         )
 
@@ -113,14 +113,14 @@ async def optional_basic_auth(request: Request, call_next):
     except Exception:
         return JSONResponse(
             status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="MediaSage"'},
+            headers={"WWW-Authenticate": 'Basic realm="RoonSage"'},
             content={"detail": "Invalid credentials"},
         )
 
-    if not secrets.compare_digest(password.encode(), MEDIASAGE_PASSWORD.encode()):
+    if not secrets.compare_digest(password.encode(), ROONSAGE_PASSWORD.encode()):
         return JSONResponse(
             status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="MediaSage"'},
+            headers={"WWW-Authenticate": 'Basic realm="RoonSage"'},
             content={"detail": "Invalid credentials"},
         )
 
@@ -167,4 +167,4 @@ async def serve_index():
         html = html.replace("/static/style.css", f"/static/style.css?v={v}")
         html = html.replace("/static/app.js", f"/static/app.js?v={v}")
         return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
-    return {"message": "MediaSage API is running. Frontend not found."}
+    return {"message": "RoonSage API is running. Frontend not found."}

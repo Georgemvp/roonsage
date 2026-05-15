@@ -1,10 +1,10 @@
-# MediaSage Development Guidelines
+# RoonSage Development Guidelines
 
 Last updated: 2026-05-15 (MCP v4 — 24 tools)
 
 ## Project Overview
 
-MediaSage is a self-hosted web application that generates Roon music playlists using LLMs with library awareness. It uses a filter-first approach to ensure 100% of suggested tracks are playable. It connects to Roon as an Extension via the Python `roonapi` package and uses the Browse API (`browse_browse`/`browse_load`) for all library access.
+RoonSage is a self-hosted web application that generates Roon music playlists using LLMs with library awareness. It uses a filter-first approach to ensure 100% of suggested tracks are playable. It connects to Roon as an Extension via the Python `roonapi` package and uses the Browse API (`browse_browse`/`browse_load`) for all library access.
 
 ## Active Technologies
 
@@ -100,14 +100,14 @@ CUSTOM_CONTEXT_WINDOW=4096
 
 - **Filter-first**: Apply genre/decade filters before sending to LLM (handles 50k+ track libraries)
 - **SQLite cache + Browse API**: Library data is synced once into SQLite via `library_cache.sync_library()`; all subsequent queries read from the local cache for instant response. The Roon Browse API is used for the initial sync and for playback.
-- **Optional auth**: Password protection via `MEDIASAGE_PASSWORD` env var. Rate limiting on LLM endpoints (30/hour/IP).
+- **Optional auth**: Password protection via `ROONSAGE_PASSWORD` env var. Rate limiting on LLM endpoints (30/hour/IP).
 - **Album art proxy**: Backend proxies art from Roon's image URL to avoid exposing the Roon token to the browser
 - **Two-model strategy**: Smart model for analysis, cheap model for generation
 - **Track number matching**: LLM returns track numbers from the numbered list for O(1) lookup. Falls back to fuzzy matching (rapidfuzz, threshold ~60) for models that don't follow number instructions.
 - **Genre junction table**: `track_genres` table enables SQL-native genre filtering instead of Python-side JSON parsing.
 - **Live version filtering**: Exclude tracks with "live", "concert", dates in title/album
 - **Browse hierarchy**: All Roon library access follows: Root → Library → Albums → tracks per album
-- **Qobuz via Roon Browse API**: No separate Qobuz API key needed. MediaSage navigates Roon's Browse hierarchy (Root → Qobuz → Search) to find and play Qobuz tracks. Detected automatically at startup.
+- **Qobuz via Roon Browse API**: No separate Qobuz API key needed. RoonSage navigates Roon's Browse hierarchy (Root → Qobuz → Search) to find and play Qobuz tracks. Detected automatically at startup.
 - **Time-of-day context**: Day and hour are prepended to generation prompts as subtle mood hints. Dutch day names used for consistency with the UI language.
 
 ## Roon API Limitations
@@ -155,7 +155,7 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 - Refactored `main.py` into FastAPI routers (`routes/` directory)
 - Track matching by number (with fuzzy fallback)
 - Genre junction table (`track_genres`) for SQL-native filtering
-- Optional password auth (`MEDIASAGE_PASSWORD`)
+- Optional password auth (`ROONSAGE_PASSWORD`)
 - Rate limiting on LLM endpoints (30 requests/hour/IP)
 - Renamed `plex_server_id` → `roon_core_id` in `sync_state`
 - MCP server: added `generate_playlist`, `get_now_playing`, `recommend_album` tools
@@ -177,7 +177,7 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 
 ## MCP Server
 
-`mcp_server.py` in the repo root is an MCP server that wraps the MediaSage REST API as tools for Claude Desktop. It uses `mcp[cli]` (FastMCP) and `httpx` for async HTTP calls. The server connects to the MediaSage API at `MEDIASAGE_URL` (default: `http://localhost:5765`). Transport: stdio.
+`mcp_server.py` in the repo root is an MCP server that wraps the RoonSage REST API as tools for Claude Desktop. It uses `mcp[cli]` (FastMCP) and `httpx` for async HTTP calls. The server connects to the RoonSage API at `ROONSAGE_URL` (default: `http://localhost:5765`). Transport: stdio.
 
 The MCP server contains NO own LLM logic — Claude Desktop does the thinking. When changing API endpoints in `main.py`, update the corresponding tool in `mcp_server.py` too.
 
@@ -210,7 +210,7 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 | `transfer_zone` | `POST /api/roon/transfer` | Transfer playback between zones |
 | `zone_grouping` | `POST /api/roon/group` | Group/ungroup/list zone groups |
 | `play_radio` | `POST /api/roon/radio` | Play internet radio station (fuzzy match) |
-| `browse_playlists` | `POST /api/roon/playlists` | List/play Roon playlists (all playlists, not just MediaSage) |
+| `browse_playlists` | `POST /api/roon/playlists` | List/play Roon playlists (all playlists, not just RoonSage) |
 
 ### Tool Selection Guide (for Claude Desktop)
 

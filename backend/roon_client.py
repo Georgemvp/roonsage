@@ -76,13 +76,11 @@ class TrackCache:
         genres: list[str] | None,
         decades: list[str] | None,
         exclude_live: bool,
-        min_rating: int,
     ) -> str:
         key_data = {
             "genres": sorted(genres or []),
             "decades": sorted(decades or []),
             "exclude_live": exclude_live,
-            "min_rating": min_rating,
         }
         return hashlib.md5(str(key_data).encode()).hexdigest()
 
@@ -97,9 +95,8 @@ class TrackCache:
         genres: list[str] | None,
         decades: list[str] | None,
         exclude_live: bool,
-        min_rating: int,
     ) -> list[Track] | None:
-        key = self._make_key(genres, decades, exclude_live, min_rating)
+        key = self._make_key(genres, decades, exclude_live)
         if key in self._cache:
             tracks, timestamp = self._cache[key]
             if time.time() - timestamp < self._ttl:
@@ -113,10 +110,9 @@ class TrackCache:
         genres: list[str] | None,
         decades: list[str] | None,
         exclude_live: bool,
-        min_rating: int,
         tracks: list[Track],
     ) -> None:
-        key = self._make_key(genres, decades, exclude_live, min_rating)
+        key = self._make_key(genres, decades, exclude_live)
         if key not in self._cache and len(self._cache) >= self._max_entries:
             self._evict_oldest()
         self._cache[key] = (tracks, time.time())
@@ -149,12 +145,12 @@ class RoonClient:
     RECONNECT_COOLDOWN = 30
     # Roon extension registration info
     EXTENSION_INFO = {
-        "extension_id": "com.mediasage.roon",
-        "display_name": "MediaSage",
+        "extension_id": "com.roonsage.roon",
+        "display_name": "RoonSage",
         "display_version": "1.0.0",
-        "publisher": "MediaSage",
-        "email": "mediasage@example.com",
-        "website": "https://github.com/ecwilsonaz/mediasage",
+        "publisher": "RoonSage",
+        "email": "roonsage@example.com",
+        "website": "https://github.com/Georgemvp/roonsage",
     }
 
     def __init__(
@@ -218,8 +214,8 @@ class RoonClient:
                 # Not yet authorized in Roon's extension manager
                 self._needs_authorization = True
                 self._error = (
-                    "MediaSage needs to be authorized in Roon. "
-                    "Open Roon → Settings → Extensions and enable MediaSage."
+                    "RoonSage needs to be authorized in Roon. "
+                    "Open Roon → Settings → Extensions and enable RoonSage."
                 )
                 return
 
@@ -1774,7 +1770,6 @@ class RoonClient:
         genres: list[str] | None = None,
         decades: list[str] | None = None,
         exclude_live: bool = True,
-        min_rating: int = 0,
         limit: int = 0,
     ) -> list[Track]:
         """Get tracks matching filter criteria from the library cache.
@@ -1819,11 +1814,10 @@ class RoonClient:
         genres: list[str] | None = None,
         decades: list[str] | None = None,
         exclude_live: bool = True,
-        min_rating: int = 0,
     ) -> int:
         """Count tracks matching filter criteria."""
         tracks = self.get_tracks_by_filters(genres=genres, decades=decades,
-                                             exclude_live=exclude_live, min_rating=min_rating)
+                                             exclude_live=exclude_live)
         return len(tracks)
 
 

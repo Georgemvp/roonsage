@@ -1,6 +1,6 @@
-# MediaSage on Synology DiskStation — Setup Guide
+# RoonSage on Synology DiskStation — Setup Guide
 
-This guide shows you how to install MediaSage on a Synology NAS. No command-line experience required.
+This guide shows you how to install RoonSage on a Synology NAS. No command-line experience required.
 
 ---
 
@@ -10,11 +10,11 @@ Before you start, gather these three things:
 
 1. **A Synology NAS with Container Manager installed.** Container Manager is a free app in Synology's Package Center (it used to be called "Docker"). If it's missing, open Package Center, search "Container Manager," and install it.
 
-   > **Don't have Container Manager?** Some Synology models (especially ARM-based units like the DS220j or DS223j) don't support it. You can still run MediaSage directly with Python — see the [Bare Metal install instructions](../README.md#bare-metal-no-docker) in the main README.
+   > **Don't have Container Manager?** Some Synology models (especially ARM-based units like the DS220j or DS223j) don't support it. You can still run RoonSage directly with Python — see the [Bare Metal install instructions](../README.md#bare-metal-no-docker) in the main README.
 
-2. **Your Plex token.** This lets MediaSage connect to your Plex server. See [Finding Your Plex Token](#finding-your-plex-token) below.
+2. **Your Plex token.** This lets RoonSage connect to your Plex server. See [Finding Your Plex Token](#finding-your-plex-token) below.
 
-3. **A Gemini API key (free).** MediaSage uses an AI service to build playlists. Google Gemini is free and requires no credit card. See [Getting a Gemini API Key](#getting-a-gemini-api-key-free) below.
+3. **A Gemini API key (free).** RoonSage uses an AI service to build playlists. Google Gemini is free and requires no credit card. See [Getting a Gemini API Key](#getting-a-gemini-api-key-free) below.
 
 ---
 
@@ -37,7 +37,7 @@ Plex maintains an [official guide for finding your token](https://support.plex.t
 
 ## Getting a Gemini API Key (Free)
 
-Google Gemini is the recommended AI provider for MediaSage. It's free for personal use, handles the largest music libraries, and requires no credit card.
+Google Gemini is the recommended AI provider for RoonSage. It's free for personal use, handles the largest music libraries, and requires no credit card.
 
 1. Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 2. Sign in with any Google account
@@ -51,7 +51,7 @@ The free tier gives you roughly 100-500 playlists per day — more than enough.
 
 ---
 
-## Setting Up MediaSage
+## Setting Up RoonSage
 
 Two methods exist. **Method A (Docker Compose)** is recommended because updates are easier. Method B uses the GUI only.
 
@@ -59,7 +59,7 @@ Both methods require your Synology user ID so the container can write to its dat
 
 ### Finding Your Synology User ID
 
-MediaSage stores its library cache and settings (which may include API keys) in a data folder. To keep this folder secure, the container runs as *your* Synology user instead of granting broad access. You need two numbers: your **UID** and **GID**.
+RoonSage stores its library cache and settings (which may include API keys) in a data folder. To keep this folder secure, the container runs as *your* Synology user instead of granting broad access. You need two numbers: your **UID** and **GID**.
 
 1. Open **Control Panel** → **Task Scheduler**
 2. Click **Create** → **Scheduled Task** → **User-defined script**
@@ -67,11 +67,11 @@ MediaSage stores its library cache and settings (which may include API keys) in 
 4. **Schedule** tab: Set **Run on the following date**, pick today, and set it to not repeat
 5. **Task Settings** tab: In the **User-defined script** box, paste:
    ```
-   id > /volume1/docker/mediasage/myid.txt
+   id > /volume1/docker/roonsage/myid.txt
    ```
 6. Click **OK** (dismiss any warnings)
 7. Select the task and click **Run** → **Yes**
-8. Open **File Station** → `docker/mediasage` → double-click `myid.txt`
+8. Open **File Station** → `docker/roonsage` → double-click `myid.txt`
 
 You'll see something like:
 
@@ -83,7 +83,7 @@ The two numbers you need are `1026` (your UID) and `100` (your GID). Write them 
 
 9. Back in Task Scheduler, select the task and **Delete** it (it was only needed once)
 
-> **Note:** This step requires the `docker/mediasage` folder to exist first. If you haven't created it yet, see Step 1 below, then come back here.
+> **Note:** This step requires the `docker/roonsage` folder to exist first. If you haven't created it yet, see Step 1 below, then come back here.
 
 ---
 
@@ -96,13 +96,13 @@ This method creates a "Project" in Container Manager using a compose file. It ha
 1. Open **File Station** on your Synology
 2. Navigate to the `docker` shared folder
    - If it's missing, create a shared folder called `docker` (Control Panel → Shared Folder → Create)
-3. Inside `docker`, create a folder called `mediasage`
-4. Inside `mediasage`, create a folder called `data`
+3. Inside `docker`, create a folder called `roonsage`
+4. Inside `roonsage`, create a folder called `data`
 
 Your folder structure should look like:
 ```
 docker/
-└── mediasage/
+└── roonsage/
     └── data/
 ```
 
@@ -113,9 +113,9 @@ docker/
 
 ```yaml
 services:
-  mediasage:
-    image: ecwilson/mediasage:latest
-    container_name: mediasage
+  roonsage:
+    image: ecwilson/roonsage:latest
+    container_name: roonsage
     user: "<UID>:<GID>"                            # Your Synology user and group ID
     ports:
       - "5765:5765"
@@ -146,9 +146,9 @@ See [Finding Your Synology User ID](#finding-your-synology-user-id) for UID/GID 
 
 ```yaml
 services:
-  mediasage:
-    image: ecwilson/mediasage:latest
-    container_name: mediasage
+  roonsage:
+    image: ecwilson/roonsage:latest
+    container_name: roonsage
     user: "1026:100"
     ports:
       - "5765:5765"
@@ -167,12 +167,12 @@ services:
    - No angle brackets `< >` remain anywhere in the file
 
 4. Save the file as `docker-compose.yml`
-5. In **File Station**, upload this file into the `docker/mediasage` folder you created
+5. In **File Station**, upload this file into the `docker/roonsage` folder you created
 
 Your folder should now look like:
 ```
 docker/
-└── mediasage/
+└── roonsage/
     ├── docker-compose.yml
     └── data/
 ```
@@ -182,17 +182,17 @@ docker/
 1. Open **Container Manager** on your Synology
 2. Go to **Project** in the left sidebar
 3. Click **Create**
-4. Set the **Project Name** to `mediasage`
-5. Set the **Path** to `/volume1/docker/mediasage` (or wherever your folder is)
+4. Set the **Project Name** to `roonsage`
+5. Set the **Path** to `/volume1/docker/roonsage` (or wherever your folder is)
 6. Container Manager should detect the `docker-compose.yml` automatically
 7. Click **Next**, then **Next** again (skip the web portal setup)
 8. Click **Done**
 
-Container Manager will download the MediaSage image and start the container. The first download takes a minute or two.
+Container Manager will download the RoonSage image and start the container. The first download takes a minute or two.
 
 #### Step 4: Verify it's running
 
-1. In Container Manager → **Project**, you should see `mediasage` with a green "Running" status
+1. In Container Manager → **Project**, you should see `roonsage` with a green "Running" status
 2. Open your browser and go to `http://<your-synology-ip>:5765`
 3. Click **Settings** in the top navigation and confirm:
    - **Plex Connection** shows a green status with your library name and track count
@@ -209,14 +209,14 @@ If you prefer the GUI to editing a compose file, use this method.
 
 1. Open **File Station**
 2. Navigate to the `docker` shared folder (create one if needed)
-3. Create a folder called `mediasage`
-4. Inside `mediasage`, create a folder called `data`
+3. Create a folder called `roonsage`
+4. Inside `roonsage`, create a folder called `data`
 
 #### Step 2: Download the image
 
 1. Open **Container Manager**
 2. Go to **Registry** in the left sidebar
-3. In the search bar, type `ecwilson/mediasage`
+3. In the search bar, type `ecwilson/roonsage`
 4. Select the image from Docker Hub and click **Download**
 5. Choose the `latest` tag and click **Apply**
 6. Wait for the download to complete (check the **Image** section)
@@ -224,8 +224,8 @@ If you prefer the GUI to editing a compose file, use this method.
 #### Step 3: Create the container
 
 1. Go to **Image** in the left sidebar
-2. Select the `mediasage` image and click **Run**
-3. Set **Container Name** to `mediasage`
+2. Select the `roonsage` image and click **Run**
+3. Set **Container Name** to `roonsage`
 4. Check **Enable auto-restart**
 5. Under **Execution Settings** (if available), check **Execute container using high privilege** is OFF, and set **User** to your UID (e.g., `1026`) and **Group** to your GID (e.g., `100`) from [Finding Your Synology User ID](#finding-your-synology-user-id)
 6. Click **Next**
@@ -243,7 +243,7 @@ If you prefer the GUI to editing a compose file, use this method.
 #### Step 5: Configure the data folder
 
 1. Under **Volume Settings**, click **Add Folder**
-2. Browse to the `docker/mediasage/data` folder you created
+2. Browse to the `docker/roonsage/data` folder you created
 3. Set the **Mount Path** to `/app/data`
 
 #### Step 6: Add environment variables
@@ -266,7 +266,7 @@ Replace `<PLEX_IP>` with your Plex server's local IP address.
 
 ---
 
-## Accessing MediaSage
+## Accessing RoonSage
 
 Once the container runs:
 
@@ -275,7 +275,7 @@ Once the container runs:
 
 Replace `<SYNOLOGY_IP>` with your Synology's local IP address (e.g., `http://192.168.1.100:5765`).
 
-> **Important:** Use your Synology's IP address, not `localhost` or `127.0.0.1`. Those work only when the app runs on the same machine as your browser. MediaSage runs on your Synology, so you must use the Synology's IP address.
+> **Important:** Use your Synology's IP address, not `localhost` or `127.0.0.1`. Those work only when the app runs on the same machine as your browser. RoonSage runs on your Synology, so you must use the Synology's IP address.
 
 ### Finding Your Synology's IP Address
 
@@ -289,7 +289,7 @@ You can find your Synology's IP address in several ways:
 
 ## First-Time Setup
 
-When you first open MediaSage, it syncs your Plex music library. This builds a local index so the app can work with your tracks quickly.
+When you first open RoonSage, it syncs your Plex music library. This builds a local index so the app can work with your tracks quickly.
 
 1. **Library sync starts automatically.** A progress bar shows while it scans your library. This takes about 1-2 minutes for a typical library (subsequent visits are faster since the cache is stored in the `data` folder).
 
@@ -308,7 +308,7 @@ If either shows red or unconfigured, verify your environment variables (see [Tro
    - "Upbeat classic rock road trip songs"
    - "Jazz instrumentals for cooking dinner"
 
-2. Click **Analyze**. MediaSage suggests genre and decade filters based on your prompt.
+2. Click **Analyze**. RoonSage suggests genre and decade filters based on your prompt.
 
 3. Adjust the filters if you want. The track count updates in real time as you narrow or expand the pool.
 
@@ -320,19 +320,19 @@ If either shows red or unconfigured, verify your environment variables (see [Tro
 
 ---
 
-## Updating MediaSage
+## Updating RoonSage
 
 When a new version releases:
 
 **If you used Method A (Docker Compose):**
 1. Open **Container Manager** → **Project**
-2. Select `mediasage`
+2. Select `roonsage`
 3. Click **Action** → **Build** (this pulls the latest image and recreates the container)
 
 **If you used Method B (GUI):**
-1. Stop the container: **Container** → select `mediasage` → **Action** → **Stop**
+1. Stop the container: **Container** → select `roonsage` → **Action** → **Stop**
 2. Delete the container (this preserves your data): **Action** → **Delete**
-3. Delete the old image: **Image** → select the mediasage image → **Delete**
+3. Delete the old image: **Image** → select the roonsage image → **Delete**
 4. Re-download the image from **Registry** (same steps as before)
 5. Re-create the container with the same settings
 
@@ -345,7 +345,7 @@ Your library cache and settings are stored in the `data` folder and survive upda
 ### "This site can't be reached" / page won't load
 
 - **Are you using the right IP?** You need your **Synology's** IP address, not `localhost`. See [Finding Your Synology's IP Address](#finding-your-synologys-ip-address).
-- **Is the container running?** Open Container Manager → Container (or Project) and verify mediasage shows a green "Running" status.
+- **Is the container running?** Open Container Manager → Container (or Project) and verify roonsage shows a green "Running" status.
 - **Is the port correct?** Use port `5765` in the URL (e.g., `http://192.168.1.100:5765`). If you changed the local port during setup, use that number instead.
 - **Firewall?** Synology's built-in firewall might block the port. Check Control Panel → Security → Firewall.
 
@@ -358,7 +358,7 @@ The container cannot write to its data directory. This happens when the containe
 **If you used Method B (GUI) and couldn't set the user:** Grant your admin account write access to the data folder:
 
 1. Open **File Station**
-2. Navigate to `docker/mediasage/data`
+2. Navigate to `docker/roonsage/data`
 3. Right-click the `data` folder → **Properties**
 4. Go to the **Permission** tab
 5. Click **Create**, select your admin user, and grant **Read & Write** access
@@ -377,7 +377,7 @@ If that still fails, the container may be running as a different user than your 
 
 ### "LLM not configured" / LLM shows as disconnected
 
-- **Check your API key.** Open Container Manager, find the mediasage container, and verify the `GEMINI_API_KEY` environment variable is set and contains no extra spaces.
+- **Check your API key.** Open Container Manager, find the roonsage container, and verify the `GEMINI_API_KEY` environment variable is set and contains no extra spaces.
 - **Regenerate the key.** Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and create a new key. Replace the old one in your environment variables, then restart the container.
 
 ### Container runs but Plex or LLM shows disconnected
@@ -408,25 +408,25 @@ Wrong:  user: "1026:YOUR-100"
 Right:  user: "1026:100"
 ```
 
-After fixing, re-upload `docker-compose.yml` and rebuild the project: Container Manager → **Project** → select `mediasage` → **Action** → **Build**.
+After fixing, re-upload `docker-compose.yml` and rebuild the project: Container Manager → **Project** → select `roonsage` → **Action** → **Build**.
 
 ### Library sync is slow or stuck
 
 - First sync takes 1-2 minutes for most libraries. Libraries with 50,000+ tracks may take longer.
-- If it seems stuck, check the container logs: Container Manager → Container → select `mediasage` → **Log**. Look for error messages.
+- If it seems stuck, check the container logs: Container Manager → Container → select `roonsage` → **Log**. Look for error messages.
 - Verify your Plex server is online and reachable.
 
 ### Container won't start / shows error on launch
 
-- Check the logs: Container Manager → Container → select `mediasage` → **Log**
+- Check the logs: Container Manager → Container → select `roonsage` → **Log**
 - If you see "port already in use," another app is using port 5765. Change the local port in your container settings to something else (e.g., `5766`).
-- If you see memory errors, your NAS may lack sufficient RAM. MediaSage is lightweight but needs at least 256 MB free.
+- If you see memory errors, your NAS may lack sufficient RAM. RoonSage is lightweight but needs at least 256 MB free.
 
 ---
 
 ## Finding Your Plex Server's IP
 
-MediaSage must reach your Plex server over the network. What you enter for `PLEX_URL` depends on where Plex runs:
+RoonSage must reach your Plex server over the network. What you enter for `PLEX_URL` depends on where Plex runs:
 
 | Plex runs on... | PLEX_URL value |
 |---|---|
@@ -445,7 +445,7 @@ To find a computer's local IP:
 
 ## Using a Different AI Provider
 
-MediaSage works with several AI providers. Gemini is the default because it's free and handles the largest libraries, but you can use others:
+RoonSage works with several AI providers. Gemini is the default because it's free and handles the largest libraries, but you can use others:
 
 | Provider | Environment Variable | Cost | Notes |
 |---|---|---|---|
@@ -453,14 +453,14 @@ MediaSage works with several AI providers. Gemini is the default because it's fr
 | **OpenAI** | `OPENAI_API_KEY` | ~$0.05-0.10/playlist | Handles ~2,300 tracks. |
 | **Anthropic Claude** | `ANTHROPIC_API_KEY` | ~$0.15-0.25/playlist | Handles ~3,500 tracks. Nuanced taste. |
 
-Add the appropriate environment variable to your container. MediaSage auto-detects which provider to use based on which key is set. If you set multiple keys, it defaults to Gemini; set `LLM_PROVIDER` explicitly to choose (e.g., `LLM_PROVIDER=openai`).
+Add the appropriate environment variable to your container. RoonSage auto-detects which provider to use based on which key is set. If you set multiple keys, it defaults to Gemini; set `LLM_PROVIDER` explicitly to choose (e.g., `LLM_PROVIDER=openai`).
 
 ---
 
-## Optional: Accessing MediaSage Outside Your Home
+## Optional: Accessing RoonSage Outside Your Home
 
-By default, MediaSage is accessible only on your local network. To access it remotely:
+By default, RoonSage is accessible only on your local network. To access it remotely:
 
 - **Synology QuickConnect** does not work with custom Docker containers.
 - **Reverse proxy (advanced):** Set up a reverse proxy in Synology's Control Panel → Login Portal → Advanced → Reverse Proxy. Point a subdomain to `localhost:5765`. This requires a domain name and HTTPS certificate.
-- **Tailscale / VPN:** The simplest option. Install Tailscale on your Synology (available in Package Center) and your devices. Access MediaSage via your Synology's Tailscale IP. No port forwarding or domain required.
+- **Tailscale / VPN:** The simplest option. Install Tailscale on your Synology (available in Package Center) and your devices. Access RoonSage via your Synology's Tailscale IP. No port forwarding or domain required.

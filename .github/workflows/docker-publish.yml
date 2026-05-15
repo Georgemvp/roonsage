@@ -54,7 +54,7 @@ jobs:
         run: |
           IMAGES="ghcr.io/${{ github.repository }}"
           if [ -n "${DOCKERHUB_USERNAME}" ]; then
-            IMAGES="${IMAGES},${DOCKERHUB_USERNAME}/mediasage"
+            IMAGES="${IMAGES},${DOCKERHUB_USERNAME}/roonsage"
           fi
           echo "list=${IMAGES}" >> $GITHUB_OUTPUT
 

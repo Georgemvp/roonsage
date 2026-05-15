@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MediaSage</title>
+    <title>RoonSage</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
     <div class="app">
         <!-- Header -->
         <header class="header">
-            <h1 class="logo"><a href="#home" class="logo-link">MediaSage</a></h1>
+            <h1 class="logo"><a href="#home" class="logo-link">RoonSage</a></h1>
             <nav class="nav" role="navigation" aria-label="Main navigation">
                 <div class="nav-dropdown">
                     <button class="nav-dropdown-trigger" aria-expanded="false" aria-haspopup="true">
@@ -46,7 +46,7 @@
                 <!-- Setup Wizard (shown on first launch) -->
                 <div id="setup-wizard" class="setup-wizard hidden">
                     <div class="setup-header">
-                        <h2 class="setup-title">Welcome to MediaSage</h2>
+                        <h2 class="setup-title">Welcome to RoonSage</h2>
                         <p class="setup-subtitle">Let's get you set up. This should only take a minute.</p>
                     </div>
 
@@ -55,7 +55,7 @@
                         <div class="setup-warning-icon" aria-hidden="true">!</div>
                         <div class="setup-warning-text">
                             <strong>Data directory is not writable</strong>
-                            <p>MediaSage cannot write to its data directory. This is usually a Docker volume permissions issue.</p>
+                            <p>RoonSage cannot write to its data directory. This is usually a Docker volume permissions issue.</p>
                             <p id="setup-data-fix" class="setup-warning-fix"></p>
                         </div>
                     </div>
@@ -232,13 +232,18 @@
                         <span class="step-label">Dimensions</span>
                     </div>
                     <div class="step-connector" aria-hidden="true"></div>
-                    <div class="step" data-step="filters">
+                    <div class="step" data-step="source">
                         <span class="step-circle">3</span>
+                        <span class="step-label">Bron</span>
+                    </div>
+                    <div class="step-connector" aria-hidden="true"></div>
+                    <div class="step" data-step="filters">
+                        <span class="step-circle">4</span>
                         <span class="step-label">Filters</span>
                     </div>
                     <div class="step-connector" aria-hidden="true"></div>
                     <div class="step" data-step="results">
-                        <span class="step-circle">4</span>
+                        <span class="step-circle">5</span>
                         <span class="step-label">Results</span>
                     </div>
                 </div>
@@ -315,11 +320,43 @@
                             ></textarea>
                         </div>
                         <button id="continue-to-filters-btn" class="btn btn-primary">
-                            Continue to Filters
+                            Continue
                         </button>
                         <p id="llm-required-hint-dimensions" class="llm-required-hint" hidden>
                             <a href="#" data-view="settings">Configure an LLM provider</a> to continue
                         </p>
+                    </div>
+
+                    <!-- Source Mode Step -->
+                    <div id="step-source" class="step-panel">
+                        <h2>Muziekbron</h2>
+                        <p class="step-description">Kies waar de tracks vandaan komen.</p>
+                        <div id="source-mode-cards" class="source-mode-cards" role="group" aria-label="Muziekbron kiezen">
+                            <button class="source-card selected" data-source="library" aria-pressed="true">
+                                <span class="source-card-icon">📀</span>
+                                <span class="source-card-title">Mijn Bibliotheek</span>
+                                <span class="source-card-desc">Alleen tracks die je bezit</span>
+                            </button>
+                            <button class="source-card" data-source="hybrid" aria-pressed="false" id="source-card-hybrid">
+                                <span class="source-card-icon">🔀</span>
+                                <span class="source-card-title">Mix</span>
+                                <span class="source-card-desc">Bibliotheek + nieuwe ontdekkingen via Qobuz</span>
+                            </button>
+                            <button class="source-card" data-source="qobuz" aria-pressed="false" id="source-card-qobuz">
+                                <span class="source-card-icon">🔍</span>
+                                <span class="source-card-title">Qobuz Ontdekking</span>
+                                <span class="source-card-desc">Nieuwe muziek buiten je bibliotheek</span>
+                            </button>
+                        </div>
+                        <div id="qobuz-percentage-row" class="qobuz-percentage-row hidden">
+                            <label for="qobuz-percentage-slider">Nieuwe muziek: <span id="qobuz-pct-label">30</span>%</label>
+                            <input type="range" id="qobuz-percentage-slider" min="10" max="70" step="5" value="30"
+                                   aria-label="Percentage nieuwe Qobuz-tracks">
+                        </div>
+                        <p id="qobuz-unavailable-msg" class="qobuz-unavailable hidden">
+                            ⚠️ Configureer Qobuz in Roon om Mix en Qobuz Ontdekking te gebruiken.
+                        </p>
+                        <button id="source-continue-btn" class="btn btn-primary">Volgende</button>
                     </div>
 
                     <!-- Filters Step -->
@@ -362,17 +399,6 @@
                             </label>
                         </div>
 
-                        <div class="filter-section filter-section--disabled">
-                            <h3>Minimum Rating <span class="filter-unavailable-badge" title="Not available with Roon — the Roon Extension API does not expose user ratings">Not available with Roon</span></h3>
-                            <div class="rating-selector" role="group" aria-label="Minimum track rating (not available with Roon)">
-                                <button class="rating-btn active" data-rating="0" aria-pressed="true" disabled title="Not available with Roon">Any</button>
-                                <button class="rating-btn" data-rating="2" aria-pressed="false" disabled title="Not available with Roon">★+</button>
-                                <button class="rating-btn" data-rating="4" aria-pressed="false" disabled title="Not available with Roon">★★+</button>
-                                <button class="rating-btn" data-rating="6" aria-pressed="false" disabled title="Not available with Roon">★★★+</button>
-                                <button class="rating-btn" data-rating="8" aria-pressed="false" disabled title="Not available with Roon">★★★★+</button>
-                            </div>
-                        </div>
-
                         <div class="filter-section">
                             <h3>Max Tracks to AI</h3>
                             <p class="filter-hint">Limit how many tracks are sent to the AI for selection. Higher = better variety but more cost.</p>
@@ -413,7 +439,7 @@
                                 </div>
                                 <div id="playlist-picker-container" class="playlist-picker-container hidden">
                                     <select id="playlist-picker" class="playlist-picker-select" aria-label="Select playlist to update">
-                                        <option value="__scratch__">MediaSage - Now Playing</option>
+                                        <option value="__scratch__">RoonSage - Now Playing</option>
                                     </select>
                                 </div>
                                 <div id="narrative-box" class="narrative-box hidden"></div>
@@ -447,13 +473,13 @@
                                         &#9654; Play Now
                                     </button>
                                     <button id="refine-playlist-btn" class="btn btn-outline hidden" aria-expanded="false">
-                                        ✏️ Verfijn playlist
+                                        ✏️ Refine Playlist
                                     </button>
-                                    <div id="refine-panel" class="refine-panel hidden" role="region" aria-label="Playlist verfijnen">
+                                    <div id="refine-panel" class="refine-panel hidden" role="region" aria-label="Refine playlist">
                                         <textarea id="refine-input" class="prompt-textarea refine-textarea"
-                                                  placeholder="Bijv: donkerder, meer 80s, minder jazz..."
-                                                  rows="2" aria-label="Verfijningsinstructies"></textarea>
-                                        <button id="refine-submit-btn" class="btn btn-primary">Genereer opnieuw</button>
+                                                  placeholder="e.g., darker, more 80s, less jazz..."
+                                                  rows="2" aria-label="Refinement instructions"></textarea>
+                                        <button id="refine-submit-btn" class="btn btn-primary">Regenerate</button>
                                     </div>
                                     <button id="playlist-start-over" class="rec-action-link rec-action-link--subtle">Start over</button>
                                 </div>
@@ -695,7 +721,7 @@
                     <div id="ollama-settings" class="provider-settings hidden">
                         <div class="experimental-warning">
                             <strong>Experimental Feature</strong>
-                            <p>Local LLM support is experimental. Please <a href="https://github.com/ecwilsonaz/mediasage/issues" target="_blank" rel="noopener">report issues on GitHub</a>.</p>
+                            <p>Local LLM support is experimental. Please <a href="https://github.com/Georgemvp/roonsage/issues" target="_blank" rel="noopener">report issues on GitHub</a>.</p>
                         </div>
                         <div class="form-group">
                             <label for="ollama-url">Ollama URL</label>
@@ -728,7 +754,7 @@
                     <div id="custom-settings" class="provider-settings hidden">
                         <div class="experimental-warning">
                             <strong>Experimental Feature</strong>
-                            <p>Local LLM support is experimental. Please <a href="https://github.com/ecwilsonaz/mediasage/issues" target="_blank" rel="noopener">report issues on GitHub</a>.</p>
+                            <p>Local LLM support is experimental. Please <a href="https://github.com/Georgemvp/roonsage/issues" target="_blank" rel="noopener">report issues on GitHub</a>.</p>
                         </div>
                         <div class="form-group">
                             <label for="custom-url">API Base URL</label>
@@ -894,7 +920,7 @@
         <!-- Footer -->
         <footer class="app-footer app-footer--loading">
             <div class="footer-left">
-                <a href="https://github.com/ecwilsonaz/mediasage" target="_blank" rel="noopener" class="footer-brand">MediaSage <span id="footer-version"></span></a>
+                <a href="https://github.com/Georgemvp/roonsage" target="_blank" rel="noopener" class="footer-brand">RoonSage <span id="footer-version"></span></a>
                 <span class="footer-separator">·</span>
                 <span id="footer-model" class="footer-model">--</span>
             </div>

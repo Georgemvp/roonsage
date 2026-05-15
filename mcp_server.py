@@ -1,24 +1,24 @@
 # Claude Desktop configuration - add to ~/Library/Application Support/Claude/claude_desktop_config.json:
 # {
 #   "mcpServers": {
-#     "roon-mediasage": {
+#     "roonsage": {
 #       "command": "python3",
-#       "args": ["/FULL/PATH/TO/roon-mediasage/mcp_server.py"]
+#       "args": ["/FULL/PATH/TO/roonsage/mcp_server.py"]
 #     }
 #   }
 # }
 
 """
-MediaSage MCP Server
+RoonSage MCP Server
 
-Wraps the MediaSage REST API as MCP tools for Claude Desktop.
+Wraps the RoonSage REST API as MCP tools for Claude Desktop.
 Claude Desktop handles all reasoning; this server provides library data and Roon connectivity.
 
 Requirements:
     pip install "mcp[cli]" httpx
 
 Environment variables:
-    MEDIASAGE_URL  Base URL of the running MediaSage app (default: http://localhost:5765)
+    ROONSAGE_URL  Base URL of the running RoonSage app (default: http://localhost:5765)
 """
 
 import asyncio
@@ -29,11 +29,11 @@ from typing import AsyncGenerator, Optional
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-MEDIASAGE_URL = os.environ.get("MEDIASAGE_URL", "http://localhost:5765").rstrip("/")
+ROONSAGE_URL = os.environ.get("ROONSAGE_URL", "http://localhost:5765").rstrip("/")
 TIMEOUT = 30.0
 STREAM_TIMEOUT = 300.0  # 5 minutes for SSE streams
 
-mcp = FastMCP("roon-mediasage")
+mcp = FastMCP("roonsage")
 
 # ---------------------------------------------------------------------------
 # Persistent HTTP clients (reused across all tool calls)
@@ -45,21 +45,21 @@ _stream_client = httpx.AsyncClient(timeout=STREAM_TIMEOUT)
 
 def _unavailable_msg() -> str:
     return (
-        f"MediaSage is not reachable at {MEDIASAGE_URL}. "
+        f"RoonSage is not reachable at {ROONSAGE_URL}. "
         "Make sure the application is running (uvicorn backend.main:app --port 5765)."
     )
 
 
 async def _api_call(method: str, path: str, **kwargs) -> dict | list | str:
-    """Make an API call to MediaSage, handling errors uniformly."""
+    """Make an API call to RoonSage, handling errors uniformly."""
     try:
-        response = await _client.request(method, f"{MEDIASAGE_URL}{path}", **kwargs)
+        response = await _client.request(method, f"{ROONSAGE_URL}{path}", **kwargs)
         response.raise_for_status()
         return response.json()
     except httpx.ConnectError:
         return _unavailable_msg()
     except httpx.HTTPStatusError as exc:
-        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+        return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
 
 
 async def _parse_sse_events(response) -> AsyncGenerator[tuple[str, dict], None]:
@@ -88,7 +88,7 @@ async def _parse_sse_events(response) -> AsyncGenerator[tuple[str, dict], None]:
 
 @mcp.tool()
 async def get_library_stats() -> str:
-    """Return statistics about the user's Roon music library cached in MediaSage.
+    """Return statistics about the user's Roon music library cached in RoonSage.
 
     Shows total track count, available genres, and available decades.
     Use this first to understand what music is in the library before filtering
@@ -155,13 +155,13 @@ async def filter_tracks(
         body["decades"] = decades
 
     try:
-        response = await _client.post(f"{MEDIASAGE_URL}/api/library/filter", json=body)
+        response = await _client.post(f"{ROONSAGE_URL}/api/library/filter", json=body)
         response.raise_for_status()
         data = response.json()
     except httpx.ConnectError:
         return _unavailable_msg()
     except httpx.HTTPStatusError as exc:
-        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+        return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
 
     # Strip each track to only the fields needed for playlist curation.
     # This keeps the response well under Claude Desktop's 1 MB tool-result limit.
@@ -214,7 +214,7 @@ async def play_tracks(item_keys: list[str], zone_id: str) -> str:
     """
     try:
         response = await _client.post(
-            f"{MEDIASAGE_URL}/api/queue",
+            f"{ROONSAGE_URL}/api/queue",
             json={"item_keys": item_keys, "zone_id": zone_id},
         )
         response.raise_for_status()
@@ -223,7 +223,7 @@ async def play_tracks(item_keys: list[str], zone_id: str) -> str:
     except httpx.ConnectError:
         return _unavailable_msg()
     except httpx.HTTPStatusError as exc:
-        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+        return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
 
 
 @mcp.tool()
@@ -241,7 +241,7 @@ async def queue_tracks(item_keys: list[str], zone_id: str) -> str:
     """
     try:
         response = await _client.post(
-            f"{MEDIASAGE_URL}/api/queue/append",
+            f"{ROONSAGE_URL}/api/queue/append",
             json={"item_keys": item_keys, "zone_id": zone_id},
         )
         response.raise_for_status()
@@ -250,7 +250,7 @@ async def queue_tracks(item_keys: list[str], zone_id: str) -> str:
     except httpx.ConnectError:
         return _unavailable_msg()
     except httpx.HTTPStatusError as exc:
-        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+        return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
 
 
 @mcp.tool()
@@ -336,12 +336,12 @@ async def _stream_generate(body: dict) -> tuple[list[dict], dict, list[str]]:
 
     async with _stream_client.stream(
         "POST",
-        f"{MEDIASAGE_URL}/api/generate/stream",
+        f"{ROONSAGE_URL}/api/generate/stream",
         json=body,
     ) as response:
         if response.status_code != 200:
             await response.aread()
-            errors.append(f"MediaSage API error: {response.status_code} — {response.text}")
+            errors.append(f"RoonSage API error: {response.status_code} — {response.text}")
             return [], {}, errors
 
         async for event_type, payload in _parse_sse_events(response):
@@ -376,7 +376,7 @@ async def generate_playlist(
       FIRST use search_library to find that track, then use seed_track_playlist instead.
     - Use generate_playlist for mood/occasion/genre requests without a specific seed track.
 
-    Calls the MediaSage streaming generation endpoint and returns the final playlist with
+    Calls the RoonSage streaming generation endpoint and returns the final playlist with
     track list, album info, year, genre breakdown, and live-exclusion status.
     This may take 30–90 seconds for the AI to curate and match tracks.
 
@@ -419,7 +419,7 @@ async def generate_playlist(
     except httpx.ReadTimeout:
         return "Playlist generation timed out. The library may be very large or the LLM is slow. Try again."
     except httpx.HTTPStatusError as exc:
-        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+        return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
 
     if errors:
         return f"Playlist generation failed: {'; '.join(errors)}"
@@ -450,7 +450,7 @@ async def get_now_playing() -> str:
 
     zones = result
     if not zones:
-        return json.dumps({"zones": [], "note": "No Roon zones found. Check that Roon Core is running and MediaSage is authorized."})
+        return json.dumps({"zones": [], "note": "No Roon zones found. Check that Roon Core is running and RoonSage is authorized."})
 
     # Filter to active (non-stopped) zones and annotate
     active = [z for z in zones if z.get("state") != "stopped"]
@@ -472,7 +472,7 @@ async def recommend_album(
 ) -> str:
     """Get an AI album recommendation based on a mood or moment description.
 
-    Runs the full MediaSage recommendation pipeline: generates clarifying questions
+    Runs the full RoonSage recommendation pipeline: generates clarifying questions
     (skipped for MCP simplicity), then selects and pitches an album. For library mode
     the recommendation comes from the user's own Roon library; for discovery mode it
     suggests albums the user may not have.
@@ -512,12 +512,12 @@ async def recommend_album(
     try:
         async with _stream_client.stream(
             "POST",
-            f"{MEDIASAGE_URL}/api/recommend/generate",
+            f"{ROONSAGE_URL}/api/recommend/generate",
             json=generate_body,
         ) as response:
             if response.status_code != 200:
                 await response.aread()
-                return f"MediaSage API error: {response.status_code} — {response.text}"
+                return f"RoonSage API error: {response.status_code} — {response.text}"
 
             async for event_type, payload in _parse_sse_events(response):
                 if event_type == "result":
@@ -530,7 +530,7 @@ async def recommend_album(
     except httpx.ReadTimeout:
         return "Album recommendation timed out. The library may be large or the LLM is slow. Try again."
     except httpx.HTTPStatusError as exc:
-        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+        return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
 
     if errors:
         return f"Album recommendation failed: {'; '.join(errors)}"
@@ -589,7 +589,7 @@ async def recommend_album(
 
 @mcp.tool()
 async def get_library_status() -> str:
-    """Check if the MediaSage library cache is up-to-date.
+    """Check if the RoonSage library cache is up-to-date.
 
     Returns track_count, synced_at timestamp, whether a sync is currently
     running, and a `needs_resync` flag (True when cache is older than 24 hours).
@@ -671,7 +671,7 @@ async def seed_track_playlist(
         try:
             async with _stream_client.stream(
                 "POST",
-                f"{MEDIASAGE_URL}/api/generate/stream",
+                f"{ROONSAGE_URL}/api/generate/stream",
                 json=body,
             ) as response:
                 if response.status_code == 503 and attempt < max_retries - 1:
@@ -680,7 +680,7 @@ async def seed_track_playlist(
                     continue
                 if response.status_code != 200:
                     await response.aread()
-                    return f"MediaSage API error: {response.status_code} — {response.text}"
+                    return f"RoonSage API error: {response.status_code} — {response.text}"
 
                 all_tracks, complete_data, errors = [], {}, []
                 async for event_type, payload in _parse_sse_events(response):
@@ -699,7 +699,7 @@ async def seed_track_playlist(
         except httpx.ReadTimeout:
             return "Seed playlist generation timed out. Try again."
         except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+            return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
 
     if errors:
         return f"Seed playlist generation failed: {'; '.join(errors)}"
@@ -713,7 +713,7 @@ async def seed_track_playlist(
 
 @mcp.tool()
 async def analyze_prompt(prompt: str) -> str:
-    """Show how MediaSage would translate a natural-language prompt into filters.
+    """Show how RoonSage would translate a natural-language prompt into filters.
 
     Returns suggested genres, decades, mood tags, and tempo based on the prompt.
     Use this for transparency — show the user what filters the AI will apply
@@ -780,12 +780,12 @@ async def recommend_album_interactive(
         try:
             async with _stream_client.stream(
                 "POST",
-                f"{MEDIASAGE_URL}/api/recommend/generate",
+                f"{ROONSAGE_URL}/api/recommend/generate",
                 json=generate_body,
             ) as response:
                 if response.status_code != 200:
                     await response.aread()
-                    return f"MediaSage API error: {response.status_code} — {response.text}"
+                    return f"RoonSage API error: {response.status_code} — {response.text}"
                 async for event_type, payload in _parse_sse_events(response):
                     if event_type == "result":
                         result_payload = payload
@@ -1063,9 +1063,9 @@ async def browse_playlists(
     playlist_name: Optional[str] = None,
     zone_id: Optional[str] = None,
 ) -> str:
-    """Browse or play Roon playlists (all playlists, not only MediaSage-generated ones).
+    """Browse or play Roon playlists (all playlists, not only RoonSage-generated ones).
 
-    This differs from get_result_history which only shows MediaSage-generated results.
+    This differs from get_result_history which only shows RoonSage-generated results.
     This tool accesses ALL playlists in Roon: imported playlists, TIDAL/Qobuz playlists,
     and any playlists you've saved in Roon.
 

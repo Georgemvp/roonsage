@@ -196,8 +196,8 @@ def load_config(config_path: Path | None = None) -> AppConfig:
         port=int(roon_port_str) if isinstance(roon_port_str, str) else roon_port_str,
         core_id=get_env_or_yaml("ROON_CORE_ID", roon_yaml.get("core_id"), ""),
         token=get_env_or_yaml("ROON_TOKEN", roon_yaml.get("token"), ""),
-        extension_id=get_env_or_yaml("ROON_EXTENSION_ID", roon_yaml.get("extension_id"), "com.mediasage.roon"),
-        display_name=get_env_or_yaml("ROON_DISPLAY_NAME", roon_yaml.get("display_name"), "MediaSage"),
+        extension_id=get_env_or_yaml("ROON_EXTENSION_ID", roon_yaml.get("extension_id"), "com.roonsage.roon"),
+        display_name=get_env_or_yaml("ROON_DISPLAY_NAME", roon_yaml.get("display_name"), "RoonSage"),
         display_version=get_env_or_yaml("ROON_DISPLAY_VERSION", roon_yaml.get("display_version"), "1.0.0"),
     )
 

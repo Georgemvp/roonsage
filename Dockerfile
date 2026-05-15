@@ -8,24 +8,24 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Create a non-root user with specific UID for easier host permission matching
-RUN groupadd -r -g 1000 mediasageappuser && useradd -r -u 1000 -g mediasageappuser mediasageappuser
+RUN groupadd -r -g 1000 roonsageappuser && useradd -r -u 1000 -g roonsageappuser roonsageappuser
 
 # Create data directory with correct ownership (for volume mounts)
-RUN mkdir -p /app/data && chown mediasageappuser:mediasageappuser /app/data
+RUN mkdir -p /app/data && chown roonsageappuser:roonsageappuser /app/data
 
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code with ownership
-COPY --chown=mediasageappuser:mediasageappuser backend/ ./backend/
-COPY --chown=mediasageappuser:mediasageappuser frontend/ ./frontend/
+COPY --chown=roonsageappuser:roonsageappuser backend/ ./backend/
+COPY --chown=roonsageappuser:roonsageappuser frontend/ ./frontend/
 
 # Expose port
 EXPOSE 5765
 
 # Switch to non-root user
-USER mediasageappuser
+USER roonsageappuser
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \

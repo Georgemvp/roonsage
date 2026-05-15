@@ -1,1 +1,1 @@
-"""MediaSage test suite."""
+"""RoonSage test suite."""

@@ -1,18 +1,16 @@
 services:
-  mediasage:
-    # image: ecwilson/mediasage:latest
-    # Alternative registries:
-    # image: ghcr.io/ecwilsonaz/mediasage:latest
+  roonsage:
+    # image: ghcr.io/georgemvp/roonsage:latest
     # To build locally instead, comment out 'image' and uncomment 'build':
     build: .
-    container_name: mediasage
+    container_name: roonsage
     # Optional: Run as specific user for NAS/Synology (use your PUID:PGID)
     # user: "1000:1000"
     ports:
       - "5765:5765"
     environment:
       # Required: Roon Core settings
-      - ROON_HOST=10.94.184.22
+      - ROON_HOST=192.168.1.x
       - ROON_PORT=9330
       # ROON_TOKEN and ROON_CORE_ID are intentionally omitted here.
       # They are auto-saved to data/config.user.yaml after first authorization

@@ -18,9 +18,9 @@ from backend.version import get_version
 # Optional HTTP Basic Auth
 # =============================================================================
 
-# Set MEDIASAGE_PASSWORD to enable basic auth on all endpoints.
+# Set ROONSAGE_PASSWORD to enable basic auth on all endpoints.
 # Leave unset (default) for backward-compatible open access.
-MEDIASAGE_PASSWORD: str | None = os.environ.get("MEDIASAGE_PASSWORD") or None
+ROONSAGE_PASSWORD: str | None = os.environ.get("ROONSAGE_PASSWORD") or None
 
 # =============================================================================
 # In-memory rate limiter for LLM endpoints

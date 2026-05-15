@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the roon-mediasage MCP server into Claude Desktop's configuration.
+"""Install the roonsage MCP server into Claude Desktop's configuration.
 
 This script is idempotent: running it multiple times is safe.
 It will never overwrite existing MCP server entries.
@@ -90,7 +90,7 @@ def build_server_entry(mcp_server_path: Path) -> dict:
 def main() -> None:
     config_path = get_config_path()
     mcp_server_path = get_mcp_server_path()
-    server_name = "roon-mediasage"
+    server_name = "roonsage"
 
     # Verify mcp_server.py exists
     if not mcp_server_path.exists():

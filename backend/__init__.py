@@ -1,4 +1,4 @@
-"""MediaSage - Roon playlist generator powered by LLMs."""
+"""RoonSage - Roon playlist generator powered by LLMs."""
 
 from backend.version import get_version
 

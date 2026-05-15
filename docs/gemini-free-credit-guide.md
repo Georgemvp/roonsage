@@ -1,4 +1,4 @@
-# Using Gemini with MediaSage (Free Tier)
+# Using Gemini with RoonSage (Free Tier)
 
 Google's Gemini API has a free tier that works well for personal playlist generation. No credit card required.
 
@@ -8,16 +8,16 @@ Google's Gemini API has a free tier that works well for personal playlist genera
 
 1. Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and sign in with any Google account
 2. Click **Create API key** and select or create a Google Cloud project
-3. Copy the key and add it to your MediaSage config:
+3. Copy the key and add it to your RoonSage config:
 
 ```yaml
 services:
-  mediasage:
+  roonsage:
     environment:
       - GEMINI_API_KEY=your-api-key-here
 ```
 
-MediaSage auto-detects Gemini when this key is set.
+RoonSage auto-detects Gemini when this key is set.
 
 ---
 
@@ -28,7 +28,7 @@ MediaSage auto-detects Gemini when this key is set.
 | **Gemini 2.5 Flash** | ~10–15 | ~100–500 | Yes |
 | Gemini 2.5 Pro | ~5 | ~25–50 | Yes |
 
-MediaSage uses **Gemini 2.5 Flash** by default — fast, handles large track lists, and has the most generous free limits. Even at 100 requests/day, that's 100 playlists. Limits reset at midnight PT.
+RoonSage uses **Gemini 2.5 Flash** by default — fast, handles large track lists, and has the most generous free limits. Even at 100 requests/day, that's 100 playlists. Limits reset at midnight PT.
 
 All Gemini models support a 1M token context window. Gemini can handle up to ~18,000 tracks per request — far more than other providers.
 

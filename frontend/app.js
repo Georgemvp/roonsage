@@ -1,5 +1,5 @@
 /**
- * MediaSage - Frontend Application
+ * RoonSage - Frontend Application
  */
 
 // =============================================================================
@@ -421,16 +421,16 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
                                 state.userRequest = data.user_request || '';
                                 // Initialize tracks array for batched receiving
                                 state.pendingTracks = [];
-                                console.log('[MediaSage] Narrative received:', state.playlistTitle);
+                                console.log('[RoonSage] Narrative received:', state.playlistTitle);
                             } else if (currentEvent === 'tracks') {
                                 // Accumulate track batches
                                 if (data.batch && Array.isArray(data.batch)) {
                                     state.pendingTracks = state.pendingTracks || [];
                                     state.pendingTracks.push(...data.batch);
-                                    console.log('[MediaSage] Track batch received, total:', state.pendingTracks.length);
+                                    console.log('[RoonSage] Track batch received, total:', state.pendingTracks.length);
                                 }
                             } else if (currentEvent === 'complete') {
-                                console.log('[MediaSage] Complete event received, pending tracks:', state.pendingTracks?.length || 0);
+                                console.log('[RoonSage] Complete event received, pending tracks:', state.pendingTracks?.length || 0);
                                 clearTimeoutHandler();
                                 completed = true;
                                 // Merge accumulated tracks into complete data
@@ -445,7 +445,7 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
                                 onError(new Error(data.message));
                             }
                         } catch (e) {
-                            console.error('[MediaSage] Failed to parse SSE event:', currentEvent, e);
+                            console.error('[RoonSage] Failed to parse SSE event:', currentEvent, e);
                         }
                         currentEvent = null;
                         currentData = '';
@@ -455,11 +455,11 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
                 if (done) {
                     clearTimeoutHandler();
                     if (buffer.trim().length > 0) {
-                        console.warn('[MediaSage] Stream ended with unparsed buffer:', buffer);
+                        console.warn('[RoonSage] Stream ended with unparsed buffer:', buffer);
                     }
                     // iOS Safari fallback: if stream ended without complete event but we have tracks
                     if (state.pendingTracks && state.pendingTracks.length > 0 && !completed) {
-                        console.warn('[MediaSage] Stream ended without complete event, synthesizing completion with', state.pendingTracks.length, 'tracks');
+                        console.warn('[RoonSage] Stream ended without complete event, synthesizing completion with', state.pendingTracks.length, 'tracks');
                         const syntheticComplete = {
                             tracks: state.pendingTracks,
                             track_count: state.pendingTracks.length,
@@ -1390,7 +1390,7 @@ let filterPreviewController = null;
 let filterPreviewLoadingTimeout = null;
 
 async function updateFilterPreview() {
-    console.log('[MediaSage] updateFilterPreview called');
+    console.log('[RoonSage] updateFilterPreview called');
     const previewTracks = document.getElementById('preview-tracks');
     const previewCost = document.getElementById('preview-cost');
 
@@ -1420,7 +1420,7 @@ async function updateFilterPreview() {
             max_tracks_to_ai: state.maxTracksToAI,
             exclude_live: state.excludeLive,
         };
-        console.log('[MediaSage] Filter preview request:', requestBody);
+        console.log('[RoonSage] Filter preview request:', requestBody);
 
         const response = await fetch('/api/filter/preview', {
             method: 'POST',
@@ -1434,7 +1434,7 @@ async function updateFilterPreview() {
         }
 
         const data = await response.json();
-        console.log('[MediaSage] Filter preview response:', data);
+        console.log('[RoonSage] Filter preview response:', data);
 
         // Clear loading timeout - response arrived fast
         clearTimeout(filterPreviewLoadingTimeout);
@@ -1452,7 +1452,7 @@ async function updateFilterPreview() {
 
         // Ignore abort errors - they're expected when cancelling
         if (error.name === 'AbortError') {
-            console.log('[MediaSage] Filter preview request cancelled');
+            console.log('[RoonSage] Filter preview request cancelled');
             return;
         }
         console.error('Filter preview error:', error);
@@ -3797,16 +3797,16 @@ async function fetchAndPopulatePlaylists() {
             // state.roonPlaylists not used
         } catch (error) {
             showError('Failed to load playlists: ' + error.message);
-            picker.innerHTML = '<option value="__scratch__">MediaSage - Now Playing</option>';
+            picker.innerHTML = '<option value="__scratch__">RoonSage - Now Playing</option>';
             return;
         }
     }
 
     // Rebuild picker options: fixed scratch option first, then server playlists
-    picker.innerHTML = '<option value="__scratch__">MediaSage - Now Playing</option>';
+    picker.innerHTML = '<option value="__scratch__">RoonSage - Now Playing</option>';
     for (const pl of []) { // Roon playlist picker disabled
         // Skip if it's the same as the scratch playlist title (avoid duplicate)
-        if (pl.title === 'MediaSage - Now Playing') continue;
+        if (pl.title === 'RoonSage - Now Playing') continue;
         const option = document.createElement('option');
         option.value = pl.rating_key;
         option.textContent = `${pl.title} (${pl.track_count} tracks)`;
@@ -3864,7 +3864,7 @@ function setSaveMode(mode) {
     }
 
     // Persist to localStorage (US3 — T017)
-    try { localStorage.setItem('mediasage-save-mode', mode); } catch (e) { /* private browsing */ }
+    try { localStorage.setItem('roonsage-save-mode', mode); } catch (e) { /* private browsing */ }
 }
 
 async function handleUpdatePlaylist() {
@@ -5022,7 +5022,7 @@ function setupRecEventListeners() {
     const familiarityPills = document.getElementById('rec-familiarity-pills');
     if (familiarityPills) {
         try {
-            const saved = localStorage.getItem('mediasage-familiarity-pref');
+            const saved = localStorage.getItem('roonsage-familiarity-pref');
             if (saved && ['any', 'comfort', 'rediscover', 'hidden_gems'].includes(saved)) {
                 state.rec.familiarityPref = saved;
                 familiarityPills.querySelectorAll('.chip').forEach(btn => {
@@ -5042,7 +5042,7 @@ function setupRecEventListeners() {
                 b.classList.toggle('selected', isSelected);
                 b.setAttribute('aria-checked', isSelected ? 'true' : 'false');
             });
-            try { localStorage.setItem('mediasage-familiarity-pref', state.rec.familiarityPref); } catch (e) { /* private browsing */ }
+            try { localStorage.setItem('roonsage-familiarity-pref', state.rec.familiarityPref); } catch (e) { /* private browsing */ }
         });
     }
 
@@ -5515,7 +5515,7 @@ function setupWizardEventListeners() {
                 }
                 renderSetupState(state.setup.status);
             } else if (result.needs_authorization) {
-                setStepError('roon', result.error || 'Open Roon → Settings → Extensions and enable MediaSage, then retry.');
+                setStepError('roon', result.error || 'Open Roon → Settings → Extensions and enable RoonSage, then retry.');
             } else {
                 setStepError('roon', result.error || 'Connection failed');
             }
@@ -5701,7 +5701,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Restore save mode from localStorage AFTER config loads (US3 — T017)
     let initialMode = 'new';
     try {
-        const savedMode = localStorage.getItem('mediasage-save-mode');
+        const savedMode = localStorage.getItem('roonsage-save-mode');
         if (savedMode === 'replace' || savedMode === 'append') {
             initialMode = savedMode;
         }

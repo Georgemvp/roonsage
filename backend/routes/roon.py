@@ -329,7 +329,7 @@ async def play_radio(request: PlayRadioRequest) -> PlayRadioResponse:
 
 @router.post("/roon/playlists", response_model=BrowsePlaylistsResponse)
 async def browse_playlists(request: BrowsePlaylistsRequest) -> BrowsePlaylistsResponse:
-    """Browse or play Roon playlists (all playlists, not just MediaSage-generated ones)."""
+    """Browse or play Roon playlists (all playlists, not just RoonSage-generated ones)."""
     roon_client = get_roon_client()
     if not roon_client or not roon_client.is_connected():
         raise HTTPException(status_code=503, detail="Roon not connected. Retry after connection is established.")

@@ -1,4 +1,4 @@
-"""Pydantic models for MediaSage API contracts and internal data structures."""
+"""Pydantic models for RoonSage API contracts and internal data structures."""
 
 from typing import Literal
 
@@ -93,8 +93,8 @@ class RoonConfig(BaseModel):
     port: int = 9100
     core_id: str = ""
     token: str = ""
-    extension_id: str = "com.mediasage.roon"
-    display_name: str = "MediaSage"
+    extension_id: str = "com.roonsage.roon"
+    display_name: str = "RoonSage"
     display_version: str = "1.0.0"
 
 

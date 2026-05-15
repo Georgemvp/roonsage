@@ -1,4 +1,4 @@
-"""Album recommendation pipeline for MediaSage.
+"""Album recommendation pipeline for RoonSage.
 
 Implements the 4-call LLM pipeline: gap analysis, question generation,
 album selection, and pitch writing. Maintains in-memory session state
@@ -9,6 +9,7 @@ import logging
 import threading
 import time
 import uuid
+from datetime import datetime
 from typing import Any
 
 from rapidfuzz import fuzz
@@ -581,7 +582,27 @@ class RecommendationPipeline:
                 "even if the fit isn't perfect. Do your best with what's here."
             )
 
+        now = datetime.now()
+        day_names_nl = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
+        day_name = day_names_nl[now.weekday()]
+        hour = now.hour
+        if 5 <= hour < 9:
+            time_context = f"Het is {day_name}ochtend vroeg ({hour}:00)"
+        elif 9 <= hour < 12:
+            time_context = f"Het is {day_name}ochtend ({hour}:00)"
+        elif 12 <= hour < 14:
+            time_context = f"Het is {day_name}middag ({hour}:00)"
+        elif 14 <= hour < 17:
+            time_context = f"Het is {day_name}middag ({hour}:00)"
+        elif 17 <= hour < 21:
+            time_context = f"Het is {day_name}avond ({hour}:00)"
+        elif 21 <= hour < 24:
+            time_context = f"Het is late {day_name}avond ({hour}:00)"
+        else:
+            time_context = f"Het is {day_name}nacht ({hour}:00)"
+
         user_prompt = (
+            f"Context: {time_context}. Houd hier subtiel rekening mee bij de sfeer van de aanbeveling.\n\n"
             f"User wants: \"{prompt}\"\n\n"
             f"Clarifying answers:\n{answers_text}\n\n"
             f"Available albums ({len(album_candidates)} total):\n{album_text}\n\n"

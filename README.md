@@ -1,28 +1,28 @@
-# MediaSage for Roon
+# RoonSage for Roon
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Docker Hub](https://img.shields.io/badge/docker-ecwilson%2Fmediasage-blue)](https://hub.docker.com/r/ecwilson/mediasage)
-[![GHCR](https://img.shields.io/badge/ghcr-ecwilsonaz%2Fmediasage-blue)](https://ghcr.io/ecwilsonaz/mediasage)
+[![Docker Hub](https://img.shields.io/badge/docker-georgemvp%2Froonsage-blue)](https://hub.docker.com/r/georgemvp/roonsage)
+[![GHCR](https://img.shields.io/badge/ghcr-georgemvp%2Froonsage-blue)](https://ghcr.io/georgemvp/roonsage)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 **AI-powered playlists and album recommendations for Roon—using only music you actually own.**
 
-MediaSage is a self-hosted web app that creates playlists and recommends albums by combining LLM intelligence with your Roon library. Every suggestion is guaranteed playable because it only considers music you have.
+RoonSage is a self-hosted web app that creates playlists and recommends albums by combining LLM intelligence with your Roon library. Every suggestion is guaranteed playable because it only considers music you have.
 
 *Sample Generated Playlist:*
-![MediaSage Screenshot](docs/images/screenshot-playlist.png)
+![RoonSage Screenshot](docs/images/screenshot-playlist.png)
 
 *Sample Generated Album Recommendation:*
-![MediaSage Screenshot](docs/images/screenshot-album.png)
+![RoonSage Screenshot](docs/images/screenshot-album.png)
 
 *Home Screen:*
-![MediaSage Screenshot](docs/images/screenshot-home.png)
+![RoonSage Screenshot](docs/images/screenshot-home.png)
 
 *Playlist Flow:*
-![MediaSage Screenshot](docs/images/screenshot-playlist-start.png)
+![RoonSage Screenshot](docs/images/screenshot-playlist-start.png)
 
 *Album Flow:*
-![MediaSage Screenshot](docs/images/screenshot-album-start.png)
+![RoonSage Screenshot](docs/images/screenshot-album-start.png)
 
 ---
 
@@ -30,12 +30,12 @@ MediaSage is a self-hosted web app that creates playlists and recommends albums 
 
 ```bash
 docker run -d \
-  --name mediasage \
+  --name roonsage \
   -p 5765:5765 \
-  -v mediasage-data:/app/data \
+  -v roonsage-data:/app/data \
   --restart unless-stopped \
   -e ROON_HOST=192.168.1.x \
-  ghcr.io/ecwilsonaz/mediasage:latest
+  ghcr.io/Georgemvp/roonsage:latest
 ```
 
 Open **http://localhost:5765** — a setup wizard walks you through connecting to your Roon Core, choosing an AI provider, and syncing your library.
@@ -48,7 +48,7 @@ You can also pass credentials as environment variables to skip the wizard. See [
 
 ## Contents
 
-- [Why MediaSage?](#why-mediasage)
+- [Why RoonSage?](#why-roonsage)
 - [Features](#features)
 - [Installation](#installation)
 - [Configuration](#configuration)
@@ -59,15 +59,15 @@ You can also pass credentials as environment variables to skip the wizard. See [
 
 ---
 
-## Why MediaSage?
+## Why RoonSage?
 
 **Roon users with large personal libraries have few good options for AI-powered playlist generation.**
 
 Generic tools like ChatGPT recommend from an infinite catalog with no awareness of what you actually own. The result: playlists full of tracks you don't have.
 
-**MediaSage inverts the approach:**
+**RoonSage inverts the approach:**
 
-| Filter-Last (ChatGPT, generic AI) | Filter-First (MediaSage) |
+| Filter-Last (ChatGPT, generic AI) | Filter-First (RoonSage) |
 |-----------------------------------|-------------------------|
 | AI recommends from infinite catalog | AI only sees your library |
 | Missing tracks after filtering | No missing tracks possible |
@@ -95,7 +95,7 @@ Create playlists two ways:
 - **Mix** — Your library enriched with new discoveries via Qobuz
 - **Qobuz Discovery** — Explore new music outside your library
 
-Requires Qobuz configured in Roon. MediaSage detects Qobuz availability automatically.
+Requires Qobuz configured in Roon. RoonSage detects Qobuz availability automatically.
 
 **Refine & Iterate** — Not quite right? Use the "Refine" button to adjust a generated playlist without starting over. Ask for "darker", "more 80s", or "less jazz" and get an updated playlist.
 
@@ -120,11 +120,11 @@ Real-time track counts show exactly how your filters narrow results.
 
 ### Time-Aware Suggestions
 
-MediaSage considers the current day and time when curating playlists. Friday evening selections naturally differ from Tuesday morning picks, and the AI adapts its mood recommendations accordingly.
+RoonSage considers the current day and time when curating playlists. Friday evening selections naturally differ from Tuesday morning picks, and the AI adapts its mood recommendations accordingly.
 
 ### Local Library Cache
 
-MediaSage syncs your Roon library to a local SQLite database. After a one-time sync, all library operations—filtering, counting, sending to AI—happen locally in milliseconds.
+RoonSage syncs your Roon library to a local SQLite database. After a one-time sync, all library operations—filtering, counting, sending to AI—happen locally in milliseconds.
 
 - **Setup wizard** walks you through first-run configuration and sync
 - **Footer status** shows track count and last sync time
@@ -143,11 +143,11 @@ Bring your own API key—or run locally:
 | **Ollama** ⚗️ | Varies | Free | Privacy, local inference |
 | **Custom** ⚗️ | Configurable | Free | Self-hosted, OpenAI-compatible APIs |
 
-⚗️ *Local LLM support is experimental. [Report issues](https://github.com/Georgemvp/roon-mediasage/issues).*
+⚗️ *Local LLM support is experimental. [Report issues](https://github.com/Georgemvp/roonsage/issues).*
 
 > **Free option:** Google Gemini offers a free API tier that's more than enough for personal use — no credit card required. See the [Gemini free credit guide](docs/gemini-free-credit-guide.md) for setup instructions and details.
 
-Estimated cost displays before you generate. MediaSage auto-detects your provider based on which key you configure.
+Estimated cost displays before you generate. RoonSage auto-detects your provider based on which key you configure.
 
 ### Play and Queue
 
@@ -160,9 +160,9 @@ Estimated cost displays before you generate. MediaSage auto-detects your provide
 
 ### Claude Desktop Integration
 
-Use Claude Desktop as a conversational interface for MediaSage. Ask for playlists in natural language, and Claude will search your library, pick tracks, and play them on Roon — all using your Claude Pro subscription (no separate API key needed).
+Use Claude Desktop as a conversational interface for RoonSage. Ask for playlists in natural language, and Claude will search your library, pick tracks, and play them on Roon — all using your Claude Pro subscription (no separate API key needed).
 
-**How it works:** Claude Desktop connects to the running MediaSage API via MCP (Model Context Protocol). MediaSage provides the library data and Roon connection. Claude does the thinking.
+**How it works:** Claude Desktop connects to the running RoonSage API via MCP (Model Context Protocol). RoonSage provides the library data and Roon connection. Claude does the thinking.
 
 > **Important:** The MCP server runs locally on your Mac/PC — not inside Docker. Claude Desktop needs to start `mcp_server.py` as a local process. This is a one-time setup per machine.
 
@@ -181,9 +181,9 @@ Use Claude Desktop as a conversational interface for MediaSage. Ask for playlist
 
 3. Restart Claude Desktop.
 
-4. Make sure MediaSage is running (via Docker or bare metal) — the MCP server connects to it on `http://localhost:5765`.
+4. Make sure RoonSage is running (via Docker or bare metal) — the MCP server connects to it on `http://localhost:5765`.
 
-If MediaSage runs on a different address, set the `MEDIASAGE_URL` environment variable before starting Claude Desktop.
+If RoonSage runs on a different address, set the `ROONSAGE_URL` environment variable before starting Claude Desktop.
 
 #### Model Selection in Claude Desktop
 
@@ -199,7 +199,7 @@ All models are included in your Claude Pro subscription — there are no per-tok
 
 **Tip:** Start with Sonnet for most sessions. Switch to Opus when you want Claude to dig deeper — for example, when you're exploring your library for albums you've forgotten about, or when you want highly curated playlists based on abstract moods.
 
-**MCP vs. Web UI:** The MediaSage web UI uses its own LLM calls (Gemini, OpenAI, or Anthropic API) and charges per token. The MCP integration uses your Claude Pro subscription instead — no separate API key or per-token costs. The web UI is single-shot (one prompt → one playlist), while Claude Desktop lets you have a conversation: refine your request, ask follow-up questions, and iterate on playlists across multiple turns.
+**MCP vs. Web UI:** The RoonSage web UI uses its own LLM calls (Gemini, OpenAI, or Anthropic API) and charges per token. The MCP integration uses your Claude Pro subscription instead — no separate API key or per-token costs. The web UI is single-shot (one prompt → one playlist), while Claude Desktop lets you have a conversation: refine your request, ask follow-up questions, and iterate on playlists across multiple turns.
 
 #### Available MCP Tools
 
@@ -273,9 +273,9 @@ If you prefer not to use the install script, add this to `~/Library/Application 
 ```json
 {
   "mcpServers": {
-    "roon-mediasage": {
+    "roonsage": {
       "command": "python",
-      "args": ["/full/path/to/roon-mediasage/mcp_server.py"]
+      "args": ["/full/path/to/roonsage/mcp_server.py"]
     }
   }
 }
@@ -288,8 +288,8 @@ If you prefer not to use the install script, add this to `~/Library/Application 
 ### Docker Compose (Recommended)
 
 ```bash
-mkdir mediasage && cd mediasage
-curl -O https://raw.githubusercontent.com/Georgemvp/roon-mediasage/main/docker-compose.yml
+mkdir roonsage && cd roonsage
+curl -O https://raw.githubusercontent.com/Georgemvp/roonsage/main/docker-compose.yml
 ```
 
 Edit `docker-compose.yml` or create a `.env` file:
@@ -310,7 +310,7 @@ Start:
 docker compose up -d
 ```
 
-Then **authorize MediaSage in Roon** — see [Roon Authorization](#roon-authorization).
+Then **authorize RoonSage in Roon** — see [Roon Authorization](#roon-authorization).
 
 **Optional:** Set up Claude Desktop integration (natural-language playlist control):
 ```bash
@@ -323,7 +323,7 @@ python3 scripts/install_mcp.py
 <summary><strong>Synology (Container Manager)</strong></summary>
 
 **GUI:**
-1. **Container Manager** → **Registry** → Search `ghcr.io/ecwilsonaz/mediasage`
+1. **Container Manager** → **Registry** → Search `ghcr.io/Georgemvp/roonsage`
 2. Download `latest` tag
 3. **Container** → **Create**
 4. Port: 5765 → 5765
@@ -331,11 +331,11 @@ python3 scripts/install_mcp.py
 
 **Docker Compose:**
 ```bash
-mkdir -p /volume1/docker/mediasage && cd /volume1/docker/mediasage
-curl -O https://raw.githubusercontent.com/Georgemvp/roon-mediasage/main/docker-compose.yml
+mkdir -p /volume1/docker/roonsage && cd /volume1/docker/roonsage
+curl -O https://raw.githubusercontent.com/Georgemvp/roonsage/main/docker-compose.yml
 nano docker-compose.yml  # set ROON_HOST and API key
 ```
-Then in **Container Manager** → **Project** → **Create**, point to `/volume1/docker/mediasage`.
+Then in **Container Manager** → **Project** → **Create**, point to `/volume1/docker/roonsage`.
 
 **No Docker?** Some Synology models (especially ARM-based units) don't support Docker/Container Manager. See [Bare Metal](#bare-metal-no-docker) below.
 
@@ -345,7 +345,7 @@ Then in **Container Manager** → **Project** → **Create**, point to `/volume1
 <summary><strong>Unraid</strong></summary>
 
 1. **Docker** → **Add Container**
-2. Repository: `ghcr.io/ecwilsonaz/mediasage:latest`
+2. Repository: `ghcr.io/Georgemvp/roonsage:latest`
 3. Port: 5765 → 5765
 4. Add variables: `ROON_HOST`, `GEMINI_API_KEY`
 
@@ -355,7 +355,7 @@ Then in **Container Manager** → **Project** → **Create**, point to `/volume1
 <summary><strong>TrueNAS SCALE</strong></summary>
 
 1. **Apps** → **Discover Apps** → **Custom App**
-2. Image: `ghcr.io/ecwilsonaz/mediasage`, Tag: `latest`
+2. Image: `ghcr.io/Georgemvp/roonsage`, Tag: `latest`
 3. Port: 5765
 4. Add environment variables
 
@@ -368,8 +368,8 @@ Then in **Container Manager** → **Project** → **Create**, point to `/volume1
 
 ```yaml
 services:
-  mediasage:
-    image: ghcr.io/ecwilsonaz/mediasage:latest
+  roonsage:
+    image: ghcr.io/Georgemvp/roonsage:latest
     ports:
       - "5765:5765"
     environment:
@@ -385,11 +385,11 @@ services:
 
 ### Bare Metal (No Docker)
 
-MediaSage is Python + FastAPI with no native dependencies, so it runs on any machine with Python 3.11+.
+RoonSage is Python + FastAPI with no native dependencies, so it runs on any machine with Python 3.11+.
 
 ```bash
-git clone https://github.com/Georgemvp/roon-mediasage.git
-cd roon-mediasage
+git clone https://github.com/Georgemvp/roonsage.git
+cd roonsage
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -415,17 +415,17 @@ Access at **http://your-machine-ip:5765**.
 <summary><strong>Running as a background service (systemd)</strong></summary>
 
 ```ini
-# /etc/systemd/system/mediasage.service
+# /etc/systemd/system/roonsage.service
 [Unit]
-Description=MediaSage
+Description=RoonSage
 After=network.target
 
 [Service]
 Type=simple
 User=your-user
-WorkingDirectory=/path/to/roon-mediasage
-EnvironmentFile=/path/to/roon-mediasage/.env
-ExecStart=/path/to/roon-mediasage/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 5765
+WorkingDirectory=/path/to/roonsage
+EnvironmentFile=/path/to/roonsage/.env
+ExecStart=/path/to/roonsage/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 5765
 Restart=on-failure
 
 [Install]
@@ -433,8 +433,8 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable mediasage
-sudo systemctl start mediasage
+sudo systemctl enable roonsage
+sudo systemctl start roonsage
 ```
 
 </details>
@@ -460,11 +460,11 @@ sudo systemctl start mediasage
 | `CUSTOM_LLM_URL` | No | Custom OpenAI-compatible API base URL |
 | `CUSTOM_LLM_API_KEY` | No | API key for custom provider (if required) |
 | `CUSTOM_CONTEXT_WINDOW` | No | Context window size for custom provider (default: 32768) |
-| `MEDIASAGE_PASSWORD` | No | Enable HTTP Basic Auth. When set, all endpoints require this password (user name is ignored). Health check and art proxy endpoints remain exempt so Docker health checks and images work without auth. |
+| `ROONSAGE_PASSWORD` | No | Enable HTTP Basic Auth. When set, all endpoints require this password (user name is ignored). Health check and art proxy endpoints remain exempt so Docker health checks and images work without auth. |
 
 ### Web UI Configuration
 
-You can also configure MediaSage through the **Settings** page in the web UI. Settings entered there are saved to `config.user.yaml` and persist across restarts. Environment variables always take priority over UI-saved settings.
+You can also configure RoonSage through the **Settings** page in the web UI. Settings entered there are saved to `config.user.yaml` and persist across restarts. Environment variables always take priority over UI-saved settings.
 
 ### Advanced: config.yaml
 
@@ -490,7 +490,7 @@ defaults:
 
 ### Model Selection
 
-MediaSage uses a two-model strategy by default:
+RoonSage uses a two-model strategy by default:
 
 | Role | Purpose | Models Used |
 |------|---------|-------------|
@@ -509,7 +509,7 @@ This balances quality with cost. Enable `smart_generation: true` to use the anal
    ollama pull llama3:8b
    ```
 
-2. Configure MediaSage:
+2. Configure RoonSage:
    ```bash
    LLM_PROVIDER=ollama
    OLLAMA_URL=http://localhost:11434
@@ -540,20 +540,20 @@ For LM Studio, text-generation-webui, vLLM, or any OpenAI-compatible server:
 
 ## Roon Authorization
 
-MediaSage connects to Roon as an **Extension**. After starting the app for the first time:
+RoonSage connects to Roon as an **Extension**. After starting the app for the first time:
 
 1. Open **Roon** on any device
 2. Go to **Settings → Extensions**
-3. Find **MediaSage** in the list and click **Enable**
-4. MediaSage is now authorized and will save the token automatically
+3. Find **RoonSage** in the list and click **Enable**
+4. RoonSage is now authorized and will save the token automatically
 
-Make sure MediaSage is reachable on the same network as your Roon Core, and that `ROON_HOST` points to the machine running Roon Core. The `ROON_CORE_ID` and `ROON_TOKEN` are saved automatically to `data/config.user.yaml` after the first successful authorization.
+Make sure RoonSage is reachable on the same network as your Roon Core, and that `ROON_HOST` points to the machine running Roon Core. The `ROON_CORE_ID` and `ROON_TOKEN` are saved automatically to `data/config.user.yaml` after the first successful authorization.
 
 ---
 
 ## How It Works
 
-MediaSage uses a **filter-first architecture** designed for large libraries (50,000+ tracks):
+RoonSage uses a **filter-first architecture** designed for large libraries (50,000+ tracks):
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -591,8 +591,8 @@ This ensures every track exists in your library while keeping API costs manageab
 ### Local Setup
 
 ```bash
-git clone https://github.com/Georgemvp/roon-mediasage.git
-cd roon-mediasage
+git clone https://github.com/Georgemvp/roonsage.git
+cd roonsage
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -663,11 +663,11 @@ Interactive documentation available at `/docs` when running.
 
 ## Security
 
-MediaSage is designed for home network use. By default, anyone on your network can access the web UI.
+RoonSage is designed for home network use. By default, anyone on your network can access the web UI.
 
-**Password protection:** Set the `MEDIASAGE_PASSWORD` environment variable to require authentication:
+**Password protection:** Set the `ROONSAGE_PASSWORD` environment variable to require authentication:
 ```
-MEDIASAGE_PASSWORD=your-secret-password
+ROONSAGE_PASSWORD=your-secret-password
 ```
 
 **Rate limiting:** LLM-powered endpoints are rate-limited to 30 requests per hour per IP to prevent accidental cost overruns.
@@ -679,3 +679,7 @@ MEDIASAGE_PASSWORD=your-secret-password
 ## License
 
 MIT
+
+## Credits
+
+RoonSage is based on [MediaSage](https://github.com/ecwilsonaz/mediasage) by Eric Wilson, originally built for Plex. RoonSage has been independently developed for Roon Labs with significant new functionality including MCP integration, Qobuz support, zone control, and more.

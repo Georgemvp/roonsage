@@ -1,4 +1,4 @@
-# MediaSage Configuration
+# RoonSage Configuration
 # Copy this file to config.yaml and update with your settings
 # Environment variables take priority over values in this file
 
@@ -8,12 +8,12 @@ roon:
   # Roon Core port (override with ROON_PORT env var, default 9330)
   port: 9330
   # Core ID and token are auto-saved after first authorization
-  # in Roon → Settings → Extensions → Enable MediaSage
+  # in Roon → Settings → Extensions → Enable RoonSage
   core_id: ""
   token: ""
   # Extension metadata shown in Roon
-  extension_id: "com.mediasage.roon"
-  display_name: "MediaSage"
+  extension_id: "com.roonsage.roon"
+  display_name: "RoonSage"
   display_version: "1.0.0"
 
 llm:
