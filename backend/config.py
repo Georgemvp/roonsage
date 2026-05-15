@@ -105,6 +105,7 @@ def save_user_config(updates: dict[str, Any]) -> None:
     try:
         with open(USER_CONFIG_PATH, "w") as f:
             yaml.dump(cleaned, f, default_flow_style=False)
+        os.chmod(USER_CONFIG_PATH, 0o600)
     except PermissionError:
         raise ConfigSaveError(
             f"Permission denied writing to {USER_CONFIG_PATH}. "

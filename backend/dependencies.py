@@ -1,7 +1,11 @@
 """Shared dependency helpers for FastAPI route modules."""
 
 import os
+import secrets
+import time
+from collections import defaultdict
 
+from fastapi import HTTPException, Request
 from backend.models import ConfigResponse
 from backend.llm_client import (
     get_max_tracks_for_model,
@@ -9,6 +13,36 @@ from backend.llm_client import (
     get_model_cost,
 )
 from backend.version import get_version
+
+# =============================================================================
+# Optional HTTP Basic Auth
+# =============================================================================
+
+# Set MEDIASAGE_PASSWORD to enable basic auth on all endpoints.
+# Leave unset (default) for backward-compatible open access.
+MEDIASAGE_PASSWORD: str | None = os.environ.get("MEDIASAGE_PASSWORD") or None
+
+# =============================================================================
+# In-memory rate limiter for LLM endpoints
+# =============================================================================
+
+_rate_limits: dict[str, list[float]] = defaultdict(list)
+_RATE_WINDOW = 3600  # seconds (1 hour)
+_RATE_MAX = 30       # max LLM generations per IP per window
+
+
+def check_rate_limit(request: Request) -> None:
+    """FastAPI dependency: enforce per-IP rate limit for LLM endpoints."""
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    # Evict timestamps outside the current window
+    _rate_limits[ip] = [t for t in _rate_limits[ip] if now - t < _RATE_WINDOW]
+    if len(_rate_limits[ip]) >= _RATE_MAX:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Try again later.",
+        )
+    _rate_limits[ip].append(now)
 
 
 def _is_llm_configured(config) -> bool:

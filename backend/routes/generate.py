@@ -2,7 +2,7 @@
 
 import asyncio
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from starlette.responses import StreamingResponse
 
 from backend.analyzer import analyze_prompt as do_analyze_prompt, analyze_track as do_analyze_track
@@ -16,11 +16,12 @@ from backend.models import (
     GenerateRequest,
 )
 from backend.roon_client import get_roon_client
+from backend.dependencies import check_rate_limit
 
 router = APIRouter(prefix="/api", tags=["generate"])
 
 
-@router.post("/generate/stream")
+@router.post("/generate/stream", dependencies=[Depends(check_rate_limit)])
 async def generate_playlist_sse(request: GenerateRequest) -> StreamingResponse:
     """Generate a playlist with streaming progress updates."""
     roon_client = get_roon_client()

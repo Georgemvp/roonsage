@@ -1,13 +1,15 @@
 """FastAPI application for MediaSage."""
 
 import asyncio
+import base64
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from backend.config import get_config
 from backend.version import get_version
@@ -15,6 +17,7 @@ from backend.roon_client import get_roon_client, init_roon_client
 from backend import library_cache
 from backend.llm_client import init_llm_client
 from backend.routes import setup, library, generate, recommend, roon, config_routes, results
+from backend.dependencies import MEDIASAGE_PASSWORD
 import backend.routes.recommend as _recommend_module
 
 logging.basicConfig(level=logging.INFO)
@@ -71,6 +74,58 @@ app = FastAPI(
     version=get_version(),
     lifespan=lifespan,
 )
+
+
+# =============================================================================
+# Optional HTTP Basic Auth middleware
+# =============================================================================
+# Activated only when MEDIASAGE_PASSWORD environment variable is set.
+# Exempt routes that must work without auth:
+#   - GET /api/health    (Docker health checks)
+#   - GET /api/art/*     (album art images used in the UI after login)
+#   - GET /api/external-art  (proxied external cover art)
+
+_AUTH_EXEMPT_EXACT = {"/api/health", "/api/external-art"}
+_AUTH_EXEMPT_PREFIX = "/api/art/"
+
+
+@app.middleware("http")
+async def optional_basic_auth(request: Request, call_next):
+    """Enforce HTTP Basic Auth when MEDIASAGE_PASSWORD is configured."""
+    if not MEDIASAGE_PASSWORD:
+        return await call_next(request)
+
+    path = request.url.path
+    if path in _AUTH_EXEMPT_EXACT or path.startswith(_AUTH_EXEMPT_PREFIX):
+        return await call_next(request)
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Basic "):
+        return JSONResponse(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="MediaSage"'},
+            content={"detail": "Authentication required"},
+        )
+
+    try:
+        decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+        _user, password = decoded.split(":", 1)
+    except Exception:
+        return JSONResponse(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="MediaSage"'},
+            content={"detail": "Invalid credentials"},
+        )
+
+    if not secrets.compare_digest(password.encode(), MEDIASAGE_PASSWORD.encode()):
+        return JSONResponse(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="MediaSage"'},
+            content={"detail": "Invalid credentials"},
+        )
+
+    return await call_next(request)
+
 
 # Register all routers
 app.include_router(setup.router)

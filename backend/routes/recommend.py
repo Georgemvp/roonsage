@@ -8,7 +8,7 @@ import threading
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from starlette.responses import StreamingResponse
 
 from backend import library_cache
@@ -29,6 +29,7 @@ from backend.models import (
     album_key,
 )
 from backend.roon_client import get_roon_client
+from backend.dependencies import check_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,7 @@ async def recommend_analyze_prompt(request: AnalyzePromptFiltersRequest) -> Anal
         )
 
 
-@router.post("/questions", response_model=RecommendQuestionsResponse)
+@router.post("/questions", response_model=RecommendQuestionsResponse, dependencies=[Depends(check_rate_limit)])
 async def recommend_questions(request: RecommendQuestionsRequest) -> RecommendQuestionsResponse:
     """Generate clarifying questions for album recommendation."""
     pipeline = _get_pipeline()
@@ -261,7 +262,7 @@ async def recommend_switch_mode(request: RecommendSwitchModeRequest) -> Recommen
     return RecommendSwitchModeResponse(session_id=new_session_id)
 
 
-@router.post("/generate")
+@router.post("/generate", dependencies=[Depends(check_rate_limit)])
 async def recommend_generate(request: RecommendGenerateRequest, raw_request: Request) -> StreamingResponse:
     """Generate album recommendations with SSE progress streaming."""
     pipeline = _get_pipeline()

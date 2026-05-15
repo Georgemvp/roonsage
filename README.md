@@ -389,6 +389,7 @@ sudo systemctl start mediasage
 | `CUSTOM_LLM_URL` | No | Custom OpenAI-compatible API base URL |
 | `CUSTOM_LLM_API_KEY` | No | API key for custom provider (if required) |
 | `CUSTOM_CONTEXT_WINDOW` | No | Context window size for custom provider (default: 32768) |
+| `MEDIASAGE_PASSWORD` | No | Enable HTTP Basic Auth. When set, all endpoints require this password (user name is ignored). Health check and art proxy endpoints remain exempt so Docker health checks and images work without auth. |
 
 ### Web UI Configuration
 
