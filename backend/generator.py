@@ -2,6 +2,7 @@
 
 import json
 import logging
+import random
 from collections.abc import Generator
 from datetime import datetime
 
@@ -296,6 +297,8 @@ def generate_playlist_stream(
         used_keys: set[str] = set()
         track_reasons: dict[str, str] = {}
         match_method_counts: dict[str, int] = {"number": 0, "fuzzy": 0, "miss": 0}
+        artist_counts: dict[str, int] = {}
+        MAX_PER_ARTIST = 2
 
         if seed_track:
             used_keys.add(seed_track.rating_key)
@@ -317,8 +320,12 @@ def generate_playlist_stream(
             if track_num is not None and 1 <= track_num <= len(filtered_tracks):
                 track = filtered_tracks[track_num - 1]
                 if track.rating_key not in used_keys:
+                    artist_lower = track.artist.lower().strip()
+                    if artist_counts.get(artist_lower, 0) >= MAX_PER_ARTIST:
+                        continue
                     matched_tracks.append(track)
                     used_keys.add(track.rating_key)
+                    artist_counts[artist_lower] = artist_counts.get(artist_lower, 0) + 1
                     if reason:
                         track_reasons[track.rating_key] = reason
                     match_method_counts["number"] += 1
@@ -333,8 +340,12 @@ def generate_playlist_stream(
                     if track.rating_key in used_keys:
                         continue
                     if _tracks_match(artist, title, track):
+                        artist_lower = track.artist.lower().strip()
+                        if artist_counts.get(artist_lower, 0) >= MAX_PER_ARTIST:
+                            continue
                         matched_tracks.append(track)
                         used_keys.add(track.rating_key)
+                        artist_counts[artist_lower] = artist_counts.get(artist_lower, 0) + 1
                         if reason:
                             track_reasons[track.rating_key] = reason
                         match_method_counts["fuzzy"] += 1
@@ -357,6 +368,9 @@ def generate_playlist_stream(
             len(matched_tracks),
             total_selections,
         )
+
+        # Shuffle to break any artist/genre clustering from the LLM output order
+        random.shuffle(matched_tracks)
 
         # Step 7: Generate narrative
         yield emit("progress", {"step": "narrative", "message": "Writing playlist narrative..."})
@@ -469,8 +483,9 @@ Your task is to select tracks that best match the user's request. For each track
 
 Guidelines:
 - Select tracks that fit the mood, era, style, and other aspects of the request
-- Vary the selection - don't pick too many tracks from the same artist or album
-- Consider the flow of the playlist - how tracks will sound in sequence
+- STRICT: Pick at most 1 track per artist. Only pick a 2nd track from the same artist when fewer unique artists are available than the requested track count
+- STRICT: Do not pick more than 1 track from the same album
+- Shuffle your output order — never group consecutive tracks by the same artist, decade, or genre. Alternate between different artists, eras, and energy levels for a varied listening flow
 - If using a seed track, don't include the seed track itself in the results
 
 Return ONLY a JSON array using the track NUMBER from the list, like:

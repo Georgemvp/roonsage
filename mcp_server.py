@@ -21,6 +21,7 @@ Environment variables:
     MEDIASAGE_URL  Base URL of the running MediaSage app (default: http://localhost:5765)
 """
 
+import asyncio
 import json
 import os
 from typing import Optional
@@ -649,50 +650,56 @@ async def seed_track_playlist(
         "exclude_live": True,
     }
 
-    tracks_batches: list[list[dict]] = []
-    complete_data: dict = {}
-    errors: list[str] = []
-
-    try:
-        async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
-            async with client.stream(
-                "POST",
-                f"{MEDIASAGE_URL}/api/generate/stream",
-                json=body,
-            ) as response:
-                if response.status_code != 200:
-                    await response.aread()
-                    return f"MediaSage API error: {response.status_code} — {response.text}"
-
-                event_type = "message"
-                async for line in response.aiter_lines():
-                    line = line.strip()
-                    if not line:
-                        event_type = "message"
+    max_retries = 2
+    for attempt in range(max_retries):
+        tracks_batches: list[list[dict]] = []
+        complete_data: dict = {}
+        errors: list[str] = []
+        try:
+            async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
+                async with client.stream(
+                    "POST",
+                    f"{MEDIASAGE_URL}/api/generate/stream",
+                    json=body,
+                ) as response:
+                    if response.status_code == 503 and attempt < max_retries - 1:
+                        await response.aread()
+                        await asyncio.sleep(3)
                         continue
-                    if line.startswith("event:"):
-                        event_type = line[6:].strip()
-                    elif line.startswith("data:"):
-                        raw = line[5:].strip()
-                        try:
-                            payload = json.loads(raw)
-                        except json.JSONDecodeError:
-                            continue
-                        if event_type == "tracks":
-                            batch = payload.get("batch", [])
-                            if batch:
-                                tracks_batches.append(batch)
-                        elif event_type == "complete":
-                            complete_data = payload
-                        elif event_type == "error":
-                            errors.append(payload.get("message", "Unknown error"))
+                    if response.status_code != 200:
+                        await response.aread()
+                        return f"MediaSage API error: {response.status_code} — {response.text}"
 
-    except httpx.ConnectError:
-        return _unavailable_msg()
-    except httpx.ReadTimeout:
-        return "Seed playlist generation timed out. Try again."
-    except httpx.HTTPStatusError as exc:
-        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+                    event_type = "message"
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+                        if not line:
+                            event_type = "message"
+                            continue
+                        if line.startswith("event:"):
+                            event_type = line[6:].strip()
+                        elif line.startswith("data:"):
+                            raw = line[5:].strip()
+                            try:
+                                payload = json.loads(raw)
+                            except json.JSONDecodeError:
+                                continue
+                            if event_type == "tracks":
+                                batch = payload.get("batch", [])
+                                if batch:
+                                    tracks_batches.append(batch)
+                            elif event_type == "complete":
+                                complete_data = payload
+                            elif event_type == "error":
+                                errors.append(payload.get("message", "Unknown error"))
+            break  # Success, exit retry loop
+
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.ReadTimeout:
+            return "Seed playlist generation timed out. Try again."
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
 
     if errors:
         return f"Seed playlist generation failed: {'; '.join(errors)}"
