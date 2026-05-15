@@ -138,6 +138,123 @@ async def transport_control(request: TransportControlRequest) -> TransportContro
     return TransportControlResponse(**result)
 
 
+@router.get("/roon/qobuz-browse-test")
+async def qobuz_browse_test(q: str = "Miles Davis"):
+    """Debug: navigate Qobuz browse hierarchy step by step."""
+    roon = get_roon_client()
+    if not roon or not roon._api:
+        return {"error": "Roon not connected"}
+
+    steps = []
+
+    def _run():
+        try:
+            with roon._browse_lock:
+                # Step 1: Browse to root
+                result = roon._api.browse_browse({"hierarchy": "browse", "pop_all": True})
+                count = result.get("list", {}).get("count", 0) if result else 0
+                loaded = roon._api.browse_load({"hierarchy": "browse", "count": count})
+                items = loaded.get("items", []) if loaded else []
+                steps.append({
+                    "step": "root",
+                    "items": [
+                        {"title": i.get("title"), "item_key": i.get("item_key"), "hint": i.get("hint")}
+                        for i in items
+                    ],
+                })
+
+                # Step 2: Find and enter Qobuz
+                qobuz_key = None
+                for item in items:
+                    if "qobuz" in (item.get("title") or "").lower():
+                        qobuz_key = item.get("item_key")
+                        break
+
+                if not qobuz_key:
+                    return {"error": "Qobuz not found in root", "steps": steps}
+
+                result2 = roon._api.browse_browse({"hierarchy": "browse", "item_key": qobuz_key})
+                list2 = result2.get("list", {}) if result2 else {}
+                loaded2 = roon._api.browse_load({"hierarchy": "browse", "count": list2.get("count", 0)})
+                items2 = loaded2.get("items", []) if loaded2 else []
+                steps.append({
+                    "step": "qobuz_root",
+                    "list_input_prompt": list2.get("input_prompt"),
+                    "items": [
+                        {
+                            "title": i.get("title"),
+                            "item_key": i.get("item_key"),
+                            "hint": i.get("hint"),
+                            "input_prompt": i.get("input_prompt"),
+                        }
+                        for i in items2
+                    ],
+                })
+
+                # Step 3: Find Search entry
+                if list2.get("input_prompt"):
+                    steps.append({"step": "qobuz_has_list_input_prompt", "input_prompt": list2["input_prompt"]})
+
+                    # Send search directly (no item_key — just input)
+                    result3 = roon._api.browse_browse({"hierarchy": "browse", "input": q})
+                    count3 = result3.get("list", {}).get("count", 0) if result3 else 0
+                    loaded3 = roon._api.browse_load({"hierarchy": "browse", "count": min(count3, 20)})
+                    items3 = loaded3.get("items", []) if loaded3 else []
+                    steps.append({
+                        "step": "search_results_direct",
+                        "query": q,
+                        "count": len(items3),
+                        "items": [
+                            {
+                                "title": i.get("title"),
+                                "subtitle": i.get("subtitle"),
+                                "item_key": i.get("item_key"),
+                                "hint": i.get("hint"),
+                            }
+                            for i in items3[:20]
+                        ],
+                    })
+                else:
+                    # Look for a "Search" item to click
+                    for item2 in items2:
+                        title_lower = (item2.get("title") or "").lower()
+                        if any(kw in title_lower for kw in ("search", "zoeken", "suche", "rechercher")):
+                            result3 = roon._api.browse_browse({"hierarchy": "browse", "item_key": item2["item_key"]})
+                            list3 = result3.get("list", {}) if result3 else {}
+                            steps.append({
+                                "step": "search_entry",
+                                "title": item2["title"],
+                                "list_input_prompt": list3.get("input_prompt"),
+                            })
+
+                            if list3.get("input_prompt"):
+                                result4 = roon._api.browse_browse({"hierarchy": "browse", "input": q})
+                                count4 = result4.get("list", {}).get("count", 0) if result4 else 0
+                                loaded4 = roon._api.browse_load({"hierarchy": "browse", "count": min(count4, 20)})
+                                items4 = loaded4.get("items", []) if loaded4 else []
+                                steps.append({
+                                    "step": "search_results_via_entry",
+                                    "query": q,
+                                    "count": len(items4),
+                                    "items": [
+                                        {
+                                            "title": i.get("title"),
+                                            "subtitle": i.get("subtitle"),
+                                            "item_key": i.get("item_key"),
+                                            "hint": i.get("hint"),
+                                        }
+                                        for i in items4[:20]
+                                    ],
+                                })
+                            break
+
+                return {"steps": steps}
+        except Exception as e:
+            return {"error": str(e), "steps": steps}
+
+    return await asyncio.to_thread(_run)
+
+
 @router.post("/roon/volume", response_model=VolumeControlResponse)
 async def volume_control(request: VolumeControlRequest) -> VolumeControlResponse:
     """Control volume for a Roon zone by display name.

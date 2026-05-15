@@ -83,42 +83,73 @@ def search_qobuz_tracks_sync(roon, query: str, limit: int = 10) -> list[dict[str
                 logger.debug("Qobuz not found in Roon browse root (not configured or not logged in)")
                 return []
 
-            # Step 2 — Navigate into Qobuz
-            roon._api.browse_browse({
+            # Step 2 — Navigate into Qobuz; capture list-level input_prompt flag.
+            qobuz_nav = roon._api.browse_browse({
                 "hierarchy": "browse",
                 "item_key": qobuz_item["item_key"],
             })
+            qobuz_list_info = qobuz_nav.get("list", {}) if qobuz_nav else {}
+            qobuz_list_has_input = bool(qobuz_list_info.get("input_prompt"))
+
             qobuz_page = roon._api.browse_load({"hierarchy": "browse", "count": 100})
             qobuz_items = qobuz_page.get("items", []) if qobuz_page else []
 
             logger.debug(
-                "Qobuz sub-items: %s",
+                "Qobuz sub-items (list_has_input=%s): %s",
+                qobuz_list_has_input,
                 [(i.get("title"), i.get("hint")) for i in qobuz_items],
             )
 
-            # Step 3 — Find Search entry point
-            # Roon marks search entry points with hint="input_prompt" or a title matching search hints.
-            search_item = next(
-                (i for i in qobuz_items if i.get("hint") == "input_prompt" and i.get("item_key")),
-                None,
-            ) or _find_item_by_title(qobuz_items, _SEARCH_TITLE_HINTS)
+            # Step 3 — Determine how to reach the search input.
+            # Roon can expose search in two ways:
+            #   A) The list returned after navigating into Qobuz already has input_prompt
+            #      → send input directly without another item_key browse.
+            #   B) One of the child items has hint="input_prompt" or a title matching search
+            #      → navigate to that item first, then send input in a separate call.
+            #
+            # IMPORTANT: item_key and input must NEVER be combined in the same browse_browse
+            # call — Roon ignores one of them silently, causing 0 results.
 
-            if not search_item or not search_item.get("item_key"):
-                logger.debug(
-                    "No search entry point found in Qobuz. Items: %s",
-                    [(i.get("title"), i.get("hint")) for i in qobuz_items[:10]],
-                )
-                return []
+            if qobuz_list_has_input:
+                # Path A — search prompt is at list level; send input directly.
+                logger.debug("Qobuz search: using list-level input_prompt")
+            else:
+                # Path B — look for a Search child item and navigate to it first.
+                search_item = next(
+                    (i for i in qobuz_items if i.get("hint") == "input_prompt" and i.get("item_key")),
+                    None,
+                ) or _find_item_by_title(qobuz_items, _SEARCH_TITLE_HINTS)
 
-            # Step 4 — Navigate to search with query input
-            roon._api.browse_browse({
+                if not search_item or not search_item.get("item_key"):
+                    logger.debug(
+                        "No search entry point found in Qobuz. Items: %s",
+                        [(i.get("title"), i.get("hint")) for i in qobuz_items[:10]],
+                    )
+                    return []
+
+                # Navigate to the search entry — separate call, no input yet.
+                nav_result = roon._api.browse_browse({
+                    "hierarchy": "browse",
+                    "item_key": search_item["item_key"],
+                })
+                nav_list = nav_result.get("list", {}) if nav_result else {}
+                if not nav_list.get("input_prompt"):
+                    logger.debug(
+                        "Search entry '%s' did not return input_prompt — trying anyway",
+                        search_item.get("title"),
+                    )
+
+            # Step 4 — Submit the search query in its own browse_browse call (no item_key).
+            search_result = roon._api.browse_browse({
                 "hierarchy": "browse",
-                "item_key": search_item["item_key"],
                 "input": query,
             })
+            count = search_result.get("list", {}).get("count", 0) if search_result else 0
+            logger.debug("Qobuz search '%s': count=%d", query, count)
+
             results_page = roon._api.browse_load({
                 "hierarchy": "browse",
-                "count": min(limit * 3, 100),  # Fetch extra to allow filtering
+                "count": min(max(count, limit * 3), 100),
             })
             result_items = results_page.get("items", []) if results_page else []
 
