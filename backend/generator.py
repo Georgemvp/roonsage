@@ -17,23 +17,47 @@ def generate_narrative(
     track_selections: list[dict],
     llm_client,
     user_request: str = "",
+    tracks_index: list | None = None,
 ) -> tuple[str, str]:
     """Generate a creative title and narrative for the playlist.
 
     Args:
-        track_selections: List of track dicts with artist, title, album, reason
+        track_selections: List of dicts. Supports both number-based format
+            {"number": N, "reason": "..."} and legacy {"artist": ..., "title": ..., "reason": ...}.
         llm_client: LLM client instance
         user_request: Original user prompt/request for context
+        tracks_index: The filtered_tracks list used during generation, needed to map
+            number-based selections back to artist/title for the narrative prompt.
 
     Returns:
         Tuple of (playlist_title with date, narrative)
         On failure, returns ("{Mon YYYY} Playlist", "")
     """
     # Build input for Query 2: track list with reasons
-    tracks_with_reasons = "\n".join(
-        f"- {sel.get('artist', 'Unknown')} - \"{sel.get('title', 'Unknown')}\": {sel.get('reason', 'Selected for this playlist')}"
-        for sel in track_selections[:15]  # Limit to first 15 for context efficiency
-    )
+    narrative_lines = []
+    for sel in track_selections[:15]:  # Limit to first 15 for context efficiency
+        reason = sel.get("reason", "Selected for this playlist")
+        track_num = sel.get("number")
+
+        # Number-based format: map back to track data via index
+        if track_num is not None and tracks_index is not None:
+            try:
+                track_num = int(track_num)
+            except (TypeError, ValueError):
+                track_num = None
+
+        if track_num is not None and tracks_index is not None and 1 <= track_num <= len(tracks_index):
+            t = tracks_index[track_num - 1]
+            artist = getattr(t, "artist", None) or t.get("artist", "Unknown") if hasattr(t, "get") else getattr(t, "artist", "Unknown")
+            title = getattr(t, "title", None) or t.get("title", "Unknown") if hasattr(t, "get") else getattr(t, "title", "Unknown")
+        else:
+            # Legacy / fallback: use artist/title directly from selection dict
+            artist = sel.get("artist", "Unknown")
+            title = sel.get("title", "Unknown")
+
+        narrative_lines.append(f'- {artist} - "{title}": {reason}')
+
+    tracks_with_reasons = "\n".join(narrative_lines)
 
     # Include user request for context
     if user_request:
@@ -271,6 +295,7 @@ def generate_playlist_stream(
         matched_tracks: list[Track] = []
         used_keys: set[str] = set()
         track_reasons: dict[str, str] = {}
+        match_method_counts: dict[str, int] = {"number": 0, "fuzzy": 0, "miss": 0}
 
         if seed_track:
             used_keys.add(seed_track.rating_key)
@@ -279,25 +304,66 @@ def generate_playlist_stream(
             if len(matched_tracks) >= track_count:
                 break
 
-            artist = selection.get("artist", "")
-            title = selection.get("title", "")
             reason = selection.get("reason", "")
 
-            for track in filtered_tracks:
-                if track.rating_key in used_keys:
-                    continue
+            # --- Primary: direct index lookup by number ---
+            track_num = selection.get("number")
+            if track_num is not None:
+                try:
+                    track_num = int(track_num)
+                except (TypeError, ValueError):
+                    track_num = None
 
-                if _tracks_match(artist, title, track):
+            if track_num is not None and 1 <= track_num <= len(filtered_tracks):
+                track = filtered_tracks[track_num - 1]
+                if track.rating_key not in used_keys:
                     matched_tracks.append(track)
                     used_keys.add(track.rating_key)
                     if reason:
                         track_reasons[track.rating_key] = reason
-                    break
+                    match_method_counts["number"] += 1
+                    continue
+
+            # --- Fallback: fuzzy artist/title matching ---
+            artist = selection.get("artist", "")
+            title = selection.get("title", "")
+            if artist or title:
+                fuzzy_matched = False
+                for track in filtered_tracks:
+                    if track.rating_key in used_keys:
+                        continue
+                    if _tracks_match(artist, title, track):
+                        matched_tracks.append(track)
+                        used_keys.add(track.rating_key)
+                        if reason:
+                            track_reasons[track.rating_key] = reason
+                        match_method_counts["fuzzy"] += 1
+                        fuzzy_matched = True
+                        break
+                if not fuzzy_matched:
+                    match_method_counts["miss"] += 1
+            else:
+                match_method_counts["miss"] += 1
+
+        total_selections = len(track_selections)
+        match_rate = len(matched_tracks) / total_selections if total_selections else 0
+        logger.info(
+            "Track matching complete — method breakdown: number=%d fuzzy=%d miss=%d | "
+            "match_rate=%.0f%% (%d/%d)",
+            match_method_counts["number"],
+            match_method_counts["fuzzy"],
+            match_method_counts["miss"],
+            match_rate * 100,
+            len(matched_tracks),
+            total_selections,
+        )
 
         # Step 7: Generate narrative
         yield emit("progress", {"step": "narrative", "message": "Writing playlist narrative..."})
 
-        playlist_title, narrative = generate_narrative(track_selections, llm_client, prompt or "")
+        playlist_title, narrative = generate_narrative(
+            track_selections, llm_client, prompt or "", tracks_index=filtered_tracks
+        )
         logger.info("Generated narrative: title='%s', narrative_len=%d", playlist_title, len(narrative))
 
         # Emit narrative event for frontend
@@ -407,9 +473,10 @@ Guidelines:
 - Consider the flow of the playlist - how tracks will sound in sequence
 - If using a seed track, don't include the seed track itself in the results
 
-Return ONLY a JSON array like:
+Return ONLY a JSON array using the track NUMBER from the list, like:
 [
-  {"artist": "Artist Name", "album": "Album Name", "title": "Track Title", "reason": "Brief explanation of why this track fits."},
+  {"number": 1, "reason": "Brief explanation of why this track fits."},
+  {"number": 42, "reason": "Brief explanation of why this track fits."},
   ...
 ]
 

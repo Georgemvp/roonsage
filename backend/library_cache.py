@@ -136,6 +136,15 @@ def init_schema(conn: sqlite3.Connection) -> bool:
 
         CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist);
 
+        -- Genre junction table: one row per (track, genre) for fast SQL filtering
+        CREATE TABLE IF NOT EXISTS track_genres (
+            track_key TEXT NOT NULL,
+            genre TEXT NOT NULL,
+            PRIMARY KEY (track_key, genre),
+            FOREIGN KEY (track_key) REFERENCES tracks(rating_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_track_genres_genre ON track_genres(genre);
+
         -- Results table: persistent storage for generated playlists and recommendations
         CREATE TABLE IF NOT EXISTS results (
             id TEXT PRIMARY KEY,
@@ -183,6 +192,17 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         logger.info("Migration applied: added subtitle column to results")
     except sqlite3.OperationalError:
         pass  # Column already exists
+
+    # Migration: create track_genres table if it was added after the DB was created
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS track_genres (
+            track_key TEXT NOT NULL,
+            genre TEXT NOT NULL,
+            PRIMARY KEY (track_key, genre),
+            FOREIGN KEY (track_key) REFERENCES tracks(rating_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_track_genres_genre ON track_genres(genre);
+    """)
 
     # Migration: create albums table if it was added after the DB was created
     conn.executescript("""
@@ -316,62 +336,92 @@ def get_tracks_by_filters(
     """
     conn = ensure_db_initialized()
     try:
-        conditions = []
+        conditions: list[str] = []
         params: list[Any] = []
 
         if exclude_live:
-            conditions.append("is_live = 0")
+            conditions.append("t.is_live = 0")
 
         if min_rating > 0:
-            conditions.append("user_rating >= ?")
+            conditions.append("t.user_rating >= ?")
             params.append(min_rating)
 
         if decades:
             decade_conditions = []
             for decade in decades:
-                # Convert "1990s" to year range
                 try:
                     start_year = int(decade.rstrip("s"))
                 except ValueError:
                     continue
                 end_year = start_year + 9
-                decade_conditions.append("(year >= ? AND year <= ?)")
+                decade_conditions.append("(t.year >= ? AND t.year <= ?)")
                 params.extend([start_year, end_year])
             if decade_conditions:
                 conditions.append(f"({' OR '.join(decade_conditions)})")
 
-        # Build query
         where_clause = " AND ".join(conditions) if conditions else "1=1"
-        query = f"SELECT * FROM tracks WHERE {where_clause}"
 
-        # Only apply SQL LIMIT when no genre filter (genre filtering happens in Python)
-        # If genres are specified, we need all matching tracks first, then filter, then sample
-        if limit > 0 and not genres:
-            query += " ORDER BY RANDOM() LIMIT ?"
-            params.append(limit)
+        if genres:
+            # Check whether the junction table has been populated (it won't be
+            # on databases that have not yet run a post-migration sync, or in
+            # test fixtures that insert tracks directly into the tracks table).
+            has_genre_index = conn.execute(
+                "SELECT EXISTS(SELECT 1 FROM track_genres LIMIT 1)"
+            ).fetchone()[0]
+
+            if has_genre_index:
+                # Fast path: SQL JOIN on the junction table
+                genres_lower = [g.lower() for g in genres]
+                genre_placeholders = ",".join("?" for _ in genres_lower)
+                query = (
+                    f"SELECT DISTINCT t.* FROM tracks t "
+                    f"JOIN track_genres tg ON t.rating_key = tg.track_key "
+                    f"WHERE {where_clause} "
+                    f"AND LOWER(tg.genre) IN ({genre_placeholders})"
+                )
+                params.extend(genres_lower)
+                if limit > 0:
+                    query += " ORDER BY RANDOM() LIMIT ?"
+                    params.append(limit)
+
+                rows = conn.execute(query, params).fetchall()
+                tracks = []
+                for row in rows:
+                    track = dict(row)
+                    track["genres"] = json.loads(track["genres"]) if track.get("genres") else []
+                    tracks.append(track)
+                return tracks
+
+            # Fallback: junction table empty — filter in Python from genres JSON column
+            logger.debug("track_genres empty, falling back to Python-side genre filtering")
+            base_query = f"SELECT * FROM tracks t WHERE {where_clause}"
+            rows = conn.execute(base_query, params).fetchall()
+            tracks = []
+            genres_lower_set = {g.lower() for g in genres}
+            for row in rows:
+                track = dict(row)
+                track["genres"] = json.loads(track["genres"]) if track.get("genres") else []
+                if any(g.lower() in genres_lower_set for g in track["genres"]):
+                    tracks.append(track)
+            if limit > 0 and len(tracks) > limit:
+                tracks = random.sample(tracks, limit)
+            return tracks
+        else:
+            query = f"SELECT * FROM tracks t WHERE {where_clause}"
+            if limit > 0:
+                query += " ORDER BY RANDOM() LIMIT ?"
+                params.append(limit)
 
         rows = conn.execute(query, params).fetchall()
         tracks = []
-
         for row in rows:
             track = dict(row)
-            # Parse genres JSON
-            if track["genres"]:
+            # Keep genres column as parsed list for response objects
+            if track.get("genres"):
                 track["genres"] = json.loads(track["genres"])
             else:
                 track["genres"] = []
-
-            # Genre filtering in Python (JSON field doesn't support SQL IN)
-            if genres:
-                track_genres = [g.lower() for g in track["genres"]]
-                if not any(g.lower() in track_genres for g in genres):
-                    continue
-
             tracks.append(track)
-
-        # Apply limit after genre filtering with random sampling
-        if limit > 0 and genres and len(tracks) > limit:
-            tracks = random.sample(tracks, limit)
 
         return tracks
     finally:
@@ -657,6 +707,12 @@ def sync_library(
         # Final commit for the last batch
         conn.commit()
 
+        # Clear genre junction table BEFORE deleting stale tracks so the FK
+        # constraint (track_genres.track_key → tracks.rating_key) doesn't block
+        # the stale-track DELETE.
+        conn.execute("DELETE FROM track_genres")
+        conn.commit()
+
         # Remove tracks from previous syncs that were not refreshed.
         # Every track touched by this sync has updated_at = now; anything
         # older belongs to a previous (possibly broken) sync run.
@@ -668,6 +724,28 @@ def sync_library(
         if stale_deleted:
             logger.info("Removed %d stale tracks from previous syncs", stale_deleted)
         conn.commit()
+
+        # Rebuild genre junction table from the surviving (current) tracks only.
+        logger.info("Rebuilding track_genres junction table...")
+        genre_rows = conn.execute(
+            "SELECT rating_key, genres FROM tracks WHERE genres IS NOT NULL AND genres != '[]'"
+        ).fetchall()
+        genre_batch: list[tuple[str, str]] = []
+        for grow in genre_rows:
+            try:
+                glist = json.loads(grow["genres"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            for g in glist:
+                if g:
+                    genre_batch.append((grow["rating_key"], g))
+        if genre_batch:
+            conn.executemany(
+                "INSERT OR IGNORE INTO track_genres (track_key, genre) VALUES (?, ?)",
+                genre_batch,
+            )
+        conn.commit()
+        logger.info("Populated track_genres with %d rows for %d tracks", len(genre_batch), len(genre_rows))
 
         # Update sync state
         duration_ms = int((time.time() - start_time) * 1000)
@@ -768,25 +846,40 @@ def count_tracks_by_filters(
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-        # No genre filter - use simple count query
         if not genres:
+            # No genre filter — simple count (no JOIN needed)
             query = f"SELECT COUNT(*) FROM tracks WHERE {where_clause}"
             count = conn.execute(query, params).fetchone()[0]
             return count
 
-        # Genre filter - need to check JSON field, so fetch and filter in Python
+        # Genre filter — use junction table JOIN when available
+        has_genre_index = conn.execute(
+            "SELECT EXISTS(SELECT 1 FROM track_genres LIMIT 1)"
+        ).fetchone()[0]
+
+        if has_genre_index:
+            genres_lower = [g.lower() for g in genres]
+            genre_placeholders = ",".join("?" for _ in genres_lower)
+            query = (
+                f"SELECT COUNT(DISTINCT t.rating_key) FROM tracks t "
+                f"JOIN track_genres tg ON t.rating_key = tg.track_key "
+                f"WHERE {where_clause} "
+                f"AND LOWER(tg.genre) IN ({genre_placeholders})"
+            )
+            params.extend(genres_lower)
+            count = conn.execute(query, params).fetchone()[0]
+            return count
+
+        # Fallback: junction table empty — count in Python from genres JSON column
         query = f"SELECT genres FROM tracks WHERE {where_clause}"
         rows = conn.execute(query, params).fetchall()
-
+        genres_lower_set = {g.lower() for g in genres}
         count = 0
-        genres_lower = [g.lower() for g in genres]
         for row in rows:
             if row["genres"]:
-                track_genres = json.loads(row["genres"])
-                track_genres_lower = [g.lower() for g in track_genres]
-                if any(g in track_genres_lower for g in genres_lower):
+                track_genres_list = json.loads(row["genres"])
+                if any(g.lower() in genres_lower_set for g in track_genres_list):
                     count += 1
-
         return count
     finally:
         conn.close()
