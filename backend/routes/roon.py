@@ -14,6 +14,8 @@ from backend.models import (
     PlayQueueResponse,
     PlayRadioRequest,
     PlayRadioResponse,
+    QobuzSearchRequest,
+    QobuzSearchResponse,
     QueueAppendRequest,
     QueueAppendResponse,
     RoonZoneInfo,
@@ -224,6 +226,81 @@ async def browse_playlists(request: BrowsePlaylistsRequest) -> BrowsePlaylistsRe
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result.get("error", "Browse playlists failed"))
     return BrowsePlaylistsResponse(**result)
+
+
+@router.post("/roon/qobuz-search", response_model=QobuzSearchResponse)
+async def qobuz_search(request: QobuzSearchRequest) -> QobuzSearchResponse:
+    """Search Qobuz for tracks via Roon's Browse API.
+
+    Requires Qobuz to be configured and logged in within Roon.
+    Returns empty tracks list (not an error) when Qobuz is unavailable.
+    """
+    from backend.qobuz_browser import check_qobuz_available, search_qobuz_tracks
+
+    roon_client = get_roon_client()
+    if not roon_client or not roon_client.is_connected():
+        return QobuzSearchResponse(
+            tracks=[],
+            query=request.query,
+            available=False,
+            error="Roon not connected",
+        )
+
+    try:
+        tracks = await search_qobuz_tracks(request.query, request.limit)
+        return QobuzSearchResponse(
+            tracks=tracks,
+            query=request.query,
+            available=True,
+        )
+    except Exception as e:
+        logger.warning("Qobuz search endpoint error: %s", e)
+        return QobuzSearchResponse(
+            tracks=[],
+            query=request.query,
+            available=False,
+            error=str(e),
+        )
+
+
+@router.get("/roon/browse-root")
+async def browse_root():
+    """Debug: return all top-level browse items from Roon."""
+    roon = get_roon_client()
+    if not roon or not roon.is_connected():
+        return {"error": "Roon not connected"}
+
+    try:
+        def _do_browse():
+            with roon._browse_lock:
+                result = roon._api.browse_browse({
+                    "hierarchy": "browse",
+                    "pop_all": True,
+                })
+                items: list[dict] = []
+                if result and result.get("list", {}).get("count", 0) > 0:
+                    loaded = roon._api.browse_load({
+                        "hierarchy": "browse",
+                        "count": result["list"]["count"],
+                    })
+                    items = loaded.get("items", []) if loaded else []
+                return items
+
+        items = await asyncio.to_thread(_do_browse)
+        return {
+            "count": len(items),
+            "items": [
+                {
+                    "title": i.get("title", ""),
+                    "item_key": i.get("item_key", ""),
+                    "hint": i.get("hint", ""),
+                }
+                for i in items
+            ],
+        }
+    except Exception as e:
+        logger.warning("browse_root debug endpoint error: %s", e)
+        return {"error": str(e)}
 
 
 @router.get("/external-art")
