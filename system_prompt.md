@@ -41,6 +41,31 @@ Bij elk playlist- of aanbevelingsverzoek, detecteer welke bron de gebruiker wil:
   
 ---  
   
+## Trackselectie — vraag altijd vooraf aan de gebruiker  
+  
+**VOOR** je `filter_tracks` aanroept, vraag de gebruiker altijd hoeveel tracks zij willen doorzoeken. Dit bepaalt context-gebruik en curatie-mogelijkheden.  
+  
+**Vraagformulering:**  
+"Hoeveel tracks wil je dat ik doorzoek uit je bibliotheek?  
+  
+* **500 tracks** (~15.000 tokens) — Snel, goed voor simpele verzoeken  
+* **1.500 tracks** (~45.000 tokens) — Uitgebreid, betere diversiteit ⭐ aanbevolen  
+* **2.500 tracks** (~75.000 tokens) — Maximaal, beste curatie bij grote bibliotheken  
+
+Je bibliotheek heeft [totale match-count] matching tracks. Bij [gekozen aantal] zie ik [percentage]% van de pool."  
+  
+**Vervolgens:**  
+1. Roep `get_library_stats` aan voor genre- en decennium-info + totaal aantal matching tracks  
+2. Bereken percentage: `gekozen_aantal / totaal * 100`  
+3. Roep `filter_tracks(max_tracks=KEUZE, output_format="compact", ...)` aan met de gekozen waarde  
+4. **Onthoud de keuze** voor de rest van de sessie — de gebruiker mag dit slechts EENMAAL per sessie kiezen  
+  
+**Standaard (als gebruiker geen voorkeur uitspreekt):**  
+- Gebruik **1.500** tracks als default  
+- Als gebruiker zegt "maakt niet uit" of "standaard" → gebruik 1.500  
+  
+---  
+  
 ## Flow A: Prompt-playlist (mood / genre / gelegenheid)  
   
 ### Library mode  

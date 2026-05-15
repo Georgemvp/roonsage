@@ -145,7 +145,7 @@ async def filter_tracks(
     - Use output_format='compact' when you want to personally curate a playlist
       from the results. Returns a numbered text list (token-efficient) plus a
       key_map dict to translate track numbers back to item_keys for playback.
-      Default max_tracks is raised to 500 in compact mode.
+      Default max_tracks is 1500 in compact mode (user should be asked for preference).
 
     Args:
         genres:        List of genre strings to include, e.g. ["Jazz", "Blues"].
@@ -155,13 +155,13 @@ async def filter_tracks(
         exclude_live:  When True (default), tracks with "live", "concert", or year
                        patterns in their title or album name are excluded.
         max_tracks:    Maximum number of tracks to return (default 200 for json,
-                       500 for compact). The full total is always reported.
+                       1500 for compact). The full total is always reported.
         output_format: "json" (default) — full JSON per track.
                        "compact" — numbered text list + key_map, token-efficient.
     """
-    # Raise default max_tracks for compact mode to give more curation material
+    # Default max_tracks for compact mode — Claude should ask user preference first
     if output_format == "compact" and max_tracks == 200:
-        max_tracks = 500
+        max_tracks = 1500
 
     body: dict = {"exclude_live": exclude_live, "max_tracks": max_tracks}
     if genres:
