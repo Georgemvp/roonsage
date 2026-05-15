@@ -1011,6 +1011,296 @@ class RoonClient:
             logger.warning("Failed to get zones: %s", e)
             return []
 
+    # ------------------------------------------------------------------
+    # Track metadata helpers for play_tracks
+    # ------------------------------------------------------------------
+
+    def _get_track_metadata_batch(
+        self, keys: list[str]
+    ) -> dict[str, dict[str, str]]:
+        """Batch-fetch title+artist for a list of rating_keys from SQLite.
+
+        Returns a dict mapping rating_key → {"title": ..., "artist": ...}.
+        Keys absent from the cache are not included in the result.
+        """
+        if not keys:
+            return {}
+        try:
+            from backend.library_cache import ensure_db_initialized  # noqa: PLC0415
+            conn = ensure_db_initialized()
+            try:
+                placeholders = ",".join("?" * len(keys))
+                rows = conn.execute(
+                    f"SELECT rating_key, title, artist FROM tracks"
+                    f" WHERE rating_key IN ({placeholders})",
+                    keys,
+                ).fetchall()
+                return {row[0]: {"title": row[1], "artist": row[2]} for row in rows}
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning("Track metadata batch lookup failed: %s", e)
+            return {}
+
+    def _find_best_track_match(
+        self,
+        items: list[dict[str, Any]],
+        expected_title: str,
+        expected_artist: str,
+    ) -> dict[str, Any] | None:
+        """Return the best-matching track item from Roon search results.
+
+        Scores each candidate by title similarity (70 %) and artist similarity
+        in its subtitle (30 %).  Falls back to the first playable item when no
+        candidate clears the fuzzy-match threshold.
+        """
+        playable = [
+            i for i in items
+            if i.get("hint") in ("action", "action_list") and i.get("item_key")
+        ]
+        if not playable:
+            return None
+
+        title_norm = simplify_string(expected_title)
+        artist_norm = simplify_string(expected_artist)
+
+        best_item: dict[str, Any] | None = None
+        best_score = -1.0
+
+        for item in playable:
+            item_title = simplify_string(item.get("title", ""))
+            item_subtitle = simplify_string(item.get("subtitle", ""))
+
+            try:
+                from rapidfuzz import fuzz  # noqa: PLC0415
+                title_score = fuzz.ratio(title_norm, item_title)
+                artist_score = (
+                    fuzz.partial_ratio(artist_norm, item_subtitle)
+                    if artist_norm else 100.0
+                )
+            except ImportError:
+                title_score = (
+                    100.0 if title_norm == item_title
+                    else (70.0 if title_norm in item_title else 0.0)
+                )
+                artist_score = 100.0 if artist_norm in item_subtitle else 50.0
+
+            score = title_score * 0.7 + artist_score * 0.3
+            if score > best_score:
+                best_score = score
+                best_item = item
+
+        if best_item is not None and best_score >= FUZZ_THRESHOLD:
+            return best_item
+
+        # Below threshold — return first result as a best-effort fallback.
+        # The search query is already narrow (artist + title), so the first
+        # result is usually correct even if fuzzy scoring is low.
+        logger.debug(
+            "Track match below threshold (%.1f) for '%s' by '%s' — using first result",
+            best_score, expected_title, expected_artist,
+        )
+        return playable[0]
+
+    def _play_track_via_search(
+        self,
+        zone_id: str,
+        search_query: str,
+        expected_title: str,
+        expected_artist: str,
+        target_keywords: set[str],
+        fallback_keywords: set[str],
+    ) -> bool:
+        """Search for a track and execute its play/queue action. Returns True on success.
+
+        Uses the "search" Browse hierarchy (independent session from "browse"),
+        so it does NOT require pop_all on the main library browse tree.
+
+        Flow:
+            search → find "Tracks" section → find best match → enter action menu
+            → execute play/queue action
+        """
+        try:
+            with self._browse_lock:
+                # ── Step 1: issue a fresh search ─────────────────────────────
+                self._api.browse_browse({
+                    "hierarchy": "search",
+                    "input": search_query,
+                    "pop_all": True,
+                    "zone_or_output_id": zone_id,
+                })
+                root_result = self._api.browse_load({
+                    "hierarchy": "search",
+                    "count": 30,
+                })
+                root_items = root_result.get("items", []) if root_result else []
+
+                # ── Step 2: find the "Tracks" section ────────────────────────
+                # Roon uses locale-specific labels; common values include
+                # "Tracks", "Songs", "Nummers" (NL), "Titres" (FR), etc.
+                tracks_section = next(
+                    (
+                        i for i in root_items
+                        if i.get("hint") == "list"
+                        and i.get("item_key")
+                        and any(
+                            kw in i.get("title", "").lower()
+                            for kw in ("track", "song", "nummer", "titre", "titel")
+                        )
+                    ),
+                    None,
+                )
+                if not tracks_section:
+                    logger.warning(
+                        "No Tracks section found in search results for '%s' "
+                        "(sections: %s)",
+                        search_query,
+                        [i.get("title") for i in root_items],
+                    )
+                    return False
+
+                # ── Step 3: navigate into the Tracks section ──────────────────
+                self._api.browse_browse({
+                    "hierarchy": "search",
+                    "item_key": tracks_section["item_key"],
+                })
+                tracks_result = self._api.browse_load({
+                    "hierarchy": "search",
+                    "count": 20,
+                })
+                track_items = tracks_result.get("items", []) if tracks_result else []
+
+                # ── Step 4: find the best-matching track ──────────────────────
+                best_track = self._find_best_track_match(
+                    track_items, expected_title, expected_artist
+                )
+                if not best_track:
+                    logger.warning(
+                        "No matching track item for '%s' by '%s' in search results",
+                        expected_title, expected_artist,
+                    )
+                    return False
+
+                # ── Step 5: open the track's action menu ──────────────────────
+                self._api.browse_browse({
+                    "hierarchy": "search",
+                    "item_key": best_track["item_key"],
+                    "zone_or_output_id": zone_id,
+                })
+                action_result = self._api.browse_load({
+                    "hierarchy": "search",
+                    "count": 10,
+                    "zone_or_output_id": zone_id,
+                })
+                action_items = action_result.get("items", []) if action_result else []
+
+                # ── Step 6: choose and execute the play/queue action ──────────
+                action_item: dict[str, Any] | None = None
+                fallback_item: dict[str, Any] | None = None
+                for item in action_items:
+                    title_lower = item.get("title", "").lower().strip()
+                    if title_lower in target_keywords and item.get("item_key"):
+                        action_item = item
+                        break
+                    if (
+                        title_lower in fallback_keywords
+                        and item.get("item_key")
+                        and fallback_item is None
+                    ):
+                        fallback_item = item
+
+                chosen = action_item or fallback_item
+                if not chosen or not chosen.get("item_key"):
+                    logger.warning(
+                        "No playable action in action menu for '%s' (items: %s)",
+                        search_query,
+                        [i.get("title") for i in action_items],
+                    )
+                    return False
+
+                self._api.browse_browse({
+                    "hierarchy": "search",
+                    "item_key": chosen["item_key"],
+                    "zone_or_output_id": zone_id,
+                })
+                logger.debug(
+                    "Queued '%s' by '%s' via search (action: '%s')",
+                    expected_title, expected_artist, chosen.get("title"),
+                )
+                return True
+
+        except Exception as e:
+            logger.warning(
+                "Search-based play failed for '%s': %s", search_query, e
+            )
+            return False
+
+    def _play_track_via_direct_key(
+        self,
+        zone_id: str,
+        key: str,
+        target_keywords: set[str],
+        fallback_keywords: set[str],
+    ) -> bool:
+        """Fallback: try the old direct item_key browse approach.
+
+        Used for Qobuz tracks whose keys are freshly obtained (not cached from
+        a prior sync session) and may still be valid.  Returns True on success.
+        """
+        try:
+            with self._browse_lock:
+                self._api.browse_browse({
+                    "hierarchy": "browse",
+                    "item_key": key,
+                    "zone_or_output_id": zone_id,
+                })
+                result = self._api.browse_load({
+                    "hierarchy": "browse",
+                    "count": 20,
+                    "zone_or_output_id": zone_id,
+                })
+
+            items = result.get("items", []) if result else []
+
+            action_item: dict[str, Any] | None = None
+            fallback_item: dict[str, Any] | None = None
+            for item in items:
+                title_lower = item.get("title", "").lower().strip()
+                if title_lower in target_keywords and item.get("item_key"):
+                    action_item = item
+                    break
+                if (
+                    title_lower in fallback_keywords
+                    and item.get("item_key")
+                    and fallback_item is None
+                ):
+                    fallback_item = item
+
+            chosen = action_item or fallback_item
+            if not chosen or not chosen.get("item_key"):
+                logger.warning(
+                    "Direct-key play: no action found for key %s (items: %s)",
+                    key,
+                    [i.get("title") for i in items],
+                )
+                return False
+
+            with self._browse_lock:
+                self._api.browse_browse({
+                    "hierarchy": "browse",
+                    "item_key": chosen["item_key"],
+                    "zone_or_output_id": zone_id,
+                })
+            return True
+
+        except Exception as e:
+            logger.warning("Direct-key play failed for key %s: %s", key, e)
+            return False
+
+    # ------------------------------------------------------------------
+    # Playback
+    # ------------------------------------------------------------------
+
     def play_tracks(
         self, zone_id: str, item_keys: list[str], mode: str = "replace"
     ) -> dict[str, Any]:
@@ -1021,10 +1311,26 @@ class RoonClient:
         play a specific track we must navigate to it through browse_browse /
         browse_load and execute the appropriate action item.
 
+        Strategy
+        --------
+        Cached ``item_key`` values from the library sync are *session-bound*
+        browse tokens.  Passing them directly to a new browse session causes
+        Roon to fall back to a top-level menu (Qobuz root, etc.) instead of
+        the intended track.
+
+        Fix: for library tracks (present in SQLite) we navigate the *search*
+        hierarchy fresh per track — independent of the browse session — which
+        always returns a valid, live item_key for the action menu.
+
+        For tracks absent from SQLite (e.g. Qobuz tracks whose keys were just
+        obtained from a live search), we try the old direct-key approach as a
+        fallback, since those keys are fresh and may still be valid.
+
         Args:
-            zone_id: Roon zone ID
+            zone_id:   Roon zone ID
             item_keys: List of Roon item_keys for tracks to play
-            mode: 'replace' (play now, clears queue) or 'play_next' (add after current)
+            mode:      'replace' (play now, clears queue) or
+                       'play_next' (add after current)
 
         Returns:
             dict with success, tracks_queued, tracks_skipped, error
@@ -1035,70 +1341,57 @@ class RoonClient:
         if not item_keys:
             return {"success": False, "error": "No tracks provided"}
 
-        # Action label keywords to match in browse result items.
+        # Action label keywords to match in the track action menu.
         # First track: start fresh ("Play Now" / "Play").
         # Subsequent tracks: append ("Queue" / "Add to Queue" / "Add Next").
-        PLAY_NOW_KEYWORDS = {"play now", "play"}
-        QUEUE_KEYWORDS = {"queue", "add to queue", "add next"}
+        PLAY_NOW_KEYWORDS: set[str] = {"play now", "play"}
+        QUEUE_KEYWORDS: set[str] = {"queue", "add to queue", "add next"}
+
+        # Batch-fetch metadata for all keys in one SQLite query.
+        # Keys found in SQLite are library tracks; missing keys are Qobuz/other.
+        track_meta = self._get_track_metadata_batch(item_keys)
 
         tracks_queued = 0
         tracks_skipped = 0
 
         try:
             for idx, key in enumerate(item_keys):
+                # Decide which action to execute for this position
+                if idx == 0 and mode == "replace":
+                    target_kw = PLAY_NOW_KEYWORDS
+                    fallback_kw = QUEUE_KEYWORDS
+                else:
+                    target_kw = QUEUE_KEYWORDS
+                    fallback_kw = PLAY_NOW_KEYWORDS
+
                 try:
-                    with self._browse_lock:
-                        # Navigate to the track via Browse API
-                        self._api.browse_browse({
-                            "hierarchy": "browse",
-                            "item_key": key,
-                            "zone_or_output_id": zone_id,
-                        })
-                        result = self._api.browse_load({
-                            "hierarchy": "browse",
-                            "count": 20,
-                            "zone_or_output_id": zone_id,
-                        })
+                    meta = track_meta.get(key)
 
-                    items = result.get("items", []) if result else []
+                    if meta:
+                        # Library track — use search hierarchy for a fresh key
+                        title = meta["title"]
+                        artist = meta["artist"]
+                        search_query = f"{artist} {title}" if artist else title
 
-                    # Decide which action label to look for
-                    if idx == 0 and mode == "replace":
-                        target_keywords = PLAY_NOW_KEYWORDS
-                        fallback_keywords = QUEUE_KEYWORDS
-                    else:
-                        target_keywords = QUEUE_KEYWORDS
-                        fallback_keywords = PLAY_NOW_KEYWORDS
-
-                    # Find the matching action item
-                    action_item = None
-                    fallback_item = None
-                    for item in items:
-                        title_lower = item.get("title", "").lower().strip()
-                        if title_lower in target_keywords:
-                            action_item = item
-                            break
-                        if title_lower in fallback_keywords and fallback_item is None:
-                            fallback_item = item
-
-                    chosen = action_item or fallback_item
-                    if not chosen or not chosen.get("item_key"):
-                        logger.warning(
-                            "No playable action found for track key %s (items: %s)",
-                            key,
-                            [i.get("title") for i in items],
+                        queued = self._play_track_via_search(
+                            zone_id, search_query, title, artist,
+                            target_kw, fallback_kw,
                         )
-                        tracks_skipped += 1
-                        continue
+                    else:
+                        # Not in cache (Qobuz / unknown) — try direct key as
+                        # a best-effort fallback; keys from live searches may
+                        # still be valid.
+                        logger.debug(
+                            "Track key %s not in SQLite cache, trying direct browse", key
+                        )
+                        queued = self._play_track_via_direct_key(
+                            zone_id, key, target_kw, fallback_kw
+                        )
 
-                    # Execute the action
-                    with self._browse_lock:
-                        self._api.browse_browse({
-                            "hierarchy": "browse",
-                            "item_key": chosen["item_key"],
-                            "zone_or_output_id": zone_id,
-                        })
-                    tracks_queued += 1
+                    if queued:
+                        tracks_queued += 1
+                    else:
+                        tracks_skipped += 1
 
                 except Exception as e:
                     logger.warning("Failed to queue track %s: %s", key, e)
