@@ -191,6 +191,8 @@ All models are included in your Claude Pro subscription — there are no per-tok
 
 #### Available MCP Tools
 
+**Library & Search**
+
 | Tool | What it does |
 |------|-------------|
 | `get_library_stats` | Get genre, decade, and total track counts from the library cache |
@@ -199,30 +201,54 @@ All models are included in your Claude Pro subscription — there are no per-tok
 | `filter_tracks` | Filter by genre, decade, live exclusion |
 | `get_artist_albums` | List all albums by an artist from the SQLite cache |
 | `sync_library` | Trigger a background library sync from Roon |
-| `generate_playlist` | AI-curated playlist from a natural language prompt |
-| `seed_track_playlist` | "More like this" — playlist seeded from a specific track |
+
+**Playlist Generation**
+
+| Tool | What it does |
+|------|-------------|
+| `generate_playlist` | AI-curated playlist from a natural language prompt — with album/year info, genre breakdown, live-exclusion note, and exact track count |
+| `seed_track_playlist` | "More like this" — playlist seeded from a specific track; use when a user mentions a specific song as inspiration |
 | `analyze_prompt` | Preview how a prompt maps to genre/decade filters |
 | `recommend_album` | AI album recommendation (library or discovery mode) |
 | `recommend_album_interactive` | 2-step Q&A flow for highly personalized picks |
+
+**Playback**
+
+| Tool | What it does |
+|------|-------------|
 | `play_album` | Search for an album and play it in one step |
+| `play_radio` | Play an internet radio station by name (fuzzy-matched from My Live Radio) |
+| `browse_playlists` | List or play any Roon playlist (imported, TIDAL, Qobuz, etc.) |
 | `list_zones` | List active Roon playback zones |
 | `get_now_playing` | What's currently playing in each zone |
 | `play_tracks` | Send tracks to a Roon zone (replaces queue) |
 | `queue_tracks` | Append tracks to a Roon zone queue |
-| `transport_control` | Play, pause, stop, next, or previous |
+
+**Transport & Zone Control**
+
+| Tool | What it does |
+|------|-------------|
+| `transport_control` | Play, pause, stop, next, previous, **shuffle**, **repeat**, **seek** |
+| `volume_control` | Set, adjust, mute, or get volume by zone name |
+| `transfer_zone` | Move playback from one zone to another |
+| `zone_grouping` | Group or ungroup zones for synchronized playback |
 | `get_result_history` | Browse previously generated playlists and recommendations |
 
 #### Example prompts
 
+- *"Maak een playlist gebaseerd op Moondance van Van Morrison."*
 - *"What jazz albums do I have in my library?"*
 - *"Show me all albums by Nick Cave I own."*
-- *"Make a playlist of mellow 90s electronic music and play it in the living room."*
+- *"Make a playlist of exactly 40 mellow 90s electronic tracks and play it in the living room."*
 - *"More like what's playing right now — but a bit darker."*
-- *"Find everything by Radiohead and add it to the queue."*
-- *"Generate a chill Sunday morning playlist and play it in the kitchen."*
-- *"Pause the music in the living room."*
-- *"Skip to the next track."*
-- *"What's currently playing?"*
+- *"Generate a chill Sunday morning playlist with genre breakdown."*
+- *"Zet het volume in de woonkamer op 50%."*
+- *"Zet shuffle aan."*
+- *"Spoel 30 seconden vooruit."*
+- *"Zet NPO Radio 1 aan in de keuken."*
+- *"Speel mijn Favorieten playlist af."*
+- *"Groepeer Woonkamer en Keuken."*
+- *"Zet de muziek door naar de slaapkamer."*
 - *"Recommend me a jazz album I haven't listened to in a while."*
 - *"Ask me a few questions and then recommend the perfect album for tonight."*
 - *"Play that lo-fi playlist you made last week."*

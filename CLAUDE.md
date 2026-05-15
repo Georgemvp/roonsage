@@ -1,6 +1,6 @@
 # MediaSage Development Guidelines
 
-Last updated: 2026-05-15 (MCP v2 — 18 tools)
+Last updated: 2026-05-15 (MCP v3 — 25 tools)
 
 ## Project Overview
 
@@ -161,6 +161,7 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 - Backend: added `transport_control()` to `roon_client.py` via `roonapi.playback_control()`
 - Backend: added `POST /api/roon/transport` endpoint + `TransportControlRequest/Response` models
 - Backend: added `get_albums_by_artist()` to `library_cache.py` + `GET /api/library/artist-albums` endpoint
+- MCP v2 (2026-05-15): 7 new tools + playlist/generation improvements (see below)
 
 ## MCP Server
 
@@ -170,7 +171,7 @@ The MCP server contains NO own LLM logic — Claude Desktop does the thinking. W
 
 The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip install "mcp[cli]"` must be done locally. `scripts/install_mcp.py` configures Claude Desktop — one-time setup per machine.
 
-### Full Tool List (18 tools)
+### Full Tool List (25 tools)
 
 | Tool | Backend endpoint | Purpose |
 |------|-----------------|---------|
@@ -180,8 +181,8 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 | `filter_tracks` | `POST /api/library/filter` | Filter by genre, decade, live exclusion |
 | `get_artist_albums` | `GET /api/library/artist-albums` | All albums by artist from SQLite cache |
 | `sync_library` | `POST /api/library/sync` | Trigger background library sync |
-| `generate_playlist` | `POST /api/generate/stream` (SSE) | AI playlist from natural language prompt |
-| `seed_track_playlist` | `POST /api/generate/stream` (SSE) | "More like this" playlist from seed track |
+| `generate_playlist` | `POST /api/generate/stream` (SSE) | AI playlist from natural language prompt; auto-detects seed requests |
+| `seed_track_playlist` | `POST /api/generate/stream` (SSE) | "More like this" playlist from seed track; use when user mentions a specific song |
 | `analyze_prompt` | `POST /api/analyze/prompt` | Preview prompt → filter mapping |
 | `recommend_album` | `POST /api/recommend/questions` + `generate` | Quick album recommendation |
 | `recommend_album_interactive` | `POST /api/recommend/questions` + `generate` | 2-step Q&A album recommendation |
@@ -190,5 +191,32 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 | `get_now_playing` | `GET /api/roon/zones` | Current playback state per zone |
 | `play_tracks` | `POST /api/queue` | Send tracks to zone (replaces queue) |
 | `queue_tracks` | `POST /api/queue/append` | Append tracks to zone queue |
-| `transport_control` | `POST /api/roon/transport` | play/pause/stop/next/previous |
+| `transport_control` | `POST /api/roon/transport` | play/pause/stop/next/previous/shuffle/repeat/seek |
 | `get_result_history` | `GET /api/results` | Previously generated playlists/recs |
+| `volume_control` | `POST /api/roon/volume` | Set/adjust/get/mute volume by zone name |
+| `transfer_zone` | `POST /api/roon/transfer` | Transfer playback between zones |
+| `zone_grouping` | `POST /api/roon/group` | Group/ungroup/list zone groups |
+| `play_radio` | `POST /api/roon/radio` | Play internet radio station (fuzzy match) |
+| `browse_playlists` | `POST /api/roon/playlists` | List/play Roon playlists (all playlists, not just MediaSage) |
+
+### Tool Selection Guide (for Claude Desktop)
+
+- **User mentions a SPECIFIC SONG** as inspiration → `search_library` first, then `seed_track_playlist`
+- **User describes a mood/genre/occasion** → `generate_playlist`
+- **User wants a specific album** → `play_album`
+- **User wants internet radio** → `play_radio`
+- **User wants to control volume** → `volume_control`
+- **User moves rooms** → `transfer_zone`
+- **User wants to sync multiple rooms** → `zone_grouping`
+- **User wants shuffle/repeat** → `transport_control` with action="shuffle"/"repeat"
+
+### Playlist Generation Output Format (v2)
+
+Both `generate_playlist` and `seed_track_playlist` now return:
+- `track_count` — exact number of tracks matching the request
+- `tracks[].year` — year from SQLite cache
+- `tracks[].album` — album name (falls back to "Unknown Album")
+- `genre_breakdown` — e.g. `"Jazz: 12 | Blues: 8 | Pop/Rock: 5"`
+- `note_live` — confirms live track exclusion status
+- `extra_item_keys` — if AI generated more than requested, surplus keys for `queue_tracks`
+- `live_excluded` — boolean flag

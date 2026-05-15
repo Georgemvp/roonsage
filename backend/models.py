@@ -406,7 +406,13 @@ class TransportControlRequest(BaseModel):
     """Request to send a transport command to a Roon zone."""
 
     zone_id: str
-    action: str  # "play", "pause", "stop", "next", "previous"
+    action: str  # "play", "pause", "stop", "next", "previous", "shuffle", "repeat", "seek"
+    # For shuffle: value="true"/"false"/"toggle"
+    # For repeat: value="disabled"/"loop"/"loop_one"/"cycle"
+    # For seek: position_seconds=<int> (absolute), or seek_offset=<int> (relative, can be negative)
+    value: str | None = None
+    position_seconds: int | None = None
+    seek_offset: int | None = None
 
 
 class TransportControlResponse(BaseModel):
@@ -415,6 +421,117 @@ class TransportControlResponse(BaseModel):
     success: bool
     zone_name: str | None = None
     action: str | None = None
+    state: str | None = None  # Current state after action (e.g. shuffle/repeat mode)
+    error: str | None = None
+
+
+# =============================================================================
+# Volume Control Models
+# =============================================================================
+
+
+class VolumeControlRequest(BaseModel):
+    """Request to control volume for a Roon zone."""
+
+    zone_name: str  # Zone display name (resolved to output_id internally)
+    action: str     # "set", "adjust", "get", "mute", "unmute", "toggle_mute"
+    value: int | None = None  # For "set": 0-100; for "adjust": relative value (e.g. +10, -5)
+
+
+class VolumeControlResponse(BaseModel):
+    """Response from volume control."""
+
+    success: bool
+    zone_name: str | None = None
+    action: str | None = None
+    volume: int | None = None      # Current volume percent after action
+    is_muted: bool | None = None
+    error: str | None = None
+
+
+# =============================================================================
+# Zone Transfer Models
+# =============================================================================
+
+
+class TransferZoneRequest(BaseModel):
+    """Request to transfer playback from one zone to another."""
+
+    from_zone: str  # Source zone display name
+    to_zone: str    # Target zone display name
+
+
+class TransferZoneResponse(BaseModel):
+    """Response from zone transfer."""
+
+    success: bool
+    from_zone: str | None = None
+    to_zone: str | None = None
+    error: str | None = None
+
+
+# =============================================================================
+# Zone Grouping Models
+# =============================================================================
+
+
+class ZoneGroupingRequest(BaseModel):
+    """Request to group, ungroup, or list zone groups."""
+
+    action: str        # "group", "ungroup", "list_groups"
+    zones: list[str] = []  # Zone display names (for group/ungroup)
+
+
+class ZoneGroupingResponse(BaseModel):
+    """Response from zone grouping."""
+
+    success: bool
+    action: str | None = None
+    groups: list[dict] = []  # For list_groups: [{group_name, zones: [...]}]
+    error: str | None = None
+
+
+# =============================================================================
+# Play Radio Models
+# =============================================================================
+
+
+class PlayRadioRequest(BaseModel):
+    """Request to play an internet radio station."""
+
+    station: str    # Station name (fuzzy matched)
+    zone_id: str    # Roon zone ID
+
+
+class PlayRadioResponse(BaseModel):
+    """Response from play radio."""
+
+    success: bool
+    station_name: str | None = None
+    zone_name: str | None = None
+    error: str | None = None
+
+
+# =============================================================================
+# Browse Playlists Models
+# =============================================================================
+
+
+class BrowsePlaylistsRequest(BaseModel):
+    """Request to browse or play Roon playlists."""
+
+    action: str              # "list" or "play"
+    playlist_name: str = ""  # For "play": playlist name (fuzzy matched)
+    zone_id: str = ""        # For "play": Roon zone ID
+
+
+class BrowsePlaylistsResponse(BaseModel):
+    """Response from browse playlists."""
+
+    success: bool
+    action: str | None = None
+    playlists: list[dict] = []   # For "list": [{name, track_count}]
+    zone_name: str | None = None # For "play"
     error: str | None = None
 
 

@@ -1119,29 +1119,548 @@ class RoonClient:
             logger.exception("Failed to play tracks on zone %s", zone_id)
             return {"success": False, "error": str(e)}
 
-    def transport_control(self, zone_id: str, action: str) -> dict[str, Any]:
+    def transport_control(
+        self,
+        zone_id: str,
+        action: str,
+        value: str | None = None,
+        position_seconds: int | None = None,
+        seek_offset: int | None = None,
+    ) -> dict[str, Any]:
         """Send a transport command to a Roon zone.
 
         Args:
-            zone_id: Roon zone ID (from get_zones)
-            action:  One of "play", "pause", "stop", "next", "previous"
+            zone_id:          Roon zone ID (from get_zones)
+            action:           One of "play", "pause", "stop", "next", "previous",
+                              "shuffle", "repeat", "seek"
+            value:            For "shuffle": "true"/"false"/"toggle"
+                              For "repeat": "disabled"/"loop"/"loop_one"/"cycle"
+            position_seconds: For "seek" (absolute position in seconds)
+            seek_offset:      For "seek" (relative offset in seconds, can be negative)
 
         Returns:
-            dict with success, zone_name, action, error
+            dict with success, zone_name, action, state, error
         """
-        valid_actions = {"play", "pause", "stop", "next", "previous"}
-        if action not in valid_actions:
-            return {"success": False, "error": f"Invalid action '{action}'. Must be one of: {', '.join(sorted(valid_actions))}"}
+        playback_actions = {"play", "pause", "stop", "next", "previous"}
 
         if not self.is_connected():
             return {"success": False, "error": "Not connected to Roon"}
 
+        zone_name = self._get_zone_name(zone_id)
+
         try:
-            self._api.playback_control(zone_id, action)
-            zone_name = self._get_zone_name(zone_id)
-            return {"success": True, "zone_name": zone_name, "action": action}
+            if action in playback_actions:
+                self._api.playback_control(zone_id, action)
+                return {"success": True, "zone_name": zone_name, "action": action}
+
+            elif action == "shuffle":
+                # Determine target shuffle state
+                zones_raw = self._api.zones or {}
+                zone = zones_raw.get(zone_id, {})
+                current = zone.get("settings", {}).get("shuffle", False)
+                if value in ("true", "1", "on", "yes"):
+                    new_state = True
+                elif value in ("false", "0", "off", "no"):
+                    new_state = False
+                else:  # toggle (default)
+                    new_state = not current
+                self._api.shuffle(zone_id, new_state)
+                return {
+                    "success": True,
+                    "zone_name": zone_name,
+                    "action": action,
+                    "state": "on" if new_state else "off",
+                }
+
+            elif action == "repeat":
+                REPEAT_MODES = ["disabled", "loop", "loop_one"]
+                if value == "cycle":
+                    # Cycle through repeat modes
+                    zones_raw = self._api.zones or {}
+                    zone = zones_raw.get(zone_id, {})
+                    current = zone.get("settings", {}).get("loop", "disabled")
+                    idx = REPEAT_MODES.index(current) if current in REPEAT_MODES else 0
+                    new_mode = REPEAT_MODES[(idx + 1) % len(REPEAT_MODES)]
+                elif value in REPEAT_MODES:
+                    new_mode = value
+                else:
+                    new_mode = "loop"  # default: enable loop
+                self._api.repeat(zone_id, new_mode)
+                return {
+                    "success": True,
+                    "zone_name": zone_name,
+                    "action": action,
+                    "state": new_mode,
+                }
+
+            elif action == "seek":
+                if seek_offset is not None:
+                    self._api.seek(zone_id, seek_offset, "relative")
+                    return {
+                        "success": True,
+                        "zone_name": zone_name,
+                        "action": action,
+                        "state": f"relative:{seek_offset:+d}s",
+                    }
+                elif position_seconds is not None:
+                    self._api.seek(zone_id, position_seconds, "absolute")
+                    return {
+                        "success": True,
+                        "zone_name": zone_name,
+                        "action": action,
+                        "state": f"absolute:{position_seconds}s",
+                    }
+                else:
+                    return {"success": False, "error": "seek requires position_seconds or seek_offset"}
+
+            else:
+                valid = sorted(playback_actions | {"shuffle", "repeat", "seek"})
+                return {
+                    "success": False,
+                    "error": f"Invalid action '{action}'. Must be one of: {', '.join(valid)}",
+                }
+
         except Exception as e:
             logger.warning("transport_control failed zone=%s action=%s: %s", zone_id, action, e)
+            return {"success": False, "error": str(e)}
+
+    # ------------------------------------------------------------------
+    # Volume Control
+    # ------------------------------------------------------------------
+
+    def _resolve_output_for_zone(self, zone_name_or_id: str) -> tuple[str | None, str | None, dict | None]:
+        """Resolve a zone name or ID to (zone_id, output_id, output_data).
+
+        For grouped zones, returns the primary (first) output.
+        Returns (None, None, None) if not found.
+        """
+        zones_raw = self._api.zones if self._api else {}
+        # Try by zone_id first
+        zone = zones_raw.get(zone_name_or_id)
+        if not zone:
+            # Try by display_name (case-insensitive)
+            name_lower = zone_name_or_id.lower()
+            for zid, z in zones_raw.items():
+                if z.get("display_name", "").lower() == name_lower:
+                    zone = z
+                    zone_name_or_id = zid
+                    break
+        if not zone:
+            return None, None, None
+        outputs = zone.get("outputs", [])
+        if not outputs:
+            return zone_name_or_id, None, None
+        output = outputs[0]
+        return zone_name_or_id, output.get("output_id"), output
+
+    def _resolve_zone_id(self, zone_name_or_id: str) -> str | None:
+        """Resolve a zone name or zone_id string to a zone_id."""
+        zones_raw = self._api.zones if self._api else {}
+        if zone_name_or_id in zones_raw:
+            return zone_name_or_id
+        name_lower = zone_name_or_id.lower()
+        for zid, z in zones_raw.items():
+            if z.get("display_name", "").lower() == name_lower:
+                return zid
+        return None
+
+    def volume_control(
+        self,
+        zone_name: str,
+        action: str,
+        value: int | None = None,
+    ) -> dict[str, Any]:
+        """Control volume for a zone by name.
+
+        Actions: "set" (0-100), "adjust" (+/-N), "get", "mute", "unmute", "toggle_mute"
+        """
+        if not self.is_connected():
+            return {"success": False, "error": "Not connected to Roon"}
+
+        zone_id, output_id, output_data = self._resolve_output_for_zone(zone_name)
+        if not zone_id or not output_id:
+            return {"success": False, "error": f"Zone '{zone_name}' not found or has no outputs"}
+
+        display = self._get_zone_name(zone_id)
+        vol_info = (output_data or {}).get("volume", {})
+
+        try:
+            if action == "get":
+                return {
+                    "success": True,
+                    "zone_name": display,
+                    "action": "get",
+                    "volume": vol_info.get("value"),
+                    "is_muted": vol_info.get("is_muted", False),
+                }
+
+            elif action == "set":
+                if value is None:
+                    return {"success": False, "error": "value required for 'set'"}
+                self._api.set_volume_percent(output_id, max(0, min(100, value)))
+
+            elif action == "adjust":
+                if value is None:
+                    return {"success": False, "error": "value required for 'adjust'"}
+                self._api.change_volume_percent(output_id, value)
+
+            elif action == "mute":
+                self._api.mute(output_id, True)
+
+            elif action == "unmute":
+                self._api.mute(output_id, False)
+
+            elif action == "toggle_mute":
+                currently_muted = vol_info.get("is_muted", False)
+                self._api.mute(output_id, not currently_muted)
+
+            else:
+                return {
+                    "success": False,
+                    "error": f"Invalid action '{action}'. Use: set, adjust, get, mute, unmute, toggle_mute",
+                }
+
+            # Re-fetch volume after change
+            time.sleep(0.2)
+            zones_raw = self._api.zones or {}
+            zone_fresh = zones_raw.get(zone_id, {})
+            for out in zone_fresh.get("outputs", []):
+                if out.get("output_id") == output_id:
+                    vol_info = out.get("volume", {})
+                    break
+
+            return {
+                "success": True,
+                "zone_name": display,
+                "action": action,
+                "volume": vol_info.get("value"),
+                "is_muted": vol_info.get("is_muted", False),
+            }
+
+        except Exception as e:
+            logger.warning("volume_control failed zone=%s action=%s: %s", zone_name, action, e)
+            return {"success": False, "error": str(e)}
+
+    # ------------------------------------------------------------------
+    # Zone Transfer & Grouping
+    # ------------------------------------------------------------------
+
+    def transfer_zone(
+        self, from_zone: str, to_zone: str
+    ) -> dict[str, Any]:
+        """Transfer playback from one zone to another."""
+        if not self.is_connected():
+            return {"success": False, "error": "Not connected to Roon"}
+
+        from_id = self._resolve_zone_id(from_zone)
+        to_id = self._resolve_zone_id(to_zone)
+        if not from_id:
+            return {"success": False, "error": f"Source zone '{from_zone}' not found"}
+        if not to_id:
+            return {"success": False, "error": f"Target zone '{to_zone}' not found"}
+
+        try:
+            self._api.transfer_zone(from_id, to_id)
+            return {
+                "success": True,
+                "from_zone": self._get_zone_name(from_id),
+                "to_zone": self._get_zone_name(to_id),
+            }
+        except Exception as e:
+            logger.warning("transfer_zone failed %s -> %s: %s", from_zone, to_zone, e)
+            return {"success": False, "error": str(e)}
+
+    def zone_grouping(
+        self, action: str, zone_names: list[str]
+    ) -> dict[str, Any]:
+        """Group, ungroup, or list zone groups.
+
+        action: "group", "ungroup", "list_groups"
+        zone_names: display names of zones to group/ungroup
+        """
+        if not self.is_connected():
+            return {"success": False, "error": "Not connected to Roon"}
+
+        zones_raw = self._api.zones or {}
+
+        if action == "list_groups":
+            groups = []
+            for zid, z in zones_raw.items():
+                outputs = z.get("outputs", [])
+                if len(outputs) > 1:
+                    groups.append({
+                        "group_name": z.get("display_name", zid),
+                        "zone_id": zid,
+                        "zones": [o.get("display_name", o.get("output_id", "")) for o in outputs],
+                    })
+            return {"success": True, "action": "list_groups", "groups": groups}
+
+        # Resolve zone names to output IDs
+        output_ids = []
+        for name in zone_names:
+            _, output_id, _ = self._resolve_output_for_zone(name)
+            if output_id:
+                output_ids.append(output_id)
+            else:
+                return {"success": False, "error": f"Zone '{name}' not found"}
+
+        if len(output_ids) < 2 and action == "group":
+            return {"success": False, "error": "At least 2 zones required for grouping"}
+
+        try:
+            if action == "group":
+                # Check compatibility
+                first_output_data = None
+                for zid, z in zones_raw.items():
+                    for out in z.get("outputs", []):
+                        if out.get("output_id") == output_ids[0]:
+                            first_output_data = out
+                            break
+                if first_output_data:
+                    compatible = first_output_data.get("can_group_with_output_ids", [])
+                    for oid in output_ids[1:]:
+                        if oid not in compatible:
+                            return {
+                                "success": False,
+                                "error": f"Output {oid} is not compatible for grouping with {output_ids[0]}",
+                            }
+                self._api.group_outputs(output_ids)
+                return {
+                    "success": True,
+                    "action": "group",
+                    "groups": [{"zones": zone_names}],
+                }
+
+            elif action == "ungroup":
+                self._api.ungroup_outputs(output_ids)
+                return {
+                    "success": True,
+                    "action": "ungroup",
+                    "groups": [],
+                }
+
+            else:
+                return {"success": False, "error": f"Invalid action '{action}'. Use: group, ungroup, list_groups"}
+
+        except Exception as e:
+            logger.warning("zone_grouping failed action=%s: %s", action, e)
+            return {"success": False, "error": str(e)}
+
+    # ------------------------------------------------------------------
+    # Internet Radio
+    # ------------------------------------------------------------------
+
+    def play_radio(self, station_name: str, zone_id: str) -> dict[str, Any]:
+        """Browse 'My Live Radio' and play a station by fuzzy-matched name.
+
+        Uses the Browse API: Root → My Live Radio → station.
+        """
+        if not self.is_connected():
+            return {"success": False, "error": "Not connected to Roon"}
+
+        zone_name = self._get_zone_name(zone_id)
+
+        try:
+            with self._browse_lock:
+                # Navigate to browse root
+                self._api.browse_browse({"hierarchy": "browse", "pop_all": True, "zone_or_output_id": zone_id})
+                root_page = self._api.browse_load({"hierarchy": "browse", "count": 100, "zone_or_output_id": zone_id})
+                root_items = root_page.get("items", []) if root_page else []
+
+                # Find "My Live Radio" in root
+                radio_item = next(
+                    (i for i in root_items if "radio" in i.get("title", "").lower()),
+                    None,
+                )
+                if not radio_item:
+                    return {"success": False, "error": "My Live Radio not found in Roon browse. Check that you have internet radio configured in Roon."}
+
+                # Navigate into radio list
+                self._api.browse_browse({
+                    "hierarchy": "browse",
+                    "item_key": radio_item["item_key"],
+                    "zone_or_output_id": zone_id,
+                })
+                stations_page = self._api.browse_load({
+                    "hierarchy": "browse",
+                    "count": 200,
+                    "zone_or_output_id": zone_id,
+                })
+                stations = stations_page.get("items", []) if stations_page else []
+
+                # Fuzzy-match station name
+                station_lower = station_name.lower()
+                best_match = None
+                best_score = 0
+                for s in stations:
+                    title = s.get("title", "")
+                    title_lower = title.lower()
+                    if title_lower == station_lower:
+                        best_match = s
+                        break
+                    # Simple substring score
+                    if station_lower in title_lower:
+                        score = len(station_lower) / len(title_lower)
+                        if score > best_score:
+                            best_score = score
+                            best_match = s
+                    elif title_lower in station_lower:
+                        score = len(title_lower) / len(station_lower)
+                        if score > best_score:
+                            best_score = score
+                            best_match = s
+
+                if not best_match:
+                    station_list = [s.get("title", "") for s in stations[:20]]
+                    return {
+                        "success": False,
+                        "error": f"Station '{station_name}' not found. Available stations (first 20): {station_list}",
+                    }
+
+                # Navigate into station and play
+                self._api.browse_browse({
+                    "hierarchy": "browse",
+                    "item_key": best_match["item_key"],
+                    "zone_or_output_id": zone_id,
+                })
+                station_items = self._api.browse_load({
+                    "hierarchy": "browse",
+                    "count": 10,
+                    "zone_or_output_id": zone_id,
+                })
+                play_items = (station_items or {}).get("items", [])
+
+                # Find play action
+                play_action = next(
+                    (i for i in play_items if i.get("hint") == "action" and i.get("item_key")),
+                    None,
+                )
+                if not play_action:
+                    # Try navigating directly to station (some Roon versions auto-play)
+                    return {"success": True, "station_name": best_match.get("title", station_name), "zone_name": zone_name}
+
+                self._api.browse_browse({
+                    "hierarchy": "browse",
+                    "item_key": play_action["item_key"],
+                    "zone_or_output_id": zone_id,
+                })
+
+            return {
+                "success": True,
+                "station_name": best_match.get("title", station_name),
+                "zone_name": zone_name,
+            }
+
+        except Exception as e:
+            logger.warning("play_radio failed station=%s zone=%s: %s", station_name, zone_id, e)
+            return {"success": False, "error": str(e)}
+
+    # ------------------------------------------------------------------
+    # Playlists Browse
+    # ------------------------------------------------------------------
+
+    def browse_playlists(
+        self,
+        action: str,
+        playlist_name: str = "",
+        zone_id: str = "",
+    ) -> dict[str, Any]:
+        """Browse and optionally play Roon playlists.
+
+        action: "list" or "play"
+        """
+        if not self.is_connected():
+            return {"success": False, "error": "Not connected to Roon"}
+
+        zone_name = self._get_zone_name(zone_id) if zone_id else None
+
+        try:
+            with self._browse_lock:
+                # Navigate playlists hierarchy
+                self._api.browse_browse({"hierarchy": "playlists", "pop_all": True})
+                root_page = self._api.browse_load({"hierarchy": "playlists", "count": 500})
+                items = root_page.get("items", []) if root_page else []
+
+            if action == "list":
+                playlists = [
+                    {
+                        "name": i.get("title", ""),
+                        "subtitle": i.get("subtitle", ""),
+                        "item_key": i.get("item_key", ""),
+                    }
+                    for i in items
+                    if i.get("title")
+                ]
+                return {
+                    "success": True,
+                    "action": "list",
+                    "playlists": playlists,
+                }
+
+            elif action == "play":
+                if not playlist_name:
+                    return {"success": False, "error": "playlist_name required for 'play'"}
+                if not zone_id:
+                    return {"success": False, "error": "zone_id required for 'play'"}
+
+                # Fuzzy match playlist name
+                name_lower = playlist_name.lower()
+                best_match = None
+                for i in items:
+                    if i.get("title", "").lower() == name_lower:
+                        best_match = i
+                        break
+                    if name_lower in i.get("title", "").lower() and best_match is None:
+                        best_match = i
+
+                if not best_match:
+                    names = [i.get("title", "") for i in items[:20]]
+                    return {"success": False, "error": f"Playlist '{playlist_name}' not found. Available: {names}"}
+
+                # Navigate into playlist and play
+                try:
+                    with self._browse_lock:
+                        self._api.browse_browse({
+                            "hierarchy": "playlists",
+                            "item_key": best_match["item_key"],
+                            "zone_or_output_id": zone_id,
+                        })
+                        pl_items = self._api.browse_load({
+                            "hierarchy": "playlists",
+                            "count": 10,
+                            "zone_or_output_id": zone_id,
+                        })
+                        pl_actions = (pl_items or {}).get("items", [])
+
+                        play_action = next(
+                            (a for a in pl_actions if "play" in a.get("title", "").lower() and a.get("item_key")),
+                            None,
+                        ) or next(
+                            (a for a in pl_actions if a.get("hint") == "action" and a.get("item_key")),
+                            None,
+                        )
+
+                        if play_action:
+                            self._api.browse_browse({
+                                "hierarchy": "playlists",
+                                "item_key": play_action["item_key"],
+                                "zone_or_output_id": zone_id,
+                            })
+
+                    return {
+                        "success": True,
+                        "action": "play",
+                        "playlists": [{"name": best_match.get("title", playlist_name)}],
+                        "zone_name": zone_name,
+                    }
+                except Exception as e:
+                    return {"success": False, "error": f"Could not play playlist: {e}"}
+
+            else:
+                return {"success": False, "error": f"Invalid action '{action}'. Use: list, play"}
+
+        except Exception as e:
+            logger.warning("browse_playlists failed action=%s: %s", action, e)
             return {"success": False, "error": str(e)}
 
     def _get_zone_name(self, zone_id: str) -> str | None:

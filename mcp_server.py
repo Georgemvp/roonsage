@@ -271,6 +271,116 @@ async def sync_library() -> str:
             return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
 
 
+def _build_playlist_result(
+    all_tracks: list[dict],
+    complete_data: dict,
+    track_count: int,
+    exclude_live: bool,
+) -> dict:
+    """Build a compact playlist result dict with genre breakdown and live-exclusion note.
+
+    Trims to exactly `track_count` tracks. Adds genre_breakdown summary.
+    """
+    # Trim to exact requested count
+    tracks = all_tracks[:track_count]
+
+    # Build genre breakdown
+    genre_counts: dict[str, int] = {}
+    for t in tracks:
+        for g in (t.get("genres") or []):
+            genre_counts[g] = genre_counts.get(g, 0) + 1
+
+    genre_breakdown = " | ".join(
+        f"{g}: {c}" for g, c in sorted(genre_counts.items(), key=lambda x: -x[1])
+    ) if genre_counts else ""
+
+    extra_tracks = all_tracks[track_count:]
+
+    result: dict = {
+        "playlist_title": complete_data.get("playlist_title", "Generated Playlist"),
+        "narrative": complete_data.get("narrative", ""),
+        "track_count": len(tracks),
+        "token_count": complete_data.get("token_count", 0),
+        "estimated_cost_usd": complete_data.get("estimated_cost", 0.0),
+        "live_excluded": exclude_live,
+        "tracks": [
+            {
+                "item_key": t.get("rating_key", t.get("item_key", "")),
+                "title": t.get("title", ""),
+                "artist": t.get("artist", ""),
+                "album": t.get("album", "") or "Unknown Album",
+                "year": t.get("year"),
+            }
+            for t in tracks
+        ],
+    }
+
+    if genre_breakdown:
+        result["genre_breakdown"] = genre_breakdown
+
+    if exclude_live:
+        result["note_live"] = "Live versies uitgesloten (exclude_live=true)"
+
+    # If more tracks were generated than requested, offer to queue the rest
+    if extra_tracks:
+        extra_keys = [t.get("rating_key", t.get("item_key", "")) for t in extra_tracks if t.get("rating_key") or t.get("item_key")]
+        result["extra_tracks_available"] = len(extra_tracks)
+        result["extra_item_keys"] = extra_keys[:50]  # cap to 50 extras
+        result["note_extra"] = (
+            f"{len(extra_tracks)} extra track(s) were generated but not included. "
+            "Use queue_tracks with extra_item_keys to add them to the queue."
+        )
+
+    if complete_data.get("result_id"):
+        result["result_id"] = complete_data["result_id"]
+
+    return result
+
+
+async def _stream_generate(body: dict) -> tuple[list[dict], dict, list[str]]:
+    """Stream from /api/generate/stream and return (all_tracks, complete_data, errors)."""
+    tracks_batches: list[list[dict]] = []
+    complete_data: dict = {}
+    errors: list[str] = []
+
+    async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
+        async with client.stream(
+            "POST",
+            f"{MEDIASAGE_URL}/api/generate/stream",
+            json=body,
+        ) as response:
+            if response.status_code != 200:
+                await response.aread()
+                errors.append(f"MediaSage API error: {response.status_code} — {response.text}")
+                return [], {}, errors
+
+            event_type = "message"
+            async for line in response.aiter_lines():
+                line = line.strip()
+                if not line:
+                    event_type = "message"
+                    continue
+                if line.startswith("event:"):
+                    event_type = line[6:].strip()
+                elif line.startswith("data:"):
+                    raw = line[5:].strip()
+                    try:
+                        payload = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    if event_type == "tracks":
+                        batch = payload.get("batch", [])
+                        if batch:
+                            tracks_batches.append(batch)
+                    elif event_type == "complete":
+                        complete_data = payload
+                    elif event_type == "error":
+                        errors.append(payload.get("message", "Unknown error"))
+
+    all_tracks = [track for batch in tracks_batches for track in batch]
+    return all_tracks, complete_data, errors
+
+
 @mcp.tool()
 async def generate_playlist(
     prompt: str,
@@ -281,23 +391,30 @@ async def generate_playlist(
 ) -> str:
     """Generate an AI-curated playlist from the Roon library using a natural language prompt.
 
-    Calls the MediaSage streaming generation endpoint, collects all SSE events,
-    and returns the final playlist with track list and metadata. This may take
-    30–90 seconds for the AI to curate and match tracks.
+    IMPORTANT — choosing the right tool:
+    - If the user mentions a SPECIFIC SONG/TRACK as the starting point (e.g. "maak een playlist
+      gebaseerd op Moondance van Van Morrison", "more like this song", "in the style of ..."),
+      FIRST use search_library to find that track, then use seed_track_playlist instead.
+    - Use generate_playlist for mood/occasion/genre requests without a specific seed track.
 
-    Use this when the user describes a mood, activity, genre, or occasion and
-    wants a ready-made playlist. After generation, use play_tracks or queue_tracks
-    with the returned item_keys to start playback.
+    Calls the MediaSage streaming generation endpoint and returns the final playlist with
+    track list, album info, year, genre breakdown, and live-exclusion status.
+    This may take 30–90 seconds for the AI to curate and match tracks.
+
+    After generation, use play_tracks or queue_tracks with the returned item_keys to start
+    playback. If extra tracks were generated (extra_item_keys field), use queue_tracks to
+    add them.
 
     Args:
         prompt:       Natural language description, e.g. "upbeat 90s indie rock for a
                       road trip" or "calm jazz for late-night studying".
-        genres:       Optional list of genre filters, e.g. ["Jazz", "Rock"].
+        genres:       Optional genre filters, e.g. ["Jazz", "Rock"].
                       Pass None to let the AI choose from the full library.
-        decades:      Optional list of decade filters, e.g. ["1990s", "2000s"].
+        decades:      Optional decade filters, e.g. ["1990s", "2000s"].
                       Pass None to include all decades.
-        track_count:  Number of tracks to generate (default 25). Must be 15, 25, 50, or 100.
+        track_count:  Exact number of tracks to generate (default 25). Any positive integer.
         exclude_live: When True (default), live and concert recordings are excluded.
+                      Pass False to include live versions.
     """
     body: dict = {
         "prompt": prompt,
@@ -309,45 +426,8 @@ async def generate_playlist(
     if decades:
         body["decades"] = decades
 
-    tracks_batches: list[list[dict]] = []
-    complete_data: dict = {}
-    errors: list[str] = []
-
     try:
-        async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
-            async with client.stream(
-                "POST",
-                f"{MEDIASAGE_URL}/api/generate/stream",
-                json=body,
-            ) as response:
-                if response.status_code != 200:
-                    await response.aread()
-                    return f"MediaSage API error: {response.status_code} — {response.text}"
-
-                event_type = "message"
-                async for line in response.aiter_lines():
-                    line = line.strip()
-                    if not line:
-                        event_type = "message"
-                        continue
-                    if line.startswith("event:"):
-                        event_type = line[6:].strip()
-                    elif line.startswith("data:"):
-                        raw = line[5:].strip()
-                        try:
-                            payload = json.loads(raw)
-                        except json.JSONDecodeError:
-                            continue
-
-                        if event_type == "tracks":
-                            batch = payload.get("batch", [])
-                            if batch:
-                                tracks_batches.append(batch)
-                        elif event_type == "complete":
-                            complete_data = payload
-                        elif event_type == "error":
-                            errors.append(payload.get("message", "Unknown error"))
-
+        all_tracks, complete_data, errors = await _stream_generate(body)
     except httpx.ConnectError:
         return _unavailable_msg()
     except httpx.ReadTimeout:
@@ -358,32 +438,10 @@ async def generate_playlist(
     if errors:
         return f"Playlist generation failed: {'; '.join(errors)}"
 
-    # Flatten all track batches
-    all_tracks = [track for batch in tracks_batches for track in batch]
-
     if not all_tracks and not complete_data:
         return "Playlist generation produced no results. Try a different prompt or check that the library is synced."
 
-    # Build a compact summary for Claude
-    result: dict = {
-        "playlist_title": complete_data.get("playlist_title", "Generated Playlist"),
-        "narrative": complete_data.get("narrative", ""),
-        "track_count": complete_data.get("track_count", len(all_tracks)),
-        "token_count": complete_data.get("token_count", 0),
-        "estimated_cost_usd": complete_data.get("estimated_cost", 0.0),
-        "tracks": [
-            {
-                "item_key": t.get("rating_key", t.get("item_key", "")),
-                "title": t.get("title", ""),
-                "artist": t.get("artist", ""),
-                "album": t.get("album", ""),
-            }
-            for t in all_tracks
-        ],
-    }
-    if complete_data.get("result_id"):
-        result["result_id"] = complete_data["result_id"]
-
+    result = _build_playlist_result(all_tracks, complete_data, track_count, exclude_live)
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
@@ -622,21 +680,34 @@ async def seed_track_playlist(
     item_key: str,
     dimensions: list[str],
     track_count: int = 25,
+    decades: Optional[list[str]] = None,
+    exclude_live: bool = True,
 ) -> str:
-    """Generate a playlist seeded from a specific track — "more like this".
+    """Generate a "more like this" playlist seeded from a specific track.
 
-    Analyzes the seed track across the chosen musical dimensions and curates
-    similar tracks from the Roon library. Use this when the user says "more
-    like what's playing" or "a playlist in the style of this song".
+    Use this tool when the user mentions a specific song/track as the starting point,
+    e.g. "maak een playlist gebaseerd op Moondance van Van Morrison", "more like this",
+    "a playlist in the style of [song]", or "iets als [artiest] - [nummer]".
 
-    After generation, use play_tracks or queue_tracks with the returned item_keys.
+    Workflow:
+    1. Use search_library to find the seed track and get its item_key and year.
+    2. Call this tool with the item_key. If the track has a year, suggest decades
+       spanning ±15 years (e.g. year=1970 → suggest ["1960s", "1970s", "1980s"]).
+    3. After generation, use play_tracks or queue_tracks with the returned item_keys.
+
+    The output includes track title, artist, album, year, genre breakdown, and a note
+    about live-track exclusion.
 
     Args:
         item_key:    The rating_key / item_key of the seed track (from search_library).
-        dimensions:  List of musical dimensions to match. Choose from:
+        dimensions:  Musical dimensions to match. Choose from:
                      "mood", "era", "genre", "production", "tempo", "energy".
                      Recommended: ["mood", "genre"] for most requests.
-        track_count: Number of tracks to generate (default 25). Must be 15, 25, 50, or 100.
+        track_count: Exact number of tracks to generate (default 25). Any positive integer.
+        decades:     Optional decade filters derived from the seed track's year,
+                     e.g. ["1960s", "1970s", "1980s"]. Pass None to include all decades.
+        exclude_live: When True (default), live and concert recordings are excluded.
+                      Pass False to include live versions.
     """
     body: dict = {
         "prompt": None,
@@ -645,16 +716,13 @@ async def seed_track_playlist(
             "selected_dimensions": dimensions,
         },
         "genres": [],
-        "decades": [],
+        "decades": decades or [],
         "track_count": track_count,
-        "exclude_live": True,
+        "exclude_live": exclude_live,
     }
 
     max_retries = 2
     for attempt in range(max_retries):
-        tracks_batches: list[list[dict]] = []
-        complete_data: dict = {}
-        errors: list[str] = []
         try:
             async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
                 async with client.stream(
@@ -670,6 +738,7 @@ async def seed_track_playlist(
                         await response.aread()
                         return f"MediaSage API error: {response.status_code} — {response.text}"
 
+                    all_tracks, complete_data, errors = [], {}, []
                     event_type = "message"
                     async for line in response.aiter_lines():
                         line = line.strip()
@@ -687,7 +756,7 @@ async def seed_track_playlist(
                             if event_type == "tracks":
                                 batch = payload.get("batch", [])
                                 if batch:
-                                    tracks_batches.append(batch)
+                                    all_tracks.extend(batch)
                             elif event_type == "complete":
                                 complete_data = payload
                             elif event_type == "error":
@@ -704,27 +773,10 @@ async def seed_track_playlist(
     if errors:
         return f"Seed playlist generation failed: {'; '.join(errors)}"
 
-    all_tracks = [track for batch in tracks_batches for track in batch]
     if not all_tracks and not complete_data:
         return "No results returned. Check that the library is synced and the item_key is valid."
 
-    result: dict = {
-        "playlist_title": complete_data.get("playlist_title", "Seed Playlist"),
-        "narrative": complete_data.get("narrative", ""),
-        "track_count": complete_data.get("track_count", len(all_tracks)),
-        "tracks": [
-            {
-                "item_key": t.get("rating_key", t.get("item_key", "")),
-                "title": t.get("title", ""),
-                "artist": t.get("artist", ""),
-                "album": t.get("album", ""),
-            }
-            for t in all_tracks
-        ],
-    }
-    if complete_data.get("result_id"):
-        result["result_id"] = complete_data["result_id"]
-
+    result = _build_playlist_result(all_tracks, complete_data, track_count, exclude_live)
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
@@ -970,21 +1022,45 @@ async def play_album(query: str, zone_id: str) -> str:
 
 
 @mcp.tool()
-async def transport_control(zone_id: str, action: str) -> str:
-    """Send a transport command to a Roon zone.
+async def transport_control(
+    zone_id: str,
+    action: str,
+    value: Optional[str] = None,
+    position_seconds: Optional[int] = None,
+    seek_offset: Optional[int] = None,
+) -> str:
+    """Send a transport or playback-mode command to a Roon zone.
 
-    Use this for direct playback control: pause, resume, skip, stop.
+    Supported actions:
+    - "play" / "pause" / "stop" / "next" / "previous" — standard transport.
+    - "shuffle" — toggle or set shuffle. value="true"/"false"/"toggle" (default: toggle).
+    - "repeat"  — set repeat mode. value="disabled"/"loop"/"loop_one"/"cycle"
+                  (default: cycle through modes).
+    - "seek"    — jump to a position. Use position_seconds for absolute seek (e.g. 90),
+                  or seek_offset for relative seek (e.g. +30 or -15).
+
     No confirmation needed — execute immediately and confirm briefly.
 
     Args:
-        zone_id: Roon zone ID — obtain via list_zones.
-        action:  One of: "play", "pause", "stop", "next", "previous".
+        zone_id:          Roon zone ID — obtain via list_zones.
+        action:           One of the actions listed above.
+        value:            For shuffle/repeat: control value (see above).
+        position_seconds: For seek: absolute position in seconds.
+        seek_offset:      For seek: relative offset in seconds (can be negative).
     """
+    body: dict = {"zone_id": zone_id, "action": action}
+    if value is not None:
+        body["value"] = value
+    if position_seconds is not None:
+        body["position_seconds"] = position_seconds
+    if seek_offset is not None:
+        body["seek_offset"] = seek_offset
+
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         try:
             response = await client.post(
                 f"{MEDIASAGE_URL}/api/roon/transport",
-                json={"zone_id": zone_id, "action": action},
+                json=body,
             )
             response.raise_for_status()
             data = response.json()
@@ -1019,6 +1095,186 @@ async def get_result_history(
             response = await client.get(
                 f"{MEDIASAGE_URL}/api/results",
                 params=params,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
+@mcp.tool()
+async def volume_control(
+    zone_name: str,
+    action: str,
+    value: Optional[int] = None,
+) -> str:
+    """Control volume for a Roon zone by display name.
+
+    Use this when the user says "zet het volume op ...", "volume omhoog", "dempen", etc.
+    Resolves zone name to the correct output internally. For grouped zones,
+    all outputs in the group are adjusted.
+
+    Actions:
+    - "set"         — Set volume to an absolute percentage (0–100). Requires value.
+    - "adjust"      — Change volume relatively (+N or -N). Requires value (e.g. 10 for +10, -5 for -5).
+    - "get"         — Return current volume and mute state (no change made).
+    - "mute"        — Mute the zone.
+    - "unmute"      — Unmute the zone.
+    - "toggle_mute" — Toggle mute/unmute.
+
+    Args:
+        zone_name: Zone display name (e.g. "Woonkamer"). Use list_zones to see available names.
+        action:    One of: set, adjust, get, mute, unmute, toggle_mute.
+        value:     Integer value for "set" (0–100) or "adjust" (relative, can be negative).
+    """
+    body: dict = {"zone_name": zone_name, "action": action}
+    if value is not None:
+        body["value"] = value
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            response = await client.post(
+                f"{MEDIASAGE_URL}/api/roon/volume",
+                json=body,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
+@mcp.tool()
+async def transfer_zone(from_zone: str, to_zone: str) -> str:
+    """Transfer the current playback queue from one Roon zone to another.
+
+    Use this when the user moves from one room to another and wants music to
+    follow them. The playback continues uninterrupted on the new zone.
+
+    Args:
+        from_zone: Source zone display name (e.g. "Woonkamer").
+        to_zone:   Target zone display name (e.g. "Slaapkamer").
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            response = await client.post(
+                f"{MEDIASAGE_URL}/api/roon/transfer",
+                json={"from_zone": from_zone, "to_zone": to_zone},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
+@mcp.tool()
+async def zone_grouping(
+    action: str,
+    zones: Optional[list[str]] = None,
+) -> str:
+    """Group, ungroup, or list Roon zone groups.
+
+    Use this to combine multiple rooms/speakers into one synchronized playback group,
+    or to split them apart again.
+
+    Actions:
+    - "group"        — Group two or more zones together. Requires zones list (≥2 names).
+                       Compatibility is checked first; an error is returned if zones
+                       cannot be grouped.
+    - "ungroup"      — Separate grouped zones. Requires zones list.
+    - "list_groups"  — Show all current grouped zones. No zones argument needed.
+
+    Args:
+        action: One of: group, ungroup, list_groups.
+        zones:  List of zone display names for group/ungroup (e.g. ["Woonkamer", "Keuken"]).
+    """
+    body: dict = {"action": action, "zones": zones or []}
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            response = await client.post(
+                f"{MEDIASAGE_URL}/api/roon/group",
+                json=body,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
+@mcp.tool()
+async def play_radio(station: str, zone_id: str) -> str:
+    """Play an internet radio station in a Roon zone.
+
+    Browses the "My Live Radio" list in Roon and starts the best-matching station.
+    Uses fuzzy matching so partial names work (e.g. "BBC 4" matches "BBC Radio 4").
+
+    Requirements: The zone must be configured in Roon and the station must appear
+    in your "My Live Radio" list in the Roon app.
+
+    Args:
+        station: Station name to search for, e.g. "BBC Radio 4", "KQED", "NPO Radio 1".
+        zone_id: Roon zone ID to play in — obtain via list_zones.
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            response = await client.post(
+                f"{MEDIASAGE_URL}/api/roon/radio",
+                json={"station": station, "zone_id": zone_id},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
+@mcp.tool()
+async def browse_playlists(
+    action: str,
+    playlist_name: Optional[str] = None,
+    zone_id: Optional[str] = None,
+) -> str:
+    """Browse or play Roon playlists (all playlists, not only MediaSage-generated ones).
+
+    This differs from get_result_history which only shows MediaSage-generated results.
+    This tool accesses ALL playlists in Roon: imported playlists, TIDAL/Qobuz playlists,
+    and any playlists you've saved in Roon.
+
+    Actions:
+    - "list" — Show all available Roon playlists (no zone needed).
+    - "play" — Play a playlist in a zone. Requires playlist_name and zone_id.
+               Uses fuzzy matching so partial names work.
+
+    Args:
+        action:        One of: list, play.
+        playlist_name: Playlist name to play (for "play" action). Partial name is fine.
+        zone_id:       Roon zone ID to play in (for "play" action) — obtain via list_zones.
+    """
+    body: dict = {
+        "action": action,
+        "playlist_name": playlist_name or "",
+        "zone_id": zone_id or "",
+    }
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            response = await client.post(
+                f"{MEDIASAGE_URL}/api/roon/playlists",
+                json=body,
             )
             response.raise_for_status()
             data = response.json()

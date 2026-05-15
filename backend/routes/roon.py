@@ -8,13 +8,23 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from backend.models import (
+    BrowsePlaylistsRequest,
+    BrowsePlaylistsResponse,
     PlayQueueRequest,
     PlayQueueResponse,
+    PlayRadioRequest,
+    PlayRadioResponse,
     QueueAppendRequest,
     QueueAppendResponse,
     RoonZoneInfo,
+    TransferZoneRequest,
+    TransferZoneResponse,
     TransportControlRequest,
     TransportControlResponse,
+    VolumeControlRequest,
+    VolumeControlResponse,
+    ZoneGroupingRequest,
+    ZoneGroupingResponse,
 )
 from backend.roon_client import get_roon_client
 from backend.routes.recommend import _get_art_proxy_client
@@ -105,19 +115,115 @@ async def get_album_art(item_key: str):
 
 @router.post("/roon/transport", response_model=TransportControlResponse)
 async def transport_control(request: TransportControlRequest) -> TransportControlResponse:
-    """Send a transport command (play/pause/stop/next/previous) to a Roon zone."""
+    """Send a transport command to a Roon zone.
+
+    Supports: play, pause, stop, next, previous, shuffle, repeat, seek.
+    """
     roon_client = get_roon_client()
     if not roon_client or not roon_client.is_connected():
-        raise HTTPException(status_code=503, detail="Roon not connected")
+        raise HTTPException(status_code=503, detail="Roon not connected. Retry after connection is established.")
 
     result = await asyncio.to_thread(
         roon_client.transport_control,
         request.zone_id,
         request.action,
+        request.value,
+        request.position_seconds,
+        request.seek_offset,
     )
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result.get("error", "Transport command failed"))
     return TransportControlResponse(**result)
+
+
+@router.post("/roon/volume", response_model=VolumeControlResponse)
+async def volume_control(request: VolumeControlRequest) -> VolumeControlResponse:
+    """Control volume for a Roon zone by display name.
+
+    Actions: set (0-100), adjust (+/-N), get, mute, unmute, toggle_mute.
+    """
+    roon_client = get_roon_client()
+    if not roon_client or not roon_client.is_connected():
+        raise HTTPException(status_code=503, detail="Roon not connected. Retry after connection is established.")
+
+    result = await asyncio.to_thread(
+        roon_client.volume_control,
+        request.zone_name,
+        request.action,
+        request.value,
+    )
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Volume control failed"))
+    return VolumeControlResponse(**result)
+
+
+@router.post("/roon/transfer", response_model=TransferZoneResponse)
+async def transfer_zone(request: TransferZoneRequest) -> TransferZoneResponse:
+    """Transfer playback from one Roon zone to another."""
+    roon_client = get_roon_client()
+    if not roon_client or not roon_client.is_connected():
+        raise HTTPException(status_code=503, detail="Roon not connected. Retry after connection is established.")
+
+    result = await asyncio.to_thread(
+        roon_client.transfer_zone,
+        request.from_zone,
+        request.to_zone,
+    )
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Zone transfer failed"))
+    return TransferZoneResponse(**result)
+
+
+@router.post("/roon/group", response_model=ZoneGroupingResponse)
+async def zone_grouping(request: ZoneGroupingRequest) -> ZoneGroupingResponse:
+    """Group, ungroup, or list zone groups."""
+    roon_client = get_roon_client()
+    if not roon_client or not roon_client.is_connected():
+        raise HTTPException(status_code=503, detail="Roon not connected. Retry after connection is established.")
+
+    result = await asyncio.to_thread(
+        roon_client.zone_grouping,
+        request.action,
+        request.zones,
+    )
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Zone grouping failed"))
+    return ZoneGroupingResponse(**result)
+
+
+@router.post("/roon/radio", response_model=PlayRadioResponse)
+async def play_radio(request: PlayRadioRequest) -> PlayRadioResponse:
+    """Play an internet radio station in a Roon zone (fuzzy-matched by name)."""
+    roon_client = get_roon_client()
+    if not roon_client or not roon_client.is_connected():
+        raise HTTPException(status_code=503, detail="Roon not connected. Retry after connection is established.")
+
+    result = await asyncio.to_thread(
+        roon_client.play_radio,
+        request.station,
+        request.zone_id,
+    )
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Play radio failed"))
+    return PlayRadioResponse(**result)
+
+
+@router.post("/roon/playlists", response_model=BrowsePlaylistsResponse)
+async def browse_playlists(request: BrowsePlaylistsRequest) -> BrowsePlaylistsResponse:
+    """Browse or play Roon playlists (all playlists, not just MediaSage-generated ones)."""
+    roon_client = get_roon_client()
+    if not roon_client or not roon_client.is_connected():
+        raise HTTPException(status_code=503, detail="Roon not connected. Retry after connection is established.")
+
+    result = await asyncio.to_thread(
+        roon_client.browse_playlists,
+        request.action,
+        request.playlist_name,
+        request.zone_id,
+    )
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Browse playlists failed"))
+    return BrowsePlaylistsResponse(**result)
 
 
 @router.get("/external-art")
