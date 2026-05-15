@@ -197,11 +197,11 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 | `filter_tracks` | `POST /api/library/filter` | Filter by genre, decade, live exclusion |
 | `get_artist_albums` | `GET /api/library/artist-albums` | All albums by artist from SQLite cache |
 | `sync_library` | `POST /api/library/sync` | Trigger background library sync |
-| `generate_playlist` | `POST /api/generate/stream` (SSE) | AI playlist from natural language prompt; auto-detects seed requests |
-| `seed_track_playlist` | `POST /api/generate/stream` (SSE) | "More like this" playlist from seed track; accepts `source_mode` + `qobuz_percentage` |
+| `generate_playlist` | `POST /api/generate/stream` (SSE) | AI playlist from natural language prompt; `source_mode` = library/hybrid/qobuz; `qobuz_percentage` for hybrid |
+| `seed_track_playlist` | `POST /api/generate/stream` (SSE) | "More like this" playlist from seed track; `source_mode` = library/hybrid/qobuz; `qobuz_percentage` for hybrid |
 | `analyze_prompt` | `POST /api/analyze/prompt` | Preview prompt → filter mapping |
-| `recommend_album` | `POST /api/recommend/questions` + `generate` | Quick album recommendation |
-| `recommend_album_interactive` | `POST /api/recommend/questions` + `generate` | 2-step Q&A album recommendation |
+| `recommend_album` | `POST /api/recommend/questions` + `generate` | Quick album recommendation; `mode="discovery"` suggests new albums, looked up on Qobuz for playback |
+| `recommend_album_interactive` | `POST /api/recommend/questions` + `generate` | 2-step Q&A album recommendation; `mode="discovery"` supports Qobuz playback |
 | `play_album` | `GET /api/library/search` + `POST /api/queue` | Search + play album in one step |
 | `list_zones` | `GET /api/roon/zones` | List active Roon zones |
 | `get_now_playing` | `GET /api/roon/zones` | Current playback state per zone |
@@ -219,13 +219,17 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 
 - **User mentions a SPECIFIC SONG** as inspiration → `search_library` first, then `seed_track_playlist`
 - **User describes a mood/genre/occasion** → `generate_playlist`
+- **User wants to discover new music via a seed song** → `seed_track_playlist` with source_mode="hybrid" or "qobuz"
+- **User wants a playlist mixing owned + new music** → `generate_playlist` or `seed_track_playlist` with source_mode="hybrid"
+- **User wants only new/unknown music** → `generate_playlist` or `seed_track_playlist` with source_mode="qobuz"
 - **User wants a specific album** → `play_album`
+- **User wants an album recommendation from their library** → `recommend_album` with mode="library"
+- **User wants to discover albums they don't own** → `recommend_album` with mode="discovery" (found albums are played via Qobuz)
 - **User wants internet radio** → `play_radio`
 - **User wants to control volume** → `volume_control`
 - **User moves rooms** → `transfer_zone`
 - **User wants to sync multiple rooms** → `zone_grouping`
 - **User wants shuffle/repeat** → `transport_control` with action="shuffle"/"repeat"
-- **User wants new/unknown music** → `search_qobuz` or `generate_playlist`/`seed_track_playlist` with source_mode="hybrid"
 - **Library search returns nothing** → try `search_qobuz` as fallback
 
 ### Playlist Generation Output Format (v2)
@@ -238,3 +242,11 @@ Both `generate_playlist` and `seed_track_playlist` now return:
 - `note_live` — confirms live track exclusion status
 - `extra_item_keys` — if AI generated more than requested, surplus keys for `queue_tracks`
 - `live_excluded` — boolean flag
+
+Qobuz tracks have `source="qobuz"` on the Track model; library tracks have `source="library"`.
+
+### Album Recommendation Output (discovery mode)
+
+In `mode="discovery"`, recommended albums are searched on Qobuz after selection:
+- `playable=True` + `source="qobuz"` — album found on Qobuz; `track_rating_keys` contains Qobuz item keys usable with `play_tracks` / `queue_tracks`
+- `playable=False` — album not found on Qobuz; display only, cannot be played
