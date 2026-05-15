@@ -16,122 +16,125 @@ RoonSage is a self-hosted web app that connects to your Roon Core as an Extensio
 This is the primary way to use RoonSage. A full MCP server gives Claude Desktop **26 tools** to interact with your library and Roon — and Claude does all the curation work itself, using its own musical judgment. No separate API key, no per-token costs — just your existing Claude Pro subscription.
 
 ```
-"Maak een playlist voor een late vrijdagavond, iets melancholisch maar niet depressief."
-"Meer zoals wat er nu speelt, maar wat energieker."
-"Zoek een jazzalbum dat ik nog niet ken en speel het af."
-"Geef me alles van Nick Cave dat ik bezit."
-"Zet shuffle aan en volume op 40%."
-"Groepeer woonkamer en keuken."
+"Make a playlist for a late Friday evening, something melancholic but not depressing."
+"More like what's playing now, but a bit more energetic."
+"Find a jazz album I don't know yet and play it."
+"Give me everything by Nick Cave that I own."
+"Turn on shuffle and set volume to 40%."
+"Group the living room and kitchen."
+
+(Dutch / "Maak een playlist voor een late vrijdagavond, iets melancholisch maar niet depressief.")
+(Dutch / "Meer zoals wat er nu speelt, maar wat energieker.")
 ```
 
-### Hoe Claude curates
+### How Claude curates
 
-Claude handelt **alle** playlist-, seed- en aanbevelingsflows zelf af. De backend levert data en Roon-connectiviteit; Claude doet het denkwerk.
+Claude handles **all** playlist, seed, and recommendation flows itself. The backend provides data and Roon connectivity; Claude does the thinking.
 
-**Drie flows:**
+**Three flows:**
 
-| Flow | Wat de gebruiker zegt | Hoe Claude het aanpakt |
-|------|-----------------------|------------------------|
-| **Prompt-playlist** | "Maak een playlist van mellow 90s electronic" | `get_library_stats` → `filter_tracks(compact)` → curate zelf → `curate_and_play` |
-| **Seed-playlist** | "Meer zoals Portishead – Glory Box" | `search_library` → analyse → `filter_tracks(compact)` → curate → `curate_and_play` |
-| **Albumaanbeveling** | "Aanbeveel me een album voor zondagochtend" | `filter_tracks` of `get_artist_albums` → kies album → editorial pitch → `play_album` |
+| Flow | What the user says | How Claude handles it |
+|------|--------------------|-----------------------|
+| **Prompt playlist** | "Make a playlist of mellow 90s electronic" | `get_library_stats` → `filter_tracks(compact)` → curate → `curate_and_play` |
+| **Seed playlist** | "More like Portishead – Glory Box" | `search_library` → analysis → `filter_tracks(compact)` → curate → `curate_and_play` |
+| **Album recommendation** | "Recommend me an album for Sunday morning" | `filter_tracks` or `get_artist_albums` → pick album → editorial pitch → `play_album` |
 
-**Drie bronmodi — Claude detecteert of vraagt:**
+**Three source modes — Claude detects or asks:**
 
-| Bron | Wanneer | Aanpak |
-|------|---------|--------|
-| **Bibliotheek** | "uit mijn collectie", "wat ik heb" | `filter_tracks(compact)` → curate → `curate_and_play` |
-| **Hybrid** | "mix van eigen + nieuw", "aangevuld met ontdekkingen" | `filter_tracks(compact)` + `search_qobuz` → meng → `play_tracks` |
-| **Qobuz** | "iets nieuws", "verrass me", "ken ik nog niet" | meerdere `search_qobuz` calls → curate → `play_tracks` |
+| Source | When | Approach |
+|--------|------|----------|
+| **Library** | "from my collection", "what I own" | `filter_tracks(compact)` → curate → `curate_and_play` |
+| **Hybrid** | "mix of mine + new", "supplemented with discoveries" | `filter_tracks(compact)` + `search_qobuz` → blend → `play_tracks` |
+| **Qobuz** | "something new", "surprise me", "I don't know yet" | multiple `search_qobuz` calls → curate → `play_tracks` |
 
-Bij twijfel vraagt Claude welke bron je wilt.
+When in doubt, Claude asks which source you want.
 
 ### Setup
 
-De MCP server draait lokaal op je Mac/PC — niet in Docker. RoonSage zelf (Docker of bare metal) moet al draaien voordat Claude Desktop er verbinding mee maakt.
+The MCP server runs locally on your Mac/PC — not in Docker. RoonSage itself (Docker or bare metal) must already be running before Claude Desktop connects to it.
 
 ```bash
-# 1. Installeer de MCP dependency (eenmalig per machine)
+# 1. Install the MCP dependency (once per machine)
 pip3 install "mcp[cli]"
 
-# 2. Configureer Claude Desktop automatisch
+# 2. Configure Claude Desktop automatically
 python3 scripts/install_mcp.py
 
-# 3. Herstart Claude Desktop
+# 3. Restart Claude Desktop
 ```
 
-Als RoonSage op een ander adres draait, stel dan `ROONSAGE_URL` in vóór het starten van Claude Desktop (standaard: `http://localhost:5765`).
+If RoonSage runs at a different address, set `ROONSAGE_URL` before starting Claude Desktop (default: `http://localhost:5765`).
 
-**Handmatige configuratie** — voeg toe aan `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) of `~/.config/claude/claude_desktop_config.json` (Linux):
+**Manual configuration** — add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/claude/claude_desktop_config.json` (Linux):
 
 ```json
 {
   "mcpServers": {
     "roonsage": {
       "command": "python",
-      "args": ["/volledig/pad/naar/roonsage/mcp_server.py"]
+      "args": ["/full/path/to/roonsage/mcp_server.py"]
     }
   }
 }
 ```
 
-### Welk Claude-model kiezen?
+### Which Claude model to use?
 
-| Model | Geschikt voor |
-|-------|--------------|
-| **Claude Sonnet 4.6** | Dagelijks gebruik — snel, nauwkeurig |
-| **Claude Opus 4.6** | Abstracte prompts, deep discovery, multi-turn verfijning |
-| **Claude Haiku 4.5** | Snelle, eenvoudige verzoeken |
+| Model | Best for |
+|-------|----------|
+| **Claude Sonnet 4.6** | Daily use — fast, accurate |
+| **Claude Opus 4.6** | Abstract prompts, deep discovery, multi-turn refinement |
+| **Claude Haiku 4.5** | Quick, simple requests |
 
-Begin met Sonnet. Schakel over naar Opus voor prompts als "iets dat aanvoelt als rijden in de regen 's nachts."
+Start with Sonnet. Switch to Opus for prompts like "something that feels like driving in the rain at night."
 
-### Beschikbare tools (26)
+### Available tools (26)
 
 **Library**
 
-| Tool | Wat het doet |
+| Tool | What it does |
 |------|-------------|
-| `get_library_stats` | Genre-, decade- en totaaloverzicht uit de cache |
-| `get_library_status` | Cache-versheid; `needs_resync` vlag |
-| `search_library` | Zoek op track-, artiest- of albumnaam |
-| `search_qobuz` | Zoek in de Qobuz-catalogus via Roon; resultaten zijn direct afspeelbaar |
-| `filter_tracks` | Filter op genre, decade, live-uitsluiting. `output_format="compact"` geeft een genummerde lijst + `session_id`. `"ultra"` geeft alleen artiest — titel per regel. `"json"` geeft volledige metadata. Ondersteunt `artist_limit` en `exclude_keywords`. |
-| `get_artist_albums` | Alle albums van een artiest uit de SQLite cache |
-| `sync_library` | Start een achtergrond-library sync vanuit Roon |
+| `get_library_stats` | Genre, decade, and total overview from the cache |
+| `get_library_status` | Cache freshness; `needs_resync` flag |
+| `search_library` | Search by track, artist, or album name |
+| `search_qobuz` | Search the Qobuz catalogue via Roon; results are directly playable |
+| `filter_tracks` | Filter by genre, decade, live exclusion. `output_format="compact"` returns a numbered list + `session_id`. `"ultra"` returns only artist — title per line. `"json"` returns full metadata. Supports `artist_limit` and `exclude_keywords`. |
+| `get_artist_albums` | All albums by an artist from the SQLite cache |
+| `sync_library` | Trigger a background library sync from Roon |
 
-**Playlist curatie & generatie**
+**Playlist curation & generation**
 
-| Tool | Wat het doet |
+| Tool | What it does |
 |------|-------------|
-| `curate_and_play` | Speelt een selectie af die Claude koos uit `filter_tracks` compact output — vertaalt tracknummers via `session_id` naar Roon item_keys en start afspelen |
-| `validate_playlist` | Controleer een track-selectie op duplicaten, clustering en overrepresentatie vóór afspelen |
-| `generate_playlist` | Natuurlijke taal → playlist via de backend pipeline (library/hybrid/qobuz). Fallback wanneer de context te groot is of op expliciet verzoek. |
-| `seed_track_playlist` | "Meer zoals dit" — playlist op basis van een seed-track via backend pipeline (fallback) |
-| `analyze_prompt` | Preview hoe een prompt vertaald wordt naar genre/decade-filters |
-| `recommend_album` | Snelle AI-albumaanbeveling (library of discovery mode) — fallback |
-| `recommend_album_interactive` | 2-staps Q&A voor gepersonaliseerde picks — fallback |
+| `curate_and_play` | Plays a selection Claude chose from `filter_tracks` compact output — translates track numbers via `session_id` to Roon item_keys and starts playback |
+| `validate_playlist` | Check a track selection for duplicates, clustering, and overrepresentation before playing |
+| `generate_playlist` | Natural language → playlist via backend pipeline (library/hybrid/qobuz). Fallback when context is too large or explicitly requested. |
+| `seed_track_playlist` | "More like this" — playlist from a seed track via backend pipeline (fallback) |
+| `analyze_prompt` | Preview how a prompt is translated into genre/decade filters |
+| `recommend_album` | Quick AI album recommendation (library or discovery mode) — fallback |
+| `recommend_album_interactive` | 2-step Q&A for personalised picks — fallback |
 
-**Afspelen**
+**Playback**
 
-| Tool | Wat het doet |
+| Tool | What it does |
 |------|-------------|
-| `play_album` | Zoek en speel een album in één stap |
-| `play_radio` | Speel een internetradiostation op naam |
-| `browse_playlists` | Toon of speel alle Roon-afspeellijsten |
-| `list_zones` | Lijst van actieve Roon-zones |
-| `get_now_playing` | Huidige afspeelstatus per zone |
-| `play_tracks` | Stuur tracks naar een zone (vervangt wachtrij) |
-| `queue_tracks` | Voeg tracks toe aan de wachtrij |
+| `play_album` | Search and play an album in one step |
+| `play_radio` | Play an internet radio station by name |
+| `browse_playlists` | List or play all Roon playlists |
+| `list_zones` | List active Roon zones |
+| `get_now_playing` | Current playback state per zone |
+| `play_tracks` | Send tracks to a zone (replaces queue) |
+| `queue_tracks` | Append tracks to the zone queue |
 
-**Transport & zone-beheer**
+**Transport & zone management**
 
-| Tool | Wat het doet |
+| Tool | What it does |
 |------|-------------|
-| `transport_control` | Play, pause, stop, volgende, vorige, shuffle, repeat, seek |
-| `volume_control` | Volume instellen, aanpassen, dempen of opvragen per zone |
-| `transfer_zone` | Verplaats afspelen van de ene naar de andere zone |
-| `zone_grouping` | Zones groeperen of loskoppelen voor gesynchroniseerd afspelen |
-| `get_result_history` | Eerder gegenereerde playlists en aanbevelingen |
+| `transport_control` | Play, pause, stop, next, previous, shuffle, repeat, seek |
+| `volume_control` | Set, adjust, mute, or query volume per zone |
+| `transfer_zone` | Move playback from one zone to another |
+| `zone_grouping` | Group or ungroup zones for synchronised playback |
+| `get_result_history` | Previously generated playlists and recommendations |
 
 ---
 
@@ -148,145 +151,145 @@ docker run -d \
   ghcr.io/Georgemvp/roonsage:latest
 ```
 
-Open **http://localhost:5765** — een setup-wizard begeleidt je bij het verbinden met Roon, het kiezen van een AI-provider en het synchroniseren van je bibliotheek.
+Open **http://localhost:5765** — a setup wizard guides you through connecting to Roon, choosing an AI provider, and syncing your library.
 
-**Autoriseer in Roon:** Settings → Extensions → vind **RoonSage** → Enable.
+**Authorise in Roon:** Settings → Extensions → find **RoonSage** → Enable.
 
-> **Gratis optie:** Google Gemini heeft een gratis API-tier die voldoet voor persoonlijk gebruik. Geen creditcard nodig. Zie [`docs/gemini-free-credit-guide.md`](docs/gemini-free-credit-guide.md).
+> **Free option:** Google Gemini has a free API tier that is sufficient for personal use. No credit card required. See [`docs/gemini-free-credit-guide.md`](docs/gemini-free-credit-guide.md).
 
 ---
 
 ## Web UI
 
-De web-interface werkt zonder Claude Desktop en biedt dezelfde playlist- en aanbevelingsfuncties via een standaard browserformulier.
+The web interface works without Claude Desktop and offers the same playlist and recommendation features through a standard browser form.
 
 ![Home screen](docs/images/screenshot-home.png)
 
-**Playlist van prompt** — beschrijf een sfeer in natuurlijke taal. RoonSage analyseert je prompt, vertaalt het naar genre/decade-filters, stuurt de gefilterde tracks naar de LLM en geeft een afspeelbare playlist terug. Werkt met bibliotheken van 50.000+ tracks.
+**Playlist from prompt** — describe a mood in natural language. RoonSage analyses your prompt, translates it into genre/decade filters, sends the filtered tracks to the LLM, and returns a playable playlist. Works with libraries of 50,000+ tracks.
 
-**Playlist van seed** — kies een nummer, selecteer muzikale dimensies (sfeer, tijdperk, instrumentatie, productiestijl) en krijg een playlist die die kwaliteiten verkent.
+**Playlist from seed** — choose a track, select musical dimensions (mood, era, instrumentation, production style), and get a playlist that explores those qualities.
 
-**Verfijnen & itereren** — gebruik de Refine-knop op elk resultaat om bij te sturen zonder opnieuw te beginnen. "Donkerder", "meer jaren 80", "minder jazz" — de LLM ziet de originele prompt plus je notities.
+**Refine & iterate** — use the Refine button on any result to adjust without starting over. "Darker", "more 80s", "less jazz" — the LLM sees the original prompt plus your notes.
 
-**Albumaanbevelingen** — beschrijf een moment of stemming, beantwoord twee snelle vragen en krijg één albumaanbeveling met een editorial pitch. Library mode beveelt albums aan die je bezit; Discovery mode vindt albums die je nog niet hebt (gezocht op Qobuz).
+**Album recommendations** — describe a moment or mood, answer two quick questions, and get one album recommendation with an editorial pitch. Library mode recommends albums you own; Discovery mode finds albums you don't have yet (searched on Qobuz).
 
-**Qobuz-integratie** — drie bronmodi: Alleen mijn bibliotheek, Mix (bibliotheek + Qobuz-ontdekkingen), en Qobuz Discovery (alleen nieuwe muziek). Automatisch gedetecteerd als Qobuz geconfigureerd is in Roon.
+**Qobuz integration** — three source modes: Library only, Mix (library + Qobuz discoveries), and Qobuz Discovery (new music only). Automatically detected when Qobuz is configured in Roon.
 
-**Slim filteren** — filter op genre, decade en live-uitsluiting vóór de LLM iets ziet. Realtime trackaantallen tonen precies hoe je keuzes de pool verkleinen. Geschatte tokenkosten worden getoond vóór je genereert.
+**Smart filtering** — filter by genre, decade, and live exclusion before the LLM sees anything. Real-time track counts show exactly how your choices narrow the pool. Estimated token costs are shown before you generate.
 
-**Tijdsbewuste context** — de huidige dag en het uur worden als subtiele stemmingshints meegestuurd in generatieprompts. Vrijdagavond-picks verschillen van dinsdagochtend.
+**Time-aware context** — the current day and hour are sent as subtle mood hints in generation prompts. Friday evening picks differ from Tuesday morning.
 
 ![Album recommendation](docs/images/screenshot-album.png)
 
 ---
 
-## Hoe het werkt
+## How it works
 
-RoonSage gebruikt een filter-first architectuur voor grote bibliotheken. De LLM ziet nooit je hele bibliotheek — alleen een gefilterd, behapbaar deel.
+RoonSage uses a filter-first architecture for large libraries. The LLM never sees your entire library — only a filtered, manageable subset.
 
-Er zijn twee paden, afhankelijk van hoe je RoonSage gebruikt:
+There are two paths depending on how you use RoonSage:
 
-### Pad A — Claude Desktop (native curatie, snel)
+### Path A — Claude Desktop (native curation, fast)
 
-Claude curates de playlist zelf op basis van eigen muzikale kennis. Geen backend LLM-call.
+Claude curates the playlist itself using its own musical knowledge. No backend LLM call.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  1. ANALYSEER (Claude)                                           │
-│     Claude interpreteert je prompt — mood, genre, era, tempo     │
-│     Detecteert ook gewenste bron: library / hybrid / qobuz       │
+│  1. ANALYSE (Claude)                                             │
+│     Claude interprets your prompt — mood, genre, era, tempo      │
+│     Also detects desired source: library / hybrid / qobuz        │
 ├─────────────────────────────────────────────────────────────────┤
-│  2. STATS (optioneel, bij library/hybrid)                        │
-│     get_library_stats → Claude ziet welke genres/decades bestaan │
+│  2. STATS (optional, for library/hybrid)                         │
+│     get_library_stats → Claude sees which genres/decades exist   │
 ├─────────────────────────────────────────────────────────────────┤
-│  3. FILTER & ZOEK                                                │
-│     Library/hybrid: filter_tracks(compact) → genummerde lijst    │
-│     + key_map met maximaal 500 tracks                            │
-│     Hybrid/qobuz: search_qobuz voor Qobuz-tracks                │
+│  3. FILTER & SEARCH                                              │
+│     Library/hybrid: filter_tracks(compact) → numbered list       │
+│     + key_map with up to 500 tracks                              │
+│     Hybrid/qobuz: search_qobuz for Qobuz tracks                 │
 ├─────────────────────────────────────────────────────────────────┤
-│  4. CUREER (Claude)                                              │
-│     Claude kiest de beste 15–50 tracks op basis van muzikale     │
-│     kennis: diversiteit, flow, geen clustering, juiste sfeer     │
-│     Bij hybrid: library- en Qobuz-tracks gemengd door de lijst   │
+│  4. CURATE (Claude)                                              │
+│     Claude picks the best 15–50 tracks using musical             │
+│     knowledge: diversity, flow, no clustering, right mood        │
+│     For hybrid: library and Qobuz tracks blended through list    │
 ├─────────────────────────────────────────────────────────────────┤
-│  5. SPEEL AF                                                     │
-│     curate_and_play of play_tracks → item_keys naar Roon-zone    │
-│     Directe afspeling in elke Roon-client                        │
+│  5. PLAY                                                         │
+│     curate_and_play or play_tracks → item_keys to Roon zone      │
+│     Direct playback in any Roon client                           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Pad B — Web UI en fallback (backend pipeline)
+### Path B — Web UI and fallback (backend pipeline)
 
-Gebruikt door de web-interface en door Claude Desktop als de gefilterde pool te groot is of de gebruiker expliciet "automatisch" vraagt.
+Used by the web interface and by Claude Desktop when the filtered pool is too large or the user explicitly asks for "automatic".
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  1. ANALYSEER                                                    │
-│     LLM interpreteert prompt → stelt genre/decade-filters voor   │
+│  1. ANALYSE                                                      │
+│     LLM interprets prompt → suggests genre/decade filters        │
 ├─────────────────────────────────────────────────────────────────┤
 │  2. FILTER                                                       │
-│     Bibliotheek ingeperkt via SQLite                             │
-│     "90s Alternative" → 2.000 tracks                             │
+│     Library narrowed via SQLite                                  │
+│     "90s Alternative" → 2,000 tracks                             │
 ├─────────────────────────────────────────────────────────────────┤
-│  3. STEEKPROEF (alleen bij grote bibliotheken)                   │
-│     Te groot voor contextvenster → willekeurige steekproef       │
+│  3. SAMPLE (large libraries only)                                │
+│     Too large for context window → random sample                 │
 ├─────────────────────────────────────────────────────────────────┤
-│  4. GENEREER                                                     │
-│     Gefilterde lijst + prompt naar LLM                           │
-│     LLM selecteert beste tracks op tracknummer                   │
+│  4. GENERATE                                                     │
+│     Filtered list + prompt sent to LLM                           │
+│     LLM selects best tracks by track number                      │
 ├─────────────────────────────────────────────────────────────────┤
 │  5. MATCH                                                        │
-│     Tracknummer → O(1) opzoeken in SQLite-cache                  │
-│     Fallback naar fuzzy matching (rapidfuzz) indien nodig        │
+│     Track number → O(1) lookup in SQLite cache                   │
+│     Fallback to fuzzy matching (rapidfuzz) if needed             │
 ├─────────────────────────────────────────────────────────────────┤
-│  6. SPEEL AF                                                     │
-│     Tracks naar Roon-zone via Browse API                         │
+│  6. PLAY                                                         │
+│     Tracks sent to Roon zone via Browse API                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-Library-data wordt eenmalig gesynchroniseerd naar SQLite via de Roon Browse API (`browse_browse` / `browse_load`). Alle vervolgqueries lezen uit de lokale cache — geen Roon API-calls nodig tijdens generatie.
+Library data is synced once to SQLite via the Roon Browse API (`browse_browse` / `browse_load`). All subsequent queries read from the local cache — no Roon API calls needed during generation.
 
 ---
 
-## Installatie
+## Installation
 
 ### Docker Compose
 
 ```bash
 mkdir roonsage && cd roonsage
 curl -O https://raw.githubusercontent.com/Georgemvp/roonsage/main/docker-compose.yml
-# bewerk docker-compose.yml: stel ROON_HOST en een API-sleutel in
+# edit docker-compose.yml: set ROON_HOST and an API key
 docker compose up -d
 ```
 
-### NAS-platforms
+### NAS platforms
 
 <details>
 <summary><strong>Synology (Container Manager)</strong></summary>
 
-**GUI:** Container Manager → Registry → zoek `ghcr.io/Georgemvp/roonsage` → Download `latest` → Container aanmaken → Poort 5765:5765 → voeg `ROON_HOST` en API-sleutel toe.
+**GUI:** Container Manager → Registry → search `ghcr.io/Georgemvp/roonsage` → Download `latest` → Create container → Port 5765:5765 → add `ROON_HOST` and API key.
 
 **Docker Compose:**
 ```bash
 mkdir -p /volume1/docker/roonsage && cd /volume1/docker/roonsage
 curl -O https://raw.githubusercontent.com/Georgemvp/roonsage/main/docker-compose.yml
-nano docker-compose.yml  # stel ROON_HOST en API-sleutel in
+nano docker-compose.yml  # set ROON_HOST and API key
 ```
-Daarna Container Manager → Project → Create, wijs naar `/volume1/docker/roonsage`.
+Then Container Manager → Project → Create, point to `/volume1/docker/roonsage`.
 
-ARM-gebaseerde Synology-units zonder Docker: gebruik [Bare Metal](#bare-metal) hieronder.
+ARM-based Synology units without Docker: use [Bare Metal](#bare-metal) below.
 </details>
 
 <details>
 <summary><strong>Unraid</strong></summary>
 
-Docker → Add Container → Repository: `ghcr.io/Georgemvp/roonsage:latest` → Poort 5765:5765 → voeg `ROON_HOST` en API-sleutel toe.
+Docker → Add Container → Repository: `ghcr.io/Georgemvp/roonsage:latest` → Port 5765:5765 → add `ROON_HOST` and API key.
 </details>
 
 <details>
 <summary><strong>TrueNAS SCALE</strong></summary>
 
-Apps → Discover Apps → Custom App → Image `ghcr.io/Georgemvp/roonsage`, tag `latest` → Poort 5765 → voeg omgevingsvariabelen toe.
+Apps → Discover Apps → Custom App → Image `ghcr.io/Georgemvp/roonsage`, tag `latest` → Port 5765 → add environment variables.
 </details>
 
 <details>
@@ -348,27 +351,27 @@ sudo systemctl enable roonsage && sudo systemctl start roonsage
 
 ---
 
-## Configuratie
+## Configuration
 
-### Omgevingsvariabelen
+### Environment variables
 
-| Variabele | Verplicht | Standaard | Beschrijving |
-|-----------|-----------|-----------|-------------|
-| `ROON_HOST` | Ja | — | IP of hostnaam van je Roon Core |
-| `ROON_PORT` | Nee | `9330` | Roon Core-poort |
-| `ROON_CORE_ID` | Nee | auto | Opgeslagen na eerste autorisatie |
-| `ROON_TOKEN` | Nee | auto | Opgeslagen na eerste autorisatie |
-| `GEMINI_API_KEY` | Een van drie | — | Google Gemini (heeft gratis tier) |
-| `ANTHROPIC_API_KEY` | Een van drie | — | Anthropic Claude |
-| `OPENAI_API_KEY` | Een van drie | — | OpenAI GPT |
-| `LLM_PROVIDER` | Nee | auto-detect | Forceer: `gemini`, `anthropic`, `openai`, `ollama`, `custom` |
-| `OLLAMA_URL` | Nee | `http://localhost:11434` | Ollama server URL |
-| `CUSTOM_LLM_URL` | Nee | — | OpenAI-compatibele API base URL |
-| `CUSTOM_CONTEXT_WINDOW` | Nee | `32768` | Contextvenster voor custom provider |
-| `ROONSAGE_PASSWORD` | Nee | — | Schakel HTTP Basic Auth in op alle endpoints |
-| `ROONSAGE_URL` | Nee | `http://localhost:5765` | Adres waarop de MCP server RoonSage bereikt |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ROON_HOST` | Yes | — | IP or hostname of your Roon Core |
+| `ROON_PORT` | No | `9330` | Roon Core port |
+| `ROON_CORE_ID` | No | auto | Saved after first authorisation |
+| `ROON_TOKEN` | No | auto | Saved after first authorisation |
+| `GEMINI_API_KEY` | One of three | — | Google Gemini (has free tier) |
+| `ANTHROPIC_API_KEY` | One of three | — | Anthropic Claude |
+| `OPENAI_API_KEY` | One of three | — | OpenAI GPT |
+| `LLM_PROVIDER` | No | auto-detect | Force: `gemini`, `anthropic`, `openai`, `ollama`, `custom` |
+| `OLLAMA_URL` | No | `http://localhost:11434` | Ollama server URL |
+| `CUSTOM_LLM_URL` | No | — | OpenAI-compatible API base URL |
+| `CUSTOM_CONTEXT_WINDOW` | No | `32768` | Context window for custom provider |
+| `ROONSAGE_PASSWORD` | No | — | Enable HTTP Basic Auth on all endpoints |
+| `ROONSAGE_URL` | No | `http://localhost:5765` | Address at which the MCP server reaches RoonSage |
 
-Instellingen kunnen ook via de web-UI worden aangepast (Instellingen-pagina). UI-opgeslagen instellingen gaan naar `data/config.user.yaml`. Omgevingsvariabelen hebben altijd voorrang.
+Settings can also be adjusted via the web UI (Settings page). UI-saved settings go to `data/config.user.yaml`. Environment variables always take precedence.
 
 ### config.yaml
 
@@ -381,25 +384,25 @@ llm:
   provider: "gemini"
   model_analysis: "gemini-2.5-flash"
   model_generation: "gemini-2.5-flash"
-  smart_generation: false  # true = analysemodel ook voor generatie (hogere kwaliteit, ~3–5× kosten)
+  smart_generation: false  # true = use analysis model for generation too (higher quality, ~3–5× cost)
 
 defaults:
   track_count: 25
 ```
 
-### Modelkeuze voor de Web UI
+### Model choice for the Web UI
 
-De Web UI gebruikt een twee-model strategie: een slimmer model voor prompt-analyse, een goedkoper model voor track-selectie.
+The Web UI uses a two-model strategy: a smarter model for prompt analysis, a cheaper model for track selection.
 
-| Rol | Anthropic | OpenAI | Gemini |
-|-----|-----------|--------|--------|
-| Analyse | `claude-sonnet-4-5` | `gpt-4.1` | `gemini-2.5-flash` |
-| Generatie | `claude-haiku-4-5` | `gpt-4.1-mini` | `gemini-2.5-flash` |
-| Max tracks naar AI | ~3.500 | ~2.300 | **~18.000** |
+| Role | Anthropic | OpenAI | Gemini |
+|------|-----------|--------|--------|
+| Analysis | `claude-sonnet-4-5` | `gpt-4.1` | `gemini-2.5-flash` |
+| Generation | `claude-haiku-4-5` | `gpt-4.1-mini` | `gemini-2.5-flash` |
+| Max tracks to AI | ~3,500 | ~2,300 | **~18,000** |
 
-Gemini's contextvenster van 1M tokens maakt het mogelijk om veel meer tracks naar het model te sturen, wat de variëteit verbetert bij grote bibliotheken.
+Gemini's 1M token context window allows sending far more tracks to the model, improving variety with large libraries.
 
-### Lokale LLM (experimenteel)
+### Local LLM (experimental)
 
 <details>
 <summary><strong>Ollama</strong></summary>
@@ -413,13 +416,13 @@ LLM_PROVIDER=ollama
 OLLAMA_URL=http://localhost:11434
 ```
 
-Selecteer je model in de Instellingen — het contextvenster wordt automatisch gedetecteerd. Modellen met 8K+ context werken het best (`llama3:8b`, `qwen3:8b`, `mistral`).
+Select your model in Settings — the context window is detected automatically. Models with 8K+ context work best (`llama3:8b`, `qwen3:8b`, `mistral`).
 </details>
 
 <details>
-<summary><strong>Custom OpenAI-compatibele API</strong></summary>
+<summary><strong>Custom OpenAI-compatible API</strong></summary>
 
-Voor LM Studio, text-generation-webui, vLLM of vergelijkbaar:
+For LM Studio, text-generation-webui, vLLM, or similar:
 
 ```bash
 LLM_PROVIDER=custom
@@ -427,22 +430,22 @@ CUSTOM_LLM_URL=http://localhost:5000/v1
 CUSTOM_CONTEXT_WINDOW=32768
 ```
 
-Stel modelnaam en API-sleutel (indien vereist) in via de Instellingen.
+Set the model name and API key (if required) via Settings.
 </details>
 
 ---
 
-## Beveiliging
+## Security
 
-RoonSage is ontworpen voor thuisnetwerk-gebruik. Zonder `ROONSAGE_PASSWORD` heeft iedereen op je netwerk toegang tot de web-UI.
+RoonSage is designed for home network use. Without `ROONSAGE_PASSWORD`, anyone on your network has access to the web UI.
 
-`ROONSAGE_PASSWORD` schakelt HTTP Basic Auth in op alle endpoints. Health check (`/api/health`) en de art-proxy zijn hiervan vrijgesteld, zodat Docker-health checks en albumafbeeldingen blijven werken zonder credentials.
+`ROONSAGE_PASSWORD` enables HTTP Basic Auth on all endpoints. The health check (`/api/health`) and the art proxy are exempt, so Docker health checks and album art continue to work without credentials.
 
-LLM-powered endpoints hebben een rate limit van 30 verzoeken per uur per IP. API-sleutels worden opgeslagen in `data/config.user.yaml` (rechten 600) en worden nooit blootgesteld via de API.
+LLM-powered endpoints are rate-limited to 30 requests per hour per IP. API keys are stored in `data/config.user.yaml` (permissions 600) and are never exposed via the API.
 
 ---
 
-## Ontwikkeling
+## Development
 
 ```bash
 git clone https://github.com/Georgemvp/roonsage.git
@@ -454,59 +457,59 @@ uvicorn backend.main:app --reload --port 5765
 ```
 
 ```bash
-pytest tests/ -v   # tests uitvoeren
+pytest tests/ -v   # run tests
 ruff check .       # linting
 ```
 
-**Stack:** Python 3.11+, FastAPI, python-roonapi, anthropic / openai / google-genai SDK's, rapidfuzz, SQLite, vanilla HTML/CSS/JS.
+**Stack:** Python 3.11+, FastAPI, python-roonapi, anthropic / openai / google-genai SDKs, rapidfuzz, SQLite, vanilla HTML/CSS/JS.
 
 ---
 
 ## API Reference
 
-Interactieve docs op `/docs` wanneer de server draait.
+Interactive docs at `/docs` when the server is running.
 
-| Endpoint | Methode | Beschrijving |
-|----------|---------|-------------|
+| Endpoint | Method | Description |
+|----------|--------|-------------|
 | `/api/health` | GET | Health check |
-| `/api/config` | GET/POST | Configuratie ophalen of aanpassen |
-| `/api/setup/status` | GET | Status van de onboarding-checklist |
-| `/api/setup/validate-roon` | POST | Roon Core-verbinding valideren |
-| `/api/setup/validate-ai` | POST | AI-provider-credentials valideren |
-| `/api/library/stats/cached` | GET | Genre/decade/totaal uit SQLite |
-| `/api/library/status` | GET | Cache-status, trackcount, needs_resync |
-| `/api/library/sync` | POST | Achtergrond library sync starten |
-| `/api/library/search` | GET | Zoeken op track/artiest/album |
-| `/api/library/artist-albums` | GET | Alle albums van artiest uit cache |
-| `/api/library/filter` | POST | Filter op genre/decade/live-uitsluiting |
-| `/api/library/filter/session` | POST | Server-side key_map opslaan voor curate_and_play |
-| `/api/library/filter/curate` | POST | Gecureerde track-selectie afspelen via session_id + track-nummers |
-| `/api/library/filter/validate` | POST | Track-selectie valideren op kwaliteitsproblemen |
-| `/api/analyze/prompt` | POST | Prompt analyseren → filter-mapping |
-| `/api/generate/stream` | POST | Playlist generatie streamen (SSE) |
-| `/api/roon/zones` | GET | Actieve Roon-zones ophalen |
-| `/api/roon/transport` | POST | play/pause/stop/volgende/vorige/shuffle/repeat/seek |
-| `/api/roon/volume` | POST | Volume instellen/aanpassen/dempen/opvragen |
-| `/api/roon/transfer` | POST | Afspelen verplaatsen naar andere zone |
-| `/api/roon/group` | POST | Zones groeperen of loskoppelen |
-| `/api/roon/radio` | POST | Internetradiostation afspelen |
-| `/api/roon/playlists` | POST | Roon-afspeellijsten tonen of afspelen |
-| `/api/roon/qobuz-search` | POST | Qobuz-catalogus doorzoeken via Roon |
-| `/api/queue` | POST | Tracks naar een Roon-zone sturen |
-| `/api/queue/append` | POST | Tracks toevoegen aan een zone-wachtrij |
-| `/api/recommend/questions` | POST | Verhelderende vragen genereren |
-| `/api/recommend/generate` | POST | Albumaanbevelingen genereren |
-| `/api/results` | GET | Resultatenhistorie ophalen |
-| `/api/art/{item_key}` | GET | Albumhoezen proxyen vanuit Roon |
+| `/api/config` | GET/POST | Retrieve or update configuration |
+| `/api/setup/status` | GET | Onboarding checklist status |
+| `/api/setup/validate-roon` | POST | Validate Roon Core connection |
+| `/api/setup/validate-ai` | POST | Validate AI provider credentials |
+| `/api/library/stats/cached` | GET | Genre/decade/total from SQLite |
+| `/api/library/status` | GET | Cache status, track count, needs_resync |
+| `/api/library/sync` | POST | Trigger background library sync |
+| `/api/library/search` | GET | Search by track/artist/album |
+| `/api/library/artist-albums` | GET | All albums by artist from cache |
+| `/api/library/filter` | POST | Filter by genre/decade/live exclusion |
+| `/api/library/filter/session` | POST | Store server-side key_map for curate_and_play |
+| `/api/library/filter/curate` | POST | Play curated track selection via session_id + track numbers |
+| `/api/library/filter/validate` | POST | Validate track selection for quality issues |
+| `/api/analyze/prompt` | POST | Analyse prompt → filter mapping |
+| `/api/generate/stream` | POST | Stream playlist generation (SSE) |
+| `/api/roon/zones` | GET | Get active Roon zones |
+| `/api/roon/transport` | POST | play/pause/stop/next/previous/shuffle/repeat/seek |
+| `/api/roon/volume` | POST | Set/adjust/mute/query volume |
+| `/api/roon/transfer` | POST | Move playback to another zone |
+| `/api/roon/group` | POST | Group or ungroup zones |
+| `/api/roon/radio` | POST | Play an internet radio station |
+| `/api/roon/playlists` | POST | List or play Roon playlists |
+| `/api/roon/qobuz-search` | POST | Search Qobuz catalogue via Roon |
+| `/api/queue` | POST | Send tracks to a Roon zone |
+| `/api/queue/append` | POST | Append tracks to a zone queue |
+| `/api/recommend/questions` | POST | Generate clarifying questions |
+| `/api/recommend/generate` | POST | Generate album recommendations |
+| `/api/results` | GET | Retrieve result history |
+| `/api/art/{item_key}` | GET | Proxy album art from Roon |
 
 ---
 
 ## Credits
 
-RoonSage is gebaseerd op [MediaSage](https://github.com/ecwilsonaz/mediasage) van Eric Wilson, oorspronkelijk gebouwd voor Plex. RoonSage is onafhankelijk doorontwikkeld voor Roon met significante nieuwe functionaliteit, waaronder MCP-integratie, Qobuz-ondersteuning, zone-beheer, tijdsbewuste context en een volledige library-cache laag.
+RoonSage is based on [MediaSage](https://github.com/ecwilsonaz/mediasage) by Eric Wilson, originally built for Plex. RoonSage has been independently developed for Roon with significant new functionality, including MCP integration, Qobuz support, zone management, time-aware context, and a full library cache layer.
 
 ---
 
-## Licentie
+## License
 
 MIT
