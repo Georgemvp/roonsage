@@ -110,11 +110,9 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         CREATE INDEX IF NOT EXISTS idx_tracks_is_live ON tracks(is_live);
 
         -- Sync state: single-row metadata table
-        -- Column name 'plex_server_id' preserved from Plex era for database backward compatibility.
-        -- Stores the Roon Core ID despite the legacy column name.
         CREATE TABLE IF NOT EXISTS sync_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
-            plex_server_id TEXT,
+            roon_core_id TEXT,
             last_sync_at TIMESTAMP,
             track_count INTEGER DEFAULT 0,
             sync_duration_ms INTEGER
@@ -218,6 +216,13 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist);
     """)
 
+    # Migration: rename plex_server_id to roon_core_id
+    try:
+        conn.execute("ALTER TABLE sync_state RENAME COLUMN plex_server_id TO roon_core_id")
+        logger.info("Migration applied: renamed plex_server_id to roon_core_id")
+    except sqlite3.OperationalError:
+        pass  # Already renamed or column doesn't exist
+
     # Index on parent_rating_key (must come after migration adds the column)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tracks_parent_key ON tracks(parent_rating_key)")
 
@@ -257,7 +262,7 @@ def get_sync_state() -> dict[str, Any]:
     conn = ensure_db_initialized()
     try:
         row = conn.execute(
-            "SELECT plex_server_id, last_sync_at, track_count, sync_duration_ms "
+            "SELECT roon_core_id, last_sync_at, track_count, sync_duration_ms "
             "FROM sync_state WHERE id = 1"
         ).fetchone()
 
@@ -268,7 +273,7 @@ def get_sync_state() -> dict[str, Any]:
         result = {
             "track_count": row["track_count"] if row else 0,
             "synced_at": row["last_sync_at"] if row else None,
-            "plex_server_id": row["plex_server_id"] if row else None,
+            "roon_core_id": row["roon_core_id"] if row else None,
             "sync_duration_ms": row["sync_duration_ms"] if row else None,
             "is_syncing": ss["is_syncing"],
             "sync_progress": None,
@@ -475,7 +480,7 @@ def check_server_changed(current_server_id: str) -> bool:
         True if server changed (cache should be cleared)
     """
     state = get_sync_state()
-    cached_server_id = state.get("plex_server_id")
+    cached_server_id = state.get("roon_core_id")
 
     if not cached_server_id:
         return False  # First sync, no change
@@ -748,7 +753,7 @@ def sync_library(
         synced_at = datetime.now(timezone.utc).isoformat()
 
         conn.execute(
-            "UPDATE sync_state SET plex_server_id = ?, last_sync_at = ?, "  # field name kept for DB compat
+            "UPDATE sync_state SET roon_core_id = ?, last_sync_at = ?, "
             "track_count = ?, sync_duration_ms = ? WHERE id = 1",
             (server_id, synced_at, synced_count, duration_ms),
         )

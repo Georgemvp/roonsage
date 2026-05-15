@@ -4,6 +4,7 @@ import asyncio
 import os
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from backend.config import ConfigSaveError, get_config, update_config_values
 from backend.llm_client import (
@@ -22,21 +23,38 @@ from backend.models import (
 )
 from backend.roon_client import get_roon_client, init_roon_client
 from backend.dependencies import _is_llm_configured, _build_config_response
+from backend import library_cache
 
 router = APIRouter(prefix="/api", tags=["config"])
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check() -> HealthResponse:
-    """Check application health status."""
+async def health_check():
+    """Check application health status. Returns 503 when critical dependencies are down."""
     config = get_config()
     roon_client = get_roon_client()
+    roon_ok = roon_client.is_connected() if roon_client else False
+    llm_ok = _is_llm_configured(config)
+    db_ok = False
+    try:
+        conn = library_cache.get_db_connection()
+        conn.execute("SELECT 1")
+        conn.close()
+        db_ok = True
+    except Exception:
+        pass
 
-    return HealthResponse(
-        status="healthy",
-        roon_connected=roon_client.is_connected() if roon_client else False,
-        llm_configured=_is_llm_configured(config),
+    status = "healthy" if (roon_ok and llm_ok and db_ok) else "degraded"
+    response = HealthResponse(
+        status=status,
+        roon_connected=roon_ok,
+        llm_configured=llm_ok,
+        database_ok=db_ok,
     )
+
+    if status == "degraded":
+        return JSONResponse(content=response.model_dump(), status_code=503)
+    return response
 
 
 @router.get("/config", response_model=ConfigResponse)

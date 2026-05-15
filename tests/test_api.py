@@ -76,18 +76,19 @@ class TestHealthEndpoint:
                 assert data["roon_connected"] is True
 
     def test_health_check_shows_llm_status(self, client):
-        """Should show LLM configuration status."""
+        """Should show LLM configuration status; returns 503 when Roon is not connected."""
         with patch("backend.routes.config_routes.get_config") as mock_config:
             with patch("backend.routes.config_routes.get_roon_client") as mock_roon:
                 mock_config.return_value = create_mock_config(llm_api_key="key")
-                mock_roon.return_value = None  # No Roon client
+                mock_roon.return_value = None  # No Roon client → degraded
 
                 response = client.get("/api/health")
 
-                assert response.status_code == 200
+                assert response.status_code == 503
                 data = response.json()
                 assert "llm_configured" in data
                 assert data["llm_configured"] is True
+                assert data["status"] == "degraded"
 
 
 class TestConfigEndpoints:

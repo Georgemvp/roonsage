@@ -453,6 +453,7 @@ class HealthResponse(BaseModel):
     status: str
     roon_connected: bool
     llm_configured: bool
+    database_ok: bool
 
 
 class ErrorResponse(BaseModel):

@@ -122,7 +122,7 @@ class TestSyncState:
         # Simulate a completed sync
         synced_at = datetime.now(timezone.utc).isoformat()
         conn.execute(
-            "UPDATE sync_state SET plex_server_id = ?, last_sync_at = ?, "
+            "UPDATE sync_state SET roon_core_id = ?, last_sync_at = ?, "
             "track_count = ?, sync_duration_ms = ? WHERE id = 1",
             ("test-server-id", synced_at, 1000, 5000),
         )
@@ -133,7 +133,7 @@ class TestSyncState:
 
         assert state["track_count"] == 1000
         assert state["synced_at"] == synced_at
-        assert state["plex_server_id"] == "test-server-id"
+        assert state["roon_core_id"] == "test-server-id"
 
 
 class TestCacheOperations:
@@ -386,7 +386,7 @@ class TestServerChangeDetection:
         """Same server ID doesn't trigger change."""
         conn = library_cache.get_db_connection()
         conn.execute(
-            "UPDATE sync_state SET plex_server_id = ? WHERE id = 1",
+            "UPDATE sync_state SET roon_core_id = ? WHERE id = 1",
             ("my-server-id",),
         )
         conn.commit()
@@ -398,7 +398,7 @@ class TestServerChangeDetection:
         """Different server ID triggers change detection."""
         conn = library_cache.get_db_connection()
         conn.execute(
-            "UPDATE sync_state SET plex_server_id = ? WHERE id = 1",
+            "UPDATE sync_state SET roon_core_id = ? WHERE id = 1",
             ("old-server-id",),
         )
         conn.commit()
@@ -512,7 +512,7 @@ class TestSyncLibrary:
 
         assert state["track_count"] == 3
         assert state["synced_at"] is not None
-        assert state["plex_server_id"] == "test-server-123"
+        assert state["roon_core_id"] == "test-server-123"
         assert state["is_syncing"] is False
 
     def test_sync_progress_callback(self, initialized_db, mock_roon_client, reset_sync_state):

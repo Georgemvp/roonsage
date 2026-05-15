@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docker Hub](https://img.shields.io/badge/docker-ecwilson%2Fmediasage-blue)](https://hub.docker.com/r/ecwilson/mediasage)
 [![GHCR](https://img.shields.io/badge/ghcr-ecwilsonaz%2Fmediasage-blue)](https://ghcr.io/ecwilsonaz/mediasage)
-[![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 **AI-powered playlists and album recommendations for Roon—using only music you actually own.**
 
@@ -541,7 +541,7 @@ pytest tests/ -v
 
 ### Tech Stack
 
-- **Backend:** Python 3.14+, FastAPI, roonapi, rapidfuzz, httpx
+- **Backend:** Python 3.11+, FastAPI, roonapi, rapidfuzz, httpx
 - **Frontend:** Vanilla HTML/CSS/JS (no build step)
 - **LLM SDKs:** anthropic, openai, google-genai (+ Ollama via REST API)
 - **Deployment:** Docker
