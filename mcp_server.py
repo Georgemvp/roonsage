@@ -24,7 +24,7 @@ Environment variables:
 import asyncio
 import json
 import os
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -35,12 +35,50 @@ STREAM_TIMEOUT = 300.0  # 5 minutes for SSE streams
 
 mcp = FastMCP("roon-mediasage")
 
+# ---------------------------------------------------------------------------
+# Persistent HTTP clients (reused across all tool calls)
+# ---------------------------------------------------------------------------
+
+_client = httpx.AsyncClient(timeout=TIMEOUT)
+_stream_client = httpx.AsyncClient(timeout=STREAM_TIMEOUT)
+
 
 def _unavailable_msg() -> str:
     return (
         f"MediaSage is not reachable at {MEDIASAGE_URL}. "
         "Make sure the application is running (uvicorn backend.main:app --port 5765)."
     )
+
+
+async def _api_call(method: str, path: str, **kwargs) -> dict | list | str:
+    """Make an API call to MediaSage, handling errors uniformly."""
+    try:
+        response = await _client.request(method, f"{MEDIASAGE_URL}{path}", **kwargs)
+        response.raise_for_status()
+        return response.json()
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.HTTPStatusError as exc:
+        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
+async def _parse_sse_events(response) -> AsyncGenerator[tuple[str, dict], None]:
+    """Parse SSE stream, yielding (event_type, payload) tuples."""
+    event_type = "message"
+    async for line in response.aiter_lines():
+        line = line.strip()
+        if not line:
+            event_type = "message"
+            continue
+        if line.startswith("event:"):
+            event_type = line[6:].strip()
+        elif line.startswith("data:"):
+            raw = line[5:].strip()
+            try:
+                payload = json.loads(raw)
+                yield event_type, payload
+            except json.JSONDecodeError:
+                continue
 
 
 # ---------------------------------------------------------------------------
@@ -56,16 +94,8 @@ async def get_library_stats() -> str:
     Use this first to understand what music is in the library before filtering
     or generating playlists. No parameters required.
     """
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.get(f"{MEDIASAGE_URL}/api/library/stats/cached")
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("GET", "/api/library/stats/cached")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()
@@ -85,19 +115,8 @@ async def search_library(query: str) -> str:
     Args:
         query: Search term — track title, artist name, or album name.
     """
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.get(
-                f"{MEDIASAGE_URL}/api/library/search",
-                params={"q": query},
-            )
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("GET", "/api/library/search", params={"q": query})
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()
@@ -143,18 +162,14 @@ async def filter_tracks(
     if min_rating is not None:
         body["min_rating"] = min_rating
 
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.post(
-                f"{MEDIASAGE_URL}/api/library/filter",
-                json=body,
-            )
-            response.raise_for_status()
-            data = response.json()
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    try:
+        response = await _client.post(f"{MEDIASAGE_URL}/api/library/filter", json=body)
+        response.raise_for_status()
+        data = response.json()
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.HTTPStatusError as exc:
+        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
 
     # Strip each track to only the fields needed for playlist curation.
     # This keeps the response well under Claude Desktop's 1 MB tool-result limit.
@@ -188,16 +203,8 @@ async def list_zones() -> str:
     for play_tracks and queue_tracks. Use this to let the user choose where
     music should play, or to find the right zone by name.
     """
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.get(f"{MEDIASAGE_URL}/api/roon/zones")
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("GET", "/api/roon/zones")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()
@@ -213,19 +220,18 @@ async def play_tracks(item_keys: list[str], zone_id: str) -> str:
                    filter_tracks. These are Roon's internal track identifiers.
         zone_id:   The Roon zone to play in — obtain via list_zones.
     """
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.post(
-                f"{MEDIASAGE_URL}/api/queue",
-                json={"item_keys": item_keys, "zone_id": zone_id},
-            )
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    try:
+        response = await _client.post(
+            f"{MEDIASAGE_URL}/api/queue",
+            json={"item_keys": item_keys, "zone_id": zone_id},
+        )
+        response.raise_for_status()
+        data = response.json()
+        return json.dumps(data, ensure_ascii=False, indent=2)
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.HTTPStatusError as exc:
+        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
 
 
 @mcp.tool()
@@ -241,19 +247,18 @@ async def queue_tracks(item_keys: list[str], zone_id: str) -> str:
                    filter_tracks. These are Roon's internal track identifiers.
         zone_id:   The Roon zone to append to — obtain via list_zones.
     """
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.post(
-                f"{MEDIASAGE_URL}/api/queue/append",
-                json={"item_keys": item_keys, "zone_id": zone_id},
-            )
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    try:
+        response = await _client.post(
+            f"{MEDIASAGE_URL}/api/queue/append",
+            json={"item_keys": item_keys, "zone_id": zone_id},
+        )
+        response.raise_for_status()
+        data = response.json()
+        return json.dumps(data, ensure_ascii=False, indent=2)
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.HTTPStatusError as exc:
+        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
 
 
 @mcp.tool()
@@ -261,14 +266,8 @@ async def sync_library() -> str:
     """Trigger a library sync to refresh the local cache from Roon.
     Use this when library stats show 0 tracks or when the user asks to refresh/sync their library.
     The sync runs in the background — it may take a minute for large libraries."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        try:
-            r = await client.post(f"{MEDIASAGE_URL}/api/library/sync")
-            return r.text
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("POST", "/api/library/sync")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 def _build_playlist_result(
@@ -343,39 +342,25 @@ async def _stream_generate(body: dict) -> tuple[list[dict], dict, list[str]]:
     complete_data: dict = {}
     errors: list[str] = []
 
-    async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
-        async with client.stream(
-            "POST",
-            f"{MEDIASAGE_URL}/api/generate/stream",
-            json=body,
-        ) as response:
-            if response.status_code != 200:
-                await response.aread()
-                errors.append(f"MediaSage API error: {response.status_code} — {response.text}")
-                return [], {}, errors
+    async with _stream_client.stream(
+        "POST",
+        f"{MEDIASAGE_URL}/api/generate/stream",
+        json=body,
+    ) as response:
+        if response.status_code != 200:
+            await response.aread()
+            errors.append(f"MediaSage API error: {response.status_code} — {response.text}")
+            return [], {}, errors
 
-            event_type = "message"
-            async for line in response.aiter_lines():
-                line = line.strip()
-                if not line:
-                    event_type = "message"
-                    continue
-                if line.startswith("event:"):
-                    event_type = line[6:].strip()
-                elif line.startswith("data:"):
-                    raw = line[5:].strip()
-                    try:
-                        payload = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-                    if event_type == "tracks":
-                        batch = payload.get("batch", [])
-                        if batch:
-                            tracks_batches.append(batch)
-                    elif event_type == "complete":
-                        complete_data = payload
-                    elif event_type == "error":
-                        errors.append(payload.get("message", "Unknown error"))
+        async for event_type, payload in _parse_sse_events(response):
+            if event_type == "tracks":
+                batch = payload.get("batch", [])
+                if batch:
+                    tracks_batches.append(batch)
+            elif event_type == "complete":
+                complete_data = payload
+            elif event_type == "error":
+                errors.append(payload.get("message", "Unknown error"))
 
     all_tracks = [track for batch in tracks_batches for track in batch]
     return all_tracks, complete_data, errors
@@ -458,22 +443,17 @@ async def get_now_playing() -> str:
     but not the currently playing track title or artist directly. Use
     search_library to find a specific track if needed.
     """
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.get(f"{MEDIASAGE_URL}/api/roon/zones")
-            response.raise_for_status()
-            zones = response.json()
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("GET", "/api/roon/zones")
+    if isinstance(result, str):
+        return result
 
+    zones = result
     if not zones:
         return json.dumps({"zones": [], "note": "No Roon zones found. Check that Roon Core is running and MediaSage is authorized."})
 
     # Filter to active (non-stopped) zones and annotate
     active = [z for z in zones if z.get("state") != "stopped"]
-    result = {
+    summary = {
         "zones": zones,
         "active_zones": active,
         "note": (
@@ -481,7 +461,7 @@ async def get_now_playing() -> str:
             "Use zone_id from this list with play_tracks or queue_tracks."
         ),
     }
-    return json.dumps(result, ensure_ascii=False, indent=2)
+    return json.dumps(summary, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
@@ -507,19 +487,9 @@ async def recommend_album(
                 "discovery" — suggest albums the user probably doesn't own yet.
     """
     # Step 1: Create a session via the questions endpoint (required to get a session_id)
-    questions_body = {"prompt": prompt}
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            q_resp = await client.post(
-                f"{MEDIASAGE_URL}/api/recommend/questions",
-                json=questions_body,
-            )
-            q_resp.raise_for_status()
-            q_data = q_resp.json()
-    except httpx.ConnectError:
-        return _unavailable_msg()
-    except httpx.HTTPStatusError as exc:
-        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    q_data = await _api_call("POST", "/api/recommend/questions", json={"prompt": prompt})
+    if isinstance(q_data, str):
+        return q_data
 
     session_id = q_data.get("session_id")
     if not session_id:
@@ -539,35 +509,20 @@ async def recommend_album(
     errors: list[str] = []
 
     try:
-        async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
-            async with client.stream(
-                "POST",
-                f"{MEDIASAGE_URL}/api/recommend/generate",
-                json=generate_body,
-            ) as response:
-                if response.status_code != 200:
-                    await response.aread()
-                    return f"MediaSage API error: {response.status_code} — {response.text}"
+        async with _stream_client.stream(
+            "POST",
+            f"{MEDIASAGE_URL}/api/recommend/generate",
+            json=generate_body,
+        ) as response:
+            if response.status_code != 200:
+                await response.aread()
+                return f"MediaSage API error: {response.status_code} — {response.text}"
 
-                event_type = "message"
-                async for line in response.aiter_lines():
-                    line = line.strip()
-                    if not line:
-                        event_type = "message"
-                        continue
-                    if line.startswith("event:"):
-                        event_type = line[6:].strip()
-                    elif line.startswith("data:"):
-                        raw = line[5:].strip()
-                        try:
-                            payload = json.loads(raw)
-                        except json.JSONDecodeError:
-                            continue
-
-                        if event_type == "result":
-                            result_payload = payload
-                        elif event_type == "error":
-                            errors.append(payload.get("message", "Unknown error"))
+            async for event_type, payload in _parse_sse_events(response):
+                if event_type == "result":
+                    result_payload = payload
+                elif event_type == "error":
+                    errors.append(payload.get("message", "Unknown error"))
 
     except httpx.ConnectError:
         return _unavailable_msg()
@@ -636,16 +591,8 @@ async def get_library_status() -> str:
     Call this proactively at the start of a conversation to decide whether to
     suggest a sync. If needs_resync is True, call sync_library.
     """
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.get(f"{MEDIASAGE_URL}/api/library/status")
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("GET", "/api/library/status")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()
@@ -660,19 +607,8 @@ async def get_artist_albums(artist: str, max_albums: int = 50) -> str:
         artist:     Artist name to search for (partial, case-insensitive).
         max_albums: Maximum number of albums to return (default 50).
     """
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.get(
-                f"{MEDIASAGE_URL}/api/library/artist-albums",
-                params={"artist": artist, "max_albums": max_albums},
-            )
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("GET", "/api/library/artist-albums", params={"artist": artist, "max_albums": max_albums})
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()
@@ -722,45 +658,35 @@ async def seed_track_playlist(
     }
 
     max_retries = 2
+    all_tracks: list[dict] = []
+    complete_data: dict = {}
+    errors: list[str] = []
+
     for attempt in range(max_retries):
         try:
-            async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
-                async with client.stream(
-                    "POST",
-                    f"{MEDIASAGE_URL}/api/generate/stream",
-                    json=body,
-                ) as response:
-                    if response.status_code == 503 and attempt < max_retries - 1:
-                        await response.aread()
-                        await asyncio.sleep(3)
-                        continue
-                    if response.status_code != 200:
-                        await response.aread()
-                        return f"MediaSage API error: {response.status_code} — {response.text}"
+            async with _stream_client.stream(
+                "POST",
+                f"{MEDIASAGE_URL}/api/generate/stream",
+                json=body,
+            ) as response:
+                if response.status_code == 503 and attempt < max_retries - 1:
+                    await response.aread()
+                    await asyncio.sleep(3)
+                    continue
+                if response.status_code != 200:
+                    await response.aread()
+                    return f"MediaSage API error: {response.status_code} — {response.text}"
 
-                    all_tracks, complete_data, errors = [], {}, []
-                    event_type = "message"
-                    async for line in response.aiter_lines():
-                        line = line.strip()
-                        if not line:
-                            event_type = "message"
-                            continue
-                        if line.startswith("event:"):
-                            event_type = line[6:].strip()
-                        elif line.startswith("data:"):
-                            raw = line[5:].strip()
-                            try:
-                                payload = json.loads(raw)
-                            except json.JSONDecodeError:
-                                continue
-                            if event_type == "tracks":
-                                batch = payload.get("batch", [])
-                                if batch:
-                                    all_tracks.extend(batch)
-                            elif event_type == "complete":
-                                complete_data = payload
-                            elif event_type == "error":
-                                errors.append(payload.get("message", "Unknown error"))
+                all_tracks, complete_data, errors = [], {}, []
+                async for event_type, payload in _parse_sse_events(response):
+                    if event_type == "tracks":
+                        batch = payload.get("batch", [])
+                        if batch:
+                            all_tracks.extend(batch)
+                    elif event_type == "complete":
+                        complete_data = payload
+                    elif event_type == "error":
+                        errors.append(payload.get("message", "Unknown error"))
             break  # Success, exit retry loop
 
         except httpx.ConnectError:
@@ -792,19 +718,8 @@ async def analyze_prompt(prompt: str) -> str:
     Args:
         prompt: Natural language description, e.g. "melancholic rainy Sunday jazz".
     """
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.post(
-                f"{MEDIASAGE_URL}/api/analyze/prompt",
-                json={"prompt": prompt},
-            )
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("POST", "/api/analyze/prompt", json={"prompt": prompt})
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()
@@ -858,33 +773,19 @@ async def recommend_album_interactive(
         errors: list[str] = []
 
         try:
-            async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
-                async with client.stream(
-                    "POST",
-                    f"{MEDIASAGE_URL}/api/recommend/generate",
-                    json=generate_body,
-                ) as response:
-                    if response.status_code != 200:
-                        await response.aread()
-                        return f"MediaSage API error: {response.status_code} — {response.text}"
-                    event_type = "message"
-                    async for line in response.aiter_lines():
-                        line = line.strip()
-                        if not line:
-                            event_type = "message"
-                            continue
-                        if line.startswith("event:"):
-                            event_type = line[6:].strip()
-                        elif line.startswith("data:"):
-                            raw = line[5:].strip()
-                            try:
-                                payload = json.loads(raw)
-                            except json.JSONDecodeError:
-                                continue
-                            if event_type == "result":
-                                result_payload = payload
-                            elif event_type == "error":
-                                errors.append(payload.get("message", "Unknown error"))
+            async with _stream_client.stream(
+                "POST",
+                f"{MEDIASAGE_URL}/api/recommend/generate",
+                json=generate_body,
+            ) as response:
+                if response.status_code != 200:
+                    await response.aread()
+                    return f"MediaSage API error: {response.status_code} — {response.text}"
+                async for event_type, payload in _parse_sse_events(response):
+                    if event_type == "result":
+                        result_payload = payload
+                    elif event_type == "error":
+                        errors.append(payload.get("message", "Unknown error"))
         except httpx.ConnectError:
             return _unavailable_msg()
         except httpx.ReadTimeout:
@@ -926,18 +827,9 @@ async def recommend_album_interactive(
         return json.dumps(summary, ensure_ascii=False, indent=2)
 
     # Step 1: get clarifying questions
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            q_resp = await client.post(
-                f"{MEDIASAGE_URL}/api/recommend/questions",
-                json={"prompt": prompt},
-            )
-            q_resp.raise_for_status()
-            q_data = q_resp.json()
-    except httpx.ConnectError:
-        return _unavailable_msg()
-    except httpx.HTTPStatusError as exc:
-        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    q_data = await _api_call("POST", "/api/recommend/questions", json={"prompt": prompt})
+    if isinstance(q_data, str):
+        return q_data
 
     session_id = q_data.get("session_id", "")
     questions = q_data.get("questions", [])
@@ -966,19 +858,10 @@ async def play_album(query: str, zone_id: str) -> str:
                  "Miles Davis Kind of Blue".
         zone_id: Roon zone ID to play in — obtain via list_zones.
     """
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        # Search for the album tracks
-        try:
-            search_resp = await client.get(
-                f"{MEDIASAGE_URL}/api/library/search",
-                params={"q": query},
-            )
-            search_resp.raise_for_status()
-            tracks = search_resp.json()
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    # Search for the album tracks
+    tracks = await _api_call("GET", "/api/library/search", params={"q": query})
+    if isinstance(tracks, str):
+        return tracks
 
     if not tracks:
         return json.dumps({
@@ -998,18 +881,9 @@ async def play_album(query: str, zone_id: str) -> str:
     item_keys = [t.get("rating_key", t.get("item_key", "")) for t in album_tracks if t.get("rating_key") or t.get("item_key")]
 
     # Play the tracks
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            play_resp = await client.post(
-                f"{MEDIASAGE_URL}/api/queue",
-                json={"item_keys": item_keys, "zone_id": zone_id},
-            )
-            play_resp.raise_for_status()
-            play_data = play_resp.json()
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    play_data = await _api_call("POST", "/api/queue", json={"item_keys": item_keys, "zone_id": zone_id})
+    if isinstance(play_data, str):
+        return play_data
 
     result = {
         "success": play_data.get("success", False),
@@ -1056,19 +930,8 @@ async def transport_control(
     if seek_offset is not None:
         body["seek_offset"] = seek_offset
 
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.post(
-                f"{MEDIASAGE_URL}/api/roon/transport",
-                json=body,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("POST", "/api/roon/transport", json=body)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()
@@ -1090,19 +953,8 @@ async def get_result_history(
     if type:
         params["type"] = type
 
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.get(
-                f"{MEDIASAGE_URL}/api/results",
-                params=params,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("GET", "/api/results", params=params)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()
@@ -1134,19 +986,8 @@ async def volume_control(
     if value is not None:
         body["value"] = value
 
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.post(
-                f"{MEDIASAGE_URL}/api/roon/volume",
-                json=body,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("POST", "/api/roon/volume", json=body)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()
@@ -1160,19 +1001,8 @@ async def transfer_zone(from_zone: str, to_zone: str) -> str:
         from_zone: Source zone display name (e.g. "Woonkamer").
         to_zone:   Target zone display name (e.g. "Slaapkamer").
     """
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.post(
-                f"{MEDIASAGE_URL}/api/roon/transfer",
-                json={"from_zone": from_zone, "to_zone": to_zone},
-            )
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("POST", "/api/roon/transfer", json={"from_zone": from_zone, "to_zone": to_zone})
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()
@@ -1196,21 +1026,8 @@ async def zone_grouping(
         action: One of: group, ungroup, list_groups.
         zones:  List of zone display names for group/ungroup (e.g. ["Woonkamer", "Keuken"]).
     """
-    body: dict = {"action": action, "zones": zones or []}
-
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.post(
-                f"{MEDIASAGE_URL}/api/roon/group",
-                json=body,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("POST", "/api/roon/group", json={"action": action, "zones": zones or []})
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()
@@ -1227,19 +1044,8 @@ async def play_radio(station: str, zone_id: str) -> str:
         station: Station name to search for, e.g. "BBC Radio 4", "KQED", "NPO Radio 1".
         zone_id: Roon zone ID to play in — obtain via list_zones.
     """
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.post(
-                f"{MEDIASAGE_URL}/api/roon/radio",
-                json={"station": station, "zone_id": zone_id},
-            )
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("POST", "/api/roon/radio", json={"station": station, "zone_id": zone_id})
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 @mcp.tool()
@@ -1270,19 +1076,8 @@ async def browse_playlists(
         "zone_id": zone_id or "",
     }
 
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        try:
-            response = await client.post(
-                f"{MEDIASAGE_URL}/api/roon/playlists",
-                json=body,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        except httpx.ConnectError:
-            return _unavailable_msg()
-        except httpx.HTTPStatusError as exc:
-            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+    result = await _api_call("POST", "/api/roon/playlists", json=body)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
 # ---------------------------------------------------------------------------
