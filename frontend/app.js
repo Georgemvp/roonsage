@@ -1838,7 +1838,7 @@ function updateSettings() {
     }
     const qobuzStatus = document.getElementById('qobuz-settings-status');
     if (qobuzStatus) {
-        const configured = state.config.qobuz_password_set && state.config.qobuz_app_id && state.config.qobuz_email;
+        const configured = state.config.qobuz_password_set && state.config.qobuz_email;
         qobuzStatus.classList.toggle('connected', !!configured);
         qobuzStatus.querySelector('.status-text').textContent = configured ? 'Geconfigureerd' : 'Niet geconfigureerd';
     }
@@ -3666,8 +3666,18 @@ async function handleValidateQobuz() {
 
         // On success, persist the credentials via POST /api/config
         if (data.available) {
+            // If app_id was auto-detected, show it in the field
+            if (data.auto_detected && data.app_id_used) {
+                const appIdField = document.getElementById('qobuz-app-id');
+                if (appIdField) appIdField.value = data.app_id_used;
+                if (statusEl) {
+                    statusEl.querySelector('.status-text').textContent =
+                        `Verbonden ✓ (app_id auto-gedetecteerd: ${data.app_id_used})`;
+                }
+            }
             const updates = {};
-            if (appId) updates.qobuz_app_id = appId;
+            const effectiveAppId = data.app_id_used || appId;
+            if (effectiveAppId) updates.qobuz_app_id = effectiveAppId;
             if (email) updates.qobuz_email = email;
             if (password) updates.qobuz_password = password;
             if (Object.keys(updates).length > 0) {

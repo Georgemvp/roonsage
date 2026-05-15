@@ -91,8 +91,9 @@ async def validate_qobuz_credentials(req: ValidateQobuzRequest):
     to test specific credentials. If no body fields are provided, uses the
     currently configured credentials from environment / config.user.yaml.
     """
-    if req.app_id and req.email and req.password:
-        app_id = req.app_id
+    if req.email and req.password:
+        # Credentials supplied in request body — app_id is optional (auto-detect if missing)
+        app_id = req.app_id or ""
         email = req.email
         password = req.password
     else:
@@ -101,17 +102,24 @@ async def validate_qobuz_credentials(req: ValidateQobuzRequest):
         email = qobuz_cfg.get("email", "")
         password = qobuz_cfg.get("password", "")
 
-    if not (app_id and email and password):
+    if not (email and password):
         return {
             "available": False,
-            "error": "Vul App ID, email en wachtwoord in.",
+            "error": "Vul email en wachtwoord in. App ID is optioneel (wordt automatisch gedetecteerd).",
         }
+
+    original_app_id = app_id
 
     # Re-initialize the singleton with the provided credentials
     client = await asyncio.to_thread(init_qobuz_api_client, app_id, email, password)
     error = get_qobuz_api_error()
 
+    available = client is not None and client.is_authenticated()
+    used_app_id = client.app_id if client else original_app_id
+
     return {
-        "available": client is not None and client.is_authenticated(),
+        "available": available,
         "error": error,
+        "app_id_used": used_app_id if available else None,
+        "auto_detected": available and (used_app_id != original_app_id),
     }

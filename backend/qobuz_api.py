@@ -7,6 +7,7 @@ own Qobuz credentials.
 
 import hashlib
 import logging
+import re
 import time
 import uuid
 from typing import Any
@@ -16,6 +17,69 @@ import httpx
 logger = logging.getLogger(__name__)
 
 QOBUZ_API_BASE = "https://www.qobuz.com/api.json/0.2"
+
+
+def fetch_qobuz_app_id() -> str | None:
+    """Extract the current app_id from the Qobuz web player.
+
+    Fetches the Qobuz login page, finds the JavaScript bundle URL,
+    then extracts the app_id from the bundle source code.
+    Returns None if extraction fails.
+    """
+    try:
+        client = httpx.Client(timeout=15.0, follow_redirects=True)
+
+        # Step 1: Fetch the Qobuz login page to find the JS bundle
+        resp = client.get(
+            "https://play.qobuz.com/login",
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+                    "Version/17.2.1 Safari/605.1.15"
+                )
+            },
+        )
+        resp.raise_for_status()
+
+        # Find JS bundle URLs — look for app or main bundle
+        bundle_urls = re.findall(
+            r'<script[^>]+src="(/resources/\d+\.\d+\.\d+-[a-z0-9]+/bundle\.js)"',
+            resp.text,
+        )
+        if not bundle_urls:
+            # Try alternative pattern
+            bundle_urls = re.findall(
+                r'"(/resources/[^"]+\.js)"',
+                resp.text,
+            )
+
+        # Step 2: Fetch each bundle and look for app_id pattern
+        for bundle_path in bundle_urls[:5]:  # Check max 5 bundles
+            bundle_url = f"https://play.qobuz.com{bundle_path}"
+            bundle_resp = client.get(bundle_url)
+            if bundle_resp.status_code != 200:
+                continue
+
+            # Look for app_id patterns in the JS source
+            # Common patterns: {app_id:"579939560"} or app_id:"579939560"
+            matches = re.findall(
+                r'["\']?app_id["\']?\s*[:=]\s*["\'](\d{6,12})["\']',
+                bundle_resp.text,
+            )
+            if matches:
+                app_id = matches[0]
+                logger.info("Auto-detected Qobuz app_id: %s", app_id)
+                client.close()
+                return app_id
+
+        client.close()
+        logger.warning("Could not auto-detect Qobuz app_id from web player")
+        return None
+
+    except Exception as exc:
+        logger.warning("Qobuz app_id auto-detection failed: %s", exc)
+        return None
 
 
 class QobuzAPIError(Exception):
@@ -30,6 +94,17 @@ class QobuzClient:
         self._token: str | None = None
         self._user_id: int | None = None
         self._client = httpx.Client(timeout=20.0)
+        self._login_attempts = 0
+
+        # Auto-detect app_id if not provided
+        if not self.app_id:
+            logger.info("No Qobuz app_id provided, attempting auto-detection...")
+            detected = fetch_qobuz_app_id()
+            if detected:
+                self.app_id = detected
+            else:
+                raise QobuzAPIError("Geen app_id opgegeven en auto-detectie mislukt")
+
         self._login(email, password)
 
     def _login(self, email: str, password: str) -> None:
@@ -37,7 +112,10 @@ class QobuzClient:
 
         The Qobuz API uses GET for login with query parameters.
         Tries plain-text password first, then MD5-hashed password as fallback.
+        On app_id rejection, auto-detects the current app_id and retries once.
         """
+        self._login_attempts += 1
+
         # Generate a stable device ID based on the email
         device_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"roonsage.{email}"))
 
@@ -77,6 +155,21 @@ class QobuzClient:
                 error_text = error_data.get("message", error_text)
             except Exception:
                 pass
+
+            # If app_id was rejected and we haven't retried yet, auto-detect and retry
+            if (
+                exc.response.status_code == 400
+                and "app_id" in error_text.lower()
+                and self._login_attempts < 2
+            ):
+                logger.info(
+                    "app_id rejected by Qobuz, attempting auto-detection and retry..."
+                )
+                detected = fetch_qobuz_app_id()
+                if detected and detected != self.app_id:
+                    self.app_id = detected
+                    return self._login(email, password)
+
             logger.error(
                 "Qobuz login failed (%d): %s", exc.response.status_code, error_text
             )
