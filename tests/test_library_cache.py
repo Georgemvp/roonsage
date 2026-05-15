@@ -573,16 +573,19 @@ class TestSyncLibrary:
         assert state["is_syncing"] is False
 
     def test_sync_removes_deleted_tracks(self, initialized_db, mock_track, reset_sync_state):
-        """Sync removes tracks that no longer exist in Roon."""
-        # Pre-populate cache with a track that won't be in the sync.
-        # updated_at must be set to a past timestamp so the sync's stale-track
-        # deletion (DELETE WHERE updated_at < sync_start) can find it.
+        """Sync removes tracks that no longer exist in Roon.
+
+        sync_library() uses a full-replace strategy: it clears the tracks table
+        before inserting fresh data, so any track absent from the new Roon snapshot
+        is automatically gone after the sync completes.
+        """
+        # Pre-populate cache with a track that won't be in the new sync.
         conn = library_cache.get_db_connection()
         conn.execute(
             "INSERT INTO tracks (rating_key, title, artist, album, duration_ms, "
-            "year, genres, user_rating, is_live, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "year, genres, user_rating, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             ("stale-track-999", "Stale Song", "Old Artist", "Deleted Album",
-             180000, 2000, json.dumps(["Rock"]), 5, False, "2020-01-01 00:00:00"),
+             180000, 2000, json.dumps(["Rock"]), 5, False),
         )
         conn.commit()
         conn.close()

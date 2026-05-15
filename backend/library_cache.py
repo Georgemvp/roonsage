@@ -588,6 +588,20 @@ def sync_library(
             _sync_state["total"] = total
             _sync_state["phase"] = "processing"
 
+        # Full replace: now that we have a complete fresh snapshot from Roon,
+        # clear the existing cache tables before inserting.  We must do this
+        # AFTER the Roon fetch succeeds so that a network failure in Phase 1/2
+        # leaves the previous cache intact (has_cached_tracks() stays True).
+        #
+        # We cannot use incremental updates (INSERT OR REPLACE keyed on item_key)
+        # because Roon's Browse API issues different item_key values for the same
+        # tracks across browse sessions — every sync would produce an ever-growing
+        # table of "new" rows and the old rows would never be matched for update.
+        logger.info("Clearing existing track cache for full replace...")
+        conn.execute("DELETE FROM track_genres")   # FK child first
+        conn.execute("DELETE FROM tracks")
+        conn.commit()
+
         # Phase 3: Process tracks in batches with album metadata lookup
         synced_count = 0
         batch_data = []
@@ -707,25 +721,7 @@ def sync_library(
         # Final commit for the last batch
         conn.commit()
 
-        # Clear genre junction table BEFORE deleting stale tracks so the FK
-        # constraint (track_genres.track_key → tracks.rating_key) doesn't block
-        # the stale-track DELETE.
-        conn.execute("DELETE FROM track_genres")
-        conn.commit()
-
-        # Remove tracks from previous syncs that were not refreshed.
-        # Every track touched by this sync has updated_at = now; anything
-        # older belongs to a previous (possibly broken) sync run.
-        sync_start_iso = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        stale_deleted = conn.execute(
-            "DELETE FROM tracks WHERE updated_at < ?",
-            (sync_start_iso,),
-        ).rowcount
-        if stale_deleted:
-            logger.info("Removed %d stale tracks from previous syncs", stale_deleted)
-        conn.commit()
-
-        # Rebuild genre junction table from the surviving (current) tracks only.
+        # Rebuild genre junction table for all freshly inserted tracks.
         logger.info("Rebuilding track_genres junction table...")
         genre_rows = conn.execute(
             "SELECT rating_key, genres FROM tracks WHERE genres IS NOT NULL AND genres != '[]'"
