@@ -1,6 +1,6 @@
 # RoonSage Development Guidelines
 
-Last updated: 2026-05-15 (MCP v4.2 — 25 tools, Claude-native curation)
+Last updated: 2026-05-15 (MCP v4.3 — 26 tools, token-optimized curation)
 
 ## Project Overview
 
@@ -183,6 +183,12 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
   - `system_prompt.md` fully rewritten: 3 native flows (prompt/seed/album) × 3 source modes (library/hybrid/qobuz)
   - `CLAUDE.md` Tool Selection Guide updated: native curation is now primary for all flows; backend LLM tools demoted to fallback
   - Web UI flow unchanged — backend LLM tools (`generate_playlist`, `seed_track_playlist`, `recommend_album`) still used by the web interface
+- **MCP v4.3 (2026-05-15):** 5 token-optimalisaties:
+  - `filter_tracks` output_format="ultra": minimale "nr. Artist — Title" output (~50% minder tokens dan compact)
+  - `filter_tracks` artist_limit parameter voor stratified sampling per artiest
+  - `filter_tracks` exclude_keywords parameter voor keyword-based uitsluiting
+  - Server-side key_map opslag: session_id in plaats van key_map in context (~10-20K tokens bespaard)
+  - `validate_playlist` tool: controleer duplicaten, clustering en overrepresentatie vóór afspelen
 
 ## MCP Server
 
@@ -192,7 +198,7 @@ The MCP server contains NO own LLM logic — Claude Desktop does the thinking. W
 
 The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip install "mcp[cli]"` must be done locally. `scripts/install_mcp.py` configures Claude Desktop — one-time setup per machine.
 
-### Full Tool List (25 tools)
+### Full Tool List (26 tools)
 
 | Tool | Backend endpoint | Purpose |
 |------|-----------------|---------|
@@ -200,7 +206,7 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 | `get_library_status` | `GET /api/library/status` | Cache freshness, needs_resync flag |
 | `search_library` | `GET /api/library/search` | Search by track/artist/album name |
 | `search_qobuz` | `POST /api/roon/qobuz-search` | Search Qobuz catalog via Roon |
-| `filter_tracks` | `POST /api/library/filter` | Filter by genre, decade, live exclusion |
+| `filter_tracks` | `POST /api/library/filter` | Filter by genre, decade, live exclusion; `output_format` = json/compact/ultra; supports `artist_limit` and `exclude_keywords` |
 | `get_artist_albums` | `GET /api/library/artist-albums` | All albums by artist from SQLite cache |
 | `sync_library` | `POST /api/library/sync` | Trigger background library sync |
 | `generate_playlist` | `POST /api/generate/stream` (SSE) | AI playlist from natural language prompt; `source_mode` = library/hybrid/qobuz; `qobuz_percentage` for hybrid |
@@ -220,12 +226,14 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 | `zone_grouping` | `POST /api/roon/group` | Group/ungroup/list zone groups |
 | `play_radio` | `POST /api/roon/radio` | Play internet radio station (fuzzy match) |
 | `browse_playlists` | `POST /api/roon/playlists` | List/play Roon playlists (all playlists, not just RoonSage) |
-| `curate_and_play` | `POST /api/queue` or `/api/queue/append` | Play Claude-curated track selection from filter_tracks compact output |
+| `curate_and_play` | `POST /api/library/filter/curate` | Play Claude-curated track selection using session_id from filter_tracks; translates track numbers to item_keys server-side |
+| `validate_playlist` | `POST /api/library/filter/validate` | Check curated selection for duplicates, clustering, overrepresentation |
 
 ### Tool Selection Guide (for Claude Desktop)
 
 **Playlist curatie (primaire flow — Claude curates natively):**
-- **Mood/genre/occasion → library** → `get_library_stats` → `filter_tracks(output_format="compact")` → curate zelf → `curate_and_play`
+- **Mood/genre/occasion → library** → `get_library_stats` → `filter_tracks(output_format="compact")` → curate zelf → valideer → `curate_and_play`
+- **Na selectie: validatie** → `validate_playlist(session_id, track_numbers)` → fix waarschuwingen → `curate_and_play`
 - **Mood/genre/occasion → hybrid** → `filter_tracks(output_format="compact")` + `search_qobuz` → meng en curate → `play_tracks`
 - **Mood/genre/occasion → qobuz only** → meerdere `search_qobuz` calls → curate → `play_tracks`
 
@@ -270,14 +278,14 @@ De backend tools (`generate_playlist`, `seed_track_playlist`, `recommend_album`)
 
 1. **Analyse** — understand mood, genre, tempo, era from the user's request.
 2. **`get_library_stats`** — check which genres and decades are available.
-3. **`filter_tracks(output_format="compact", genres=[...], decades=[...], max_tracks=500)`** — retrieve a numbered list of filtered tracks + `key_map`.
+3. **`filter_tracks(output_format="compact", genres=[...], decades=[...], max_tracks=500)`** — retrieve a numbered list of filtered tracks; returns a `session_id` (key_map stored server-side, ~10-20K tokens saved).
 4. **Curate** — select the best 15–50 tracks using musical knowledge:
    - Artist diversity: max 1 track per artist (2 only when exceptional)
    - Album diversity: max 2 tracks per album
    - Flow: alternate tempo, decades, and styles; start strong, end memorably
    - No clustering: never two tracks from the same artist consecutively
    - Aim for ≥80% unique artists (e.g. 20 unique in a 25-track playlist)
-5. **`curate_and_play(track_numbers=[...], key_map={...}, zone_id="...")`** — translate numbers to item_keys and start playback.
+5. **`curate_and_play(track_numbers=[...], session_id="...", zone_id="...")`** — server translates numbers to item_keys via stored key_map and starts playback.
 6. **Present** — title, numbered tracklist with artist – title, brief note on why the tracks fit.
 
 **Voor hybrid playlists:** combineer stap 1–4 met `search_qobuz` calls voor Qobuz-tracks; meng gelijkmatig door de library-selectie; gebruik `play_tracks` met gecombineerde item_keys.

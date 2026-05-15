@@ -13,7 +13,7 @@ RoonSage is a self-hosted web app that connects to your Roon Core as an Extensio
 
 ## Claude Desktop Integration
 
-This is the primary way to use RoonSage. A full MCP server gives Claude Desktop **25 tools** to interact with your library and Roon — and Claude does all the curation work itself, using its own musical judgment. No separate API key, no per-token costs — just your existing Claude Pro subscription.
+This is the primary way to use RoonSage. A full MCP server gives Claude Desktop **26 tools** to interact with your library and Roon — and Claude does all the curation work itself, using its own musical judgment. No separate API key, no per-token costs — just your existing Claude Pro subscription.
 
 ```
 "Maak een playlist voor een late vrijdagavond, iets melancholisch maar niet depressief."
@@ -85,7 +85,7 @@ Als RoonSage op een ander adres draait, stel dan `ROONSAGE_URL` in vóór het st
 
 Begin met Sonnet. Schakel over naar Opus voor prompts als "iets dat aanvoelt als rijden in de regen 's nachts."
 
-### Beschikbare tools (25)
+### Beschikbare tools (26)
 
 **Library**
 
@@ -95,7 +95,7 @@ Begin met Sonnet. Schakel over naar Opus voor prompts als "iets dat aanvoelt als
 | `get_library_status` | Cache-versheid; `needs_resync` vlag |
 | `search_library` | Zoek op track-, artiest- of albumnaam |
 | `search_qobuz` | Zoek in de Qobuz-catalogus via Roon; resultaten zijn direct afspeelbaar |
-| `filter_tracks` | Filter op genre, decade, live-uitsluiting. `output_format="compact"` geeft een genummerde lijst + `key_map` voor native curatie door Claude. `"json"` geeft volledige metadata. |
+| `filter_tracks` | Filter op genre, decade, live-uitsluiting. `output_format="compact"` geeft een genummerde lijst + `session_id`. `"ultra"` geeft alleen artiest — titel per regel. `"json"` geeft volledige metadata. Ondersteunt `artist_limit` en `exclude_keywords`. |
 | `get_artist_albums` | Alle albums van een artiest uit de SQLite cache |
 | `sync_library` | Start een achtergrond-library sync vanuit Roon |
 
@@ -103,7 +103,8 @@ Begin met Sonnet. Schakel over naar Opus voor prompts als "iets dat aanvoelt als
 
 | Tool | Wat het doet |
 |------|-------------|
-| `curate_and_play` | Speelt een selectie af die Claude koos uit `filter_tracks` compact output — vertaalt tracknummers + `key_map` naar Roon item_keys en start afspelen |
+| `curate_and_play` | Speelt een selectie af die Claude koos uit `filter_tracks` compact output — vertaalt tracknummers via `session_id` naar Roon item_keys en start afspelen |
+| `validate_playlist` | Controleer een track-selectie op duplicaten, clustering en overrepresentatie vóór afspelen |
 | `generate_playlist` | Natuurlijke taal → playlist via de backend pipeline (library/hybrid/qobuz). Fallback wanneer de context te groot is of op expliciet verzoek. |
 | `seed_track_playlist` | "Meer zoals dit" — playlist op basis van een seed-track via backend pipeline (fallback) |
 | `analyze_prompt` | Preview hoe een prompt vertaald wordt naar genre/decade-filters |
@@ -171,7 +172,7 @@ De web-interface werkt zonder Claude Desktop en biedt dezelfde playlist- en aanb
 
 **Qobuz-integratie** — drie bronmodi: Alleen mijn bibliotheek, Mix (bibliotheek + Qobuz-ontdekkingen), en Qobuz Discovery (alleen nieuwe muziek). Automatisch gedetecteerd als Qobuz geconfigureerd is in Roon.
 
-**Slim filteren** — filter op genre, decade en live-uitsluitng vóór de LLM iets ziet. Realtime trackaantallen tonen precies hoe je keuzes de pool verkleinen. Geschatte tokenkosten worden getoond vóór je genereert.
+**Slim filteren** — filter op genre, decade en live-uitsluiting vóór de LLM iets ziet. Realtime trackaantallen tonen precies hoe je keuzes de pool verkleinen. Geschatte tokenkosten worden getoond vóór je genereert.
 
 **Tijdsbewuste context** — de huidige dag en het uur worden als subtiele stemmingshints meegestuurd in generatieprompts. Vrijdagavond-picks verschillen van dinsdagochtend.
 
@@ -478,6 +479,9 @@ Interactieve docs op `/docs` wanneer de server draait.
 | `/api/library/search` | GET | Zoeken op track/artiest/album |
 | `/api/library/artist-albums` | GET | Alle albums van artiest uit cache |
 | `/api/library/filter` | POST | Filter op genre/decade/live-uitsluiting |
+| `/api/library/filter/session` | POST | Server-side key_map opslaan voor curate_and_play |
+| `/api/library/filter/curate` | POST | Gecureerde track-selectie afspelen via session_id + track-nummers |
+| `/api/library/filter/validate` | POST | Track-selectie valideren op kwaliteitsproblemen |
 | `/api/analyze/prompt` | POST | Prompt analyseren → filter-mapping |
 | `/api/generate/stream` | POST | Playlist generatie streamen (SSE) |
 | `/api/roon/zones` | GET | Actieve Roon-zones ophalen |
