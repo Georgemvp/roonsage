@@ -1068,8 +1068,8 @@ class RoonClient:
         best_score = -1.0
 
         for item in playable:
-            item_title = simplify_string(item.get("title", ""))
-            item_subtitle = simplify_string(item.get("subtitle", ""))
+            item_title = simplify_string(item.get("title") or "")
+            item_subtitle = simplify_string(item.get("subtitle") or "")
 
             try:
                 from rapidfuzz import fuzz  # noqa: PLC0415
@@ -1208,7 +1208,7 @@ class RoonClient:
                 # we treat them as version items and navigate into the first one.
                 all_kw = target_keywords | fallback_keywords
                 has_play_action = any(
-                    item.get("title", "").lower().strip() in all_kw
+                    (item.get("title") or "").lower().strip() in all_kw
                     and item.get("item_key")
                     for item in action_items
                 )
@@ -1244,7 +1244,7 @@ class RoonClient:
                 action_item: dict[str, Any] | None = None
                 fallback_item: dict[str, Any] | None = None
                 for item in action_items:
-                    title_lower = item.get("title", "").lower().strip()
+                    title_lower = (item.get("title") or "").lower().strip()
                     if title_lower in target_keywords and item.get("item_key"):
                         action_item = item
                         break
@@ -1311,7 +1311,7 @@ class RoonClient:
             action_item: dict[str, Any] | None = None
             fallback_item: dict[str, Any] | None = None
             for item in items:
-                title_lower = item.get("title", "").lower().strip()
+                title_lower = (item.get("title") or "").lower().strip()
                 if title_lower in target_keywords and item.get("item_key"):
                     action_item = item
                     break
