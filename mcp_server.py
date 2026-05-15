@@ -69,11 +69,17 @@ async def get_library_stats() -> str:
 
 @mcp.tool()
 async def search_library(query: str) -> str:
-    """Search the Roon music library by track title, artist name, or album name.
+    """Search the music library by track title, artist name, or album name.
+
+    Searches the local SQLite cache first (67k+ tracks, instant, works offline),
+    then falls back to the live Roon API if the cache returns no results.
+    This means the tool reliably finds artists, albums, and tracks even when
+    Roon is temporarily unreachable.
 
     Returns matching tracks with their item_key (needed for play/queue operations),
-    title, artist, and album. Use this when the user asks for specific artists,
-    songs, or albums, or wants to find something particular in the library.
+    title, artist, album, year, and genres. Use this when the user asks for
+    specific artists, songs, or albums, or wants to find something particular
+    in the library.
 
     Args:
         query: Search term — track title, artist name, or album name.

@@ -107,16 +107,45 @@ async def get_artist_albums(
     return await asyncio.to_thread(library_cache.get_albums_by_artist, artist, max_albums)
 
 
-@router.get("/library/search", response_model=list[Track])
-async def search_library(q: str = Query(..., description="Search query")) -> list[Track]:
-    """Search for tracks in the library."""
+@router.get(“/library/search”, response_model=list[Track])
+async def search_library(
+    q: str = Query(..., description=”Search query”),
+) -> list[Track]:
+    “””Search for tracks — cache first, Roon API fallback.”””
+    # Normalize smart/curly quotes to straight quotes (iOS auto-correction)
+    normalized = (
+        q.replace(“‘”, “’”).replace(“’”, “’”)
+         .replace(““”, ‘”’).replace(“””, ‘”’)
+    )
+
+    # Try cache first (fast, reliable, works offline)
+    if library_cache.has_cached_tracks():
+        cached = await asyncio.to_thread(
+            library_cache.search_cached_tracks, normalized, 20
+        )
+        if cached:
+            return [
+                Track(
+                    rating_key=t[“rating_key”],
+                    title=t[“title”],
+                    artist=t[“artist”],
+                    album=t[“album”],
+                    duration_ms=t.get(“duration_ms”) or 0,
+                    year=t.get(“year”),
+                    genres=t.get(“genres”) or [],
+                )
+                for t in cached
+            ]
+
+    # Fallback to live Roon search
     roon_client = get_roon_client()
     if not roon_client or not roon_client.is_connected():
-        raise HTTPException(status_code=503, detail="Roon not connected")
-
-    # Normalize smart/curly quotes to straight quotes (iOS auto-correction)
-    normalized = q.replace("‘", "'").replace("’", "'").replace("“", '"').replace("”", '"')
-    return await asyncio.to_thread(roon_client.search_tracks, normalized)
+        raise HTTPException(
+            status_code=503, detail=”Roon not connected”
+        )
+    return await asyncio.to_thread(
+        roon_client.search_tracks, normalized
+    )
 
 
 @router.post("/library/filter", response_model=FilterLibraryResponse)

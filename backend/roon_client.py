@@ -924,17 +924,52 @@ class RoonClient:
             return []
         try:
             with self._browse_lock:
-                self._api.browse_browse({"hierarchy": "search", "input": query, "pop_all": True})
-                result = self._api.browse_load({"hierarchy": "search", "count": limit * 2})
-            tracks = []
-            for item in result.get("items", []):
-                if item.get("hint") == "action":
-                    track = self._convert_track(item, {})
-                    if track:
-                        tracks.append(track)
-                        if len(tracks) >= limit:
+                self._api.browse_browse(
+                    {"hierarchy": "search", "input": query,
+                     "pop_all": True}
+                )
+                result = self._api.browse_load(
+                    {"hierarchy": "search", "count": 100}
+                )
+                tracks = []
+                top_items = result.get("items", [])
+
+                # Direct action items at top level (some Roon versions)
+                for item in top_items:
+                    if (item.get("hint") == "action"
+                            and item.get("item_key")):
+                        track = self._convert_track(item, {})
+                        if track:
+                            tracks.append(track)
+
+                # Navigate into list sections to find actual tracks
+                if not tracks:
+                    for section in top_items:
+                        if section.get("hint") != "list":
+                            continue
+                        if not section.get("item_key"):
+                            continue
+                        self._api.browse_browse(
+                            {"hierarchy": "search",
+                             "item_key": section["item_key"]}
+                        )
+                        sub_result = self._api.browse_load(
+                            {"hierarchy": "search",
+                             "count": limit * 2}
+                        )
+                        for item in sub_result.get("items", []):
+                            if item.get("hint") in (
+                                "action", "action_list"
+                            ):
+                                track = self._convert_track(item, {})
+                                if track:
+                                    tracks.append(track)
+                                    if len(tracks) >= limit:
+                                        break
+                        if tracks:
                             break
-            return tracks
+
+            return tracks[:limit]
         except Exception as e:
             logger.warning("Search failed: %s", e)
             return []

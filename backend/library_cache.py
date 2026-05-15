@@ -726,6 +726,25 @@ def sync_library(
         # Final commit for the last batch
         conn.commit()
 
+        # Backfill year from albums table for tracks with NULL year
+        logger.info("Backfilling track year from albums table...")
+        conn.execute("""
+            UPDATE tracks SET year = (
+                SELECT a.year FROM albums a
+                WHERE a.item_key = tracks.parent_rating_key
+                AND a.year IS NOT NULL
+            )
+            WHERE year IS NULL
+            AND parent_rating_key IS NOT NULL
+            AND parent_rating_key != ''
+        """)
+        conn.commit()
+        backfilled = conn.execute(
+            "SELECT COUNT(*) FROM tracks WHERE year IS NOT NULL"
+        ).fetchone()[0]
+        logger.info("Year backfill complete: %d tracks now have year data",
+                    backfilled)
+
         # Rebuild genre junction table for all freshly inserted tracks.
         logger.info("Rebuilding track_genres junction table...")
         genre_rows = conn.execute(
@@ -1232,6 +1251,49 @@ def get_album_familiarity(
             }
 
         return result
+    finally:
+        conn.close()
+
+
+# =============================================================================
+def search_cached_tracks(
+    query: str,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Search the local track cache by artist, title, or album.
+
+    Uses case-insensitive LIKE matching on all three fields.
+    Returns track dicts compatible with Track model construction.
+    """
+    conn = ensure_db_initialized()
+    try:
+        search_term = f"%{query}%"
+        rows = conn.execute(
+            """
+            SELECT rating_key, title, artist, album,
+                   duration_ms, year, genres
+            FROM tracks
+            WHERE artist LIKE ? COLLATE NOCASE
+               OR title LIKE ? COLLATE NOCASE
+               OR album LIKE ? COLLATE NOCASE
+            ORDER BY
+                CASE WHEN artist LIKE ? COLLATE NOCASE
+                     THEN 0 ELSE 1 END,
+                artist, album, title
+            LIMIT ?
+            """,
+            (search_term, search_term, search_term,
+             search_term, limit),
+        ).fetchall()
+        tracks = []
+        for row in rows:
+            track = dict(row)
+            track["genres"] = (
+                json.loads(track["genres"])
+                if track.get("genres") else []
+            )
+            tracks.append(track)
+        return tracks
     finally:
         conn.close()
 

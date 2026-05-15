@@ -248,8 +248,8 @@ class GenerateRequest(BaseModel):
     seed_track: SeedTrackInput | None = None
     additional_notes: str | None = None
     refinement_answers: list[str | None] | None = None
-    genres: list[str]
-    decades: list[str]
+    genres: list[str] = []
+    decades: list[str] = []
     track_count: int = 25
     exclude_live: bool = True
     min_rating: int = 0  # 0 = any, 2/4/6/8/10 = minimum rating
