@@ -58,7 +58,6 @@ class TestSchemaCreation:
         assert "duration_ms" in columns
         assert "year" in columns
         assert "genres" in columns
-        assert "user_rating" in columns
         assert "is_live" in columns
         assert "updated_at" in columns
 
@@ -149,9 +148,9 @@ class TestCacheOperations:
         conn = library_cache.get_db_connection()
         conn.execute(
             "INSERT INTO tracks (rating_key, title, artist, album, duration_ms, "
-            "year, genres, user_rating, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "year, genres, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             ("123", "Test Song", "Test Artist", "Test Album", 180000, 1999,
-             json.dumps(["Rock", "Alternative"]), 8, False),
+             json.dumps(["Rock", "Alternative"]), False),
         )
         conn.commit()
         conn.close()
@@ -196,17 +195,17 @@ class TestFiltering:
         conn = library_cache.get_db_connection()
         tracks = [
             ("1", "Rock Song", "Rock Artist", "Rock Album", 180000, 1995,
-             json.dumps(["Rock"]), 8, False),
+             json.dumps(["Rock"]), False),
             ("2", "Pop Song", "Pop Artist", "Pop Album", 200000, 2005,
-             json.dumps(["Pop"]), 6, False),
+             json.dumps(["Pop"]), False),
             ("3", "Live Concert", "Live Artist", "Live 2020", 300000, 2020,
-             json.dumps(["Rock"]), 4, True),
+             json.dumps(["Rock"]), True),
             ("4", "Jazz Song", "Jazz Artist", "Jazz Album", 250000, 1985,
-             json.dumps(["Jazz"]), 10, False),
+             json.dumps(["Jazz"]), False),
         ]
         conn.executemany(
             "INSERT INTO tracks (rating_key, title, artist, album, duration_ms, "
-            "year, genres, user_rating, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "year, genres, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             tracks,
         )
         conn.commit()
@@ -261,16 +260,16 @@ class TestFiltering:
         for i in range(100):
             tracks.append((
                 f"pop-{i}", f"Pop Song {i}", "Pop Artist", "Pop Album",
-                180000, 2000, json.dumps(["Pop"]), 5, False
+                180000, 2000, json.dumps(["Pop"]), False
             ))
         for i in range(10):
             tracks.append((
                 f"jazz-{i}", f"Jazz Song {i}", "Jazz Artist", "Jazz Album",
-                180000, 1990, json.dumps(["Jazz"]), 5, False
+                180000, 1990, json.dumps(["Jazz"]), False
             ))
         conn.executemany(
             "INSERT INTO tracks (rating_key, title, artist, album, duration_ms, "
-            "year, genres, user_rating, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "year, genres, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             tracks,
         )
         conn.commit()
@@ -285,13 +284,6 @@ class TestFiltering:
         for t in result:
             assert "Jazz" in t["genres"], f"Non-Jazz track returned: {t['title']}"
 
-    def test_filter_by_min_rating(self, sample_tracks):
-        """Filter by minimum rating."""
-        tracks = library_cache.get_tracks_by_filters(min_rating=8, exclude_live=False)
-
-        assert len(tracks) == 2
-        assert all(t["user_rating"] >= 8 for t in tracks)
-
     def test_filter_with_limit(self, sample_tracks):
         """Filter with limit returns at most N tracks."""
         tracks = library_cache.get_tracks_by_filters(limit=2, exclude_live=False)
@@ -304,7 +296,6 @@ class TestFiltering:
             genres=["Rock"],
             decades=["1990s"],
             exclude_live=True,
-            min_rating=6,
         )
 
         assert len(tracks) == 1
@@ -583,9 +574,9 @@ class TestSyncLibrary:
         conn = library_cache.get_db_connection()
         conn.execute(
             "INSERT INTO tracks (rating_key, title, artist, album, duration_ms, "
-            "year, genres, user_rating, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "year, genres, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             ("stale-track-999", "Stale Song", "Old Artist", "Deleted Album",
-             180000, 2000, json.dumps(["Rock"]), 5, False),
+             180000, 2000, json.dumps(["Rock"]), False),
         )
         conn.commit()
         conn.close()

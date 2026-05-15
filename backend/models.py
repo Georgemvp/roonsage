@@ -202,7 +202,6 @@ class FilterPreviewRequest(BaseModel):
     decades: list[str] = []
     track_count: int = 25
     max_tracks_to_ai: int = 500  # 0 = no limit
-    min_rating: int = 0  # 0 = any, 2/4/6/8/10 = minimum rating
     exclude_live: bool = True
 
 
@@ -221,7 +220,6 @@ class FilterLibraryRequest(BaseModel):
 
     genres: list[str] = []
     decades: list[str] = []
-    min_rating: int = 0  # 0 = any; currently no-op (Roon API limitation)
     exclude_live: bool = True
     max_tracks: int = 500  # Cap to protect context windows
 
@@ -252,7 +250,6 @@ class GenerateRequest(BaseModel):
     decades: list[str] = []
     track_count: int = 25
     exclude_live: bool = True
-    min_rating: int = 0  # 0 = any, 2/4/6/8/10 = minimum rating
     max_tracks_to_ai: int = 500  # 0 = no limit
 
     @model_validator(mode="after")

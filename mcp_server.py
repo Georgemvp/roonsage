@@ -123,11 +123,10 @@ async def search_library(query: str) -> str:
 async def filter_tracks(
     genres: Optional[list[str]] = None,
     decades: Optional[list[str]] = None,
-    min_rating: Optional[int] = None,
     exclude_live: bool = True,
     max_tracks: int = 200,
 ) -> str:
-    """Filter the Roon library by genre, decade, rating, and/or live-version exclusion.
+    """Filter the Roon library by genre, decade, and/or live-version exclusion.
 
     Returns a list of tracks that match all specified criteria. Each track includes
     its item_key (required for play/queue), title, artist, and album.
@@ -139,16 +138,11 @@ async def filter_tracks(
     returned; the response also reports the full total so you know how large the
     filtered pool is.
 
-    Note: min_rating filtering has no effect because Roon does not expose user
-    ratings via the Extension API.
-
     Args:
         genres:       List of genre strings to include, e.g. ["Jazz", "Blues"].
                       Pass None or omit to include all genres.
         decades:      List of decade strings to include, e.g. ["1990s", "2000s"].
                       Pass None or omit to include all decades.
-        min_rating:   Minimum star rating (1–5). Currently has no effect due to
-                      Roon API limitations — all tracks are returned regardless.
         exclude_live: When True (default), tracks with "live", "concert", or year
                       patterns in their title or album name are excluded.
         max_tracks:   Maximum number of tracks to return (default 200). The full
@@ -159,8 +153,6 @@ async def filter_tracks(
         body["genres"] = genres
     if decades:
         body["decades"] = decades
-    if min_rating is not None:
-        body["min_rating"] = min_rating
 
     try:
         response = await _client.post(f"{MEDIASAGE_URL}/api/library/filter", json=body)

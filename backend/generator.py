@@ -130,7 +130,6 @@ def _get_tracks_from_cache_or_roon(
     genres: list[str] | None,
     decades: list[str] | None,
     exclude_live: bool,
-    min_rating: int,
     max_tracks_to_ai: int,
 ) -> list[Track]:
     """Get tracks from cache if available, otherwise from Roon.
@@ -138,7 +137,7 @@ def _get_tracks_from_cache_or_roon(
     Returns:
         List of Track objects
     """
-    has_filters = genres or decades or min_rating > 0
+    has_filters = bool(genres or decades)
     effective_limit = max_tracks_to_ai if max_tracks_to_ai > 0 else 2000
 
     # Try cache first
@@ -147,7 +146,6 @@ def _get_tracks_from_cache_or_roon(
         cached_tracks = library_cache.get_tracks_by_filters(
             genres=genres,
             decades=decades,
-            min_rating=min_rating,
             exclude_live=exclude_live,
             limit=effective_limit,
         )
@@ -165,7 +163,6 @@ def _get_tracks_from_cache_or_roon(
             genres=genres,
             decades=decades,
             exclude_live=exclude_live,
-            min_rating=min_rating,
             limit=effective_limit,
         )
 
@@ -180,7 +177,6 @@ def generate_playlist_stream(
     decades: list[str] | None = None,
     track_count: int = 25,
     exclude_live: bool = True,
-    min_rating: int = 0,
     max_tracks_to_ai: int = 500,
 ) -> Generator[str, None, None]:
     """Generate a playlist with streaming progress updates.
@@ -202,7 +198,7 @@ def generate_playlist_stream(
             yield emit("error", {"message": "Roon client not initialized"})
             return
 
-        has_filters = genres or decades or min_rating > 0
+        has_filters = bool(genres or decades)
 
         # Step 1: Fetch tracks from cache or Roon
         using_cache = library_cache.has_cached_tracks()
@@ -213,15 +209,14 @@ def generate_playlist_stream(
         else:
             yield emit("progress", {"step": "fetching", "message": "Fetching tracks from library..."})
 
-        logger.info("Fetching tracks: genres=%s, decades=%s, min_rating=%s, using_cache=%s",
-                    genres, decades, min_rating, using_cache)
+        logger.info("Fetching tracks: genres=%s, decades=%s, using_cache=%s",
+                    genres, decades, using_cache)
         try:
             filtered_tracks = _get_tracks_from_cache_or_roon(
                 roon_client=roon_client,
                 genres=genres,
                 decades=decades,
                 exclude_live=exclude_live,
-                min_rating=min_rating,
                 max_tracks_to_ai=max_tracks_to_ai,
             )
         except RoonQueryError as e:
