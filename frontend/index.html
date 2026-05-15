@@ -234,7 +234,7 @@
                     <div class="step-connector" aria-hidden="true"></div>
                     <div class="step" data-step="source">
                         <span class="step-circle">3</span>
-                        <span class="step-label">Bron</span>
+                        <span class="step-label">Source</span>
                     </div>
                     <div class="step-connector" aria-hidden="true"></div>
                     <div class="step" data-step="filters">
@@ -329,34 +329,34 @@
 
                     <!-- Source Mode Step -->
                     <div id="step-source" class="step-panel">
-                        <h2>Muziekbron</h2>
-                        <p class="step-description">Kies waar de tracks vandaan komen.</p>
-                        <div id="source-mode-cards" class="source-mode-cards" role="group" aria-label="Muziekbron kiezen">
+                        <h2>Music Source</h2>
+                        <p class="step-description">Choose where tracks come from.</p>
+                        <div id="source-mode-cards" class="source-mode-cards" role="group" aria-label="Choose music source">
                             <button class="source-card selected" data-source="library" aria-pressed="true">
                                 <span class="source-card-icon">📀</span>
-                                <span class="source-card-title">Mijn Bibliotheek</span>
-                                <span class="source-card-desc">Alleen tracks die je bezit</span>
+                                <span class="source-card-title">My Library</span>
+                                <span class="source-card-desc">Only tracks you own</span>
                             </button>
                             <button class="source-card" data-source="hybrid" aria-pressed="false" id="source-card-hybrid">
                                 <span class="source-card-icon">🔀</span>
                                 <span class="source-card-title">Mix</span>
-                                <span class="source-card-desc">Bibliotheek + nieuwe ontdekkingen via Qobuz</span>
+                                <span class="source-card-desc">Library + new discoveries via Qobuz</span>
                             </button>
                             <button class="source-card" data-source="qobuz" aria-pressed="false" id="source-card-qobuz">
                                 <span class="source-card-icon">🔍</span>
-                                <span class="source-card-title">Qobuz Ontdekking</span>
-                                <span class="source-card-desc">Nieuwe muziek buiten je bibliotheek</span>
+                                <span class="source-card-title">Qobuz Discovery</span>
+                                <span class="source-card-desc">New music outside your library</span>
                             </button>
                         </div>
                         <div id="qobuz-percentage-row" class="qobuz-percentage-row hidden">
-                            <label for="qobuz-percentage-slider">Nieuwe muziek: <span id="qobuz-pct-label">30</span>%</label>
+                            <label for="qobuz-percentage-slider">New music: <span id="qobuz-pct-label">30</span>%</label>
                             <input type="range" id="qobuz-percentage-slider" min="10" max="70" step="5" value="30"
-                                   aria-label="Percentage nieuwe Qobuz-tracks">
+                                   aria-label="Percentage of new Qobuz tracks">
                         </div>
                         <p id="qobuz-unavailable-msg" class="qobuz-unavailable hidden">
-                            ⚠️ Configureer Qobuz in Roon om Mix en Qobuz Ontdekking te gebruiken.
+                            ⚠️ Configure Qobuz in Roon to use Mix and Qobuz Discovery.
                         </p>
-                        <button id="source-continue-btn" class="btn btn-primary">Volgende</button>
+                        <button id="source-continue-btn" class="btn btn-primary">Next</button>
                     </div>
 
                     <!-- Filters Step -->
@@ -458,14 +458,14 @@
                                             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 5L6 8L9 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
                                         </button>
                                         <div id="save-mode-dropdown" class="save-mode-dropdown hidden" role="menu">
-                                            <button class="save-mode-option active" data-mode="new" role="menuitem">
-                                                <span class="save-mode-check">&#10003;</span> Save new playlist
+                                            <button class="save-mode-option active" data-mode="replace_queue" role="menuitem">
+                                                <span class="save-mode-check">&#10003;</span> Replace Queue
                                             </button>
-                                            <button class="save-mode-option" data-mode="replace" role="menuitem">
-                                                <span class="save-mode-check"></span> Replace a playlist
+                                            <button class="save-mode-option" data-mode="play_now" role="menuitem">
+                                                <span class="save-mode-check"></span> Play Now
                                             </button>
-                                            <button class="save-mode-option" data-mode="append" role="menuitem">
-                                                <span class="save-mode-check"></span> Append to a playlist
+                                            <button class="save-mode-option" data-mode="queue_next" role="menuitem">
+                                                <span class="save-mode-check"></span> Queue Next
                                             </button>
                                         </div>
                                     </div>

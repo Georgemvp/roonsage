@@ -139,7 +139,7 @@ const state = {
     _pendingClientId: null,    // Client ID awaiting play choice modal selection
 
     // Instant Queue (005) — Update Existing
-    saveMode: 'new',           // 'new' | 'replace' | 'append'
+    saveMode: 'replace_queue', // 'replace_queue' | 'play_now' | 'queue_next'
     selectedPlaylistId: null,
     // plexPlaylists removed — Roon uses queue, not saved playlists
 
@@ -3143,7 +3143,7 @@ function renderSourceModeStep() {
         card.disabled = disabled;
         card.classList.toggle('source-card--disabled', disabled);
         if (disabled) {
-            card.title = 'Configureer Qobuz in Roon om deze optie te gebruiken';
+            card.title = 'Configure Qobuz in Roon to use this option';
         } else {
             card.title = '';
         }
@@ -3161,7 +3161,7 @@ function renderSourceModeStep() {
 
 async function handleContinueFromSource() {
     // Load library stats for the filters step
-    setLoading(true, 'Bibliotheek laden...');
+    setLoading(true, 'Loading library...');
     try {
         const stats = await fetchLibraryStats();
         state.availableGenres = stats.genres;
@@ -3396,47 +3396,14 @@ function generatePlaylistName() {
 }
 
 async function handleSavePlaylist() {
-    // Route to update handler when in replace/append mode
-    if (state.saveMode === 'replace' || state.saveMode === 'append') {
-        await handleUpdatePlaylist();
-        return;
-    }
-
-    const name = document.getElementById('playlist-name-input').value.trim();
-    if (!name) {
-        showError('Please enter a playlist name');
-        return;
-    }
-
+    // All queue modes go through the zone-picker flow.
+    // The save-mode dropdown controls queue behaviour (replace_queue / play_now / queue_next);
+    // handleClientSelect() reads state.saveMode when calling executePlayQueue().
     if (!state.playlist.length) {
         showError('Playlist is empty');
         return;
     }
-
-    const saveSteps = [
-        'Connecting to Roon Core...',
-        'Creating playlist...',
-        'Adding tracks...',
-    ];
-    setLoading(true, 'Queueing to Roon...', saveSteps);
-
-    try {
-        const ratingKeys = state.playlist.map(t => t.rating_key);
-        const response = await savePlaylist(name, ratingKeys, state.narrative);
-
-        if (response.success) {
-            const trackCount = response.tracks_added || state.playlist.length;
-            showSuccessModal(name, trackCount, response.playlist_url);
-            // Invalidate playlist cache so newly created playlist shows in Update Existing picker
-            // state.roonPlaylists = []; (not used)
-        } else {
-            showError(response.error || 'Failed to save playlist');
-        }
-    } catch (error) {
-        showError(error.message);
-    } finally {
-        setLoading(false);
-    }
+    await handlePlayNow();
 }
 
 async function loadSettings() {
@@ -3706,8 +3673,15 @@ function handleClientSelect(clientId) {
 
     dismissClientPicker();
 
+    // Queue Next always appends without interrupting playback
+    if (state.saveMode === 'queue_next') {
+        executePlayQueue(clientId, 'append');
+        return;
+    }
+
+    // Play Now and Replace Queue both replace the queue; if already playing,
+    // show the choice modal so the user can confirm or queue next instead.
     if (client.is_playing) {
-        // Store pending client ID for choice modal callbacks
         state._pendingClientId = clientId;
         const choiceModal = document.getElementById('play-choice-modal');
         choiceModal.classList.remove('hidden');
@@ -3820,11 +3794,7 @@ async function fetchAndPopulatePlaylists() {
 }
 
 function updateAppendTrackCount() {
-    if (state.saveMode !== 'append') return;
-
-    const count = state.playlist.length;
-    const saveBtn = document.getElementById('save-playlist-btn');
-    if (saveBtn) saveBtn.innerHTML = `<span class="btn-label-long">Add ${count} track${count !== 1 ? 's' : ''}</span><span class="btn-label-short">Append</span>`;
+    // No-op: append mode removed; button label is now static per saveMode.
 }
 
 function setSaveMode(mode) {
@@ -3841,29 +3811,25 @@ function setSaveMode(mode) {
         opt.querySelector('.save-mode-check').innerHTML = isActive ? '&#10003;' : '';
     });
 
-    // Toggle UI elements
+    // Roon does not support saved playlists — always hide name/picker inputs.
+    // The mode controls only how tracks are sent to the active zone.
     const saveBtn = document.getElementById('save-playlist-btn');
     const nameContainer = document.querySelector('.playlist-name-container');
     const pickerContainer = document.getElementById('playlist-picker-container');
 
-    if (mode === 'new') {
+    nameContainer.classList.add('hidden');
+    pickerContainer.classList.add('hidden');
+
+    if (mode === 'play_now') {
+        saveBtn.innerHTML = '<span class="btn-label-long">Play Now</span><span class="btn-label-short">Play</span>';
+    } else if (mode === 'queue_next') {
+        saveBtn.innerHTML = '<span class="btn-label-long">Queue Next</span><span class="btn-label-short">Next</span>';
+    } else {
+        // replace_queue (default)
         saveBtn.innerHTML = '<span class="btn-label-long">Queue to Roon</span><span class="btn-label-short">Queue</span>';
-        nameContainer.classList.remove('hidden');
-        pickerContainer.classList.add('hidden');
-    } else if (mode === 'replace') {
-        saveBtn.innerHTML = '<span class="btn-label-long">Replace all tracks</span><span class="btn-label-short">Replace</span>';
-        nameContainer.classList.add('hidden');
-        pickerContainer.classList.remove('hidden');
-        if (state.playlist.length > 0) fetchAndPopulatePlaylists();
-    } else if (mode === 'append') {
-        const count = state.playlist.length;
-        saveBtn.innerHTML = `<span class="btn-label-long">Add ${count} track${count !== 1 ? 's' : ''}</span><span class="btn-label-short">Append</span>`;
-        nameContainer.classList.add('hidden');
-        pickerContainer.classList.remove('hidden');
-        if (state.playlist.length > 0) fetchAndPopulatePlaylists();
     }
 
-    // Persist to localStorage (US3 — T017)
+    // Persist to localStorage
     try { localStorage.setItem('roonsage-save-mode', mode); } catch (e) { /* private browsing */ }
 }
 
@@ -5698,11 +5664,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    // Restore save mode from localStorage AFTER config loads (US3 — T017)
-    let initialMode = 'new';
+    // Restore save mode from localStorage
+    let initialMode = 'replace_queue';
     try {
         const savedMode = localStorage.getItem('roonsage-save-mode');
-        if (savedMode === 'replace' || savedMode === 'append') {
+        if (savedMode === 'replace_queue' || savedMode === 'play_now' || savedMode === 'queue_next') {
             initialMode = savedMode;
         }
     } catch (e) { /* private browsing / storage disabled */ }
