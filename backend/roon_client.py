@@ -1084,6 +1084,31 @@ class RoonClient:
             logger.exception("Failed to play tracks on zone %s", zone_id)
             return {"success": False, "error": str(e)}
 
+    def transport_control(self, zone_id: str, action: str) -> dict[str, Any]:
+        """Send a transport command to a Roon zone.
+
+        Args:
+            zone_id: Roon zone ID (from get_zones)
+            action:  One of "play", "pause", "stop", "next", "previous"
+
+        Returns:
+            dict with success, zone_name, action, error
+        """
+        valid_actions = {"play", "pause", "stop", "next", "previous"}
+        if action not in valid_actions:
+            return {"success": False, "error": f"Invalid action '{action}'. Must be one of: {', '.join(sorted(valid_actions))}"}
+
+        if not self.is_connected():
+            return {"success": False, "error": "Not connected to Roon"}
+
+        try:
+            self._api.playback_control(zone_id, action)
+            zone_name = self._get_zone_name(zone_id)
+            return {"success": True, "zone_name": zone_name, "action": action}
+        except Exception as e:
+            logger.warning("transport_control failed zone=%s action=%s: %s", zone_id, action, e)
+            return {"success": False, "error": str(e)}
+
     def _get_zone_name(self, zone_id: str) -> str | None:
         """Return display name for a zone."""
         try:

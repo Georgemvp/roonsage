@@ -13,6 +13,8 @@ from backend.models import (
     QueueAppendRequest,
     QueueAppendResponse,
     RoonZoneInfo,
+    TransportControlRequest,
+    TransportControlResponse,
 )
 from backend.roon_client import get_roon_client
 from backend.routes.recommend import _get_art_proxy_client
@@ -99,6 +101,23 @@ async def get_album_art(item_key: str):
             logger.debug("Roon art proxy failed for item_key=%s", item_key, exc_info=True)
 
     raise HTTPException(status_code=404, detail="Art not available")
+
+
+@router.post("/roon/transport", response_model=TransportControlResponse)
+async def transport_control(request: TransportControlRequest) -> TransportControlResponse:
+    """Send a transport command (play/pause/stop/next/previous) to a Roon zone."""
+    roon_client = get_roon_client()
+    if not roon_client or not roon_client.is_connected():
+        raise HTTPException(status_code=503, detail="Roon not connected")
+
+    result = await asyncio.to_thread(
+        roon_client.transport_control,
+        request.zone_id,
+        request.action,
+    )
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Transport command failed"))
+    return TransportControlResponse(**result)
 
 
 @router.get("/external-art")

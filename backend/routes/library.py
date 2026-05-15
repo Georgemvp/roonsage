@@ -98,6 +98,15 @@ async def get_library_stats_cached() -> LibraryStatsResponse:
     )
 
 
+@router.get("/library/artist-albums")
+async def get_artist_albums(
+    artist: str = Query(..., description="Artist name (partial match, case-insensitive)"),
+    max_albums: int = Query(50, ge=1, le=200, description="Maximum number of albums to return"),
+) -> list[dict]:
+    """Return all albums in the cache by a given artist."""
+    return await asyncio.to_thread(library_cache.get_albums_by_artist, artist, max_albums)
+
+
 @router.get("/library/search", response_model=list[Track])
 async def search_library(q: str = Query(..., description="Search query")) -> list[Track]:
     """Search for tracks in the library."""

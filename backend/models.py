@@ -402,6 +402,22 @@ class PlayQueueResponse(BaseModel):
     error: str | None = None
 
 
+class TransportControlRequest(BaseModel):
+    """Request to send a transport command to a Roon zone."""
+
+    zone_id: str
+    action: str  # "play", "pause", "stop", "next", "previous"
+
+
+class TransportControlResponse(BaseModel):
+    """Response from transport control."""
+
+    success: bool
+    zone_name: str | None = None
+    action: str | None = None
+    error: str | None = None
+
+
 class ConfigResponse(BaseModel):
     """Config without secrets for display."""
 

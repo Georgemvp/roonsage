@@ -562,6 +562,460 @@ async def recommend_album(
     return json.dumps(summary, ensure_ascii=False, indent=2)
 
 
+@mcp.tool()
+async def get_library_status() -> str:
+    """Check if the MediaSage library cache is up-to-date.
+
+    Returns track_count, synced_at timestamp, whether a sync is currently
+    running, and a `needs_resync` flag (True when cache is older than 24 hours).
+    Call this proactively at the start of a conversation to decide whether to
+    suggest a sync. If needs_resync is True, call sync_library.
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            response = await client.get(f"{MEDIASAGE_URL}/api/library/status")
+            response.raise_for_status()
+            data = response.json()
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
+@mcp.tool()
+async def get_artist_albums(artist: str, max_albums: int = 50) -> str:
+    """Return all albums in the Roon library by a given artist.
+
+    Uses the local SQLite cache for instant results. Useful for deep-diving
+    into an artist's catalogue, finding hidden gems, or recommending albums
+    the user may have forgotten they own.
+
+    Args:
+        artist:     Artist name to search for (partial, case-insensitive).
+        max_albums: Maximum number of albums to return (default 50).
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            response = await client.get(
+                f"{MEDIASAGE_URL}/api/library/artist-albums",
+                params={"artist": artist, "max_albums": max_albums},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
+@mcp.tool()
+async def seed_track_playlist(
+    item_key: str,
+    dimensions: list[str],
+    track_count: int = 25,
+) -> str:
+    """Generate a playlist seeded from a specific track — "more like this".
+
+    Analyzes the seed track across the chosen musical dimensions and curates
+    similar tracks from the Roon library. Use this when the user says "more
+    like what's playing" or "a playlist in the style of this song".
+
+    After generation, use play_tracks or queue_tracks with the returned item_keys.
+
+    Args:
+        item_key:    The rating_key / item_key of the seed track (from search_library).
+        dimensions:  List of musical dimensions to match. Choose from:
+                     "mood", "era", "genre", "production", "tempo", "energy".
+                     Recommended: ["mood", "genre"] for most requests.
+        track_count: Number of tracks to generate (default 25). Must be 15, 25, 50, or 100.
+    """
+    body: dict = {
+        "prompt": None,
+        "seed_track": {
+            "rating_key": item_key,
+            "selected_dimensions": dimensions,
+        },
+        "genres": [],
+        "decades": [],
+        "track_count": track_count,
+        "exclude_live": True,
+    }
+
+    tracks_batches: list[list[dict]] = []
+    complete_data: dict = {}
+    errors: list[str] = []
+
+    try:
+        async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
+            async with client.stream(
+                "POST",
+                f"{MEDIASAGE_URL}/api/generate/stream",
+                json=body,
+            ) as response:
+                if response.status_code != 200:
+                    await response.aread()
+                    return f"MediaSage API error: {response.status_code} — {response.text}"
+
+                event_type = "message"
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line:
+                        event_type = "message"
+                        continue
+                    if line.startswith("event:"):
+                        event_type = line[6:].strip()
+                    elif line.startswith("data:"):
+                        raw = line[5:].strip()
+                        try:
+                            payload = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        if event_type == "tracks":
+                            batch = payload.get("batch", [])
+                            if batch:
+                                tracks_batches.append(batch)
+                        elif event_type == "complete":
+                            complete_data = payload
+                        elif event_type == "error":
+                            errors.append(payload.get("message", "Unknown error"))
+
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.ReadTimeout:
+        return "Seed playlist generation timed out. Try again."
+    except httpx.HTTPStatusError as exc:
+        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    if errors:
+        return f"Seed playlist generation failed: {'; '.join(errors)}"
+
+    all_tracks = [track for batch in tracks_batches for track in batch]
+    if not all_tracks and not complete_data:
+        return "No results returned. Check that the library is synced and the item_key is valid."
+
+    result: dict = {
+        "playlist_title": complete_data.get("playlist_title", "Seed Playlist"),
+        "narrative": complete_data.get("narrative", ""),
+        "track_count": complete_data.get("track_count", len(all_tracks)),
+        "tracks": [
+            {
+                "item_key": t.get("rating_key", t.get("item_key", "")),
+                "title": t.get("title", ""),
+                "artist": t.get("artist", ""),
+                "album": t.get("album", ""),
+            }
+            for t in all_tracks
+        ],
+    }
+    if complete_data.get("result_id"):
+        result["result_id"] = complete_data["result_id"]
+
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def analyze_prompt(prompt: str) -> str:
+    """Show how MediaSage would translate a natural-language prompt into filters.
+
+    Returns suggested genres, decades, mood tags, and tempo based on the prompt.
+    Use this for transparency — show the user what filters the AI will apply
+    before running a full generate_playlist call. Also useful for debugging
+    unexpected playlist results.
+
+    Args:
+        prompt: Natural language description, e.g. "melancholic rainy Sunday jazz".
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            response = await client.post(
+                f"{MEDIASAGE_URL}/api/analyze/prompt",
+                json={"prompt": prompt},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
+@mcp.tool()
+async def recommend_album_interactive(
+    prompt: str,
+    answers: Optional[list[str]] = None,
+    mode: str = "library",
+    familiarity_pref: str = "any",
+) -> str:
+    """Interactive album recommendation with clarifying questions.
+
+    Two-step flow:
+    - Step 1 (answers=None): Returns a session_id and clarifying questions.
+      Present these questions to the user.
+    - Step 2 (answers=[...]): Pass the session_id in the prompt field
+      (format: "SESSION:<session_id>|<original prompt>") along with the user's
+      answers to generate a precise recommendation.
+
+    This produces much more personalized picks than recommend_album.
+
+    Args:
+        prompt:          Mood/occasion description. In step 2, prefix with
+                         "SESSION:<session_id>|" to reuse the session.
+        answers:         List of answer strings (one per clarifying question).
+                         Pass None or omit for step 1.
+        mode:            "library" (user's collection) or "discovery" (new albums).
+        familiarity_pref: "comfort", "hidden_gem", "rediscovery", or "any".
+    """
+    # Step 2: answers provided — extract session_id from prompt prefix
+    if answers is not None:
+        session_id = None
+        original_prompt = prompt
+        if prompt.startswith("SESSION:"):
+            parts = prompt[8:].split("|", 1)
+            session_id = parts[0]
+            original_prompt = parts[1] if len(parts) > 1 else prompt
+
+        if not session_id:
+            return "Error: session_id missing. Run step 1 first (call without answers)."
+
+        generate_body = {
+            "session_id": session_id,
+            "answers": answers,
+            "answer_texts": answers,
+            "mode": mode,
+            "familiarity_pref": familiarity_pref,
+            "max_albums": 2500,
+        }
+
+        result_payload: dict = {}
+        errors: list[str] = []
+
+        try:
+            async with httpx.AsyncClient(timeout=STREAM_TIMEOUT) as client:
+                async with client.stream(
+                    "POST",
+                    f"{MEDIASAGE_URL}/api/recommend/generate",
+                    json=generate_body,
+                ) as response:
+                    if response.status_code != 200:
+                        await response.aread()
+                        return f"MediaSage API error: {response.status_code} — {response.text}"
+                    event_type = "message"
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+                        if not line:
+                            event_type = "message"
+                            continue
+                        if line.startswith("event:"):
+                            event_type = line[6:].strip()
+                        elif line.startswith("data:"):
+                            raw = line[5:].strip()
+                            try:
+                                payload = json.loads(raw)
+                            except json.JSONDecodeError:
+                                continue
+                            if event_type == "result":
+                                result_payload = payload
+                            elif event_type == "error":
+                                errors.append(payload.get("message", "Unknown error"))
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.ReadTimeout:
+            return "Album recommendation timed out. Try again."
+
+        if errors:
+            return f"Album recommendation failed: {'; '.join(errors)}"
+        if not result_payload:
+            return "No recommendation returned. Try a different prompt."
+
+        recommendations = result_payload.get("recommendations", [])
+        primary = next((r for r in recommendations if r.get("rank") == "primary"), None)
+        if not primary and recommendations:
+            primary = recommendations[0]
+
+        summary: dict = {"mode": mode, "primary_recommendation": None, "additional_picks": []}
+        if primary:
+            pitch = primary.get("pitch") or {}
+            summary["primary_recommendation"] = {
+                "album": primary.get("album", ""),
+                "artist": primary.get("artist", ""),
+                "year": primary.get("year"),
+                "genres": primary.get("genres", []),
+                "rating_key": primary.get("rating_key", ""),
+                "track_rating_keys": primary.get("track_rating_keys", []),
+                "hook": pitch.get("hook", ""),
+                "body": pitch.get("body", ""),
+                "reason": primary.get("reason", ""),
+            }
+        secondaries = [r for r in recommendations if r.get("rank") == "secondary"]
+        for sec in secondaries:
+            summary["additional_picks"].append({
+                "album": sec.get("album", ""),
+                "artist": sec.get("artist", ""),
+                "year": sec.get("year"),
+                "rating_key": sec.get("rating_key", ""),
+                "track_rating_keys": sec.get("track_rating_keys", []),
+            })
+        return json.dumps(summary, ensure_ascii=False, indent=2)
+
+    # Step 1: get clarifying questions
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            q_resp = await client.post(
+                f"{MEDIASAGE_URL}/api/recommend/questions",
+                json={"prompt": prompt},
+            )
+            q_resp.raise_for_status()
+            q_data = q_resp.json()
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.HTTPStatusError as exc:
+        return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    session_id = q_data.get("session_id", "")
+    questions = q_data.get("questions", [])
+
+    result = {
+        "step": 1,
+        "instructions": (
+            "Present these questions to the user. Then call recommend_album_interactive again "
+            f"with prompt='SESSION:{session_id}|{prompt}' and answers=[...their answers...]."
+        ),
+        "session_id": session_id,
+        "questions": questions,
+    }
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def play_album(query: str, zone_id: str) -> str:
+    """Search for an album by name and play it in full in a Roon zone.
+
+    Combines search_library + play_tracks in one step. Use this when the user
+    says "play [album name]" or "put on [album] by [artist]".
+
+    Args:
+        query:   Album or artist name to search for, e.g. "Kind of Blue" or
+                 "Miles Davis Kind of Blue".
+        zone_id: Roon zone ID to play in — obtain via list_zones.
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        # Search for the album tracks
+        try:
+            search_resp = await client.get(
+                f"{MEDIASAGE_URL}/api/library/search",
+                params={"q": query},
+            )
+            search_resp.raise_for_status()
+            tracks = search_resp.json()
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    if not tracks:
+        return json.dumps({
+            "success": False,
+            "error": f"No tracks found for '{query}'. Try a different search term.",
+        })
+
+    # Group tracks by album and pick the best-matching album
+    albums: dict[str, list[dict]] = {}
+    for t in tracks:
+        album_key = f"{t.get('artist', '')} — {t.get('album', '')}"
+        albums.setdefault(album_key, []).append(t)
+
+    # Pick the album with the most matched tracks (most complete match)
+    best_album_key = max(albums, key=lambda k: len(albums[k]))
+    album_tracks = albums[best_album_key]
+    item_keys = [t.get("rating_key", t.get("item_key", "")) for t in album_tracks if t.get("rating_key") or t.get("item_key")]
+
+    # Play the tracks
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            play_resp = await client.post(
+                f"{MEDIASAGE_URL}/api/queue",
+                json={"item_keys": item_keys, "zone_id": zone_id},
+            )
+            play_resp.raise_for_status()
+            play_data = play_resp.json()
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    result = {
+        "success": play_data.get("success", False),
+        "album": album_tracks[0].get("album", ""),
+        "artist": album_tracks[0].get("artist", ""),
+        "tracks_queued": play_data.get("tracks_queued", len(item_keys)),
+        "zone_name": play_data.get("zone_name", zone_id),
+    }
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def transport_control(zone_id: str, action: str) -> str:
+    """Send a transport command to a Roon zone.
+
+    Use this for direct playback control: pause, resume, skip, stop.
+    No confirmation needed — execute immediately and confirm briefly.
+
+    Args:
+        zone_id: Roon zone ID — obtain via list_zones.
+        action:  One of: "play", "pause", "stop", "next", "previous".
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            response = await client.post(
+                f"{MEDIASAGE_URL}/api/roon/transport",
+                json={"zone_id": zone_id, "action": action},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
+@mcp.tool()
+async def get_result_history(
+    type: Optional[str] = None,
+    limit: int = 20,
+) -> str:
+    """Return previously generated playlists and album recommendations.
+
+    Use this when the user asks to replay a past playlist, recall a previous
+    recommendation, or review what was generated in earlier sessions.
+
+    Args:
+        type:  Filter by type. One of: "prompt_playlist", "seed_playlist",
+               "album_recommendation". Pass None to return all types.
+        limit: Maximum results to return (default 20, max 100).
+    """
+    params: dict = {"limit": limit}
+    if type:
+        params["type"] = type
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            response = await client.get(
+                f"{MEDIASAGE_URL}/api/results",
+                params=params,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except httpx.ConnectError:
+            return _unavailable_msg()
+        except httpx.HTTPStatusError as exc:
+            return f"MediaSage API error: {exc.response.status_code} — {exc.response.text}"
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

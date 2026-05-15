@@ -1237,6 +1237,43 @@ def get_album_familiarity(
 
 
 # =============================================================================
+def get_albums_by_artist(artist: str, max_albums: int = 50) -> list[dict[str, Any]]:
+    """Return all albums in the cache by a given artist (case-insensitive, partial match).
+
+    Args:
+        artist:     Artist name to search for (partial, case-insensitive).
+        max_albums: Maximum albums to return (default 50).
+
+    Returns:
+        List of dicts with keys: album, artist, year, genres, rating_key (parent_rating_key).
+    """
+    conn = ensure_db_initialized()
+    try:
+        rows = conn.execute(
+            """
+            SELECT parent_rating_key, album, artist, year, genres
+            FROM tracks
+            WHERE LOWER(artist) LIKE LOWER(?)
+            GROUP BY album, artist
+            ORDER BY year DESC NULLS LAST, album
+            LIMIT ?
+            """,
+            (f"%{artist}%", max_albums),
+        ).fetchall()
+        return [
+            {
+                "rating_key": row[0],
+                "album": row[1],
+                "artist": row[2],
+                "year": row[3],
+                "genres": json.loads(row[4]) if row[4] else [],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
 # Results Persistence
 # =============================================================================
 
