@@ -317,6 +317,7 @@ def update_config_values(updates: dict[str, Any]) -> AppConfig:
     # Create updated config by merging updates
     roon_updates = {}
     llm_updates = {}
+    qobuz_updates = {}
 
     if "roon_host" in updates and updates["roon_host"]:
         roon_updates["host"] = updates["roon_host"]
@@ -366,6 +367,14 @@ def update_config_values(updates: dict[str, Any]) -> AppConfig:
     if "custom_context_window" in updates and updates["custom_context_window"]:
         llm_updates["custom_context_window"] = updates["custom_context_window"]
 
+    # Qobuz playlist save settings
+    if "qobuz_app_id" in updates and updates["qobuz_app_id"]:
+        qobuz_updates["app_id"] = updates["qobuz_app_id"]
+    if "qobuz_email" in updates and updates["qobuz_email"]:
+        qobuz_updates["email"] = updates["qobuz_email"]
+    if "qobuz_password" in updates and updates["qobuz_password"]:
+        qobuz_updates["password"] = updates["qobuz_password"]
+
     # Create new config with updates
     new_roon = _config.roon.model_copy(update=roon_updates)
     new_llm = _config.llm.model_copy(update=llm_updates)
@@ -382,6 +391,8 @@ def update_config_values(updates: dict[str, Any]) -> AppConfig:
         user_updates["roon"] = roon_updates
     if llm_updates:
         user_updates["llm"] = llm_updates
+    if qobuz_updates:
+        user_updates["qobuz"] = qobuz_updates
 
     if user_updates:
         save_user_config(user_updates)

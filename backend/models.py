@@ -614,6 +614,10 @@ class ConfigResponse(BaseModel):
     custom_context_window: int = 32768
     is_local_provider: bool = False
     provider_from_env: bool = False  # True if LLM_PROVIDER env var is overriding UI
+    # Qobuz playlist save fields
+    qobuz_app_id: str = ""
+    qobuz_email: str = ""
+    qobuz_password_set: bool = False  # True if password is configured (never returned)
 
 
 class UpdateConfigRequest(BaseModel):
@@ -630,6 +634,10 @@ class UpdateConfigRequest(BaseModel):
     ollama_context_window: int | None = None
     custom_url: str | None = None
     custom_context_window: int | None = None
+    # Qobuz playlist save fields
+    qobuz_app_id: str | None = None
+    qobuz_email: str | None = None
+    qobuz_password: str | None = None
 
 
 class HealthResponse(BaseModel):

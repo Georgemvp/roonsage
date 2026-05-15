@@ -1823,6 +1823,25 @@ function updateSettings() {
 
     // Show provider-specific settings
     showProviderSettings(state.config.llm_provider);
+
+    // Update Qobuz settings fields
+    const qobuzAppId = document.getElementById('qobuz-app-id');
+    const qobuzEmail = document.getElementById('qobuz-email');
+    const qobuzPassword = document.getElementById('qobuz-password');
+    if (qobuzAppId) qobuzAppId.value = state.config.qobuz_app_id || '';
+    if (qobuzEmail) qobuzEmail.value = state.config.qobuz_email || '';
+    if (qobuzPassword) {
+        qobuzPassword.value = '';
+        qobuzPassword.placeholder = state.config.qobuz_password_set
+            ? '••••••••••••  (opgeslagen)'
+            : 'Wachtwoord';
+    }
+    const qobuzStatus = document.getElementById('qobuz-settings-status');
+    if (qobuzStatus) {
+        const configured = state.config.qobuz_password_set && state.config.qobuz_app_id && state.config.qobuz_email;
+        qobuzStatus.classList.toggle('connected', !!configured);
+        qobuzStatus.querySelector('.status-text').textContent = configured ? 'Geconfigureerd' : 'Niet geconfigureerd';
+    }
 }
 
 function showProviderSettings(provider) {
@@ -2794,6 +2813,9 @@ function setupEventListeners() {
     // Save settings
     document.getElementById('save-settings-btn').addEventListener('click', handleSaveSettings);
 
+    // Validate Qobuz credentials
+    document.getElementById('validate-qobuz-btn')?.addEventListener('click', handleValidateQobuz);
+
     // Success modal - Start New Playlist
     document.getElementById('new-playlist-btn').addEventListener('click', hideSuccessModal);
 
@@ -3574,6 +3596,14 @@ async function handleSaveSettings() {
         if (llmApiKey) updates.llm_api_key = llmApiKey;
     }
 
+    // Qobuz playlist save settings
+    const qobuzAppId = document.getElementById('qobuz-app-id')?.value.trim();
+    const qobuzEmail = document.getElementById('qobuz-email')?.value.trim();
+    const qobuzPassword = document.getElementById('qobuz-password')?.value.trim();
+    if (qobuzAppId) updates.qobuz_app_id = qobuzAppId;
+    if (qobuzEmail) updates.qobuz_email = qobuzEmail;
+    if (qobuzPassword) updates.qobuz_password = qobuzPassword;
+
     if (Object.keys(updates).length === 0) {
         showError('No settings to update');
         return;
@@ -3593,6 +3623,8 @@ async function handleSaveSettings() {
         // Clear password fields after save
         // roon token handled internally
         document.getElementById('llm-api-key').value = '';
+        const qobuzPwField = document.getElementById('qobuz-password');
+        if (qobuzPwField) qobuzPwField.value = '';
 
         // Reload library stats
         if (state.config.roon_connected) {
@@ -3602,6 +3634,35 @@ async function handleSaveSettings() {
         showError('Failed to save settings: ' + error.message);
     } finally {
         setLoading(false);
+    }
+}
+
+async function handleValidateQobuz() {
+    const btn = document.getElementById('validate-qobuz-btn');
+    const statusEl = document.getElementById('qobuz-settings-status');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Valideren...';
+    }
+    try {
+        const res = await fetch('/api/qobuz/save-status');
+        const data = await res.json();
+        if (statusEl) {
+            statusEl.classList.toggle('connected', !!data.available);
+            statusEl.querySelector('.status-text').textContent = data.available
+                ? 'Geconfigureerd en verbonden'
+                : (data.error || 'Niet geconfigureerd of verbinding mislukt');
+        }
+    } catch (err) {
+        if (statusEl) {
+            statusEl.classList.remove('connected');
+            statusEl.querySelector('.status-text').textContent = 'Validatie mislukt: ' + err.message;
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Valideren';
+        }
     }
 }
 

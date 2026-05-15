@@ -6,7 +6,7 @@ import os
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from backend.config import ConfigSaveError, get_config, update_config_values
+from backend.config import ConfigSaveError, get_config, get_qobuz_config, update_config_values
 from backend.llm_client import (
     get_ollama_model_info,
     get_ollama_status,
@@ -22,6 +22,7 @@ from backend.models import (
     UpdateConfigRequest,
 )
 from backend.roon_client import get_roon_client, init_roon_client
+from backend.qobuz_api import init_qobuz_api_client
 from backend.dependencies import _is_llm_configured, _build_config_response
 from backend import library_cache
 
@@ -99,6 +100,14 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
 
     if any(k in updates for k in ["llm_provider", "llm_api_key", "model_analysis", "model_generation", "ollama_url", "custom_url"]):
         init_llm_client(config.llm)
+
+    if any(k in updates for k in ["qobuz_app_id", "qobuz_email", "qobuz_password"]):
+        qobuz_cfg = get_qobuz_config()
+        init_qobuz_api_client(
+            qobuz_cfg.get("app_id", ""),
+            qobuz_cfg.get("email", ""),
+            qobuz_cfg.get("password", ""),
+        )
 
     return _build_config_response(config, get_roon_client())
 

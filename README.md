@@ -88,7 +88,7 @@ If RoonSage runs at a different address, set `ROONSAGE_URL` before starting Clau
 
 Start with Sonnet. Switch to Opus for prompts like "something that feels like driving in the rain at night."
 
-### Available tools (26)
+### Available tools (27)
 
 **Library**
 
@@ -176,7 +176,7 @@ The web interface works without Claude Desktop and offers the same playlist and 
 
 **Qobuz integration** — three source modes: Library only, Mix (library + Qobuz discoveries), and Qobuz Discovery (new music only). Automatically detected when Qobuz is configured in Roon.
 
-**Opslaan in Qobuz** — sla gegenereerde playlists direct op in je Qobuz-account. Vereist `QOBUZ_APP_ID`, `QOBUZ_EMAIL` en `QOBUZ_PASSWORD`. De app zoekt elke track op in de Qobuz-catalogus via artiest + titel en voegt gevonden tracks toe aan een nieuwe Qobuz-afspeellijst. Tracks die niet op Qobuz staan worden overgeslagen met melding.
+**Opslaan in Qobuz** — sla gegenereerde playlists direct op in je Qobuz-account. Vereist `QOBUZ_APP_ID`, `QOBUZ_EMAIL` en `QOBUZ_PASSWORD` — configureerbaar via de Instellingen-pagina. De app zoekt elke track op in de Qobuz-catalogus via artiest + titel en voegt gevonden tracks toe aan een nieuwe Qobuz-afspeellijst. Tracks die niet op Qobuz staan worden overgeslagen met melding.
 
 **Smart filtering** — filter by genre, decade, and live exclusion before the LLM sees anything. Real-time track counts show exactly how your choices narrow the pool. Estimated token costs are shown before you generate.
 
