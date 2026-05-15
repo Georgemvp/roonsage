@@ -57,7 +57,15 @@ class QobuzClient:
         self._user_display_name: str | None = None
         self._subscription: str | None = None
 
+        # API client — no redirects (API calls should not redirect)
         self._client = httpx.Client(
+            timeout=20.0,
+            follow_redirects=False,
+            headers={"User-Agent": _BROWSER_UA},
+        )
+
+        # Scrape client — follows redirects (needed for web player pages)
+        self._scrape_client = httpx.Client(
             timeout=20.0,
             follow_redirects=True,
             headers={"User-Agent": _BROWSER_UA},
@@ -68,9 +76,7 @@ class QobuzClient:
         if not self.app_id:
             raise QobuzAPIError("Kon Qobuz app_id niet ophalen uit de webplayer")
 
-        # Set app_id header for all subsequent requests
-        self._client.headers["X-App-Id"] = self.app_id
-
+        # DO NOT set X-App-Id header yet — login first, then set headers
         self._login(email, password)
 
     # ------------------------------------------------------------------
@@ -86,7 +92,8 @@ class QobuzClient:
         try:
             logger.info("Extracting Qobuz app_id from web player...")
 
-            resp = self._client.get(
+            # Use scrape client (follows redirects) for web player pages
+            resp = self._scrape_client.get(
                 f"{QOBUZ_PLAY_URL}/login",
                 headers={"User-Agent": _BROWSER_UA},
             )
@@ -107,7 +114,7 @@ class QobuzClient:
             bundle_url = f"{QOBUZ_PLAY_URL}{bundle_match.group(1)}"
             logger.info("Found bundle URL: %s", bundle_url)
 
-            bundle_resp = self._client.get(bundle_url)
+            bundle_resp = self._scrape_client.get(bundle_url)
             bundle_resp.raise_for_status()
 
             # Extract app_id — try multiple patterns
@@ -135,51 +142,95 @@ class QobuzClient:
     # ------------------------------------------------------------------
 
     def _login(self, email: str, password: str) -> None:
-        """Login via GET request. Tries plain-text password first, then MD5 hash."""
-        attempts = [
+        """Login via GET request.
+
+        Tries multiple combinations:
+        - email vs username parameter name
+        - plain-text vs MD5 password
+
+        Does NOT use X-App-Id header during login — only app_id query param.
+        Sets X-App-Id and X-User-Auth-Token headers AFTER successful login.
+        """
+        password_variants = [
             ("plain", password),
             ("md5", hashlib.md5(password.encode("utf-8")).hexdigest()),
         ]
 
+        # Try both 'email' and 'username' as parameter name
+        param_variants = [
+            ("email", {"email": email}),
+            ("username", {"username": email}),
+        ]
+
         last_error = ""
-        for method, pw in attempts:
-            try:
-                resp = self._client.get(
-                    f"{QOBUZ_API_BASE}/user/login",
-                    params={
-                        "email": email,
+        for param_name, param_dict in param_variants:
+            for pw_method, pw in password_variants:
+                try:
+                    params = {
+                        **param_dict,
                         "password": pw,
                         "app_id": self.app_id,
-                    },
-                )
+                    }
 
-                if resp.status_code == 200:
-                    data = resp.json()
-                    self._token = data["user_auth_token"]
-                    self._user_id = data["user"]["id"]
-                    self._user_display_name = data["user"].get("display_name", email)
-                    self._subscription = data["user"].get("credential", {}).get("label", "Onbekend")
-                    self._client.headers["X-User-Auth-Token"] = self._token
                     logger.info(
-                        "Qobuz login geslaagd (%s): %s (abonnement: %s)",
-                        method, self._user_display_name, self._subscription,
+                        "Qobuz login poging: %s=%s, password=%s, app_id=%s",
+                        param_name, email, pw_method, self.app_id,
                     )
-                    return
 
-                if resp.status_code in (401, 400):
-                    try:
-                        msg = resp.json().get("message", f"HTTP {resp.status_code}")
-                    except Exception:
-                        msg = f"HTTP {resp.status_code}"
-                    last_error = msg
-                    logger.info("Qobuz login poging (%s) mislukt: %s", method, msg)
+                    # Use API client (no redirects); no X-App-Id header yet
+                    resp = self._client.get(
+                        f"{QOBUZ_API_BASE}/user/login",
+                        params=params,
+                    )
+
+                    logger.info(
+                        "Qobuz login response: HTTP %d, body=%s",
+                        resp.status_code, resp.text[:200],
+                    )
+
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        token = data.get("user_auth_token")
+                        user = data.get("user", {})
+
+                        if not token:
+                            last_error = "Geen auth token in response"
+                            continue
+
+                        self._token = token
+                        self._user_id = user.get("id")
+                        self._user_display_name = user.get("display_name", email)
+                        self._subscription = user.get("credential", {}).get("label", "Onbekend")
+
+                        # NOW set persistent headers for all future API calls
+                        self._client.headers["X-App-Id"] = self.app_id
+                        self._client.headers["X-User-Auth-Token"] = self._token
+
+                        logger.info(
+                            "Qobuz login geslaagd (%s/%s): %s (abonnement: %s)",
+                            param_name, pw_method,
+                            self._user_display_name, self._subscription,
+                        )
+                        return
+
+                    if resp.status_code in (401, 400):
+                        try:
+                            msg = resp.json().get("message", f"HTTP {resp.status_code}")
+                        except Exception:
+                            msg = resp.text[:100] if resp.text else f"HTTP {resp.status_code}"
+                        last_error = msg
+                        logger.info("Qobuz login mislukt (%s/%s): %s", param_name, pw_method, msg)
+                        continue
+
+                    # Other status codes
+                    last_error = f"HTTP {resp.status_code}: {resp.text[:100]}"
+                    logger.warning("Qobuz login onverwacht: %s", last_error)
                     continue
 
-                resp.raise_for_status()
-
-            except httpx.HTTPStatusError as exc:
-                last_error = f"HTTP {exc.response.status_code}"
-                continue
+                except Exception as exc:
+                    last_error = str(exc)
+                    logger.warning("Qobuz login exceptie (%s/%s): %s", param_name, pw_method, exc)
+                    continue
 
         raise QobuzAPIError(f"Qobuz login mislukt: {last_error}")
 
