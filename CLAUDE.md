@@ -1,6 +1,6 @@
 # RoonSage Development Guidelines
 
-Last updated: 2026-05-15 (MCP v4 — 24 tools)
+Last updated: 2026-05-15 (MCP v4.1 — 24 tools)
 
 ## Project Overview
 
@@ -174,6 +174,9 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
   - Removed `commit_fix.sh` and `commit_prompt5.sh` from repo tracking
   - New MCP tool: `search_qobuz` for Qobuz catalog search via Roon Browse API
   - `generate_playlist` MCP tool now accepts `source_mode` and `qobuz_percentage` parameters
+- **MCP v4.1 (2026-05-15):** Qobuz source mode voor seed_track_playlist:
+  - `seed_track_playlist` accepts `source_mode` and `qobuz_percentage` parameters (same as `generate_playlist`)
+  - Discovery album Qobuz lookup was already implemented in `recommend.py`; frontend already handles `source="qobuz"` and `playable=False` display
 
 ## MCP Server
 
@@ -195,7 +198,7 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 | `get_artist_albums` | `GET /api/library/artist-albums` | All albums by artist from SQLite cache |
 | `sync_library` | `POST /api/library/sync` | Trigger background library sync |
 | `generate_playlist` | `POST /api/generate/stream` (SSE) | AI playlist from natural language prompt; auto-detects seed requests |
-| `seed_track_playlist` | `POST /api/generate/stream` (SSE) | "More like this" playlist from seed track; use when user mentions a specific song |
+| `seed_track_playlist` | `POST /api/generate/stream` (SSE) | "More like this" playlist from seed track; accepts `source_mode` + `qobuz_percentage` |
 | `analyze_prompt` | `POST /api/analyze/prompt` | Preview prompt → filter mapping |
 | `recommend_album` | `POST /api/recommend/questions` + `generate` | Quick album recommendation |
 | `recommend_album_interactive` | `POST /api/recommend/questions` + `generate` | 2-step Q&A album recommendation |
@@ -222,7 +225,7 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 - **User moves rooms** → `transfer_zone`
 - **User wants to sync multiple rooms** → `zone_grouping`
 - **User wants shuffle/repeat** → `transport_control` with action="shuffle"/"repeat"
-- **User wants new/unknown music** → `search_qobuz` or `generate_playlist` with source_mode="hybrid"
+- **User wants new/unknown music** → `search_qobuz` or `generate_playlist`/`seed_track_playlist` with source_mode="hybrid"
 - **Library search returns nothing** → try `search_qobuz` as fallback
 
 ### Playlist Generation Output Format (v2)
