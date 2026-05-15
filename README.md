@@ -1,274 +1,48 @@
-# RoonSage for Roon
+# RoonSage
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Docker Hub](https://img.shields.io/badge/docker-georgemvp%2Froonsage-blue)](https://hub.docker.com/r/georgemvp/roonsage)
-[![GHCR](https://img.shields.io/badge/ghcr-georgemvp%2Froonsage-blue)](https://ghcr.io/georgemvp/roonsage)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-**AI-powered playlists and album recommendations for Roon—using only music you actually own.**
+AI-powered playlist generation and album recommendations for Roon — using only music you actually own.
 
-RoonSage is a self-hosted web app that creates playlists and recommends albums by combining LLM intelligence with your Roon library. Every suggestion is guaranteed playable because it only considers music you have.
+![RoonSage playlist view](docs/images/screenshot-playlist.png)
 
-*Sample Generated Playlist:*
-![RoonSage Screenshot](docs/images/screenshot-playlist.png)
-
-*Sample Generated Album Recommendation:*
-![RoonSage Screenshot](docs/images/screenshot-album.png)
-
-*Home Screen:*
-![RoonSage Screenshot](docs/images/screenshot-home.png)
-
-*Playlist Flow:*
-![RoonSage Screenshot](docs/images/screenshot-playlist-start.png)
-
-*Album Flow:*
-![RoonSage Screenshot](docs/images/screenshot-album-start.png)
+RoonSage is a self-hosted web app that connects to your Roon Core as an Extension. It syncs your library to a local SQLite cache, then sends filtered track lists to an LLM of your choice. Every track it suggests already exists in your library and plays immediately. It also exposes a full MCP server so Claude Desktop can control Roon directly through conversation.
 
 ---
 
-## Quick Start
+## Claude Desktop Integration
 
-```bash
-docker run -d \
-  --name roonsage \
-  -p 5765:5765 \
-  -v roonsage-data:/app/data \
-  --restart unless-stopped \
-  -e ROON_HOST=192.168.1.x \
-  ghcr.io/Georgemvp/roonsage:latest
+This is what makes RoonSage different from every other Roon add-on: a full MCP server that gives Claude Desktop 24 tools to search your library, generate playlists, recommend albums, and control every aspect of Roon playback — all through natural language.
+
+You use your existing Claude Pro subscription. No separate API key, no per-token cost.
+
+```
+"Make a playlist of mellow 90s electronic, nothing too aggressive, play it in the living room."
+"Show me all Nick Cave albums I own."
+"More like what's playing right now, but darker."
+"Recommend me a jazz album I haven't listened to in a while."
+"Turn shuffle on and set volume to 45%."
+"Group the kitchen and living room zones."
 ```
 
-Open **http://localhost:5765** — a setup wizard walks you through connecting to your Roon Core, choosing an AI provider, and syncing your library.
+### Setup
 
-You can also pass credentials as environment variables to skip the wizard. See [Configuration](#configuration) for details.
+The MCP server runs locally on your Mac/PC — not inside Docker. RoonSage must already be running (Docker or bare metal) before Claude Desktop can connect to it.
 
-**Requirements:** Docker, a running Roon Core, and an API key from Google, Anthropic, or OpenAI (or a local model via Ollama).
+```bash
+# 1. Install the MCP dependency (once per machine)
+pip3 install "mcp[cli]"
 
----
+# 2. Auto-configure Claude Desktop
+python3 scripts/install_mcp.py
 
-## Contents
+# 3. Restart Claude Desktop
+```
 
-- [Why RoonSage?](#why-roonsage)
-- [Features](#features)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Roon Authorization](#roon-authorization)
-- [How It Works](#how-it-works)
-- [Development](#development)
-- [API Reference](#api-reference)
+If RoonSage runs at a non-default address, set `ROONSAGE_URL` before starting Claude Desktop (default: `http://localhost:5765`).
 
----
-
-## Why RoonSage?
-
-**Roon users with large personal libraries have few good options for AI-powered playlist generation.**
-
-Generic tools like ChatGPT recommend from an infinite catalog with no awareness of what you actually own. The result: playlists full of tracks you don't have.
-
-**RoonSage inverts the approach:**
-
-| Filter-Last (ChatGPT, generic AI) | Filter-First (RoonSage) |
-|-----------------------------------|-------------------------|
-| AI recommends from infinite catalog | AI only sees your library |
-| Missing tracks after filtering | No missing tracks possible |
-| Near-empty playlists | Full playlists, every time |
-
-Every track in every playlist exists in your Roon library and plays immediately.
-
----
-
-## Features
-
-### Playlist Generation
-
-Create playlists two ways:
-
-**Describe what you want** — Natural language prompts like:
-- "Melancholy 90s alternative for a rainy day"
-- "Upbeat instrumental jazz for a dinner party"
-- "Late night electronic, nothing too aggressive"
-
-**Start from a song** — Pick a track you love, then explore musical dimensions: mood, era, instrumentation, genre, production style. Select which qualities you want more of.
-
-**Music Source Selection** — Choose where tracks come from:
-- **My Library** — Only tracks you own (default)
-- **Mix** — Your library enriched with new discoveries via Qobuz
-- **Qobuz Discovery** — Explore new music outside your library
-
-Requires Qobuz configured in Roon. RoonSage detects Qobuz availability automatically.
-
-**Refine & Iterate** — Not quite right? Use the "Refine" button to adjust a generated playlist without starting over. Ask for "darker", "more 80s", or "less jazz" and get an updated playlist.
-
-### Album Recommendations
-
-Describe a mood or moment, answer two quick questions about your preferences, and get a single perfect album to listen to—with an editorial pitch explaining why it fits.
-
-- **Library mode** — recommends albums you own, ready for instant playback
-- **Discovery mode** — suggests albums you don't own yet, based on your taste profile
-- **Familiarity control** — choose between comfort picks, hidden gems, or rediscoveries
-- **Show Me Another** — regenerate without starting over
-- Primary recommendation with a full write-up, plus two secondary picks
-
-### Smart Filtering
-
-Before the AI sees anything, you control the pool:
-- **Genres** — Select from your library's actual genre tags
-- **Decades** — Filter by era
-- **Exclude live versions** — Skip concert recordings automatically
-
-Real-time track counts show exactly how your filters narrow results.
-
-### Time-Aware Suggestions
-
-RoonSage considers the current day and time when curating playlists. Friday evening selections naturally differ from Tuesday morning picks, and the AI adapts its mood recommendations accordingly.
-
-### Local Library Cache
-
-RoonSage syncs your Roon library to a local SQLite database. After a one-time sync, all library operations—filtering, counting, sending to AI—happen locally in milliseconds.
-
-- **Setup wizard** walks you through first-run configuration and sync
-- **Footer status** shows track count and last sync time
-- **Auto-refresh** keeps cache current (syncs if >24h stale)
-- **Manual refresh** available anytime
-
-### Multi-Provider Support
-
-Bring your own API key—or run locally:
-
-| Provider | Max Tracks | Typical Cost | Best For |
-|----------|------------|--------------|----------|
-| **Google Gemini** | ~18,000 | $0.03 – $0.25 | Large libraries, lowest cost |
-| **Anthropic Claude** | ~3,500 | $0.15 – $0.25 | Nuanced recommendations |
-| **OpenAI GPT** | ~2,300 | $0.05 – $0.10 | Solid all-around |
-| **Ollama** ⚗️ | Varies | Free | Privacy, local inference |
-| **Custom** ⚗️ | Configurable | Free | Self-hosted, OpenAI-compatible APIs |
-
-⚗️ *Local LLM support is experimental. [Report issues](https://github.com/Georgemvp/roonsage/issues).*
-
-> **Free option:** Google Gemini offers a free API tier that's more than enough for personal use — no credit card required. See the [Gemini free credit guide](docs/gemini-free-credit-guide.md) for setup instructions and details.
-
-Estimated cost displays before you generate. RoonSage auto-detects your provider based on which key you configure.
-
-### Play and Queue
-
-- **Play Now** — send tracks directly to any Roon zone for instant playback
-- **Queue** — append tracks to the current Roon zone queue
-- Zone picker shows all active Roon zones
-- Preview tracks with album art before sending
-- Remove tracks you don't want
-- See actual token usage and cost
-
-### Claude Desktop Integration
-
-Use Claude Desktop as a conversational interface for RoonSage. Ask for playlists in natural language, and Claude will search your library, pick tracks, and play them on Roon — all using your Claude Pro subscription (no separate API key needed).
-
-**How it works:** Claude Desktop connects to the running RoonSage API via MCP (Model Context Protocol). RoonSage provides the library data and Roon connection. Claude does the thinking.
-
-> **Important:** The MCP server runs locally on your Mac/PC — not inside Docker. Claude Desktop needs to start `mcp_server.py` as a local process. This is a one-time setup per machine.
-
-#### Setup
-
-1. Install the MCP dependency locally (not inside Docker):
-   ```bash
-   pip3 install "mcp[cli]"
-   ```
-
-2. Run the install script to configure Claude Desktop automatically:
-   ```bash
-   python3 scripts/install_mcp.py
-   ```
-   This adds the MCP server to your Claude Desktop config. You only need to do this once per machine.
-
-3. Restart Claude Desktop.
-
-4. Make sure RoonSage is running (via Docker or bare metal) — the MCP server connects to it on `http://localhost:5765`.
-
-If RoonSage runs on a different address, set the `ROONSAGE_URL` environment variable before starting Claude Desktop.
-
-#### Model Selection in Claude Desktop
-
-Claude Desktop lets you choose which model to use via the model dropdown at the top of the conversation. The model you pick determines how well Claude interprets your music request and selects tracks — the MCP tools themselves work identically with every model.
-
-| Model | Best for | Playlist quality | Album discovery | Cost |
-|-------|----------|-----------------|-----------------|------|
-| **Claude Sonnet 4.6** | Daily use — fast, accurate, great value | Understands mood, era, and genre nuances well. Picks coherent playlists from large filtered sets. | Solid album recommendations with good editorial reasoning. | Included in Claude Pro ($20/mo) |
-| **Claude Opus 4.7** | Complex or conversational sessions | Best at interpreting abstract prompts ("something that feels like driving at night"). Excels at multi-turn refinement — "more like this, but darker." Strongest at finding unexpected connections between artists. | Most detailed and opinionated album write-ups. Best at discovery mode — finding overlooked albums in your library. | Included in Claude Pro ($20/mo) but may have lower daily limits |
-| **Claude Haiku 4.5** | Quick, simple requests | Good for straightforward genre/decade filters. Less nuanced with abstract mood descriptions. | Basic recommendations, shorter explanations. | Included in Claude Pro ($20/mo) |
-
-All models are included in your Claude Pro subscription — there are no per-token API costs when using MCP. The difference is purely in quality: Opus handles abstract prompts and multi-turn conversations best, Sonnet is the sweet spot for daily use, and Haiku is fastest for simple requests. You can switch models mid-conversation using the dropdown at the top of the Claude Desktop chat.
-
-**Tip:** Start with Sonnet for most sessions. Switch to Opus when you want Claude to dig deeper — for example, when you're exploring your library for albums you've forgotten about, or when you want highly curated playlists based on abstract moods.
-
-**MCP vs. Web UI:** The RoonSage web UI uses its own LLM calls (Gemini, OpenAI, or Anthropic API) and charges per token. The MCP integration uses your Claude Pro subscription instead — no separate API key or per-token costs. The web UI is single-shot (one prompt → one playlist), while Claude Desktop lets you have a conversation: refine your request, ask follow-up questions, and iterate on playlists across multiple turns.
-
-#### Available MCP Tools
-
-**Library & Search**
-
-| Tool | What it does |
-|------|-------------|
-| `get_library_stats` | Get genre, decade, and total track counts from the library cache |
-| `get_library_status` | Check if the cache is up-to-date; surfaces `needs_resync` flag |
-| `search_library` | Search by track, artist, or album name |
-| `search_qobuz` | Search the Qobuz catalog via Roon for tracks not in your library |
-| `filter_tracks` | Filter by genre, decade, live exclusion |
-| `get_artist_albums` | List all albums by an artist from the SQLite cache |
-| `sync_library` | Trigger a background library sync from Roon |
-
-**Playlist Generation**
-
-| Tool | What it does |
-|------|-------------|
-| `generate_playlist` | AI-curated playlist from a natural language prompt — supports library, hybrid (library+Qobuz), and Qobuz-only source modes; returns album/year info, genre breakdown, live-exclusion note, and exact track count |
-| `seed_track_playlist` | "More like this" — playlist seeded from a specific track; use when a user mentions a specific song as inspiration |
-| `analyze_prompt` | Preview how a prompt maps to genre/decade filters |
-| `recommend_album` | AI album recommendation (library or discovery mode) |
-| `recommend_album_interactive` | 2-step Q&A flow for highly personalized picks |
-
-**Playback**
-
-| Tool | What it does |
-|------|-------------|
-| `play_album` | Search for an album and play it in one step |
-| `play_radio` | Play an internet radio station by name (fuzzy-matched from My Live Radio) |
-| `browse_playlists` | List or play any Roon playlist (imported, TIDAL, Qobuz, etc.) |
-| `list_zones` | List active Roon playback zones |
-| `get_now_playing` | What's currently playing in each zone |
-| `play_tracks` | Send tracks to a Roon zone (replaces queue) |
-| `queue_tracks` | Append tracks to a Roon zone queue |
-
-**Transport & Zone Control**
-
-| Tool | What it does |
-|------|-------------|
-| `transport_control` | Play, pause, stop, next, previous, **shuffle**, **repeat**, **seek** |
-| `volume_control` | Set, adjust, mute, or get volume by zone name |
-| `transfer_zone` | Move playback from one zone to another |
-| `zone_grouping` | Group or ungroup zones for synchronized playback |
-| `get_result_history` | Browse previously generated playlists and recommendations |
-
-#### Example prompts
-
-- *"Maak een playlist gebaseerd op Moondance van Van Morrison."*
-- *"What jazz albums do I have in my library?"*
-- *"Show me all albums by Nick Cave I own."*
-- *"Make a playlist of exactly 40 mellow 90s electronic tracks and play it in the living room."*
-- *"More like what's playing right now — but a bit darker."*
-- *"Generate a chill Sunday morning playlist with genre breakdown."*
-- *"Zet het volume in de woonkamer op 50%."*
-- *"Zet shuffle aan."*
-- *"Spoel 30 seconden vooruit."*
-- *"Zet NPO Radio 1 aan in de keuken."*
-- *"Speel mijn Favorieten playlist af."*
-- *"Groepeer Woonkamer en Keuken."*
-- *"Zet de muziek door naar de slaapkamer."*
-- *"Recommend me a jazz album I haven't listened to in a while."*
-- *"Ask me a few questions and then recommend the perfect album for tonight."*
-- *"Play that lo-fi playlist you made last week."*
-
-#### Manual setup (alternative)
-
-If you prefer not to use the install script, add this to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/claude/claude_desktop_config.json` (Linux):
+**Manual config** — add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/claude/claude_desktop_config.json` (Linux):
 
 ```json
 {
@@ -281,40 +55,120 @@ If you prefer not to use the install script, add this to `~/Library/Application 
 }
 ```
 
+### Model Selection
+
+The Claude model you pick in the conversation dropdown affects quality — all are included in Claude Pro.
+
+| Model | Best for |
+|-------|----------|
+| **Claude Sonnet 4.6** | Daily use — fast, accurate, great value |
+| **Claude Opus 4.6** | Abstract prompts, multi-turn refinement, deep discovery |
+| **Claude Haiku 4.5** | Quick, simple requests |
+
+Start with Sonnet. Switch to Opus when you want Claude to dig into your library for overlooked albums or handle abstract mood prompts like "something that feels like driving at night in the rain."
+
+### Available Tools (24)
+
+**Library**
+
+| Tool | What it does |
+|------|-------------|
+| `get_library_stats` | Genre, decade, and total track counts from the cache |
+| `get_library_status` | Cache freshness; surfaces `needs_resync` flag |
+| `search_library` | Search by track, artist, or album name |
+| `search_qobuz` | Search the Qobuz catalog via Roon |
+| `filter_tracks` | Filter by genre, decade, live exclusion |
+| `get_artist_albums` | All albums by an artist from the SQLite cache |
+| `sync_library` | Trigger a background library sync from Roon |
+
+**Playlist Generation**
+
+| Tool | What it does |
+|------|-------------|
+| `generate_playlist` | Natural language → playlist; supports library, hybrid, and Qobuz source modes |
+| `seed_track_playlist` | "More like this" — playlist from a specific seed track |
+| `analyze_prompt` | Preview how a prompt maps to genre/decade filters |
+| `recommend_album` | Quick AI album recommendation (library or discovery mode) |
+| `recommend_album_interactive` | 2-step Q&A for highly personalized picks |
+
+**Playback**
+
+| Tool | What it does |
+|------|-------------|
+| `play_album` | Search and play an album in one step |
+| `play_radio` | Play an internet radio station by name |
+| `browse_playlists` | List or play any Roon playlist |
+| `list_zones` | List active Roon zones |
+| `get_now_playing` | Current playback state per zone |
+| `play_tracks` | Send tracks to a zone (replaces queue) |
+| `queue_tracks` | Append tracks to a zone queue |
+
+**Transport & Zone Control**
+
+| Tool | What it does |
+|------|-------------|
+| `transport_control` | Play, pause, stop, next, previous, shuffle, repeat, seek |
+| `volume_control` | Set, adjust, mute, or get volume by zone name |
+| `transfer_zone` | Move playback from one zone to another |
+| `zone_grouping` | Group or ungroup zones for synchronized playback |
+| `get_result_history` | Previously generated playlists and recommendations |
+
+---
+
+## Quick Start
+
+```bash
+docker run -d \
+  --name roonsage \
+  -p 5765:5765 \
+  -v roonsage-data:/app/data \
+  --restart unless-stopped \
+  -e ROON_HOST=192.168.1.x \
+  -e GEMINI_API_KEY=your-key \
+  ghcr.io/Georgemvp/roonsage:latest
+```
+
+Open **http://localhost:5765** — a setup wizard walks you through connecting to Roon, choosing an AI provider, and syncing your library.
+
+Then **authorize in Roon**: Settings → Extensions → find **RoonSage** → Enable.
+
+> **Free option:** Google Gemini has a free API tier that covers typical personal use. No credit card required. See [`docs/gemini-free-credit-guide.md`](docs/gemini-free-credit-guide.md).
+
+---
+
+## Web UI
+
+The web interface covers everything without Claude Desktop.
+
+![Home screen](docs/images/screenshot-home.png)
+
+**Playlist from Prompt** — describe a vibe in natural language. RoonSage analyzes your prompt, maps it to genre/decade filters, narrows your library, sends the filtered tracks to the LLM, and returns a playable playlist. Works with libraries of 50,000+ tracks.
+
+**Playlist from Seed** — pick a track you love, choose musical dimensions (mood, era, instrumentation, production style), and get a playlist that explores those qualities.
+
+**Refine & Iterate** — use the Refine button on any result to adjust without starting over. "Darker", "more 80s", "less jazz" — the LLM sees the original prompt and your notes.
+
+**Album Recommendations** — describe a moment or mood, answer two quick questions, get a single album recommendation with an editorial pitch. Library mode recommends albums you own; Discovery mode surfaces albums you don't have yet.
+
+**Qobuz Integration** — three source modes: My Library only, Mix (library + Qobuz discoveries), and Qobuz Discovery (new music only). Detected automatically if Qobuz is configured in Roon.
+
+**Smart Filtering** — filter by genre, decade, and live version exclusion before the LLM sees anything. Real-time track counts show exactly how your choices narrow the pool. Estimated token cost displays before you generate.
+
+**Time-Aware Context** — the current day and hour are included in generation prompts as subtle mood hints. Friday evening picks naturally differ from Tuesday morning.
+
+![Album recommendation](docs/images/screenshot-album.png)
+
 ---
 
 ## Installation
 
-### Docker Compose (Recommended)
+### Docker Compose
 
 ```bash
 mkdir roonsage && cd roonsage
 curl -O https://raw.githubusercontent.com/Georgemvp/roonsage/main/docker-compose.yml
-```
-
-Edit `docker-compose.yml` or create a `.env` file:
-
-```bash
-ROON_HOST=192.168.1.x
-ROON_PORT=9330
-
-# Choose ONE provider:
-GEMINI_API_KEY=your-gemini-key
-# ANTHROPIC_API_KEY=sk-ant-your-key
-# OPENAI_API_KEY=sk-your-key
-```
-
-Start:
-
-```bash
+# edit docker-compose.yml to set ROON_HOST and an API key
 docker compose up -d
-```
-
-Then **authorize RoonSage in Roon** — see [Roon Authorization](#roon-authorization).
-
-**Optional:** Set up Claude Desktop integration (natural-language playlist control):
-```bash
-python3 scripts/install_mcp.py
 ```
 
 ### NAS Platforms
@@ -322,12 +176,7 @@ python3 scripts/install_mcp.py
 <details>
 <summary><strong>Synology (Container Manager)</strong></summary>
 
-**GUI:**
-1. **Container Manager** → **Registry** → Search `ghcr.io/Georgemvp/roonsage`
-2. Download `latest` tag
-3. **Container** → **Create**
-4. Port: 5765 → 5765
-5. Add environment variables: `ROON_HOST`, `GEMINI_API_KEY`
+**GUI:** Container Manager → Registry → search `ghcr.io/Georgemvp/roonsage` → Download `latest` → Create container → Port 5765:5765 → add `ROON_HOST` and API key.
 
 **Docker Compose:**
 ```bash
@@ -335,37 +184,27 @@ mkdir -p /volume1/docker/roonsage && cd /volume1/docker/roonsage
 curl -O https://raw.githubusercontent.com/Georgemvp/roonsage/main/docker-compose.yml
 nano docker-compose.yml  # set ROON_HOST and API key
 ```
-Then in **Container Manager** → **Project** → **Create**, point to `/volume1/docker/roonsage`.
+Then Container Manager → Project → Create, point to `/volume1/docker/roonsage`.
 
-**No Docker?** Some Synology models (especially ARM-based units) don't support Docker/Container Manager. See [Bare Metal](#bare-metal-no-docker) below.
-
+ARM-based Synology units without Docker support: use [Bare Metal](#bare-metal) below.
 </details>
 
 <details>
 <summary><strong>Unraid</strong></summary>
 
-1. **Docker** → **Add Container**
-2. Repository: `ghcr.io/Georgemvp/roonsage:latest`
-3. Port: 5765 → 5765
-4. Add variables: `ROON_HOST`, `GEMINI_API_KEY`
-
+Docker → Add Container → Repository: `ghcr.io/Georgemvp/roonsage:latest` → Port 5765:5765 → add `ROON_HOST` and API key.
 </details>
 
 <details>
 <summary><strong>TrueNAS SCALE</strong></summary>
 
-1. **Apps** → **Discover Apps** → **Custom App**
-2. Image: `ghcr.io/Georgemvp/roonsage`, Tag: `latest`
-3. Port: 5765
-4. Add environment variables
-
+Apps → Discover Apps → Custom App → Image `ghcr.io/Georgemvp/roonsage`, tag `latest` → Port 5765 → add environment variables.
 </details>
 
 <details>
 <summary><strong>Portainer</strong></summary>
 
-**Stacks** → **Add Stack**:
-
+Stacks → Add Stack:
 ```yaml
 services:
   roonsage:
@@ -380,39 +219,21 @@ services:
       - ./data:/app/data
     restart: unless-stopped
 ```
-
 </details>
 
-### Bare Metal (No Docker)
-
-RoonSage is Python + FastAPI with no native dependencies, so it runs on any machine with Python 3.11+.
+### Bare Metal
 
 ```bash
 git clone https://github.com/Georgemvp/roonsage.git
 cd roonsage
-python -m venv venv
-source venv/bin/activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-```
-
-Set your environment variables:
-
-```bash
-export ROON_HOST=192.168.1.x
-export ROON_PORT=9330
-export GEMINI_API_KEY=your-gemini-key
-```
-
-Start the server:
-
-```bash
+export ROON_HOST=192.168.1.x ROON_PORT=9330 GEMINI_API_KEY=your-key
 uvicorn backend.main:app --host 0.0.0.0 --port 5765
 ```
 
-Access at **http://your-machine-ip:5765**.
-
 <details>
-<summary><strong>Running as a background service (systemd)</strong></summary>
+<summary><strong>systemd service</strong></summary>
 
 ```ini
 # /etc/systemd/system/roonsage.service
@@ -433,10 +254,8 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable roonsage
-sudo systemctl start roonsage
+sudo systemctl enable roonsage && sudo systemctl start roonsage
 ```
-
 </details>
 
 ---
@@ -445,44 +264,36 @@ sudo systemctl start roonsage
 
 ### Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ROON_HOST` | Yes | IP address or hostname of your Roon Core |
-| `ROON_PORT` | No | Roon Core port (default: `9330`) |
-| `ROON_CORE_ID` | No | Auto-saved after first authorization |
-| `ROON_TOKEN` | No | Auto-saved after first authorization |
-| `GEMINI_API_KEY` | One required | Google Gemini API key |
-| `ANTHROPIC_API_KEY` | One required | Anthropic API key |
-| `OPENAI_API_KEY` | One required | OpenAI API key |
-| `LLM_PROVIDER` | No | Force provider: `gemini`, `anthropic`, `openai`, `ollama`, `custom` |
-| `OLLAMA_URL` | No | Ollama server URL (default: `http://localhost:11434`) |
-| `OLLAMA_CONTEXT_WINDOW` | No | Override detected context window for Ollama (default: 32768) |
-| `CUSTOM_LLM_URL` | No | Custom OpenAI-compatible API base URL |
-| `CUSTOM_LLM_API_KEY` | No | API key for custom provider (if required) |
-| `CUSTOM_CONTEXT_WINDOW` | No | Context window size for custom provider (default: 32768) |
-| `ROONSAGE_PASSWORD` | No | Enable HTTP Basic Auth. When set, all endpoints require this password (user name is ignored). Health check and art proxy endpoints remain exempt so Docker health checks and images work without auth. |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ROON_HOST` | Yes | — | IP or hostname of your Roon Core |
+| `ROON_PORT` | No | `9330` | Roon Core port |
+| `ROON_CORE_ID` | No | auto | Saved after first authorization |
+| `ROON_TOKEN` | No | auto | Saved after first authorization |
+| `GEMINI_API_KEY` | One of three | — | Google Gemini |
+| `ANTHROPIC_API_KEY` | One of three | — | Anthropic Claude |
+| `OPENAI_API_KEY` | One of three | — | OpenAI GPT |
+| `LLM_PROVIDER` | No | auto-detect | Force: `gemini`, `anthropic`, `openai`, `ollama`, `custom` |
+| `OLLAMA_URL` | No | `http://localhost:11434` | Ollama server URL |
+| `CUSTOM_LLM_URL` | No | — | OpenAI-compatible API base URL |
+| `CUSTOM_CONTEXT_WINDOW` | No | `32768` | Context window for custom provider |
+| `ROONSAGE_PASSWORD` | No | — | Enable HTTP Basic Auth on all endpoints |
+| `ROONSAGE_URL` | No | `http://localhost:5765` | MCP server → RoonSage address |
 
-### Web UI Configuration
+Settings can also be configured through the web UI (Settings page). UI-saved settings go to `data/config.user.yaml`. Environment variables always take priority.
 
-You can also configure RoonSage through the **Settings** page in the web UI. Settings entered there are saved to `config.user.yaml` and persist across restarts. Environment variables always take priority over UI-saved settings.
-
-### Advanced: config.yaml
-
-Mount a config file for additional options (see `config.example.yaml`):
+### config.yaml
 
 ```yaml
 roon:
   host: "192.168.1.x"
   port: 9330
-  # core_id and token are auto-saved after authorization
-  core_id: ""
-  token: ""
 
 llm:
   provider: "gemini"
   model_analysis: "gemini-2.5-flash"
   model_generation: "gemini-2.5-flash"
-  smart_generation: false  # true = use smarter model for both (higher quality, ~3-5x cost)
+  smart_generation: false  # true = use analysis model for both (higher quality, ~3–5× cost)
 
 defaults:
   track_count: 25
@@ -490,70 +301,52 @@ defaults:
 
 ### Model Selection
 
-RoonSage uses a two-model strategy by default:
+RoonSage uses a two-model strategy by default — a smarter model to interpret prompts and a cheaper one to select tracks from the filtered list.
 
-| Role | Purpose | Models Used |
-|------|---------|-------------|
-| **Analysis** | Interpret prompts, suggest filters, analyze seed tracks | claude-sonnet-4-5 / gpt-4.1 / gemini-2.5-flash |
-| **Generation** | Select tracks from filtered list | claude-haiku-4-5 / gpt-4.1-mini / gemini-2.5-flash |
+| Role | Anthropic | OpenAI | Gemini |
+|------|-----------|--------|--------|
+| Analysis | `claude-sonnet-4-5` | `gpt-4.1` | `gemini-2.5-flash` |
+| Generation | `claude-haiku-4-5` | `gpt-4.1-mini` | `gemini-2.5-flash` |
+| Max tracks to AI | ~3,500 | ~2,300 | **~18,000** |
 
-This balances quality with cost. Enable `smart_generation: true` to use the analysis model for everything.
+Gemini's 1M context window allows sending far more tracks to the model, which improves variety for large libraries.
 
-### Local LLM Setup (Experimental)
+### Local LLM (Experimental)
 
 <details>
 <summary><strong>Ollama</strong></summary>
 
-1. Install [Ollama](https://ollama.ai) and pull a model:
-   ```bash
-   ollama pull llama3:8b
-   ```
+```bash
+ollama pull llama3:8b
+```
 
-2. Configure RoonSage:
-   ```bash
-   LLM_PROVIDER=ollama
-   OLLAMA_URL=http://localhost:11434
-   ```
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_URL=http://localhost:11434
+```
 
-3. Select your model in Settings — the context window is auto-detected.
-
-**Recommended models:** `llama3:8b`, `qwen3:8b`, `mistral` — models with 8K+ context work best.
-
+Select your model in Settings — context window is auto-detected. Models with 8K+ context work best (`llama3:8b`, `qwen3:8b`, `mistral`).
 </details>
 
 <details>
-<summary><strong>Custom OpenAI-Compatible API</strong></summary>
+<summary><strong>Custom OpenAI-compatible API</strong></summary>
 
-For LM Studio, text-generation-webui, vLLM, or any OpenAI-compatible server:
+For LM Studio, text-generation-webui, vLLM, or similar:
 
-1. Start your server with an OpenAI-compatible endpoint
+```bash
+LLM_PROVIDER=custom
+CUSTOM_LLM_URL=http://localhost:5000/v1
+CUSTOM_CONTEXT_WINDOW=32768
+```
 
-2. Configure in Settings:
-   - **API Base URL:** `http://localhost:5000/v1`
-   - **API Key:** If required by your server
-   - **Model Name:** The model identifier
-   - **Context Window:** Your model's context size
-
+Configure model name and API key (if required) in Settings.
 </details>
-
----
-
-## Roon Authorization
-
-RoonSage connects to Roon as an **Extension**. After starting the app for the first time:
-
-1. Open **Roon** on any device
-2. Go to **Settings → Extensions**
-3. Find **RoonSage** in the list and click **Enable**
-4. RoonSage is now authorized and will save the token automatically
-
-Make sure RoonSage is reachable on the same network as your Roon Core, and that `ROON_HOST` points to the machine running Roon Core. The `ROON_CORE_ID` and `ROON_TOKEN` are saved automatically to `data/config.user.yaml` after the first successful authorization.
 
 ---
 
 ## How It Works
 
-RoonSage uses a **filter-first architecture** designed for large libraries (50,000+ tracks):
+RoonSage uses a filter-first architecture designed for large libraries. The LLM never sees your entire library — only a filtered, manageable slice of it.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -561,67 +354,64 @@ RoonSage uses a **filter-first architecture** designed for large libraries (50,0
 │     LLM interprets your prompt → suggests genre/decade filters   │
 ├─────────────────────────────────────────────────────────────────┤
 │  2. FILTER                                                       │
-│     Roon library narrowed to matching tracks                     │
+│     Library narrowed to matching tracks via SQLite               │
 │     "90s Alternative" → 2,000 tracks                             │
 ├─────────────────────────────────────────────────────────────────┤
 │  3. SAMPLE                                                       │
-│     If too large for context, randomly sample                    │
-│     Fits within model's token limits                             │
+│     If too large for context window, randomly sample             │
+│     Fits within model's token budget                             │
 ├─────────────────────────────────────────────────────────────────┤
 │  4. GENERATE                                                     │
-│     Filtered track list + prompt sent to LLM                     │
-│     LLM selects best matches from available tracks               │
+│     Filtered list + prompt sent to LLM                           │
+│     LLM selects best matches by track number                     │
 ├─────────────────────────────────────────────────────────────────┤
 │  5. MATCH                                                        │
-│     Track number lookup links LLM selections to library          │
-│     Falls back to fuzzy matching if needed                       │
+│     Track number lookup → O(1) lookup in SQLite cache            │
+│     Falls back to fuzzy matching (rapidfuzz) if needed           │
 ├─────────────────────────────────────────────────────────────────┤
 │  6. PLAY                                                         │
-│     Tracks sent to a Roon zone                                   │
-│     Ready for immediate playback in any Roon client              │
+│     Tracks sent to Roon zone via Browse API                      │
+│     Immediate playback in any Roon client                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-This ensures every track exists in your library while keeping API costs manageable.
+Library data is synced once to SQLite via the Roon Browse API (`browse_browse` / `browse_load`). All subsequent queries read from the local cache — no Roon API calls needed during generation.
+
+---
+
+## Security
+
+RoonSage is designed for home network use. Without `ROONSAGE_PASSWORD`, anyone on your network can access the web UI.
+
+`ROONSAGE_PASSWORD` enables HTTP Basic Auth on all endpoints. Health check (`/api/health`) and the art proxy remain exempt so Docker health checks and album art continue to work without credentials.
+
+LLM-powered endpoints are rate-limited to 30 requests per hour per IP. API keys are stored in `data/config.user.yaml` (permissions 600) and are never exposed through the API.
 
 ---
 
 ## Development
 
-### Local Setup
-
 ```bash
 git clone https://github.com/Georgemvp/roonsage.git
 cd roonsage
-python -m venv venv
-source venv/bin/activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-
-export ROON_HOST=192.168.1.x
-export ROON_PORT=9330
-export GEMINI_API_KEY=your-key
-
+export ROON_HOST=192.168.1.x ROON_PORT=9330 GEMINI_API_KEY=your-key
 uvicorn backend.main:app --reload --port 5765
 ```
 
-### Testing
-
 ```bash
-pytest tests/ -v
+pytest tests/ -v   # run tests
+ruff check .       # lint
 ```
 
-### Tech Stack
-
-- **Backend:** Python 3.11+, FastAPI, roonapi, rapidfuzz, httpx
-- **Frontend:** Vanilla HTML/CSS/JS (no build step)
-- **LLM SDKs:** anthropic, openai, google-genai (+ Ollama via REST API)
-- **Deployment:** Docker
+**Stack:** Python 3.11+, FastAPI, python-roonapi, anthropic / openai / google-genai SDKs, rapidfuzz, SQLite, vanilla HTML/CSS/JS.
 
 ---
 
 ## API Reference
 
-Interactive documentation available at `/docs` when running.
+Interactive docs at `/docs` when the server is running.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -630,56 +420,37 @@ Interactive documentation available at `/docs` when running.
 | `/api/setup/status` | GET | Onboarding checklist state |
 | `/api/setup/validate-roon` | POST | Validate Roon Core connection |
 | `/api/setup/validate-ai` | POST | Validate AI provider credentials |
-| `/api/setup/complete` | POST | Mark setup wizard as complete |
-| `/api/library/stats` | GET | Library statistics |
-| `/api/library/stats/cached` | GET | Cached library statistics |
-| `/api/library/status` | GET | Cache state, track count, sync progress, needs_resync |
+| `/api/library/stats/cached` | GET | Genre/decade/total counts from SQLite |
+| `/api/library/status` | GET | Cache state, track count, needs_resync |
 | `/api/library/sync` | POST | Trigger background library sync |
-| `/api/library/search` | GET | Search library tracks |
+| `/api/library/search` | GET | Search library by track/artist/album |
 | `/api/library/artist-albums` | GET | All albums by artist from cache |
-| `/api/library/filter` | POST | Filter tracks by genre/decade/live |
-| `/api/analyze/prompt` | POST | Analyze natural language prompt |
-| `/api/analyze/track` | POST | Analyze a seed track |
-| `/api/filter/preview` | POST | Preview filtered track list |
+| `/api/library/filter` | POST | Filter by genre/decade/live exclusion |
+| `/api/analyze/prompt` | POST | Analyze prompt → filter mapping |
 | `/api/generate/stream` | POST | Stream playlist generation (SSE) |
 | `/api/roon/zones` | GET | List active Roon zones |
-| `/api/roon/transport` | POST | Transport control (play/pause/stop/next/previous) |
+| `/api/roon/transport` | POST | play/pause/stop/next/previous/shuffle/repeat/seek |
+| `/api/roon/volume` | POST | Set/adjust/mute/get volume |
+| `/api/roon/transfer` | POST | Transfer playback between zones |
+| `/api/roon/group` | POST | Group/ungroup zones |
+| `/api/roon/radio` | POST | Play internet radio station |
+| `/api/roon/playlists` | POST | List/play Roon playlists |
+| `/api/roon/qobuz-search` | POST | Search Qobuz catalog via Roon |
 | `/api/queue` | POST | Send tracks to a Roon zone |
-| `/api/queue/append` | POST | Append tracks to a Roon zone queue |
-| `/api/recommend/albums/preview` | GET | Preview album candidates for filters |
-| `/api/recommend/analyze-prompt` | POST | Analyze prompt for genre/decade filters |
+| `/api/queue/append` | POST | Append tracks to a zone queue |
 | `/api/recommend/questions` | POST | Generate clarifying questions |
 | `/api/recommend/generate` | POST | Generate album recommendations |
-| `/api/recommend/switch-mode` | POST | Switch library/discovery mode |
-| `/api/results` | GET | List saved result history |
-| `/api/results/{id}` | GET/DELETE | Get or delete a saved result |
+| `/api/results` | GET | List result history |
 | `/api/art/{item_key}` | GET | Proxy album art from Roon |
-| `/api/external-art` | GET | Fetch external album art |
-| `/api/ollama/status` | GET | Ollama connection status |
-| `/api/ollama/models` | GET | List available Ollama models |
-| `/api/ollama/model-info` | GET | Get model details (context window) |
 
 ---
 
-## Security
+## Credits
 
-RoonSage is designed for home network use. By default, anyone on your network can access the web UI.
-
-**Password protection:** Set the `ROONSAGE_PASSWORD` environment variable to require authentication:
-```
-ROONSAGE_PASSWORD=your-secret-password
-```
-
-**Rate limiting:** LLM-powered endpoints are rate-limited to 30 requests per hour per IP to prevent accidental cost overruns.
-
-**API keys:** Stored locally in `data/config.user.yaml` (file permissions 600). Never exposed via the API.
+RoonSage is based on [MediaSage](https://github.com/ecwilsonaz/mediasage) by Eric Wilson, originally built for Plex. RoonSage has been independently developed for Roon with significant new functionality including MCP integration, Qobuz support, zone control, time-aware context, and a full library cache layer.
 
 ---
 
 ## License
 
 MIT
-
-## Credits
-
-RoonSage is based on [MediaSage](https://github.com/ecwilsonaz/mediasage) by Eric Wilson, originally built for Plex. RoonSage has been independently developed for Roon Labs with significant new functionality including MCP integration, Qobuz support, zone control, and more.
