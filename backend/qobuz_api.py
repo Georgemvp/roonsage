@@ -8,6 +8,7 @@ Only app_id is extracted from the Qobuz web player — app_secret is NOT
 needed for playlist management, track search, or login operations.
 """
 
+import hashlib
 import logging
 import re
 import time
@@ -134,61 +135,53 @@ class QobuzClient:
     # ------------------------------------------------------------------
 
     def _login(self, email: str, password: str) -> None:
-        """Login via GET request with query params."""
-        try:
-            resp = self._client.get(
-                f"{QOBUZ_API_BASE}/user/login",
-                params={
-                    "email": email,
-                    "password": password,
-                    "app_id": self.app_id,
-                },
-            )
+        """Login via GET request. Tries plain-text password first, then MD5 hash."""
+        attempts = [
+            ("plain", password),
+            ("md5", hashlib.md5(password.encode("utf-8")).hexdigest()),
+        ]
 
-            if resp.status_code == 401:
-                raise QobuzAPIError("Ongeldig e-mailadres of wachtwoord")
-            elif resp.status_code == 400:
-                try:
-                    msg = resp.json().get("message", "Login mislukt")
-                except Exception:
-                    msg = "Login mislukt"
-                raise QobuzAPIError(f"Qobuz login fout: {msg}")
+        last_error = ""
+        for method, pw in attempts:
+            try:
+                resp = self._client.get(
+                    f"{QOBUZ_API_BASE}/user/login",
+                    params={
+                        "email": email,
+                        "password": pw,
+                        "app_id": self.app_id,
+                    },
+                )
 
-            resp.raise_for_status()
-            data = resp.json()
+                if resp.status_code == 200:
+                    data = resp.json()
+                    self._token = data["user_auth_token"]
+                    self._user_id = data["user"]["id"]
+                    self._user_display_name = data["user"].get("display_name", email)
+                    self._subscription = data["user"].get("credential", {}).get("label", "Onbekend")
+                    self._client.headers["X-User-Auth-Token"] = self._token
+                    logger.info(
+                        "Qobuz login geslaagd (%s): %s (abonnement: %s)",
+                        method, self._user_display_name, self._subscription,
+                    )
+                    return
 
-            self._token = data["user_auth_token"]
-            self._user_id = data["user"]["id"]
+                if resp.status_code in (401, 400):
+                    try:
+                        msg = resp.json().get("message", f"HTTP {resp.status_code}")
+                    except Exception:
+                        msg = f"HTTP {resp.status_code}"
+                    last_error = msg
+                    logger.info("Qobuz login poging (%s) mislukt: %s", method, msg)
+                    continue
 
-            user = data.get("user", {})
-            firstname = user.get("firstname", "")
-            lastname = user.get("lastname", "")
-            self._user_display_name = (
-                f"{firstname} {lastname}".strip() or user.get("login", email)
-            )
+                resp.raise_for_status()
 
-            sub = user.get("subscription") or {}
-            self._subscription = (
-                sub.get("offer", {}).get("label", "")
-                or sub.get("description", "")
-                or user.get("credential", {}).get("label", "Onbekend")
-            )
+            except httpx.HTTPStatusError as exc:
+                last_error = f"HTTP {exc.response.status_code}"
+                continue
 
-            # Set auth token header for all subsequent requests
-            self._client.headers["X-User-Auth-Token"] = self._token
-
-            logger.info(
-                "Qobuz login geslaagd: %s (abonnement: %s)",
-                self._user_display_name,
-                self._subscription,
-            )
-
-        except QobuzAPIError:
-            raise
-        except httpx.HTTPStatusError as exc:
-            raise QobuzAPIError(f"Qobuz API fout: HTTP {exc.response.status_code}") from exc
-        except KeyError as exc:
-            raise QobuzAPIError("Onverwacht antwoord van Qobuz API") from exc
+        raise QobuzAPIError(f"Qobuz login mislukt: {last_error}")
 
     # ------------------------------------------------------------------
     # Public helpers
