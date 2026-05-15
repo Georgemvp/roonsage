@@ -1,8 +1,3 @@
-# Commit helper scripts
-commit_fix.sh
-commit_mcp_v3.sh
-commit_prompt5.sh
-
 # Python
 __pycache__/
 *.py[cod]

@@ -1391,6 +1391,7 @@ async function updateFilterPreview() {
             decades: allDecadesSelected() ? [] : state.selectedDecades,
             track_count: state.trackCount,
             max_tracks_to_ai: state.maxTracksToAI,
+            min_rating: state.minRating,
             exclude_live: state.excludeLive,
         };
         console.log('[MediaSage] Filter preview request:', requestBody);
@@ -3075,6 +3076,7 @@ async function handleGenerate() {
         decades: allDecadesSelected() ? [] : state.selectedDecades,
         track_count: state.trackCount,
         exclude_live: state.excludeLive,
+        min_rating: state.minRating,
         max_tracks_to_ai: state.maxTracksToAI,
     };
 

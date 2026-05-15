@@ -161,6 +161,7 @@ async def filter_library_tracks(request: FilterLibraryRequest) -> FilterLibraryR
         library_cache.get_tracks_by_filters,
         genres=genres,
         decades=decades,
+        min_rating=request.min_rating,
         exclude_live=request.exclude_live,
         limit=0,
     )
@@ -199,6 +200,7 @@ async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewRespons
     genres = request.genres if request.genres else None
     decades = request.decades if request.decades else None
     exclude_live = request.exclude_live
+    min_rating = request.min_rating
 
     matching_tracks = -1
     if library_cache.has_cached_tracks():
@@ -206,6 +208,7 @@ async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewRespons
             library_cache.count_tracks_by_filters,
             genres=genres,
             decades=decades,
+            min_rating=min_rating,
             exclude_live=exclude_live,
         )
 
@@ -221,6 +224,7 @@ async def preview_filters(request: FilterPreviewRequest) -> FilterPreviewRespons
                 genres=genres,
                 decades=decades,
                 exclude_live=exclude_live,
+                min_rating=min_rating,
             )
 
     if matching_tracks <= 0:

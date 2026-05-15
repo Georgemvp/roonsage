@@ -111,7 +111,7 @@ CUSTOM_CONTEXT_WINDOW=4096
 
 These are NOT bugs — they are Roon Extension API constraints:
 
-- **No user ratings**: `user_rating` is always `None` via Browse API. The `min_rating` filter and `user_rating` column have been removed from the codebase.
+- **No user ratings**: `user_rating` is always `None` via Browse API. The min_rating filter in the UI does nothing.
 - **No play counts**: `view_count` is hardcoded to `0`. The "familiarity" feature classifies everything as "unplayed".
 - **No playlist creation**: Roon cannot save playlists via the Extension API. The frontend "Save to Playlist" concept is not available.
 - **No direct track queries**: All library access goes through Browse hierarchy (Root → Library → Albums → tracks per album).

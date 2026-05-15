@@ -98,6 +98,7 @@ def init_schema(conn: sqlite3.Connection) -> bool:
             duration_ms INTEGER,
             year INTEGER,
             genres TEXT,
+            user_rating INTEGER,
             is_live BOOLEAN,
             parent_rating_key TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -301,7 +302,7 @@ def get_cached_tracks() -> list[dict[str, Any]]:
     try:
         rows = conn.execute(
             "SELECT rating_key, title, artist, album, duration_ms, year, "
-            "genres, is_live FROM tracks"
+            "genres, user_rating, is_live FROM tracks"
         ).fetchall()
 
         tracks = []
@@ -322,6 +323,7 @@ def get_cached_tracks() -> list[dict[str, Any]]:
 def get_tracks_by_filters(
     genres: list[str] | None = None,
     decades: list[str] | None = None,
+    min_rating: int = 0,
     exclude_live: bool = True,
     limit: int = 0,
 ) -> list[dict[str, Any]]:
@@ -330,6 +332,7 @@ def get_tracks_by_filters(
     Args:
         genres: List of genre names to include (OR matching)
         decades: List of decades like "1990s" (OR matching)
+        min_rating: Minimum user rating (0-10, 0 = no filter)
         exclude_live: Whether to exclude live recordings
         limit: Max tracks to return (0 = no limit)
 
@@ -343,6 +346,10 @@ def get_tracks_by_filters(
 
         if exclude_live:
             conditions.append("t.is_live = 0")
+
+        if min_rating > 0:
+            conditions.append("t.user_rating >= ?")
+            params.append(min_rating)
 
         if decades:
             decade_conditions = []
@@ -673,6 +680,7 @@ def sync_library(
                 track.get("duration", 0) * 1000 if track.get("duration") else 0,
                 year,
                 json.dumps(genres),  # Store genres as JSON array
+                None,  # user_rating not available via Browse API
                 _is_live_version(title, album),
                 album_item_key,  # parent_rating_key stores album item_key
                 view_count,
@@ -684,8 +692,8 @@ def sync_library(
                 conn.executemany(
                     "INSERT OR REPLACE INTO tracks "
                     "(rating_key, title, artist, album, duration_ms, year, genres, "
-                    "is_live, parent_rating_key, view_count, last_viewed_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+                    "user_rating, is_live, parent_rating_key, view_count, last_viewed_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
                     batch_data,
                 )
                 synced_count += len(batch_data)
@@ -811,6 +819,7 @@ def get_sync_progress() -> dict[str, Any]:
 def count_tracks_by_filters(
     genres: list[str] | None = None,
     decades: list[str] | None = None,
+    min_rating: int = 0,
     exclude_live: bool = True,
 ) -> int:
     """Count tracks matching filter criteria without fetching full data.
@@ -818,6 +827,7 @@ def count_tracks_by_filters(
     Args:
         genres: List of genre names to include (OR matching)
         decades: List of decades like "1990s" (OR matching)
+        min_rating: Minimum user rating (0-10, 0 = no filter)
         exclude_live: Whether to exclude live recordings
 
     Returns:
@@ -836,6 +846,10 @@ def count_tracks_by_filters(
 
         if exclude_live:
             conditions.append("is_live = 0")
+
+        if min_rating > 0:
+            conditions.append("user_rating >= ?")
+            params.append(min_rating)
 
         if decades:
             decade_conditions = []
