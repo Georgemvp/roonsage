@@ -13,9 +13,11 @@ RoonSage is a self-hosted web app that connects to your Roon Core as an Extensio
 
 ## Claude Desktop Integration
 
-This is what makes RoonSage different from every other Roon add-on: a full MCP server that gives Claude Desktop 24 tools to search your library, generate playlists, recommend albums, and control every aspect of Roon playback — all through natural language.
+This is what makes RoonSage different from every other Roon add-on: a full MCP server that gives Claude Desktop 25 tools to search your library, curate and play playlists, recommend albums, and control every aspect of Roon playback — all through natural language.
 
 You use your existing Claude Pro subscription. No separate API key, no per-token cost.
+
+**Claude Desktop curates natively.** For library playlist requests Claude does the work itself — it checks which genres and decades are in your library, fetches a filtered track list, and picks the best tracks using its own musical judgment. No backend LLM call, no wait. Qobuz discovery and large-library generation still use the backend pipeline when needed.
 
 ```
 "Make a playlist of mellow 90s electronic, nothing too aggressive, play it in the living room."
@@ -67,7 +69,7 @@ The Claude model you pick in the conversation dropdown affects quality — all a
 
 Start with Sonnet. Switch to Opus when you want Claude to dig into your library for overlooked albums or handle abstract mood prompts like "something that feels like driving at night in the rain."
 
-### Available Tools (24)
+### Available Tools (25)
 
 **Library**
 
@@ -77,16 +79,17 @@ Start with Sonnet. Switch to Opus when you want Claude to dig into your library 
 | `get_library_status` | Cache freshness; surfaces `needs_resync` flag |
 | `search_library` | Search by track, artist, or album name |
 | `search_qobuz` | Search the Qobuz catalog via Roon |
-| `filter_tracks` | Filter by genre, decade, live exclusion |
+| `filter_tracks` | Filter by genre, decade, live exclusion. Use `output_format="compact"` for a numbered token-efficient list + `key_map` (Claude-native curation). Use `"json"` for full metadata. |
 | `get_artist_albums` | All albums by an artist from the SQLite cache |
 | `sync_library` | Trigger a background library sync from Roon |
 
-**Playlist Generation**
+**Playlist Curation & Generation**
 
 | Tool | What it does |
 |------|-------------|
-| `generate_playlist` | Natural language → playlist; supports library, hybrid, and Qobuz source modes |
-| `seed_track_playlist` | "More like this" — playlist from a specific seed track |
+| `curate_and_play` | Play a track selection Claude picked from `filter_tracks` compact output — translates track numbers + `key_map` to Roon item_keys and starts playback |
+| `generate_playlist` | Natural language → playlist via backend pipeline; supports library, hybrid, and Qobuz source modes. Fallback when context is large or Qobuz is needed. |
+| `seed_track_playlist` | "More like this" — playlist from a specific seed track via backend pipeline |
 | `analyze_prompt` | Preview how a prompt maps to genre/decade filters |
 | `recommend_album` | Quick AI album recommendation (library or discovery mode) |
 | `recommend_album_interactive` | 2-step Q&A for highly personalized picks |
@@ -347,6 +350,38 @@ Configure model name and API key (if required) in Settings.
 ## How It Works
 
 RoonSage uses a filter-first architecture designed for large libraries. The LLM never sees your entire library — only a filtered, manageable slice of it.
+
+There are two playlist paths depending on how you use RoonSage:
+
+### Path A — Claude Desktop (native curation, fast)
+
+Claude itself curates the playlist using its own musical knowledge. No backend LLM call.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. ANALYSE (Claude)                                             │
+│     Claude interprets your prompt — mood, genre, era, tempo      │
+├─────────────────────────────────────────────────────────────────┤
+│  2. STATS                                                        │
+│     get_library_stats → Claude sees which genres/decades exist   │
+├─────────────────────────────────────────────────────────────────┤
+│  3. FILTER                                                       │
+│     filter_tracks(compact) → numbered list of up to 500 tracks   │
+│     + key_map to translate numbers back to Roon item_keys        │
+├─────────────────────────────────────────────────────────────────┤
+│  4. CURATE (Claude)                                              │
+│     Claude picks the best 15–50 tracks using musical judgment    │
+│     Artist diversity, flow, no clustering — all done by Claude   │
+├─────────────────────────────────────────────────────────────────┤
+│  5. PLAY                                                         │
+│     curate_and_play → item_keys sent to Roon zone                │
+│     Immediate playback in any Roon client                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Path B — Web UI / Qobuz / large libraries (backend pipeline)
+
+Used by the web interface and by Claude Desktop when Qobuz is involved or the filtered pool is very large.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
