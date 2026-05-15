@@ -1194,6 +1194,52 @@ class RoonClient:
                 })
                 action_items = action_result.get("items", []) if action_result else []
 
+                # ── Step 5b: if action_items contains track-version rows instead
+                #    of play/queue actions, navigate one level deeper ────────────
+                #
+                # Roon's search hierarchy has an extra indirection: navigating
+                # into a Tracks-section entry (hint="action_list") yields a
+                # "version list" page whose items are the individual versions of
+                # that track (e.g. ['Worry Walks Beside Me'] or
+                # ["I Won't Lie", "I Won't Lie (Album Version)"]).
+                # The actual "Play Now" / "Add to Queue" actions live one level
+                # below that.  We detect this by checking whether any current
+                # action_items title matches a known play/queue keyword; if not,
+                # we treat them as version items and navigate into the first one.
+                all_kw = target_keywords | fallback_keywords
+                has_play_action = any(
+                    item.get("title", "").lower().strip() in all_kw
+                    and item.get("item_key")
+                    for item in action_items
+                )
+                if not has_play_action and action_items:
+                    version_item = next(
+                        (i for i in action_items if i.get("item_key")),
+                        None,
+                    )
+                    if version_item:
+                        self._api.browse_browse({
+                            "hierarchy": "search",
+                            "item_key": version_item["item_key"],
+                            "zone_or_output_id": zone_id,
+                        })
+                        version_result = self._api.browse_load({
+                            "hierarchy": "search",
+                            "count": 10,
+                            "zone_or_output_id": zone_id,
+                        })
+                        action_items = (
+                            version_result.get("items", [])
+                            if version_result else []
+                        )
+                        logger.debug(
+                            "Extra navigation into version '%s' for '%s' "
+                            "→ %d action items",
+                            version_item.get("title"),
+                            search_query,
+                            len(action_items),
+                        )
+
                 # ── Step 6: choose and execute the play/queue action ──────────
                 action_item: dict[str, Any] | None = None
                 fallback_item: dict[str, Any] | None = None
