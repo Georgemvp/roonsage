@@ -282,6 +282,21 @@ def get_config() -> AppConfig:
     return _config
 
 
+def get_qobuz_config() -> dict[str, str]:
+    """Return Qobuz API credentials from environment variables or config.user.yaml.
+
+    Priority: environment variables > config.user.yaml > empty string.
+    Returns a dict with keys: app_id, email, password.
+    """
+    user_config = load_user_yaml_config()
+    qobuz_yaml = user_config.get("qobuz", {})
+    return {
+        "app_id": get_env_or_yaml("QOBUZ_APP_ID", qobuz_yaml.get("app_id"), ""),
+        "email": get_env_or_yaml("QOBUZ_EMAIL", qobuz_yaml.get("email"), ""),
+        "password": get_env_or_yaml("QOBUZ_PASSWORD", qobuz_yaml.get("password"), ""),
+    }
+
+
 def refresh_config(config_path: Path | None = None) -> AppConfig:
     """Reload configuration from file and environment."""
     global _config

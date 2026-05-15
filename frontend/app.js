@@ -130,6 +130,7 @@ const state = {
     sourceMode: 'library',     // 'library' | 'hybrid' | 'qobuz'
     qobuzPercentage: 30,       // % of Qobuz tracks in hybrid mode (10-70)
     qobuzAvailable: false,     // populated from /api/setup/status
+    qobuzSaveAvailable: false, // populated from /api/qobuz/save-status
 
     // Results UX — selection
     selectedTrackKey: null,    // Currently selected track in detail panel
@@ -1150,6 +1151,7 @@ function updateStep() {
         // page reload.
         fetchSetupStatus().then(s => {
             state.qobuzAvailable = !!s.qobuz_available;
+            state.qobuzSaveAvailable = !!s.qobuz_save_available;
             renderSourceModeStep();
         }).catch(() => renderSourceModeStep());
     } else if (state.step === 'filters') {
@@ -1725,6 +1727,16 @@ function updatePlaylist() {
     const refineBtn = document.getElementById('refine-playlist-btn');
     if (refineBtn) {
         refineBtn.classList.toggle('hidden', !state.lastRequest);
+    }
+
+    // Show/hide Qobuz save button based on availability and playlist content
+    const qobuzSaveBtn = document.getElementById('save-to-qobuz-btn');
+    if (qobuzSaveBtn) {
+        const visible = state.qobuzSaveAvailable && state.playlist.length > 0;
+        qobuzSaveBtn.classList.toggle('hidden', !visible);
+        // Reset result feedback when playlist changes
+        const qobuzResult = document.getElementById('qobuz-save-result');
+        if (qobuzResult) qobuzResult.classList.add('hidden');
     }
 
     // Update footer
@@ -2841,6 +2853,7 @@ function setupEventListeners() {
     // Playlist Refinement
     document.getElementById('refine-playlist-btn')?.addEventListener('click', handleRefinePlaylist);
     document.getElementById('refine-submit-btn')?.addEventListener('click', handleRefineSubmit);
+    document.getElementById('save-to-qobuz-btn')?.addEventListener('click', handleSaveToQobuz);
     document.getElementById('refine-input')?.addEventListener('keydown', (e) => {
         // Ctrl+Enter / Cmd+Enter submits the refinement
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -3315,6 +3328,68 @@ function handleRefinePlaylist() {
     btn.setAttribute('aria-expanded', String(!isOpen));
     if (!isOpen) {
         document.getElementById('refine-input')?.focus();
+    }
+}
+
+async function handleSaveToQobuz() {
+    if (!state.playlist || state.playlist.length === 0) return;
+
+    const btn = document.getElementById('save-to-qobuz-btn');
+    const resultEl = document.getElementById('qobuz-save-result');
+    if (!btn || !resultEl) return;
+
+    // Disable button during save
+    btn.disabled = true;
+    btn.textContent = 'Opslaan...';
+    resultEl.classList.add('hidden');
+    resultEl.className = 'qobuz-save-result hidden';
+
+    try {
+        const tracks = state.playlist.map(t => ({
+            artist: t.artist || '',
+            title: t.title || '',
+        }));
+
+        const playlistName = state.playlistTitle || state.playlistName || 'RoonSage Playlist';
+        const description = state.narrative || '';
+
+        const result = await apiCall('/qobuz/playlist/save', {
+            method: 'POST',
+            body: JSON.stringify({
+                name: playlistName,
+                tracks,
+                description,
+                is_public: false,
+            }),
+        });
+
+        resultEl.classList.remove('hidden');
+
+        if (result.success) {
+            const unmatchedCount = result.tracks_unmatched || 0;
+            const savedCount = result.tracks_saved || 0;
+            let html = `<strong>${savedCount} van ${savedCount + unmatchedCount} tracks opgeslagen in Qobuz</strong> als "${escapeHtml(result.playlist_name || playlistName)}"`;
+
+            if (unmatchedCount > 0 && result.unmatched_details?.length > 0) {
+                const items = result.unmatched_details
+                    .map(u => `<li>${escapeHtml(u.artist)} — ${escapeHtml(u.title)}</li>`)
+                    .join('');
+                html += `<details><summary>${unmatchedCount} track${unmatchedCount !== 1 ? 's' : ''} niet gevonden op Qobuz</summary><ul>${items}</ul></details>`;
+            }
+
+            resultEl.innerHTML = html;
+            resultEl.classList.add('success');
+        } else {
+            resultEl.textContent = result.error || 'Opslaan mislukt';
+            resultEl.classList.add('error');
+        }
+    } catch (err) {
+        resultEl.classList.remove('hidden');
+        resultEl.textContent = err.message || 'Opslaan in Qobuz mislukt';
+        resultEl.classList.add('error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '▶ Opslaan in Qobuz';
     }
 }
 
@@ -5618,6 +5693,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // BEFORE enterSetupWizard() because that function returns early and
                 // the line below would otherwise never execute during wizard sessions.
                 state.qobuzAvailable = !!setupStatus.qobuz_available;
+                state.qobuzSaveAvailable = !!setupStatus.qobuz_save_available;
                 if (!setupStatus.setup_complete) {
                     enterSetupWizard(setupStatus);
                     return; // Wizard handles its own lifecycle

@@ -1009,7 +1009,8 @@ class SetupStatusResponse(BaseModel):
     is_syncing: bool = False
     sync_progress: SyncProgress | None = None
     setup_complete: bool
-    qobuz_available: bool = False  # True if Qobuz service is visible in Roon browse
+    qobuz_available: bool = False       # True if Qobuz service is visible in Roon browse
+    qobuz_save_available: bool = False  # True if Qobuz direct API is configured (playlist save)
 
 
 class ValidateRoonRequest(BaseModel):

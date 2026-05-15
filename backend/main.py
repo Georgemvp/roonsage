@@ -11,12 +11,14 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from backend.config import get_config
+from backend.config import get_config, get_qobuz_config
 from backend.version import get_version
 from backend.roon_client import get_roon_client, init_roon_client
+from backend.qobuz_api import init_qobuz_api_client
 from backend import library_cache
 from backend.llm_client import init_llm_client
 from backend.routes import setup, library, generate, recommend, roon, config_routes, results
+from backend.routes.qobuz_playlist import router as qobuz_playlist_router
 from backend.dependencies import ROONSAGE_PASSWORD
 import backend.routes.recommend as _recommend_module
 
@@ -42,6 +44,15 @@ async def lifespan(app: FastAPI):
     # Local providers (ollama, custom) don't need an API key
     if config.llm.api_key or config.llm.provider in ("ollama", "custom"):
         init_llm_client(config.llm)
+
+    # Initialize Qobuz direct API client (for playlist save — independent of Roon)
+    qobuz_cfg = get_qobuz_config()
+    if qobuz_cfg["app_id"] and qobuz_cfg["email"] and qobuz_cfg["password"]:
+        init_qobuz_api_client(
+            qobuz_cfg["app_id"],
+            qobuz_cfg["email"],
+            qobuz_cfg["password"],
+        )
 
     # Initialize DB schema early so migration flag is set
     library_cache.ensure_db_initialized().close()
@@ -135,6 +146,7 @@ app.include_router(recommend.router)
 app.include_router(roon.router)
 app.include_router(config_routes.router)
 app.include_router(results.router)
+app.include_router(qobuz_playlist_router)
 
 
 # =============================================================================

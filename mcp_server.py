@@ -1347,6 +1347,42 @@ async def search_qobuz(query: str, limit: int = 10) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
+@mcp.tool()
+async def save_to_qobuz(
+    playlist_name: str,
+    tracks: list[dict],
+    description: str = "",
+) -> str:
+    """Save a curated playlist to the user's Qobuz account.
+
+    After curating a playlist (from library, hybrid, or Qobuz sources),
+    call this tool to save it as a Qobuz playlist. Each track is resolved
+    by searching the Qobuz catalog for artist + title.
+
+    The tool creates a new Qobuz playlist and adds all matched tracks.
+    Tracks not found on Qobuz are reported in the response.
+
+    Requires QOBUZ_APP_ID, QOBUZ_EMAIL, and QOBUZ_PASSWORD to be
+    configured in RoonSage.
+
+    Args:
+        playlist_name: Name for the new Qobuz playlist.
+        tracks:        List of track dicts, each with "artist" and "title"
+                       keys. E.g. [{"artist": "Radiohead", "title": "Karma Police"}, ...]
+        description:   Optional playlist description text.
+    """
+    result = await _api_call(
+        "POST",
+        "/api/qobuz/playlist/save",
+        json={
+            "name": playlist_name,
+            "tracks": tracks,
+            "description": description,
+        },
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

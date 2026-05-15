@@ -27,6 +27,7 @@ from backend.models import (
 )
 from backend.roon_client import RoonClient as RoonClientInstance, get_roon_client, init_roon_client
 from backend.dependencies import _is_llm_configured
+from backend.qobuz_api import get_qobuz_api_client
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,9 @@ async def setup_status() -> SetupStatusResponse:
         except Exception as _qe:
             logger.warning("Qobuz availability thread failed: %s", _qe, exc_info=True)
 
+    qobuz_api_client = get_qobuz_api_client()
+    qobuz_save_available = qobuz_api_client is not None and qobuz_api_client.is_authenticated()
+
     return SetupStatusResponse(
         data_dir_writable=data_dir_writable,
         process_uid=getattr(os, "getuid", lambda: 0)(),
@@ -136,6 +140,7 @@ async def setup_status() -> SetupStatusResponse:
         sync_progress=sync_progress,
         setup_complete=setup_complete,
         qobuz_available=qobuz_available,
+        qobuz_save_available=qobuz_save_available,
     )
 
 

@@ -1,6 +1,6 @@
 # RoonSage Development Guidelines
 
-Last updated: 2026-05-15 (MCP v4.3 — 26 tools, token-optimized curation)
+Last updated: 2026-05-15 (MCP v4.4 — 27 tools, Qobuz playlist save)
 
 ## Project Overview
 
@@ -27,7 +27,8 @@ backend/
 │   ├── recommend.py     # Album recommendation pipeline endpoints
 │   ├── roon.py          # Roon zones, queue, transport control, art proxy endpoints
 │   ├── config_routes.py # Config, health, Ollama endpoints
-│   └── results.py       # Result history endpoints
+│   ├── results.py       # Result history endpoints
+│   └── qobuz_playlist.py # Qobuz playlist save endpoints
 ├── config.py
 ├── roon_client.py
 ├── llm_client.py
@@ -35,6 +36,7 @@ backend/
 ├── generator.py
 ├── library_cache.py
 ├── qobuz_browser.py     # Qobuz search and playback via Roon Browse API
+├── qobuz_api.py         # Direct Qobuz API client for playlist save (independent of Roon)
 ├── recommender.py
 ├── music_research.py
 └── models.py
@@ -94,6 +96,10 @@ GEMINI_API_KEY=...
 OLLAMA_URL=http://localhost:11434
 CUSTOM_LLM_URL=http://localhost:5000/v1
 CUSTOM_CONTEXT_WINDOW=4096
+# Qobuz playlist save (optional)
+QOBUZ_APP_ID=               # Qobuz API app ID
+QOBUZ_EMAIL=                # Qobuz account email
+QOBUZ_PASSWORD=             # Qobuz account password
 ```
 
 ## Key Design Decisions
@@ -108,6 +114,7 @@ CUSTOM_CONTEXT_WINDOW=4096
 - **Live version filtering**: Exclude tracks with "live", "concert", dates in title/album
 - **Browse hierarchy**: All Roon library access follows: Root → Library → Albums → tracks per album
 - **Qobuz via Roon Browse API**: No separate Qobuz API key needed. RoonSage navigates Roon's Browse hierarchy (Root → Qobuz → Search) to find and play Qobuz tracks. Detected automatically at startup.
+- **Qobuz playlist save via direct API**: Roon's Extension API cannot create playlists. RoonSage connects directly to the Qobuz JSON API (`https://www.qobuz.com/api.json/0.2/`) for playlist creation. Track resolution uses search + fuzzy matching (rapidfuzz) to translate artist+title to Qobuz track IDs. Rate limited at 150ms between searches.
 - **Time-of-day context**: Day and hour are prepended to generation prompts as subtle mood hints. Dutch day names used for consistency with the UI language.
 
 ## Roon API Limitations
@@ -116,7 +123,7 @@ These are NOT bugs — they are Roon Extension API constraints:
 
 - **No user ratings**: `user_rating` is always `None` via Browse API. The `min_rating` filter code has been removed since Roon never exposes this data.
 - **No play counts**: `view_count` is hardcoded to `0`. The "familiarity" feature classifies everything as "unplayed".
-- **No playlist creation**: Roon cannot save playlists via the Extension API. The frontend "Save to Playlist" concept is not available.
+- **No playlist creation**: Roon cannot save playlists via the Extension API. RoonSage uses the Qobuz API directly for playlist save (requires separate QOBUZ_* credentials).
 - **No direct track queries**: All library access goes through Browse hierarchy (Root → Library → Albums → tracks per album).
 - **Metadata parsed from subtitle strings**: Genre, year, and artist are parsed from `"Artist • Year • Genre"` format using `•` separator. This is fragile.
 - **ARC zones invisible**: Roon ARC playback is not visible to the Extension API.
@@ -189,6 +196,13 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
   - `filter_tracks` exclude_keywords parameter voor keyword-based uitsluiting
   - Server-side key_map opslag: session_id in plaats van key_map in context (~10-20K tokens bespaard)
   - `validate_playlist` tool: controleer duplicaten, clustering en overrepresentatie vóór afspelen
+- **MCP v4.4 (2026-05-15):** Qobuz playlist save:
+  - New module `backend/qobuz_api.py`: direct Qobuz API client (login, search, create playlist, add tracks, resolve tracks via fuzzy matching)
+  - New endpoint `POST /api/qobuz/playlist/save`: full pipeline — resolve tracks to Qobuz IDs → create playlist → add tracks
+  - New endpoint `GET /api/qobuz/save-status`: check if Qobuz save is configured
+  - New MCP tool `save_to_qobuz`: save curated playlists to Qobuz from Claude Desktop
+  - Frontend: "Opslaan in Qobuz" button on playlist results (visible when configured)
+  - Config: `QOBUZ_APP_ID`, `QOBUZ_EMAIL`, `QOBUZ_PASSWORD` environment variables
 
 ## MCP Server
 
@@ -198,7 +212,7 @@ The MCP server contains NO own LLM logic — Claude Desktop does the thinking. W
 
 The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip install "mcp[cli]"` must be done locally. `scripts/install_mcp.py` configures Claude Desktop — one-time setup per machine.
 
-### Full Tool List (26 tools)
+### Full Tool List (27 tools)
 
 | Tool | Backend endpoint | Purpose |
 |------|-----------------|---------|
@@ -228,6 +242,7 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 | `browse_playlists` | `POST /api/roon/playlists` | List/play Roon playlists (all playlists, not just RoonSage) |
 | `curate_and_play` | `POST /api/library/filter/curate` | Play Claude-curated track selection using session_id from filter_tracks; translates track numbers to item_keys server-side |
 | `validate_playlist` | `POST /api/library/filter/validate` | Check curated selection for duplicates, clustering, overrepresentation |
+| `save_to_qobuz` | `POST /api/qobuz/playlist/save` | Save curated playlist to user's Qobuz account |
 
 ### Tool Selection Guide (for Claude Desktop)
 
@@ -254,6 +269,7 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 - **Zones groeperen** → `zone_grouping`
 - **Shuffle/repeat** → `transport_control` with action="shuffle"/"repeat"
 - **Library search levert niets op** → `search_qobuz` als fallback
+- **Playlist opslaan in Qobuz** → `save_to_qobuz` (na curate_and_play of play_tracks)
 
 **Fallback tools (alleen bij problemen of op expliciet verzoek):**
 - `generate_playlist` — backend-LLM generatie (bij context-overflow of op verzoek)
