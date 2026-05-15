@@ -63,10 +63,10 @@ class TestSetupStatus:
         mock_roon.get_error.return_value = None
 
         with (
-            patch("backend.main.get_config", return_value=create_mock_config()),
-            patch("backend.main.get_roon_client", return_value=mock_roon),
-            patch("backend.main.library_cache") as mock_cache,
-            patch("backend.main.load_user_yaml_config", return_value={}),
+            patch("backend.routes.setup.get_config", return_value=create_mock_config()),
+            patch("backend.routes.setup.get_roon_client", return_value=mock_roon),
+            patch("backend.routes.setup.library_cache") as mock_cache,
+            patch("backend.routes.setup.load_user_yaml_config", return_value={}),
         ):
             mock_cache.DATA_DIR = MagicMock()
             mock_cache.DATA_DIR.mkdir = MagicMock()
@@ -74,6 +74,7 @@ class TestSetupStatus:
             test_file = MagicMock()
             mock_cache.DATA_DIR.__truediv__ = MagicMock(return_value=test_file)
             mock_cache.has_cached_tracks.return_value = True
+            mock_cache.is_cache_stale.return_value = False
             mock_cache.get_sync_state.return_value = {
                 "track_count": 1000,
                 "synced_at": "2026-01-01T00:00:00",
@@ -95,12 +96,12 @@ class TestSetupStatus:
     def test_status_unconfigured(self, client):
         """Should show all steps incomplete when nothing is configured."""
         with (
-            patch("backend.main.get_config", return_value=create_mock_config(
+            patch("backend.routes.setup.get_config", return_value=create_mock_config(
                 roon_host="", roon_token="", llm_api_key=""
             )),
-            patch("backend.main.get_roon_client", return_value=None),
-            patch("backend.main.library_cache") as mock_cache,
-            patch("backend.main.load_user_yaml_config", return_value={}),
+            patch("backend.routes.setup.get_roon_client", return_value=None),
+            patch("backend.routes.setup.library_cache") as mock_cache,
+            patch("backend.routes.setup.load_user_yaml_config", return_value={}),
         ):
             mock_cache.DATA_DIR = MagicMock()
             mock_cache.DATA_DIR.mkdir = MagicMock()
@@ -127,10 +128,10 @@ class TestSetupStatus:
     def test_status_setup_complete(self, client):
         """Should reflect setup_complete from config.user.yaml."""
         with (
-            patch("backend.main.get_config", return_value=create_mock_config()),
-            patch("backend.main.get_roon_client", return_value=None),
-            patch("backend.main.library_cache") as mock_cache,
-            patch("backend.main.load_user_yaml_config", return_value={"setup": {"complete": True}}),
+            patch("backend.routes.setup.get_config", return_value=create_mock_config()),
+            patch("backend.routes.setup.get_roon_client", return_value=None),
+            patch("backend.routes.setup.library_cache") as mock_cache,
+            patch("backend.routes.setup.load_user_yaml_config", return_value={"setup": {"complete": True}}),
         ):
             mock_cache.DATA_DIR = MagicMock()
             mock_cache.DATA_DIR.mkdir = MagicMock()
@@ -161,9 +162,9 @@ class TestSetupValidateRoon:
         mock_temp_client.get_core_id.return_value = "core-id-123"
 
         with (
-            patch("backend.main.RoonClientInstance", return_value=mock_temp_client),
-            patch("backend.main.update_config_values"),
-            patch("backend.main.init_roon_client"),
+            patch("backend.routes.setup.RoonClientInstance", return_value=mock_temp_client),
+            patch("backend.routes.setup.update_config_values"),
+            patch("backend.routes.setup.init_roon_client"),
         ):
             response = client.post("/api/setup/validate-roon", json={
                 "roon_host": "192.168.1.100",
@@ -182,7 +183,7 @@ class TestSetupValidateRoon:
         mock_temp_client.is_connected.return_value = False
         mock_temp_client.get_error.return_value = "Connection refused"
 
-        with patch("backend.main.RoonClientInstance", return_value=mock_temp_client):
+        with patch("backend.routes.setup.RoonClientInstance", return_value=mock_temp_client):
             response = client.post("/api/setup/validate-roon", json={
                 "roon_host": "192.168.1.100",
                 "roon_port": 9100,
@@ -203,9 +204,9 @@ class TestSetupValidateAI:
         mock_status.connected = True
 
         with (
-            patch("backend.main.get_ollama_status", return_value=mock_status),
-            patch("backend.main.update_config_values", return_value=create_mock_config(llm_provider="ollama")),
-            patch("backend.main.init_llm_client"),
+            patch("backend.routes.setup.get_ollama_status", return_value=mock_status),
+            patch("backend.routes.setup.update_config_values", return_value=create_mock_config(llm_provider="ollama")),
+            patch("backend.routes.setup.init_llm_client"),
         ):
             response = client.post("/api/setup/validate-ai", json={
                 "provider": "ollama",
@@ -223,7 +224,7 @@ class TestSetupValidateAI:
         mock_status.connected = False
         mock_status.error = "Connection refused"
 
-        with patch("backend.main.get_ollama_status", return_value=mock_status):
+        with patch("backend.routes.setup.get_ollama_status", return_value=mock_status):
             response = client.post("/api/setup/validate-ai", json={
                 "provider": "ollama",
                 "ollama_url": "http://localhost:11434",
@@ -252,8 +253,8 @@ class TestSetupValidateAI:
 
         with (
             patch("google.genai.Client", return_value=mock_client_instance),
-            patch("backend.main.update_config_values", return_value=create_mock_config(llm_provider="gemini")),
-            patch("backend.main.init_llm_client"),
+            patch("backend.routes.setup.update_config_values", return_value=create_mock_config(llm_provider="gemini")),
+            patch("backend.routes.setup.init_llm_client"),
         ):
             response = client.post("/api/setup/validate-ai", json={
                 "provider": "gemini",
@@ -269,7 +270,7 @@ class TestSetupComplete:
 
     def test_complete_saves_flag(self, client):
         """Should save setup.complete to config.user.yaml."""
-        with patch("backend.main.save_user_config") as mock_save:
+        with patch("backend.routes.setup.save_user_config") as mock_save:
             response = client.post("/api/setup/complete")
 
         assert response.status_code == 200
@@ -278,7 +279,7 @@ class TestSetupComplete:
 
     def test_complete_handles_save_error(self, client):
         """Should still return success even if save fails (best-effort)."""
-        with patch("backend.main.save_user_config", side_effect=Exception("disk full")):
+        with patch("backend.routes.setup.save_user_config", side_effect=Exception("disk full")):
             response = client.post("/api/setup/complete")
 
         assert response.status_code == 200

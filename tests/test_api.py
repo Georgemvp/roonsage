@@ -49,8 +49,8 @@ class TestHealthEndpoint:
 
     def test_health_check_returns_status(self, client):
         """Should return health status."""
-        with patch("backend.main.get_config") as mock_config:
-            with patch("backend.main.get_roon_client") as mock_roon:
+        with patch("backend.routes.config_routes.get_config") as mock_config:
+            with patch("backend.routes.config_routes.get_roon_client") as mock_roon:
                 mock_config.return_value = create_mock_config()
                 mock_roon.return_value = MagicMock(is_connected=MagicMock(return_value=True))
 
@@ -63,8 +63,8 @@ class TestHealthEndpoint:
 
     def test_health_check_shows_roon_status(self, client):
         """Should show Roon connection status."""
-        with patch("backend.main.get_config") as mock_config:
-            with patch("backend.main.get_roon_client") as mock_roon:
+        with patch("backend.routes.config_routes.get_config") as mock_config:
+            with patch("backend.routes.config_routes.get_roon_client") as mock_roon:
                 mock_config.return_value = create_mock_config()
                 mock_roon.return_value = MagicMock(is_connected=MagicMock(return_value=True))
 
@@ -77,8 +77,8 @@ class TestHealthEndpoint:
 
     def test_health_check_shows_llm_status(self, client):
         """Should show LLM configuration status."""
-        with patch("backend.main.get_config") as mock_config:
-            with patch("backend.main.get_roon_client") as mock_roon:
+        with patch("backend.routes.config_routes.get_config") as mock_config:
+            with patch("backend.routes.config_routes.get_roon_client") as mock_roon:
                 mock_config.return_value = create_mock_config(llm_api_key="key")
                 mock_roon.return_value = None  # No Roon client
 
@@ -95,8 +95,8 @@ class TestConfigEndpoints:
 
     def test_get_config_returns_safe_values(self, client):
         """GET /api/config should return config without secrets."""
-        with patch("backend.main.get_config") as mock_get_config:
-            with patch("backend.main.get_roon_client") as mock_roon:
+        with patch("backend.routes.config_routes.get_config") as mock_get_config:
+            with patch("backend.routes.config_routes.get_roon_client") as mock_roon:
                 mock_get_config.return_value = create_mock_config(
                     roon_host="192.168.1.100",
                     roon_token="secret-token",
@@ -121,9 +121,9 @@ class TestConfigEndpoints:
 
     def test_post_config_validates_roon_host(self, client):
         """POST /api/config should accept Roon host update."""
-        with patch("backend.main.update_config_values") as mock_update:
-            with patch("backend.main.get_roon_client") as mock_roon:
-                with patch("backend.main.init_roon_client"):
+        with patch("backend.routes.config_routes.update_config_values") as mock_update:
+            with patch("backend.routes.config_routes.get_roon_client") as mock_roon:
+                with patch("backend.routes.config_routes.init_roon_client"):
                     mock_config = create_mock_config(roon_host="192.168.1.200")
                     mock_update.return_value = mock_config
                     mock_roon.return_value = MagicMock(is_connected=MagicMock(return_value=True))
@@ -137,10 +137,10 @@ class TestConfigEndpoints:
 
     def test_post_config_updates_llm_provider(self, client):
         """POST /api/config should allow changing LLM provider."""
-        with patch("backend.main.update_config_values") as mock_update:
-            with patch("backend.main.get_roon_client") as mock_roon:
-                with patch("backend.main.init_roon_client"):
-                    with patch("backend.main.init_llm_client"):
+        with patch("backend.routes.config_routes.update_config_values") as mock_update:
+            with patch("backend.routes.config_routes.get_roon_client") as mock_roon:
+                with patch("backend.routes.config_routes.init_roon_client"):
+                    with patch("backend.routes.config_routes.init_llm_client"):
                         mock_config = create_mock_config(llm_provider="openai")
                         mock_update.return_value = mock_config
                         mock_roon.return_value = MagicMock(is_connected=MagicMock(return_value=True))
@@ -168,8 +168,8 @@ class TestOllamaEndpoints:
 
     def test_ollama_status_connected(self, client):
         """GET /api/ollama/status should return connected status."""
-        with patch("backend.main.get_config") as mock_config:
-            with patch("backend.main.get_ollama_status") as mock_status:
+        with patch("backend.routes.config_routes.get_config") as mock_config:
+            with patch("backend.routes.config_routes.get_ollama_status") as mock_status:
                 mock_config.return_value = create_mock_config(
                     llm_provider="ollama",
                     ollama_url="http://localhost:11434",
@@ -189,8 +189,8 @@ class TestOllamaEndpoints:
 
     def test_ollama_status_not_connected(self, client):
         """GET /api/ollama/status should return error when not connected."""
-        with patch("backend.main.get_config") as mock_config:
-            with patch("backend.main.get_ollama_status") as mock_status:
+        with patch("backend.routes.config_routes.get_config") as mock_config:
+            with patch("backend.routes.config_routes.get_ollama_status") as mock_status:
                 mock_config.return_value = create_mock_config(
                     llm_provider="ollama",
                     ollama_url="http://localhost:11434",
@@ -212,8 +212,8 @@ class TestOllamaEndpoints:
         """GET /api/ollama/models should return list of models."""
         from backend.models import OllamaModel, OllamaModelsResponse
 
-        with patch("backend.main.get_config") as mock_config:
-            with patch("backend.main.list_ollama_models") as mock_models:
+        with patch("backend.routes.config_routes.get_config") as mock_config:
+            with patch("backend.routes.config_routes.list_ollama_models") as mock_models:
                 mock_config.return_value = create_mock_config(
                     llm_provider="ollama",
                     ollama_url="http://localhost:11434",
@@ -237,8 +237,8 @@ class TestOllamaEndpoints:
         """GET /api/ollama/model-info should return model details."""
         from backend.models import OllamaModelInfo
 
-        with patch("backend.main.get_config") as mock_config:
-            with patch("backend.main.get_ollama_model_info") as mock_info:
+        with patch("backend.routes.config_routes.get_config") as mock_config:
+            with patch("backend.routes.config_routes.get_ollama_model_info") as mock_info:
                 mock_config.return_value = create_mock_config(
                     llm_provider="ollama",
                     ollama_url="http://localhost:11434",
@@ -258,8 +258,8 @@ class TestOllamaEndpoints:
 
     def test_ollama_model_info_not_found(self, client):
         """GET /api/ollama/model-info should return 404 for unknown model."""
-        with patch("backend.main.get_config") as mock_config:
-            with patch("backend.main.get_ollama_model_info") as mock_info:
+        with patch("backend.routes.config_routes.get_config") as mock_config:
+            with patch("backend.routes.config_routes.get_ollama_model_info") as mock_info:
                 mock_config.return_value = create_mock_config(
                     llm_provider="ollama",
                     ollama_url="http://localhost:11434",
@@ -272,8 +272,8 @@ class TestOllamaEndpoints:
 
     def test_ollama_status_with_custom_url(self, client):
         """GET /api/ollama/status should accept a custom URL parameter."""
-        with patch("backend.main.get_config") as mock_config:
-            with patch("backend.main.get_ollama_status") as mock_status:
+        with patch("backend.routes.config_routes.get_config") as mock_config:
+            with patch("backend.routes.config_routes.get_ollama_status") as mock_status:
                 mock_config.return_value = create_mock_config(
                     llm_provider="ollama",
                     ollama_url="http://localhost:11434",
