@@ -152,7 +152,8 @@ De key_map wordt server-side opgeslagen. `filter_tracks` retourneert een `sessio
 - `curate_and_play` heeft alleen `session_id` + `track_numbers` nodig — geen key_map  
 - Stap-voor-stap: filter → kies nummers → `curate_and_play(session_id=..., track_numbers=[...])` → presenteer  
 - Sessies verlopen na 1 uur. Als je een 404 krijgt bij curate_and_play: roep `filter_tracks` opnieuw aan.  
-- **Na afspelen**: herhaal NIET de volledige tracklist. Toon alleen je selectie als compacte lijst (artiest — titel).  
+- **Na afspelen**: herhaal NIET de volledige tracklist. Toon alleen je selectie als compacte lijst (artiest — titel).
+- **BELANGRIJK: Na `curate_and_play`, toon ALTIJD de tracklist uit het `resolved_tracks` veld van de response aan de gebruiker. Gebruik NOOIT je eigen reconstructie van de tracklist — de nummers in de filter-sessie kunnen afwijken van wat je verwacht.**  
 
 ---  
 

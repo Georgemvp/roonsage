@@ -1,6 +1,6 @@
 # RoonSage Development Guidelines
 
-Last updated: 2026-05-16 (MCP v4.5 — reliability fixes)
+Last updated: 2026-05-16 (MCP v4.6 — queue mismatch fix)
 
 ## Project Overview
 
@@ -196,6 +196,11 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
   - `filter_tracks` exclude_keywords parameter voor keyword-based uitsluiting
   - Server-side key_map opslag: session_id in plaats van key_map in context (~10-20K tokens bespaard)
   - `validate_playlist` tool: controleer duplicaten, clustering en overrepresentatie vóór afspelen
+- **MCP v4.6 (2026-05-16):** Queue mismatch fix:
+  - Fix: `/api/library/filter/curate` now returns `resolved_tracks` list (`{number, title, artist}`) for every queued track, sourced from SQLite — eliminates Claude hallucinating the wrong tracklist
+  - Fix: `curate_and_play` MCP tool passes `resolved_tracks` through to Claude's response
+  - Fix: `system_prompt.md` instructs Claude to always show `resolved_tracks` from the response, never reconstruct from memory
+  - Fix: `play_tracks` now tries direct key browse first (most reliable), falls back to search only on failure — fixes classical track mismatches where Roon search returned unrelated tracks
 - **MCP v4.5 (2026-05-16):** Reliability improvements:
   - Fix: curate_and_play uses 180s timeout instead of 30s (prevents false timeout during 30+ track playback)
   - Fix: Classical track search query shortened (primary artist + short title, with fallback to title-only and direct key)

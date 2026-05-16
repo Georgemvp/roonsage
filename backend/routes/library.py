@@ -437,12 +437,28 @@ async def curate_from_session(request: dict) -> dict:
     mode = "add_next" if append else "replace"
     result = await asyncio.to_thread(roon_client.play_tracks, zone_id, item_keys, mode)
 
+    # Fetch metadata for every resolved key so the MCP caller can show the
+    # actual tracklist instead of reconstructing it from memory.
+    track_meta = await asyncio.to_thread(library_cache.get_tracks_by_rating_keys, item_keys)
+    resolved_tracks = []
+    for num, key in zip(
+        [n for n in track_numbers if key_map.get(str(n))],
+        item_keys,
+    ):
+        meta = track_meta.get(key, {})
+        resolved_tracks.append({
+            "number": num,
+            "title": meta.get("title", key),
+            "artist": meta.get("artist", "Unknown"),
+        })
+
     result_dict = result.model_dump()
     return {
         "success": result.success,
         "tracks_queued": len(item_keys),
         "zone_name": result_dict.get("zone_name", zone_id),
         "missing_numbers": missing if missing else None,
+        "resolved_tracks": resolved_tracks,
     }
 
 

@@ -377,41 +377,40 @@ class RoonPlaybackMixin:
                         title = meta["title"]
                         artist = meta["artist"]
 
-                        # Shorten search query for classical tracks with multiple artists.
-                        # Split on comma and take first artist only.
-                        primary_artist = artist.split(",")[0].strip() if artist else ""
-
-                        # Shorten title: remove everything after ": " (movement markers)
-                        # e.g. "Piano Concerto No. 21 in C major, K. 467: II. Andante"
-                        #       → "Piano Concerto No. 21"
-                        short_title = title.split(":")[0].strip() if title else ""
-                        # Also remove key signatures like "in C major" or "in A Minor"
-                        short_title = re.sub(
-                            r'\s+in\s+[A-G][#b]?\s+(major|minor|Major|Minor).*',
-                            '',
-                            short_title,
+                        # Primary: direct key browse — most reliable, no Roon search
+                        # ambiguity.  Works for all tracks, including classical where
+                        # search often returns the wrong result.
+                        queued = self._play_track_via_direct_key(
+                            zone_id, key, target_kw, fallback_kw
                         )
 
-                        search_query = f"{primary_artist} {short_title}" if primary_artist else short_title
+                        # Fallback 1: search by primary artist + shortened title.
+                        if not queued:
+                            primary_artist = artist.split(",")[0].strip() if artist else ""
+                            # Shorten title: remove everything after ": " (movement markers)
+                            # e.g. "Piano Concerto No. 21 in C major, K. 467: II. Andante"
+                            #       → "Piano Concerto No. 21"
+                            short_title = title.split(":")[0].strip() if title else ""
+                            # Also remove key signatures like "in C major" or "in A Minor"
+                            short_title = re.sub(
+                                r'\s+in\s+[A-G][#b]?\s+(major|minor|Major|Minor).*',
+                                '',
+                                short_title,
+                            )
+                            search_query = f"{primary_artist} {short_title}" if primary_artist else short_title
 
-                        queued = self._play_track_via_search(
-                            zone_id, search_query, title, artist,
-                            target_kw, fallback_kw,
-                        )
+                            logger.info("Direct key failed for '%s', trying search", title)
+                            queued = self._play_track_via_search(
+                                zone_id, search_query, title, artist,
+                                target_kw, fallback_kw,
+                            )
 
-                        # Fallback: if shortened query fails, try with just the title
-                        if not queued and search_query != title:
+                        # Fallback 2: search with just the title
+                        if not queued:
                             logger.info("Retry with title-only search for '%s'", title)
                             queued = self._play_track_via_search(
                                 zone_id, title, title, artist,
                                 target_kw, fallback_kw,
-                            )
-
-                        # Fallback 2: try direct key browse
-                        if not queued:
-                            logger.info("Retry with direct key for '%s'", key)
-                            queued = self._play_track_via_direct_key(
-                                zone_id, key, target_kw, fallback_kw
                             )
                     else:
                         logger.debug(

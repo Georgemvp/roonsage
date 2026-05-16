@@ -479,6 +479,11 @@ async def curate_and_play(
     if data.get("missing_numbers"):
         result["warning"] = f"Track numbers not found (skipped): {data['missing_numbers']}"
 
+    # Include resolved_tracks so Claude shows the actual queued tracklist,
+    # never a hallucinated reconstruction from memory.
+    if data.get("resolved_tracks"):
+        result["resolved_tracks"] = data["resolved_tracks"]
+
     logger.info("CURATE_AND_PLAY RESULT: success=%s queued=%d skipped=%d zone='%s' missing=%s", result.get("success"), tracks_queued, tracks_skipped, zone_name, result.get("warning", "none"))
     return json.dumps(result, ensure_ascii=False, indent=2)
 
