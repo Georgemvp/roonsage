@@ -1,6 +1,6 @@
 # RoonSage Development Guidelines
 
-Last updated: 2026-05-15 (MCP v4.4 — 27 tools, Qobuz playlist save)
+Last updated: 2026-05-16 (MCP v4.5 — reliability fixes)
 
 ## Project Overview
 
@@ -196,6 +196,12 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
   - `filter_tracks` exclude_keywords parameter voor keyword-based uitsluiting
   - Server-side key_map opslag: session_id in plaats van key_map in context (~10-20K tokens bespaard)
   - `validate_playlist` tool: controleer duplicaten, clustering en overrepresentatie vóór afspelen
+- **MCP v4.5 (2026-05-16):** Reliability improvements:
+  - Fix: curate_and_play uses 180s timeout instead of 30s (prevents false timeout during 30+ track playback)
+  - Fix: Classical track search query shortened (primary artist + short title, with fallback to title-only and direct key)
+  - Fix: play_tracks checks Roon connection per-track with 30s reconnect wait (prevents silent failures during websocket drops)
+  - Fix: curate_and_play response includes `playback_started` flag and explicit "do not retry" note
+  - Fix: system_prompt.md includes retry prevention rules (Claude must never re-send after curate_and_play)
 - **MCP v4.4 (2026-05-15):** Qobuz playlist save:
   - New module `backend/qobuz_api.py`: direct Qobuz API client with auto-detected app_id (tries known working app_ids from LMS plugin/QobuzDL/streamrip, falls back to web player extraction), email/password login with MD5 fallback, track search, playlist create, playlist addTracks, fuzzy track resolution
   - New endpoint `POST /api/qobuz/playlist/save`: full pipeline — resolve tracks to Qobuz IDs → create playlist → add tracks

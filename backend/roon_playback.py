@@ -1,6 +1,7 @@
 """Playback, transport, and zone management mixin for RoonSage."""
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -339,6 +340,29 @@ class RoonPlaybackMixin:
 
         try:
             for idx, key in enumerate(item_keys):
+                # Check connection before each track; wait for reconnect if needed
+                if not self.is_connected():
+                    logger.warning(
+                        "Roon disconnected at track %d/%d, waiting for reconnect...",
+                        idx + 1, len(item_keys),
+                    )
+                    reconnected = False
+                    for wait in range(6):  # Wait up to 30 seconds (6 × 5s)
+                        time.sleep(5)
+                        if self.is_connected():
+                            logger.info(
+                                "Roon reconnected after %ds, resuming playback",
+                                (wait + 1) * 5,
+                            )
+                            reconnected = True
+                            break
+                    if not reconnected:
+                        logger.error(
+                            "Roon did not reconnect after 30s, skipping remaining %d tracks",
+                            len(item_keys) - idx,
+                        )
+                        break
+
                 if idx == 0 and mode == "replace":
                     target_kw = PLAY_NOW_KEYWORDS
                     fallback_kw = QUEUE_KEYWORDS
@@ -352,12 +376,43 @@ class RoonPlaybackMixin:
                     if meta:
                         title = meta["title"]
                         artist = meta["artist"]
-                        search_query = f"{artist} {title}" if artist else title
+
+                        # Shorten search query for classical tracks with multiple artists.
+                        # Split on comma and take first artist only.
+                        primary_artist = artist.split(",")[0].strip() if artist else ""
+
+                        # Shorten title: remove everything after ": " (movement markers)
+                        # e.g. "Piano Concerto No. 21 in C major, K. 467: II. Andante"
+                        #       → "Piano Concerto No. 21"
+                        short_title = title.split(":")[0].strip() if title else ""
+                        # Also remove key signatures like "in C major" or "in A Minor"
+                        short_title = re.sub(
+                            r'\s+in\s+[A-G][#b]?\s+(major|minor|Major|Minor).*',
+                            '',
+                            short_title,
+                        )
+
+                        search_query = f"{primary_artist} {short_title}" if primary_artist else short_title
 
                         queued = self._play_track_via_search(
                             zone_id, search_query, title, artist,
                             target_kw, fallback_kw,
                         )
+
+                        # Fallback: if shortened query fails, try with just the title
+                        if not queued and search_query != title:
+                            logger.info("Retry with title-only search for '%s'", title)
+                            queued = self._play_track_via_search(
+                                zone_id, title, title, artist,
+                                target_kw, fallback_kw,
+                            )
+
+                        # Fallback 2: try direct key browse
+                        if not queued:
+                            logger.info("Retry with direct key for '%s'", key)
+                            queued = self._play_track_via_direct_key(
+                                zone_id, key, target_kw, fallback_kw
+                            )
                     else:
                         logger.debug(
                             "Track key %s not in SQLite cache, trying direct browse", key

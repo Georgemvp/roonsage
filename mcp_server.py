@@ -41,6 +41,7 @@ logger = logging.getLogger("roonsage.mcp")
 ROONSAGE_URL = os.environ.get("ROONSAGE_URL", "http://localhost:5765").rstrip("/")
 TIMEOUT = 30.0
 STREAM_TIMEOUT = 300.0  # 5 minutes for SSE streams
+PLAYBACK_TIMEOUT = 180.0  # 3 minutes for curate_and_play (30+ tracks × 4 Roon Browse calls each)
 
 mcp = FastMCP("roonsage")
 
@@ -50,6 +51,7 @@ mcp = FastMCP("roonsage")
 
 _client = httpx.AsyncClient(timeout=TIMEOUT)
 _stream_client = httpx.AsyncClient(timeout=STREAM_TIMEOUT)
+_playback_client = httpx.AsyncClient(timeout=PLAYBACK_TIMEOUT)
 
 
 def _unavailable_msg() -> str:
@@ -363,7 +365,7 @@ async def play_tracks(item_keys: list[str], zone_id: str) -> str:
     """
     logger.info("PLAY_TRACKS: zone=%s keys=%d", zone_id, len(item_keys))
     try:
-        response = await _client.post(
+        response = await _playback_client.post(
             f"{ROONSAGE_URL}/api/queue",
             json={"item_keys": item_keys, "zone_id": zone_id},
         )
@@ -391,7 +393,7 @@ async def queue_tracks(item_keys: list[str], zone_id: str) -> str:
     """
     logger.info("QUEUE_TRACKS: zone=%s keys=%d", zone_id, len(item_keys))
     try:
-        response = await _client.post(
+        response = await _playback_client.post(
             f"{ROONSAGE_URL}/api/queue/append",
             json={"item_keys": item_keys, "zone_id": zone_id},
         )
@@ -439,7 +441,7 @@ async def curate_and_play(
     """
     logger.info("CURATE_AND_PLAY: session=%s zone=%s tracks=%d playlist='%s' append=%s", session_id, zone_id, len(track_numbers), playlist_name, append)
     try:
-        response = await _client.post(
+        response = await _playback_client.post(
             f"{ROONSAGE_URL}/api/library/filter/curate",
             json={
                 "session_id": session_id,
@@ -455,17 +457,29 @@ async def curate_and_play(
     except httpx.HTTPStatusError as exc:
         return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
 
+    tracks_queued = data.get("tracks_queued", 0)
+    tracks_skipped = data.get("tracks_skipped", 0)
+    zone_name = data.get("zone_name", zone_id)
+
     result: dict = {
         "success": data.get("success", False),
         "playlist_name": playlist_name,
-        "tracks_queued": data.get("tracks_queued", 0),
-        "zone_name": data.get("zone_name", zone_id),
+        "tracks_queued": tracks_queued,
+        "tracks_skipped": tracks_skipped,
+        "zone_name": zone_name,
         "action": "appended" if append else "replaced queue",
+        "playback_started": tracks_queued > 0,
+        "note": (
+            f"Muziek speelt al op {zone_name}. "
+            f"{tracks_queued} tracks gequeued"
+            + (f", {tracks_skipped} overgeslagen" if tracks_skipped else "")
+            + ". NIET opnieuw sturen."
+        ) if tracks_queued > 0 else "Geen tracks gequeued. Controleer de sessie en zone.",
     }
     if data.get("missing_numbers"):
         result["warning"] = f"Track numbers not found (skipped): {data['missing_numbers']}"
 
-    logger.info("CURATE_AND_PLAY RESULT: success=%s queued=%d zone='%s' missing=%s", result.get("success"), result.get("tracks_queued", 0), result.get("zone_name"), result.get("warning", "none"))
+    logger.info("CURATE_AND_PLAY RESULT: success=%s queued=%d skipped=%d zone='%s' missing=%s", result.get("success"), tracks_queued, tracks_skipped, zone_name, result.get("warning", "none"))
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 

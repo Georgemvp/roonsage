@@ -164,3 +164,15 @@ De key_map wordt server-side opgeslagen. `filter_tracks` retourneert een `sessio
 - **Timeout**: Probeer opnieuw met minder tracks.  
 - **filter_tracks leeg resultaat**: Verbreed de filters (minder genres, meer decades) of vraag de gebruiker om de criteria bij te stellen.  
 - **search_qobuz geen resultaten**: Probeer een bredere zoekterm of een andere artiestennaam.  
+
+---
+
+## AFSPEEL-GEDRAG — NOOIT DUBBEL STUREN  
+  
+- **Na elke `curate_and_play` aanroep: ga ervan uit dat de muziek AL SPEELT.**   
+  De eerste track start met "Play Now" — zodra die actie is verstuurd, klinkt er muziek.  
+- **Bij timeout, lege response, of onduidelijke error na `curate_and_play`:**  
+  Meld aan de gebruiker: "De playlist is verstuurd naar [zone]. De muziek speelt waarschijnlijk al — hoor je iets?"  
+  Stuur NOOIT dezelfde of een nieuwe playlist opnieuw zonder expliciete bevestiging van de gebruiker.  
+- **Bij `tracks_queued < gevraagd`:** Dat is normaal — sommige klassieke tracks hebben lange zoekquery's die Roon niet vindt. Meld hoeveel tracks gequeued zijn en ga verder.  
+- **NOOIT een tweede `curate_and_play` of `filter_tracks` doen voor hetzelfde verzoek** zonder dat de gebruiker expliciet zegt "probeer opnieuw" of "dat werkte niet".  
