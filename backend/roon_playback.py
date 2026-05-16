@@ -331,7 +331,7 @@ class RoonPlaybackMixin:
             return RoonResponse(success=False, error="No tracks provided")
 
         PLAY_NOW_KEYWORDS: set[str] = {"play now", "play"}
-        QUEUE_KEYWORDS: set[str] = {"queue", "add to queue", "add next"}
+        QUEUE_KEYWORDS: set[str] = {"queue", "add to queue"}
 
         track_meta = self._get_track_metadata_batch(item_keys)
 
