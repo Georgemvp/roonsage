@@ -29,6 +29,15 @@ from typing import AsyncGenerator, Optional
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | MCP | %(levelname)s | %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger("roonsage.mcp")
+
 ROONSAGE_URL = os.environ.get("ROONSAGE_URL", "http://localhost:5765").rstrip("/")
 TIMEOUT = 30.0
 STREAM_TIMEOUT = 300.0  # 5 minutes for SSE streams
@@ -53,12 +62,20 @@ def _unavailable_msg() -> str:
 async def _api_call(method: str, path: str, **kwargs) -> dict | list | str:
     """Make an API call to RoonSage, handling errors uniformly."""
     try:
+        logger.info("API %s %s", method, path)
         response = await _client.request(method, f"{ROONSAGE_URL}{path}", **kwargs)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        if isinstance(data, list):
+            logger.info("API %s %s -> %d items", method, path, len(data))
+        elif isinstance(data, dict):
+            logger.info("API %s %s -> keys: %s", method, path, list(data.keys()))
+        return data
     except httpx.ConnectError:
+        logger.error("API %s %s -> CONNECT ERROR", method, path)
         return _unavailable_msg()
     except httpx.HTTPStatusError as exc:
+        logger.error("API %s %s -> HTTP %d: %s", method, path, exc.response.status_code, exc.response.text[:200])
         return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
 
 
@@ -94,6 +111,7 @@ async def get_library_stats() -> str:
     Use this first to understand what music is in the library before filtering
     or generating playlists. No parameters required.
     """
+    logger.info("GET_LIBRARY_STATS called")
     result = await _api_call("GET", "/api/library/stats/cached")
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
@@ -115,6 +133,7 @@ async def search_library(query: str) -> str:
     Args:
         query: Search term — track title, artist name, or album name.
     """
+    logger.info("SEARCH_LIBRARY: query='%s'", query)
     result = await _api_call("GET", "/api/library/search", params={"q": query})
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
@@ -168,6 +187,7 @@ async def filter_tracks(
         exclude_keywords: Exclude tracks whose title or album contains any of these
                           words (case-insensitive). E.g. ["christmas", "live", "karaoke"].
     """
+    logger.info("FILTER_TRACKS: genres=%s decades=%s format=%s max=%d", genres, decades, output_format, max_tracks)
     # Default max_tracks for compact/ultra modes
     if output_format in ("compact", "ultra") and max_tracks == 200:
         max_tracks = 500
@@ -323,6 +343,7 @@ async def list_zones() -> str:
     for play_tracks and queue_tracks. Use this to let the user choose where
     music should play, or to find the right zone by name.
     """
+    logger.info("LIST_ZONES called")
     result = await _api_call("GET", "/api/roon/zones")
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
@@ -340,6 +361,7 @@ async def play_tracks(item_keys: list[str], zone_id: str) -> str:
                    filter_tracks. These are Roon's internal track identifiers.
         zone_id:   The Roon zone to play in — obtain via list_zones.
     """
+    logger.info("PLAY_TRACKS: zone=%s keys=%d", zone_id, len(item_keys))
     try:
         response = await _client.post(
             f"{ROONSAGE_URL}/api/queue",
@@ -367,6 +389,7 @@ async def queue_tracks(item_keys: list[str], zone_id: str) -> str:
                    filter_tracks. These are Roon's internal track identifiers.
         zone_id:   The Roon zone to append to — obtain via list_zones.
     """
+    logger.info("QUEUE_TRACKS: zone=%s keys=%d", zone_id, len(item_keys))
     try:
         response = await _client.post(
             f"{ROONSAGE_URL}/api/queue/append",
@@ -414,6 +437,7 @@ async def curate_and_play(
         append:        If True, append tracks to the current queue instead of
                        replacing it. Default False (replaces queue).
     """
+    logger.info("CURATE_AND_PLAY: session=%s zone=%s tracks=%d playlist='%s' append=%s", session_id, zone_id, len(track_numbers), playlist_name, append)
     try:
         response = await _client.post(
             f"{ROONSAGE_URL}/api/library/filter/curate",
@@ -441,6 +465,7 @@ async def curate_and_play(
     if data.get("missing_numbers"):
         result["warning"] = f"Track numbers not found (skipped): {data['missing_numbers']}"
 
+    logger.info("CURATE_AND_PLAY RESULT: success=%s queued=%d zone='%s' missing=%s", result.get("success"), result.get("tracks_queued", 0), result.get("zone_name"), result.get("warning", "none"))
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
@@ -471,6 +496,7 @@ async def validate_playlist(
         track_numbers:  Ordered list of selected track numbers to validate.
         max_per_artist: Maximum acceptable tracks per artist (default 2).
     """
+    logger.info("VALIDATE_PLAYLIST: session=%s tracks=%d", session_id, len(track_numbers))
     result = await _api_call(
         "POST",
         "/api/library/filter/validate",
@@ -488,6 +514,7 @@ async def sync_library() -> str:
     """Trigger a library sync to refresh the local cache from Roon.
     Use this when library stats show 0 tracks or when the user asks to refresh/sync their library.
     The sync runs in the background — it may take a minute for large libraries."""
+    logger.info("SYNC_LIBRARY called")
     result = await _api_call("POST", "/api/library/sync")
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
@@ -630,6 +657,7 @@ async def generate_playlist(
         qobuz_percentage: For hybrid mode, percentage of tracks sourced from Qobuz (default 30).
                           Ignored when source_mode is "library" or "qobuz".
     """
+    logger.info("GENERATE_PLAYLIST: prompt='%s' source=%s tracks=%d", prompt[:80], source_mode, track_count)
     body: dict = {
         "prompt": prompt,
         "track_count": track_count,
@@ -674,6 +702,7 @@ async def get_now_playing() -> str:
     but not the currently playing track title or artist directly. Use
     search_library to find a specific track if needed.
     """
+    logger.info("GET_NOW_PLAYING called")
     result = await _api_call("GET", "/api/roon/zones")
     if isinstance(result, str):
         return result
@@ -717,6 +746,7 @@ async def recommend_album(
         mode:   "library" (default) — recommend from the user's Roon library.
                 "discovery" — suggest albums the user probably doesn't own yet.
     """
+    logger.info("RECOMMEND_ALBUM: prompt='%s' mode=%s", prompt[:80], mode)
     # Step 1: Create a session via the questions endpoint (required to get a session_id)
     q_data = await _api_call("POST", "/api/recommend/questions", json={"prompt": prompt})
     if isinstance(q_data, str):
@@ -826,6 +856,7 @@ async def get_library_status() -> str:
     Call this proactively at the start of a conversation to decide whether to
     suggest a sync. If needs_resync is True, call sync_library.
     """
+    logger.info("GET_LIBRARY_STATUS called")
     result = await _api_call("GET", "/api/library/status")
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
@@ -842,6 +873,7 @@ async def get_artist_albums(artist: str, max_albums: int = 50) -> str:
         artist:     Artist name to search for (partial, case-insensitive).
         max_albums: Maximum number of albums to return (default 50).
     """
+    logger.info("GET_ARTIST_ALBUMS: artist='%s' max=%d", artist, max_albums)
     result = await _api_call("GET", "/api/library/artist-albums", params={"artist": artist, "max_albums": max_albums})
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
@@ -887,6 +919,7 @@ async def seed_track_playlist(
         qobuz_percentage: For hybrid mode, percentage of tracks sourced from Qobuz (default 30).
                           Ignored when source_mode is "library" or "qobuz".
     """
+    logger.info("SEED_TRACK_PLAYLIST: key=%s dimensions=%s source=%s tracks=%d", item_key, dimensions, source_mode, track_count)
     body: dict = {
         "prompt": None,
         "seed_track": {
@@ -962,6 +995,7 @@ async def analyze_prompt(prompt: str) -> str:
     Args:
         prompt: Natural language description, e.g. "melancholic rainy Sunday jazz".
     """
+    logger.info("ANALYZE_PROMPT: prompt='%s'", prompt[:80])
     result = await _api_call("POST", "/api/analyze/prompt", json={"prompt": prompt})
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
@@ -992,6 +1026,7 @@ async def recommend_album_interactive(
         mode:            "library" (user's collection) or "discovery" (new albums).
         familiarity_pref: "comfort", "hidden_gem", "rediscovery", or "any".
     """
+    logger.info("RECOMMEND_ALBUM_INTERACTIVE: mode=%s step=%s", mode, "2" if answers is not None else "1")
     # Step 2: answers provided — extract session_id from prompt prefix
     if answers is not None:
         session_id = None
@@ -1106,6 +1141,7 @@ async def play_album(query: str, zone_id: str) -> str:
                  "Miles Davis Kind of Blue".
         zone_id: Roon zone ID to play in — obtain via list_zones.
     """
+    logger.info("PLAY_ALBUM: query='%s' zone=%s", query, zone_id)
     # Search for the album tracks
     tracks = await _api_call("GET", "/api/library/search", params={"q": query})
     if isinstance(tracks, str):
@@ -1170,6 +1206,7 @@ async def transport_control(
         position_seconds: For seek: absolute position in seconds.
         seek_offset:      For seek: relative offset in seconds (can be negative).
     """
+    logger.info("TRANSPORT_CONTROL: zone=%s action=%s value=%s", zone_id, action, value)
     body: dict = {"zone_id": zone_id, "action": action}
     if value is not None:
         body["value"] = value
@@ -1197,6 +1234,7 @@ async def get_result_history(
                "album_recommendation". Pass None to return all types.
         limit: Maximum results to return (default 20, max 100).
     """
+    logger.info("GET_RESULT_HISTORY: type=%s limit=%d", type, limit)
     params: dict = {"limit": limit}
     if type:
         params["type"] = type
@@ -1230,6 +1268,7 @@ async def volume_control(
         action:    One of: set, adjust, get, mute, unmute, toggle_mute.
         value:     Integer value for "set" (0–100) or "adjust" (relative, can be negative).
     """
+    logger.info("VOLUME_CONTROL: zone='%s' action=%s value=%s", zone_name, action, value)
     body: dict = {"zone_name": zone_name, "action": action}
     if value is not None:
         body["value"] = value
@@ -1249,6 +1288,7 @@ async def transfer_zone(from_zone: str, to_zone: str) -> str:
         from_zone: Source zone display name (e.g. "Woonkamer").
         to_zone:   Target zone display name (e.g. "Slaapkamer").
     """
+    logger.info("TRANSFER_ZONE: from='%s' to='%s'", from_zone, to_zone)
     result = await _api_call("POST", "/api/roon/transfer", json={"from_zone": from_zone, "to_zone": to_zone})
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
@@ -1274,6 +1314,7 @@ async def zone_grouping(
         action: One of: group, ungroup, list_groups.
         zones:  List of zone display names for group/ungroup (e.g. ["Woonkamer", "Keuken"]).
     """
+    logger.info("ZONE_GROUPING: action=%s zones=%s", action, zones)
     result = await _api_call("POST", "/api/roon/group", json={"action": action, "zones": zones or []})
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
@@ -1292,6 +1333,7 @@ async def play_radio(station: str, zone_id: str) -> str:
         station: Station name to search for, e.g. "BBC Radio 4", "KQED", "NPO Radio 1".
         zone_id: Roon zone ID to play in — obtain via list_zones.
     """
+    logger.info("PLAY_RADIO: station='%s' zone=%s", station, zone_id)
     result = await _api_call("POST", "/api/roon/radio", json={"station": station, "zone_id": zone_id})
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
@@ -1318,6 +1360,7 @@ async def browse_playlists(
         playlist_name: Playlist name to play (for "play" action). Partial name is fine.
         zone_id:       Roon zone ID to play in (for "play" action) — obtain via list_zones.
     """
+    logger.info("BROWSE_PLAYLISTS: action=%s playlist='%s' zone=%s", action, playlist_name, zone_id)
     body: dict = {
         "action": action,
         "playlist_name": playlist_name or "",
@@ -1343,6 +1386,7 @@ async def search_qobuz(query: str, limit: int = 10) -> str:
         query: Search string, e.g. "Miles Davis So What" or "Radiohead"
         limit: Max results (default 10)
     """
+    logger.info("SEARCH_QOBUZ: query='%s' limit=%d", query, limit)
     result = await _api_call("POST", "/api/roon/qobuz-search", json={"query": query, "limit": limit})
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
@@ -1371,6 +1415,7 @@ async def save_to_qobuz(
                        keys. E.g. [{"artist": "Radiohead", "title": "Karma Police"}, ...]
         description:   Optional playlist description text.
     """
+    logger.info("SAVE_TO_QOBUZ: name='%s' tracks=%d", playlist_name, len(tracks))
     result = await _api_call(
         "POST",
         "/api/qobuz/playlist/save",

@@ -368,14 +368,17 @@ class RoonPlaybackMixin:
 
                     if queued:
                         tracks_queued += 1
+                        logger.info("Track %d/%d QUEUED: '%s' by '%s'", idx + 1, len(item_keys), meta.get("title", key) if meta else key, meta.get("artist", "?") if meta else "?")
                     else:
                         tracks_skipped += 1
+                        logger.info("Track %d/%d SKIPPED: '%s' by '%s'", idx + 1, len(item_keys), meta.get("title", key) if meta else key, meta.get("artist", "?") if meta else "?")
 
                 except Exception as e:
                     logger.warning("Failed to queue track %s: %s", key, e)
                     tracks_skipped += 1
 
             zone_name = self._get_zone_name(zone_id)
+            logger.info("PLAY_TRACKS DONE: zone='%s' queued=%d skipped=%d of %d total", zone_name, tracks_queued, tracks_skipped, len(item_keys))
             return RoonResponse(
                 success=tracks_queued > 0,
                 zone_name=zone_name,
