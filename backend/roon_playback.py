@@ -339,6 +339,13 @@ class RoonPlaybackMixin:
         tracks_skipped = 0
 
         try:
+            # Roon's Browse API "Queue" action prepends (inserts at position 2),
+            # so we reverse tracks 2–N to get the correct final order.
+            if mode == "replace" and len(item_keys) > 1:
+                item_keys = [item_keys[0]] + list(reversed(item_keys[1:]))
+            elif mode == "add_next" and len(item_keys) > 1:
+                item_keys = list(reversed(item_keys))
+
             for idx, key in enumerate(item_keys):
                 # Check connection before each track; wait for reconnect if needed
                 if not self.is_connected():
@@ -368,7 +375,7 @@ class RoonPlaybackMixin:
                     fallback_kw = QUEUE_KEYWORDS
                 else:
                     target_kw = QUEUE_KEYWORDS
-                    fallback_kw = PLAY_NOW_KEYWORDS
+                    fallback_kw = set()  # NEVER fall back to Play Now for tracks 2+
 
                 try:
                     meta = track_meta.get(key)
