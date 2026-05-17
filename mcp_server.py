@@ -21,6 +21,7 @@ Environment variables:
     ROONSAGE_URL  Base URL of the running RoonSage app (default: http://localhost:5765)
 """
 
+import atexit
 import asyncio
 import json
 import os
@@ -46,12 +47,74 @@ PLAYBACK_TIMEOUT = 180.0  # 3 minutes for curate_and_play (30+ tracks × 4 Roon 
 mcp = FastMCP("roonsage")
 
 # ---------------------------------------------------------------------------
-# Persistent HTTP clients (reused across all tool calls)
+# HTTP clients — lazily created on first use, closed via atexit
 # ---------------------------------------------------------------------------
 
-_client = httpx.AsyncClient(timeout=TIMEOUT)
-_stream_client = httpx.AsyncClient(timeout=STREAM_TIMEOUT)
-_playback_client = httpx.AsyncClient(timeout=PLAYBACK_TIMEOUT)
+_client: httpx.AsyncClient | None = None
+_stream_client: httpx.AsyncClient | None = None
+_playback_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None:
+        _client = httpx.AsyncClient(timeout=TIMEOUT)
+    return _client
+
+
+def _get_stream_client() -> httpx.AsyncClient:
+    global _stream_client
+    if _stream_client is None:
+        _stream_client = httpx.AsyncClient(timeout=STREAM_TIMEOUT)
+    return _stream_client
+
+
+def _get_playback_client() -> httpx.AsyncClient:
+    global _playback_client
+    if _playback_client is None:
+        _playback_client = httpx.AsyncClient(timeout=PLAYBACK_TIMEOUT)
+    return _playback_client
+
+
+async def _cleanup() -> None:
+    """Close all open HTTP clients gracefully."""
+    for client in [_client, _stream_client, _playback_client]:
+        if client is not None:
+            try:
+                await client.aclose()
+            except Exception:
+                pass
+
+
+def _sync_cleanup() -> None:
+    """atexit handler: close clients synchronously."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(_cleanup())
+        else:
+            loop.run_until_complete(_cleanup())
+    except RuntimeError:
+        pass
+
+
+atexit.register(_sync_cleanup)
+
+
+async def _startup_health_check() -> None:
+    """Ping RoonSage at startup and log a warning if it is unreachable."""
+    try:
+        resp = await _get_client().get(f"{ROONSAGE_URL}/api/library/status", timeout=5.0)
+        resp.raise_for_status()
+        logger.info("RoonSage reachable at %s (startup check OK)", ROONSAGE_URL)
+    except httpx.ConnectError:
+        logger.warning(
+            "RoonSage is NOT reachable at %s — make sure the app is running "
+            "(uvicorn backend.main:app --port 5765). Tools will fail until it is.",
+            ROONSAGE_URL,
+        )
+    except Exception as exc:
+        logger.warning("RoonSage startup check returned an unexpected error: %s", exc)
 
 
 def _unavailable_msg() -> str:
@@ -65,7 +128,7 @@ async def _api_call(method: str, path: str, **kwargs) -> dict | list | str:
     """Make an API call to RoonSage, handling errors uniformly."""
     try:
         logger.info("API %s %s", method, path)
-        response = await _client.request(method, f"{ROONSAGE_URL}{path}", **kwargs)
+        response = await _get_client().request(method, f"{ROONSAGE_URL}{path}", **kwargs)
         response.raise_for_status()
         data = response.json()
         if isinstance(data, list):
@@ -207,7 +270,7 @@ async def filter_tracks(
         body["exclude_keywords"] = exclude_keywords
 
     try:
-        response = await _client.post(f"{ROONSAGE_URL}/api/library/filter", json=body)
+        response = await _get_client().post(f"{ROONSAGE_URL}/api/library/filter", json=body)
         response.raise_for_status()
         data = response.json()
     except httpx.ConnectError:
@@ -232,7 +295,7 @@ async def filter_tracks(
 
         session_id = ""
         try:
-            store_resp = await _client.post(
+            store_resp = await _get_client().post(
                 f"{ROONSAGE_URL}/api/library/filter/session",
                 json={"key_map": key_map, "total_matching": total, "returned": returned},
             )
@@ -281,7 +344,7 @@ async def filter_tracks(
         # need to travel through Claude's context window (~10-20k tokens saved).
         session_id = ""
         try:
-            store_resp = await _client.post(
+            store_resp = await _get_client().post(
                 f"{ROONSAGE_URL}/api/library/filter/session",
                 json={"key_map": key_map, "total_matching": total, "returned": returned},
             )
@@ -365,7 +428,7 @@ async def play_tracks(item_keys: list[str], zone_id: str) -> str:
     """
     logger.info("PLAY_TRACKS: zone=%s keys=%d", zone_id, len(item_keys))
     try:
-        response = await _playback_client.post(
+        response = await _get_playback_client().post(
             f"{ROONSAGE_URL}/api/queue",
             json={"item_keys": item_keys, "zone_id": zone_id},
         )
@@ -393,7 +456,7 @@ async def queue_tracks(item_keys: list[str], zone_id: str) -> str:
     """
     logger.info("QUEUE_TRACKS: zone=%s keys=%d", zone_id, len(item_keys))
     try:
-        response = await _playback_client.post(
+        response = await _get_playback_client().post(
             f"{ROONSAGE_URL}/api/queue/append",
             json={"item_keys": item_keys, "zone_id": zone_id},
         )
@@ -441,7 +504,7 @@ async def curate_and_play(
     """
     logger.info("CURATE_AND_PLAY: session=%s zone=%s tracks=%d playlist='%s' append=%s", session_id, zone_id, len(track_numbers), playlist_name, append)
     try:
-        response = await _playback_client.post(
+        response = await _get_playback_client().post(
             f"{ROONSAGE_URL}/api/library/filter/curate",
             json={
                 "session_id": session_id,
@@ -610,7 +673,7 @@ async def _stream_generate(body: dict) -> tuple[list[dict], dict, list[str]]:
     complete_data: dict = {}
     errors: list[str] = []
 
-    async with _stream_client.stream(
+    async with _get_stream_client().stream(
         "POST",
         f"{ROONSAGE_URL}/api/generate/stream",
         json=body,
@@ -789,7 +852,7 @@ async def recommend_album(
     errors: list[str] = []
 
     try:
-        async with _stream_client.stream(
+        async with _get_stream_client().stream(
             "POST",
             f"{ROONSAGE_URL}/api/recommend/generate",
             json=generate_body,
@@ -960,7 +1023,7 @@ async def seed_track_playlist(
 
     for attempt in range(max_retries):
         try:
-            async with _stream_client.stream(
+            async with _get_stream_client().stream(
                 "POST",
                 f"{ROONSAGE_URL}/api/generate/stream",
                 json=body,
@@ -1071,7 +1134,7 @@ async def recommend_album_interactive(
         errors: list[str] = []
 
         try:
-            async with _stream_client.stream(
+            async with _get_stream_client().stream(
                 "POST",
                 f"{ROONSAGE_URL}/api/recommend/generate",
                 json=generate_body,
@@ -1452,4 +1515,5 @@ async def save_to_qobuz(
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    asyncio.run(_startup_health_check())
     mcp.run(transport="stdio")

@@ -46,16 +46,24 @@ def _make_error_response(status_code: int, text: str = "error") -> MagicMock:
 
 @pytest.fixture(autouse=True)
 def patch_clients():
-    """Replace the persistent httpx.AsyncClient instances with async mocks."""
+    """Replace the persistent httpx.AsyncClient instances with async mocks.
+
+    Yields (mock_client, mock_stream_client, mock_playback_client).
+    Use ``mock_client, *_ = patch_clients`` when only the general client
+    is needed, so the fixture remains forward-compatible.
+    """
     with (
         patch("mcp_server._client") as mock_client,
         patch("mcp_server._stream_client") as mock_stream_client,
+        patch("mcp_server._playback_client") as mock_playback_client,
     ):
         mock_client.request = AsyncMock()
         mock_client.post = AsyncMock()
         mock_stream_client.request = AsyncMock()
         mock_stream_client.post = AsyncMock()
-        yield mock_client, mock_stream_client
+        mock_playback_client.request = AsyncMock()
+        mock_playback_client.post = AsyncMock()
+        yield mock_client, mock_stream_client, mock_playback_client
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +73,7 @@ def patch_clients():
 class TestGetLibraryStats:
     @pytest.mark.asyncio
     async def test_calls_correct_endpoint(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         payload = {"total": 5000, "genres": ["Jazz", "Rock"], "decades": ["1990s"]}
         mock_client.request.return_value = _make_response(payload)
 
@@ -79,7 +87,7 @@ class TestGetLibraryStats:
 
     @pytest.mark.asyncio
     async def test_returns_json_string(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         payload = {"total": 100, "genres": [], "decades": []}
         mock_client.request.return_value = _make_response(payload)
 
@@ -91,7 +99,7 @@ class TestGetLibraryStats:
 
     @pytest.mark.asyncio
     async def test_connect_error_returns_unavailable_message(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.side_effect = httpx.ConnectError("refused")
 
         from mcp_server import get_library_stats
@@ -101,7 +109,7 @@ class TestGetLibraryStats:
 
     @pytest.mark.asyncio
     async def test_http_error_returns_error_string(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.return_value = _make_error_response(500, "internal error")
 
         from mcp_server import get_library_stats
@@ -117,7 +125,7 @@ class TestGetLibraryStats:
 class TestFilterTracks:
     @pytest.mark.asyncio
     async def test_calls_filter_endpoint_with_body(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.post.return_value = _make_response({
             "tracks": [], "total_matching": 0, "returned": 0,
         })
@@ -135,7 +143,7 @@ class TestFilterTracks:
 
     @pytest.mark.asyncio
     async def test_compact_mode_raises_default_max_tracks_to_500(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         # compact mode makes 2 POST calls: /api/library/filter then /api/library/filter/session
         mock_client.post.return_value = _make_response({
             "tracks": [], "total_matching": 0, "returned": 0,
@@ -151,7 +159,7 @@ class TestFilterTracks:
 
     @pytest.mark.asyncio
     async def test_json_mode_keeps_default_max_tracks_200(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.post.return_value = _make_response({
             "tracks": [], "total_matching": 0, "returned": 0,
         })
@@ -164,7 +172,7 @@ class TestFilterTracks:
 
     @pytest.mark.asyncio
     async def test_exclude_keywords_included_in_body(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.post.return_value = _make_response({
             "tracks": [], "total_matching": 0, "returned": 0,
         })
@@ -177,7 +185,7 @@ class TestFilterTracks:
 
     @pytest.mark.asyncio
     async def test_connect_error_returns_unavailable(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.post.side_effect = httpx.ConnectError("refused")
 
         from mcp_server import filter_tracks
@@ -187,7 +195,7 @@ class TestFilterTracks:
 
     @pytest.mark.asyncio
     async def test_http_error_returns_error_message(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.post.return_value = _make_error_response(503, "service unavailable")
 
         from mcp_server import filter_tracks
@@ -203,8 +211,8 @@ class TestFilterTracks:
 class TestCurateAndPlay:
     @pytest.mark.asyncio
     async def test_calls_curate_endpoint_with_correct_params(self, patch_clients):
-        mock_client, _ = patch_clients
-        mock_client.post.return_value = _make_response({
+        _, _, mock_playback = patch_clients
+        mock_playback.post.return_value = _make_response({
             "success": True, "tracks_queued": 5, "zone_name": "Woonkamer",
         })
 
@@ -215,18 +223,18 @@ class TestCurateAndPlay:
             zone_id="zone-123",
         )
 
-        mock_client.post.assert_called_once()
-        url = mock_client.post.call_args[0][0]
+        mock_playback.post.assert_called_once()
+        url = mock_playback.post.call_args[0][0]
         assert "/api/library/filter/curate" in url
-        body = mock_client.post.call_args[1]["json"]
+        body = mock_playback.post.call_args[1]["json"]
         assert body["track_numbers"] == [1, 5, 12]
         assert body["session_id"] == "sess-abc"
         assert body["zone_id"] == "zone-123"
 
     @pytest.mark.asyncio
     async def test_result_contains_success_and_count(self, patch_clients):
-        mock_client, _ = patch_clients
-        mock_client.post.return_value = _make_response({
+        _, _, mock_playback = patch_clients
+        mock_playback.post.return_value = _make_response({
             "success": True, "tracks_queued": 10, "zone_name": "Office",
         })
 
@@ -244,8 +252,8 @@ class TestCurateAndPlay:
 
     @pytest.mark.asyncio
     async def test_append_mode_passed_to_api(self, patch_clients):
-        mock_client, _ = patch_clients
-        mock_client.post.return_value = _make_response({
+        _, _, mock_playback = patch_clients
+        mock_playback.post.return_value = _make_response({
             "success": True, "tracks_queued": 3, "zone_name": "Kitchen",
         })
 
@@ -256,13 +264,13 @@ class TestCurateAndPlay:
             zone_id="z2",
             append=True,
         )
-        body = mock_client.post.call_args[1]["json"]
+        body = mock_playback.post.call_args[1]["json"]
         assert body["append"] is True
 
     @pytest.mark.asyncio
     async def test_missing_numbers_shown_in_warning(self, patch_clients):
-        mock_client, _ = patch_clients
-        mock_client.post.return_value = _make_response({
+        _, _, mock_playback = patch_clients
+        mock_playback.post.return_value = _make_response({
             "success": True, "tracks_queued": 2,
             "zone_name": "Living Room", "missing_numbers": [99, 100],
         })
@@ -278,8 +286,8 @@ class TestCurateAndPlay:
 
     @pytest.mark.asyncio
     async def test_connect_error_returns_unavailable(self, patch_clients):
-        mock_client, _ = patch_clients
-        mock_client.post.side_effect = httpx.ConnectError("refused")
+        _, _, mock_playback = patch_clients
+        mock_playback.post.side_effect = httpx.ConnectError("refused")
 
         from mcp_server import curate_and_play
         result = await curate_and_play(
@@ -295,7 +303,7 @@ class TestCurateAndPlay:
 class TestSearchQobuz:
     @pytest.mark.asyncio
     async def test_calls_qobuz_search_endpoint(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         payload = {"tracks": [{"title": "So What", "artist": "Miles Davis"}]}
         mock_client.request.return_value = _make_response(payload)
 
@@ -311,7 +319,7 @@ class TestSearchQobuz:
 
     @pytest.mark.asyncio
     async def test_returns_json_string_on_success(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         payload = {"tracks": []}
         mock_client.request.return_value = _make_response(payload)
 
@@ -323,7 +331,7 @@ class TestSearchQobuz:
 
     @pytest.mark.asyncio
     async def test_connect_error_returns_unavailable(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.side_effect = httpx.ConnectError("refused")
 
         from mcp_server import search_qobuz
@@ -333,7 +341,7 @@ class TestSearchQobuz:
 
     @pytest.mark.asyncio
     async def test_default_limit_is_10(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.return_value = _make_response({"tracks": []})
 
         from mcp_server import search_qobuz
@@ -350,7 +358,7 @@ class TestSearchQobuz:
 class TestTransportControl:
     @pytest.mark.asyncio
     async def test_calls_transport_endpoint_with_action(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.return_value = _make_response({"success": True})
 
         from mcp_server import transport_control
@@ -365,7 +373,7 @@ class TestTransportControl:
 
     @pytest.mark.asyncio
     async def test_value_included_when_provided(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.return_value = _make_response({"success": True})
 
         from mcp_server import transport_control
@@ -376,7 +384,7 @@ class TestTransportControl:
 
     @pytest.mark.asyncio
     async def test_position_seconds_included_for_seek(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.return_value = _make_response({"success": True})
 
         from mcp_server import transport_control
@@ -388,7 +396,7 @@ class TestTransportControl:
 
     @pytest.mark.asyncio
     async def test_optional_params_omitted_when_none(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.return_value = _make_response({"success": True})
 
         from mcp_server import transport_control
@@ -401,7 +409,7 @@ class TestTransportControl:
 
     @pytest.mark.asyncio
     async def test_connect_error_returns_unavailable(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.side_effect = httpx.ConnectError("refused")
 
         from mcp_server import transport_control
@@ -417,7 +425,7 @@ class TestTransportControl:
 class TestVolumeControl:
     @pytest.mark.asyncio
     async def test_calls_volume_endpoint(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.return_value = _make_response({"success": True, "volume": 50})
 
         from mcp_server import volume_control
@@ -433,7 +441,7 @@ class TestVolumeControl:
 
     @pytest.mark.asyncio
     async def test_value_omitted_when_none(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.return_value = _make_response({"success": True})
 
         from mcp_server import volume_control
@@ -444,7 +452,7 @@ class TestVolumeControl:
 
     @pytest.mark.asyncio
     async def test_returns_json_on_success(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.return_value = _make_response({"success": True, "volume": 75})
 
         from mcp_server import volume_control
@@ -455,7 +463,7 @@ class TestVolumeControl:
 
     @pytest.mark.asyncio
     async def test_connect_error_returns_unavailable(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.side_effect = httpx.ConnectError("refused")
 
         from mcp_server import volume_control
@@ -465,7 +473,7 @@ class TestVolumeControl:
 
     @pytest.mark.asyncio
     async def test_http_error_returns_error_string(self, patch_clients):
-        mock_client, _ = patch_clients
+        mock_client, *_ = patch_clients
         mock_client.request.return_value = _make_error_response(404, "zone not found")
 
         from mcp_server import volume_control
