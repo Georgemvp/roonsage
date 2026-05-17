@@ -7,16 +7,24 @@ from datetime import datetime, timezone
 import pytest
 
 from backend import library_cache
+import backend.db as _db
+import backend.sync as _sync
 
 
 @pytest.fixture
 def temp_db(tmp_path, monkeypatch):
     """Create a temporary database for testing."""
     db_path = tmp_path / "test_library_cache.db"
+    # Patch DB_PATH and DATA_DIR on the canonical module (backend.db) where
+    # the connection helpers actually read them.  Also patch them on the
+    # re-export module so any code that reads library_cache.DB_PATH still
+    # gets the right value.
+    monkeypatch.setattr(_db, "DB_PATH", db_path)
+    monkeypatch.setattr(_db, "DATA_DIR", tmp_path)
     monkeypatch.setattr(library_cache, "DB_PATH", db_path)
     monkeypatch.setattr(library_cache, "DATA_DIR", tmp_path)
-    # Reset schema initialization flag so each test gets fresh schema
-    monkeypatch.setattr(library_cache, "_schema_initialized", False)
+    # Reset schema initialization flag so each test gets a fresh schema
+    monkeypatch.setattr(_db, "_schema_initialized", False)
     yield db_path
     # Cleanup
     if db_path.exists():
@@ -450,7 +458,7 @@ class TestSyncLibrary:
     @pytest.fixture
     def reset_sync_state(self, monkeypatch):
         """Reset sync state before each test."""
-        monkeypatch.setattr(library_cache, "_sync_state", {
+        monkeypatch.setattr(_sync, "_sync_state", {
             "is_syncing": False,
             "phase": None,
             "current": 0,
@@ -522,7 +530,7 @@ class TestSyncLibrary:
     def test_sync_rejects_concurrent_sync(self, initialized_db, mock_roon_client, monkeypatch):
         """Second sync attempt is rejected while one is in progress."""
         # Simulate sync in progress
-        monkeypatch.setattr(library_cache, "_sync_state", {
+        monkeypatch.setattr(_sync, "_sync_state", {
             "is_syncing": True,
             "phase": "processing",
             "current": 50,
@@ -549,7 +557,7 @@ class TestSyncLibrary:
     def test_sync_clears_error_on_success(self, initialized_db, mock_roon_client, monkeypatch):
         """Successful sync clears any previous error state."""
         # Set initial state with error
-        monkeypatch.setattr(library_cache, "_sync_state", {
+        monkeypatch.setattr(_sync, "_sync_state", {
             "is_syncing": False,
             "phase": None,
             "current": 0,
@@ -631,7 +639,7 @@ class TestSyncLibrary:
         assert library_cache.has_cached_tracks() is True
 
         # Reset sync state for next sync attempt
-        library_cache._sync_state["is_syncing"] = False
+        _sync._sync_state["is_syncing"] = False
 
         # Now attempt a sync that fails during Roon API call
         class FailingClient:
