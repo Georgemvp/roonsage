@@ -39,7 +39,7 @@ class RoonPlaybackMixin:
     def _get_track_metadata_batch(
         self, keys: list[str]
     ) -> dict[str, dict[str, str]]:
-        """Batch-fetch title+artist for a list of rating_keys from SQLite."""
+        """Batch-fetch title+artist for a list of item_keys from SQLite."""
         if not keys:
             return {}
         try:
@@ -48,8 +48,8 @@ class RoonPlaybackMixin:
             try:
                 placeholders = ",".join("?" * len(keys))
                 rows = conn.execute(
-                    f"SELECT rating_key, title, artist FROM tracks"
-                    f" WHERE rating_key IN ({placeholders})",
+                    f"SELECT item_key, title, artist FROM tracks"
+                    f" WHERE item_key IN ({placeholders})",
                     keys,
                 ).fetchall()
                 return {row[0]: {"title": row[1], "artist": row[2]} for row in rows}

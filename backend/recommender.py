@@ -544,9 +544,9 @@ class RecommendationPipeline:
                     album=c.album,
                     artist=c.album_artist,
                     year=c.year,
-                    rating_key=c.parent_rating_key,
-                    track_rating_keys=c.track_rating_keys,
-                    art_url=f"/api/art/{c.track_rating_keys[0]}" if c.track_rating_keys else None,
+                    item_key=c.parent_item_key,
+                    track_item_keys=c.track_item_keys,
+                    art_url=f"/api/art/{c.track_item_keys[0]}" if c.track_item_keys else None,
                 ))
             return recs
 
@@ -555,8 +555,8 @@ class RecommendationPipeline:
         for a in album_candidates:
             genres_str = ", ".join(a.genres[:3]) if a.genres else "Unknown"
             line = f"- {a.album_artist} — {a.album} ({a.year or '?'}) [{genres_str}]"
-            if familiarity_pref != "any" and familiarity_data and a.parent_rating_key in familiarity_data:
-                level = familiarity_data[a.parent_rating_key]["level"]
+            if familiarity_pref != "any" and familiarity_data and a.parent_item_key in familiarity_data:
+                level = familiarity_data[a.parent_item_key]["level"]
                 line += f" {{{level}}}"
             album_lines.append(line)
         album_text = "\n".join(album_lines)
@@ -673,9 +673,9 @@ class RecommendationPipeline:
                 album=candidate.album,
                 artist=candidate.album_artist,
                 year=candidate.year,
-                rating_key=candidate.parent_rating_key,
-                track_rating_keys=candidate.track_rating_keys,
-                art_url=f"/api/art/{candidate.track_rating_keys[0]}" if candidate.track_rating_keys else None,
+                item_key=candidate.parent_item_key,
+                track_item_keys=candidate.track_item_keys,
+                art_url=f"/api/art/{candidate.track_item_keys[0]}" if candidate.track_item_keys else None,
             )
             recommendations.append(rec)
 
@@ -701,7 +701,7 @@ class RecommendationPipeline:
 
         Args:
             familiarity_pref: User's familiarity preference ("any"|"comfort"|"rediscover"|"hidden_gems")
-            familiarity_data: Optional dict mapping rating_key -> {"level": str, "last_viewed_at": str|None}
+            familiarity_data: Optional dict mapping item_key -> {"level": str, "last_viewed_at": str|None}
             extracted_facts: Optional dict mapping "artist|||album" -> ExtractedFacts
 
         Returns the same recommendations with pitches filled in.
@@ -711,8 +711,8 @@ class RecommendationPipeline:
         for rec in recommendations:
             desc = f"[{rec.rank.upper()}] {rec.artist} — {rec.album} ({rec.year or '?'})"
             # Add familiarity context
-            if familiarity_data and rec.rating_key and rec.rating_key in familiarity_data:
-                level = familiarity_data[rec.rating_key]["level"]
+            if familiarity_data and rec.item_key and rec.item_key in familiarity_data:
+                level = familiarity_data[rec.item_key]["level"]
                 desc += f"\nFamiliarity: {level}"
 
             # Add extracted facts if available (preferred over raw research)
@@ -1011,7 +1011,7 @@ class RecommendationPipeline:
         """Select 1 primary + 2 secondary albums NOT in the user's library.
 
         Uses taste profile as context and owned_albums as exclusion list.
-        Returns list of AlbumRecommendation (without pitches or rating_keys).
+        Returns list of AlbumRecommendation (without pitches or item_keys).
         """
         # Build taste summary
         top_genres = sorted(taste_profile.genre_distribution, key=taste_profile.genre_distribution.get, reverse=True)[:10]
@@ -1097,8 +1097,8 @@ class RecommendationPipeline:
                 album=item.get("album", ""),
                 artist=item.get("artist", ""),
                 year=item.get("year"),
-                rating_key=None,
-                track_rating_keys=[],
+                item_key=None,
+                track_item_keys=[],
                 art_url=None,
             )
             recommendations.append(rec)

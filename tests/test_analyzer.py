@@ -171,7 +171,7 @@ class TestTrackAnalysis:
         from backend.models import Track
 
         track = Track(
-            rating_key="1",
+            item_key="1",
             title="Fake Plastic Trees",
             artist="Radiohead",
             album="The Bends",
@@ -201,7 +201,7 @@ class TestTrackAnalysis:
 
             result = analyze_track(track)
 
-            assert result.track.rating_key == "1"
+            assert result.track.item_key == "1"
             assert len(result.dimensions) == 3
             assert result.dimensions[0].id == "mood"
             assert "melancholy" in result.dimensions[0].label.lower()
@@ -213,7 +213,7 @@ class TestTrackAnalysis:
         from backend.models import Track
 
         track = Track(
-            rating_key="2",
+            item_key="2",
             title="Black",
             artist="Pearl Jam",
             album="Ten",

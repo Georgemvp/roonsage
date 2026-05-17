@@ -68,9 +68,9 @@ class TestPlaylistGeneration:
                         track_keys = []
                         for etype, data in events:
                             if etype == "tracks":
-                                track_keys.extend(t["rating_key"] for t in data["batch"])
+                                track_keys.extend(t["item_key"] for t in data["batch"])
 
-                        library_keys = {t.rating_key for t in mock_roon_tracks}
+                        library_keys = {t.item_key for t in mock_roon_tracks}
                         for key in track_keys:
                             assert key in library_keys
 

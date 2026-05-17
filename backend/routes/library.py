@@ -39,8 +39,8 @@ def _validate_track_selection(
 
     Args:
         track_numbers: Ordered list of track numbers selected by Claude.
-        key_map:       Maps str(number) → rating_key.
-        track_meta:    Maps rating_key → {artist, title, album}.
+        key_map:       Maps str(number) → item_key.
+        track_meta:    Maps item_key → {artist, title, album}.
         max_per_artist: Max acceptable count per artist.
 
     Returns:
@@ -49,7 +49,7 @@ def _validate_track_selection(
     warnings: list[dict] = []
 
     # Resolve numbers → metadata; skip unknown numbers (warn separately)
-    resolved: list[tuple[int, str, str, str]] = []  # (position, rating_key, artist, title)
+    resolved: list[tuple[int, str, str, str]] = []  # (position, item_key, artist, title)
     for pos, num in enumerate(track_numbers, start=1):
         rk = key_map.get(str(num))
         if not rk:
@@ -215,7 +215,7 @@ async def search_library(
         if cached:
             return [
                 Track(
-                    rating_key=t["rating_key"],
+                    item_key=t["item_key"],
                     title=t["title"],
                     artist=t["artist"],
                     album=t["album"],
@@ -283,7 +283,7 @@ async def filter_library_tracks(request: FilterLibraryRequest) -> FilterLibraryR
 
     tracks = [
         Track(
-            rating_key=t["rating_key"],
+            item_key=t["item_key"],
             title=t["title"],
             artist=t["artist"],
             album=t["album"],
@@ -439,7 +439,7 @@ async def curate_from_session(request: dict) -> dict:
 
     # Fetch metadata for every resolved key so the MCP caller can show the
     # actual tracklist instead of reconstructing it from memory.
-    track_meta = await asyncio.to_thread(library_cache.get_tracks_by_rating_keys, item_keys)
+    track_meta = await asyncio.to_thread(library_cache.get_tracks_by_item_keys, item_keys)
     resolved_tracks = []
     for num, key in zip(
         [n for n in track_numbers if key_map.get(str(n))],
@@ -493,8 +493,8 @@ async def validate_playlist_selection(request: dict) -> dict:
 
     key_map = session["key_map"]
 
-    # Fetch track metadata from SQLite for all referenced rating_keys
-    rating_keys = [key_map[str(n)] for n in track_numbers if str(n) in key_map]
-    track_meta = await asyncio.to_thread(library_cache.get_tracks_by_rating_keys, rating_keys)
+    # Fetch track metadata from SQLite for all referenced item_keys
+    item_keys = [key_map[str(n)] for n in track_numbers if str(n) in key_map]
+    track_meta = await asyncio.to_thread(library_cache.get_tracks_by_item_keys, item_keys)
 
     return _validate_track_selection(track_numbers, key_map, track_meta, max_per_artist)

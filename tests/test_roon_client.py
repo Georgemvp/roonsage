@@ -14,10 +14,10 @@ from backend.roon_client import TrackCache
 class TestTrackCache:
     """Tests for track caching functionality."""
 
-    def _make_track(self, rating_key: str, title: str = "Test Track") -> Track:
+    def _make_track(self, item_key: str, title: str = "Test Track") -> Track:
         """Helper to create a test track."""
         return Track(
-            rating_key=rating_key,
+            item_key=item_key,
             title=title,
             artist="Test Artist",
             album="Test Album",
@@ -40,7 +40,7 @@ class TestTrackCache:
 
         assert result is not None
         assert len(result) == 2
-        assert result[0].rating_key == "1"
+        assert result[0].item_key == "1"
 
     def test_cache_expired_returns_none(self):
         """Should return None for expired entries."""

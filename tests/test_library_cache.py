@@ -51,7 +51,7 @@ class TestSchemaCreation:
         columns = {row[1]: row[2] for row in cursor.fetchall()}
         conn.close()
 
-        assert "rating_key" in columns
+        assert "item_key" in columns
         assert "title" in columns
         assert "artist" in columns
         assert "album" in columns
@@ -147,7 +147,7 @@ class TestCacheOperations:
         """Cached tracks are returned correctly."""
         conn = library_cache.get_db_connection()
         conn.execute(
-            "INSERT INTO tracks (rating_key, title, artist, album, duration_ms, "
+            "INSERT INTO tracks (item_key, title, artist, album, duration_ms, "
             "year, genres, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             ("123", "Test Song", "Test Artist", "Test Album", 180000, 1999,
              json.dumps(["Rock", "Alternative"]), False),
@@ -158,7 +158,7 @@ class TestCacheOperations:
         tracks = library_cache.get_cached_tracks()
 
         assert len(tracks) == 1
-        assert tracks[0]["rating_key"] == "123"
+        assert tracks[0]["item_key"] == "123"
         assert tracks[0]["title"] == "Test Song"
         assert tracks[0]["genres"] == ["Rock", "Alternative"]
 
@@ -166,7 +166,7 @@ class TestCacheOperations:
         """Clear cache removes all tracks and resets state."""
         conn = library_cache.get_db_connection()
         conn.execute(
-            "INSERT INTO tracks (rating_key, title, artist, album) "
+            "INSERT INTO tracks (item_key, title, artist, album) "
             "VALUES ('1', 'Song', 'Artist', 'Album')"
         )
         conn.execute(
@@ -204,7 +204,7 @@ class TestFiltering:
              json.dumps(["Jazz"]), False),
         ]
         conn.executemany(
-            "INSERT INTO tracks (rating_key, title, artist, album, duration_ms, "
+            "INSERT INTO tracks (item_key, title, artist, album, duration_ms, "
             "year, genres, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             tracks,
         )
@@ -268,7 +268,7 @@ class TestFiltering:
                 180000, 1990, json.dumps(["Jazz"]), False
             ))
         conn.executemany(
-            "INSERT INTO tracks (rating_key, title, artist, album, duration_ms, "
+            "INSERT INTO tracks (item_key, title, artist, album, duration_ms, "
             "year, genres, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             tracks,
         )
@@ -408,9 +408,9 @@ class TestSyncLibrary:
         The sync_library function expects dicts with Roon browse-item keys:
         item_key, title, subtitle ("Artist • Album"), _album_item_key, duration.
         """
-        def _make(rating_key, title, artist, album, duration, album_item_key):
+        def _make(item_key, title, artist, album, duration, album_item_key):
             return {
-                "item_key": rating_key,
+                "item_key": item_key,
                 "title": title,
                 "subtitle": f"{artist} • {album}",
                 "_album_title": album,
@@ -475,7 +475,7 @@ class TestSyncLibrary:
         library_cache.sync_library(mock_roon_client)
 
         tracks = library_cache.get_cached_tracks()
-        track_by_key = {t["rating_key"]: t for t in tracks}
+        track_by_key = {t["item_key"]: t for t in tracks}
 
         # Tracks 1 and 3 are from Album X (parent_key=100)
         assert track_by_key["1"]["genres"] == ["Rock", "Alternative"]
@@ -489,7 +489,7 @@ class TestSyncLibrary:
         library_cache.sync_library(mock_roon_client)
 
         tracks = library_cache.get_cached_tracks()
-        track_by_key = {t["rating_key"]: t for t in tracks}
+        track_by_key = {t["item_key"]: t for t in tracks}
 
         assert track_by_key["1"]["year"] == 1995
         assert track_by_key["2"]["year"] == 2020
@@ -573,7 +573,7 @@ class TestSyncLibrary:
         # Pre-populate cache with a track that won't be in the new sync.
         conn = library_cache.get_db_connection()
         conn.execute(
-            "INSERT INTO tracks (rating_key, title, artist, album, duration_ms, "
+            "INSERT INTO tracks (item_key, title, artist, album, duration_ms, "
             "year, genres, is_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             ("stale-track-999", "Stale Song", "Old Artist", "Deleted Album",
              180000, 2000, json.dumps(["Rock"]), False),
@@ -583,7 +583,7 @@ class TestSyncLibrary:
 
         # Verify stale track exists
         tracks_before = library_cache.get_cached_tracks()
-        assert any(t["rating_key"] == "stale-track-999" for t in tracks_before)
+        assert any(t["item_key"] == "stale-track-999" for t in tracks_before)
 
         # Create mock client that returns different tracks
         class MockRoonClient:
@@ -605,8 +605,8 @@ class TestSyncLibrary:
         # Verify stale track was removed
         tracks_after = library_cache.get_cached_tracks()
         assert len(tracks_after) == 1
-        assert tracks_after[0]["rating_key"] == "new-1"
-        assert not any(t["rating_key"] == "stale-track-999" for t in tracks_after)
+        assert tracks_after[0]["item_key"] == "new-1"
+        assert not any(t["item_key"] == "stale-track-999" for t in tracks_after)
 
     def test_failed_sync_resets_cache_state(self, initialized_db, mock_track, reset_sync_state):
         """Failed sync reports failure while preserving previously-cached tracks.

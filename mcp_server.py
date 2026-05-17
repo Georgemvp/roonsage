@@ -226,7 +226,7 @@ async def filter_tracks(
         lines: list[str] = []
         key_map: dict[str, str] = {}
         for i, track in enumerate(tracks, start=1):
-            item_key = track.get("rating_key") or track.get("item_key") or ""
+            item_key = track.get("item_key", "")
             key_map[str(i)] = item_key
             lines.append(f"{i}. {track.get('artist', '?')} — {track.get('title', '?')}")
 
@@ -267,7 +267,7 @@ async def filter_tracks(
         lines: list[str] = []
         key_map: dict[str, str] = {}
         for i, track in enumerate(tracks, start=1):
-            item_key = track.get("rating_key") or track.get("item_key") or ""
+            item_key = track.get("item_key", "")
             key_map[str(i)] = item_key
             genres_str = ", ".join(track.get("genres") or [])
             year = track.get("year") or ""
@@ -319,7 +319,7 @@ async def filter_tracks(
     # -----------------------------------------------------------------------
     # JSON output (default): strip to essential fields
     # -----------------------------------------------------------------------
-    _KEEP = {"item_key", "rating_key", "title", "artist", "album", "genres"}
+    _KEEP = {"item_key", "title", "artist", "album", "genres"}
     data["tracks"] = [
         {k: v for k, v in track.items() if k in _KEEP}
         for track in tracks
@@ -329,10 +329,10 @@ async def filter_tracks(
     if total > returned:
         data["note"] = (
             f"Library contains {total} matching tracks; {returned} returned "
-            "(random sample). Use the item_key / rating_key of each track for playback."
+            "(random sample). Use the item_key of each track for playback."
         )
     else:
-        data["note"] = "Use the rating_key of each track as item_key for play_tracks / queue_tracks."
+        data["note"] = "Use the item_key of each track as item_key for play_tracks / queue_tracks."
 
     return json.dumps(data, ensure_ascii=False, indent=2)
 
@@ -572,7 +572,7 @@ def _build_playlist_result(
         "live_excluded": exclude_live,
         "tracks": [
             {
-                "item_key": t.get("rating_key", t.get("item_key", "")),
+                "item_key": t.get("item_key", ""),
                 "title": t.get("title", ""),
                 "artist": t.get("artist", ""),
                 "album": t.get("album", "") or "Unknown Album",
@@ -590,7 +590,7 @@ def _build_playlist_result(
 
     # If more tracks were generated than requested, offer to queue the rest
     if extra_tracks:
-        extra_keys = [t.get("rating_key", t.get("item_key", "")) for t in extra_tracks if t.get("rating_key") or t.get("item_key")]
+        extra_keys = [t.get("item_key", "") for t in extra_tracks if t.get("item_key")]
         result["extra_tracks_available"] = len(extra_tracks)
         result["extra_item_keys"] = extra_keys[:50]  # cap to 50 extras
         result["note_extra"] = (
@@ -839,8 +839,8 @@ async def recommend_album(
             "artist": primary.get("artist", ""),
             "year": primary.get("year"),
             "genres": primary.get("genres", []),
-            "rating_key": primary.get("rating_key", ""),
-            "track_rating_keys": primary.get("track_rating_keys", []),
+            "item_key": primary.get("item_key", ""),
+            "track_item_keys": primary.get("track_item_keys", []),
             "hook": pitch.get("hook", ""),
             "body": pitch.get("body", ""),
             "reason": primary.get("reason", ""),
@@ -854,8 +854,8 @@ async def recommend_album(
             "album": sec.get("album", ""),
             "artist": sec.get("artist", ""),
             "year": sec.get("year"),
-            "rating_key": sec.get("rating_key", ""),
-            "track_rating_keys": sec.get("track_rating_keys", []),
+            "item_key": sec.get("item_key", ""),
+            "track_item_keys": sec.get("track_item_keys", []),
             "playable": sec.get("playable", True),
             "source": sec.get("source", "library"),
         })
@@ -923,7 +923,7 @@ async def seed_track_playlist(
     about live-track exclusion.
 
     Args:
-        item_key:         The rating_key / item_key of the seed track (from search_library).
+        item_key:         The item_key of the seed track (from search_library).
         dimensions:       Musical dimensions to match. Choose from:
                           "mood", "era", "genre", "production", "tempo", "energy".
                           Recommended: ["mood", "genre"] for most requests.
@@ -942,7 +942,7 @@ async def seed_track_playlist(
     body: dict = {
         "prompt": None,
         "seed_track": {
-            "rating_key": item_key,
+            "item_key": item_key,
             "selected_dimensions": dimensions,
         },
         "genres": [],
@@ -1107,8 +1107,8 @@ async def recommend_album_interactive(
                 "artist": primary.get("artist", ""),
                 "year": primary.get("year"),
                 "genres": primary.get("genres", []),
-                "rating_key": primary.get("rating_key", ""),
-                "track_rating_keys": primary.get("track_rating_keys", []),
+                "item_key": primary.get("item_key", ""),
+                "track_item_keys": primary.get("track_item_keys", []),
                 "hook": pitch.get("hook", ""),
                 "body": pitch.get("body", ""),
                 "reason": primary.get("reason", ""),
@@ -1121,8 +1121,8 @@ async def recommend_album_interactive(
                 "album": sec.get("album", ""),
                 "artist": sec.get("artist", ""),
                 "year": sec.get("year"),
-                "rating_key": sec.get("rating_key", ""),
-                "track_rating_keys": sec.get("track_rating_keys", []),
+                "item_key": sec.get("item_key", ""),
+                "track_item_keys": sec.get("track_item_keys", []),
                 "playable": sec.get("playable", True),
                 "source": sec.get("source", "library"),
             })
@@ -1181,7 +1181,7 @@ async def play_album(query: str, zone_id: str) -> str:
     # Pick the album with the most matched tracks (most complete match)
     best_album_key = max(albums, key=lambda k: len(albums[k]))
     album_tracks = albums[best_album_key]
-    item_keys = [t.get("rating_key", t.get("item_key", "")) for t in album_tracks if t.get("rating_key") or t.get("item_key")]
+    item_keys = [t.get("item_key", "") for t in album_tracks if t.get("item_key")]
 
     # Play the tracks
     play_data = await _api_call("POST", "/api/queue", json={"item_keys": item_keys, "zone_id": zone_id})

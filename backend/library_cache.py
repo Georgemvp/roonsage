@@ -91,7 +91,7 @@ def init_schema(conn: sqlite3.Connection) -> bool:
     conn.executescript("""
         -- Tracks table: cached Roon track metadata
         CREATE TABLE IF NOT EXISTS tracks (
-            rating_key TEXT PRIMARY KEY,
+            item_key TEXT PRIMARY KEY,
             title TEXT NOT NULL,
             artist TEXT NOT NULL,
             album TEXT NOT NULL,
@@ -99,7 +99,7 @@ def init_schema(conn: sqlite3.Connection) -> bool:
             year INTEGER,
             genres TEXT,
             is_live BOOLEAN,
-            parent_rating_key TEXT,
+            parent_item_key TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -138,7 +138,7 @@ def init_schema(conn: sqlite3.Connection) -> bool:
             track_key TEXT NOT NULL,
             genre TEXT NOT NULL,
             PRIMARY KEY (track_key, genre),
-            FOREIGN KEY (track_key) REFERENCES tracks(rating_key)
+            FOREIGN KEY (track_key) REFERENCES tracks(item_key)
         );
         CREATE INDEX IF NOT EXISTS idx_track_genres_genre ON track_genres(genre);
 
@@ -151,7 +151,7 @@ def init_schema(conn: sqlite3.Connection) -> bool:
             snapshot JSON NOT NULL,
             track_count INTEGER NOT NULL,
             artist TEXT,
-            art_rating_key TEXT,
+            art_item_key TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -159,12 +159,35 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at DESC);
     """)
 
-    # Migration: add parent_rating_key column if missing (for pre-existing databases)
+    # Migration: rename rating_key → item_key (Plex legacy → Roon naming)
     migrated = False
     try:
-        conn.execute("ALTER TABLE tracks ADD COLUMN parent_rating_key TEXT")
+        conn.execute("ALTER TABLE tracks RENAME COLUMN rating_key TO item_key")
         migrated = True
-        logger.info("Migration applied: added parent_rating_key column")
+        logger.info("Migration applied: renamed rating_key to item_key in tracks")
+    except sqlite3.OperationalError:
+        pass  # Already renamed or column doesn't exist
+
+    # Migration: rename parent_rating_key → parent_item_key
+    try:
+        conn.execute("ALTER TABLE tracks RENAME COLUMN parent_rating_key TO parent_item_key")
+        migrated = True
+        logger.info("Migration applied: renamed parent_rating_key to parent_item_key in tracks")
+    except sqlite3.OperationalError:
+        pass  # Already renamed or column doesn't exist
+
+    # Migration: rename art_rating_key → art_item_key in results table
+    try:
+        conn.execute("ALTER TABLE results RENAME COLUMN art_rating_key TO art_item_key")
+        logger.info("Migration applied: renamed art_rating_key to art_item_key in results")
+    except sqlite3.OperationalError:
+        pass  # Already renamed or column doesn't exist
+
+    # Migration: add parent_item_key column if missing (very old databases without it)
+    try:
+        conn.execute("ALTER TABLE tracks ADD COLUMN parent_item_key TEXT")
+        migrated = True
+        logger.info("Migration applied: added parent_item_key column")
     except sqlite3.OperationalError:
         pass  # Column already exists
 
@@ -196,7 +219,7 @@ def init_schema(conn: sqlite3.Connection) -> bool:
             track_key TEXT NOT NULL,
             genre TEXT NOT NULL,
             PRIMARY KEY (track_key, genre),
-            FOREIGN KEY (track_key) REFERENCES tracks(rating_key)
+            FOREIGN KEY (track_key) REFERENCES tracks(item_key)
         );
         CREATE INDEX IF NOT EXISTS idx_track_genres_genre ON track_genres(genre);
     """)
@@ -222,8 +245,8 @@ def init_schema(conn: sqlite3.Connection) -> bool:
     except sqlite3.OperationalError:
         pass  # Already renamed or column doesn't exist
 
-    # Index on parent_rating_key (must come after migration adds the column)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_tracks_parent_key ON tracks(parent_rating_key)")
+    # Index on parent_item_key (must come after migration adds the column)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tracks_parent_key ON tracks(parent_item_key)")
 
     conn.commit()
     return migrated
@@ -300,7 +323,7 @@ def get_cached_tracks() -> list[dict[str, Any]]:
     conn = ensure_db_initialized()
     try:
         rows = conn.execute(
-            "SELECT rating_key, title, artist, album, duration_ms, year, "
+            "SELECT item_key, title, artist, album, duration_ms, year, "
             "genres, is_live FROM tracks"
         ).fetchall()
 
@@ -373,7 +396,7 @@ def get_tracks_by_filters(
                 genre_placeholders = ",".join("?" for _ in genres_lower)
                 query = (
                     f"SELECT DISTINCT t.* FROM tracks t "
-                    f"JOIN track_genres tg ON t.rating_key = tg.track_key "
+                    f"JOIN track_genres tg ON t.item_key = tg.track_key "
                     f"WHERE {where_clause} "
                     f"AND LOWER(tg.genre) IN ({genre_placeholders})"
                 )
@@ -674,7 +697,7 @@ def sync_library(
                 year,
                 json.dumps(genres),  # Store genres as JSON array
                 _is_live_version(title, album),
-                album_item_key,  # parent_rating_key stores album item_key
+                album_item_key,  # parent_item_key stores album item_key
                 view_count,
                 last_viewed_at,
             ))
@@ -683,8 +706,8 @@ def sync_library(
             if len(batch_data) >= SYNC_BATCH_SIZE:
                 conn.executemany(
                     "INSERT OR REPLACE INTO tracks "
-                    "(rating_key, title, artist, album, duration_ms, year, genres, "
-                    "is_live, parent_rating_key, view_count, last_viewed_at, updated_at) "
+                    "(item_key, title, artist, album, duration_ms, year, genres, "
+                    "is_live, parent_item_key, view_count, last_viewed_at, updated_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
                     batch_data,
                 )
@@ -706,8 +729,8 @@ def sync_library(
         if batch_data:
             conn.executemany(
                 "INSERT OR REPLACE INTO tracks "
-                "(rating_key, title, artist, album, duration_ms, year, genres, "
-                "is_live, parent_rating_key, view_count, last_viewed_at, updated_at) "
+                "(item_key, title, artist, album, duration_ms, year, genres, "
+                "is_live, parent_item_key, view_count, last_viewed_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
                 batch_data,
             )
@@ -723,12 +746,12 @@ def sync_library(
         conn.execute("""
             UPDATE tracks SET year = (
                 SELECT a.year FROM albums a
-                WHERE a.item_key = tracks.parent_rating_key
+                WHERE a.item_key = tracks.parent_item_key
                 AND a.year IS NOT NULL
             )
             WHERE year IS NULL
-            AND parent_rating_key IS NOT NULL
-            AND parent_rating_key != ''
+            AND parent_item_key IS NOT NULL
+            AND parent_item_key != ''
         """)
         conn.commit()
         backfilled = conn.execute(
@@ -740,7 +763,7 @@ def sync_library(
         # Rebuild genre junction table for all freshly inserted tracks.
         logger.info("Rebuilding track_genres junction table...")
         genre_rows = conn.execute(
-            "SELECT rating_key, genres FROM tracks WHERE genres IS NOT NULL AND genres != '[]'"
+            "SELECT item_key, genres FROM tracks WHERE genres IS NOT NULL AND genres != '[]'"
         ).fetchall()
         genre_batch: list[tuple[str, str]] = []
         for grow in genre_rows:
@@ -750,7 +773,7 @@ def sync_library(
                 continue
             for g in glist:
                 if g:
-                    genre_batch.append((grow["rating_key"], g))
+                    genre_batch.append((grow["item_key"], g))
         if genre_batch:
             conn.executemany(
                 "INSERT OR IGNORE INTO track_genres (track_key, genre) VALUES (?, ?)",
@@ -867,8 +890,8 @@ def count_tracks_by_filters(
             genres_lower = [g.lower() for g in genres]
             genre_placeholders = ",".join("?" for _ in genres_lower)
             query = (
-                f"SELECT COUNT(DISTINCT t.rating_key) FROM tracks t "
-                f"JOIN track_genres tg ON t.rating_key = tg.track_key "
+                f"SELECT COUNT(DISTINCT t.item_key) FROM tracks t "
+                f"JOIN track_genres tg ON t.item_key = tg.track_key "
                 f"WHERE {where_clause} "
                 f"AND LOWER(tg.genre) IN ({genre_placeholders})"
             )
@@ -939,8 +962,8 @@ def get_album_candidates(
         exclude_live: Exclude live recordings (default True)
 
     Returns:
-        List of album dicts with parent_rating_key, album, album_artist,
-        year, genres, decade, track_count, track_rating_keys.
+        List of album dicts with parent_item_key, album, album_artist,
+        year, genres, decade, track_count, track_item_keys.
     """
     conn = ensure_db_initialized()
     try:
@@ -1011,14 +1034,14 @@ def _get_album_candidates_from_albums_table(
                 continue
 
         result.append({
-            "parent_rating_key": row["item_key"],
+            "parent_item_key": row["item_key"],
             "album": row["title"],
             "album_artist": row["artist"],
             "year": year,
             "genres": album_genres,
             "decade": decade,
             "track_count": 0,       # Not needed for recommendation selection
-            "track_rating_keys": [],  # Populated lazily at play time
+            "track_item_keys": [],  # Populated lazily at play time
         })
 
     return result
@@ -1035,7 +1058,7 @@ def _get_album_candidates_legacy(
     Used when the albums table has not yet been populated (first sync after
     the migration that added the albums table).
     """
-    conditions = ["parent_rating_key IS NOT NULL", "parent_rating_key != ''"]
+    conditions = ["parent_item_key IS NOT NULL", "parent_item_key != ''"]
     if exclude_live:
         conditions.append("is_live = 0")
     params: list[Any] = []
@@ -1055,16 +1078,16 @@ def _get_album_candidates_legacy(
 
     where_clause = " AND ".join(conditions)
     query = (
-        f"SELECT rating_key, title, artist, album, year, genres, parent_rating_key "
+        f"SELECT item_key, title, artist, album, year, genres, parent_item_key "
         f"FROM tracks WHERE {where_clause} "
-        f"ORDER BY parent_rating_key, rating_key"
+        f"ORDER BY parent_item_key, item_key"
     )
 
     rows = conn.execute(query, params).fetchall()
 
     albums: dict[str, dict[str, Any]] = {}
     for row in rows:
-        prk = row["parent_rating_key"]
+        prk = row["parent_item_key"]
         track_genres = json.loads(row["genres"]) if row["genres"] else []
 
         if prk not in albums:
@@ -1075,20 +1098,20 @@ def _get_album_candidates_legacy(
                 decade = f"{decade_start}s"
 
             albums[prk] = {
-                "parent_rating_key": prk,
+                "parent_item_key": prk,
                 "album": row["album"],
                 "album_artist": row["artist"],
                 "year": year,
                 "genres": [],
                 "decade": decade,
                 "track_count": 0,
-                "track_rating_keys": [],
+                "track_item_keys": [],
                 "_genre_set": set(),
             }
 
         album = albums[prk]
         album["track_count"] += 1
-        album["track_rating_keys"].append(row["rating_key"])
+        album["track_item_keys"].append(row["item_key"])
         for g in track_genres:
             if g not in album["_genre_set"]:
                 album["_genre_set"].add(g)
@@ -1124,7 +1147,7 @@ def get_cached_genre_decade_stats() -> dict[str, Any]:
         populated when the track's album item_key matches album metadata during
         sync (year has no artist-based fallback like genres do). When track-level
         year data is sparse, decades are supplemented from the albums table via
-        a parent_rating_key join, which has better year coverage.
+        a parent_item_key join, which has better year coverage.
     """
     conn = ensure_db_initialized()
     try:
@@ -1150,15 +1173,15 @@ def get_cached_genre_decade_stats() -> dict[str, Any]:
                 decade_counts[decade_name] = decade_counts.get(decade_name, 0) + 1
 
         # Fallback: if track-level year data is sparse (covers <10% of tracks),
-        # supplement decade counts from the albums table via parent_rating_key join.
+        # supplement decade counts from the albums table via parent_item_key join.
         # The albums table is populated directly from Roon album metadata during
         # Phase 1 of sync and has better year coverage than the per-track year field.
         tracks_with_year = sum(decade_counts.values())
         if total_tracks > 0 and tracks_with_year < total_tracks * 0.10:
             album_rows = conn.execute(
-                "SELECT a.year, COUNT(t.rating_key) AS cnt "
+                "SELECT a.year, COUNT(t.item_key) AS cnt "
                 "FROM albums a "
-                "JOIN tracks t ON t.parent_rating_key = a.item_key "
+                "JOIN tracks t ON t.parent_item_key = a.item_key "
                 "WHERE a.year IS NOT NULL "
                 "GROUP BY a.year"
             ).fetchall()
@@ -1182,7 +1205,7 @@ def get_cached_genre_decade_stats() -> dict[str, Any]:
 
 
 def get_album_familiarity(
-    parent_rating_keys: list[str] | None = None,
+    parent_item_keys: list[str] | None = None,
 ) -> dict[str, dict]:
     """Get familiarity data for albums aggregated from cached track play history.
 
@@ -1192,30 +1215,30 @@ def get_album_familiarity(
     - "light": some plays but avg < 3
 
     Args:
-        parent_rating_keys: Optional list of album keys to query.
+        parent_item_keys: Optional list of album keys to query.
             If None, returns all albums.
 
     Returns:
-        Dict mapping parent_rating_key -> {"level": str, "last_viewed_at": str|None}
+        Dict mapping parent_item_key -> {"level": str, "last_viewed_at": str|None}
     """
     conn = ensure_db_initialized()
     try:
         query = (
-            "SELECT parent_rating_key, "
+            "SELECT parent_item_key, "
             "SUM(view_count) AS total_plays, "
             "AVG(view_count) AS avg_plays, "
             "MAX(last_viewed_at) AS last_viewed "
             "FROM tracks "
-            "WHERE parent_rating_key IS NOT NULL AND parent_rating_key != '' "
+            "WHERE parent_item_key IS NOT NULL AND parent_item_key != '' "
         )
         params: list[str] = []
 
-        if parent_rating_keys is not None:
-            placeholders = ",".join("?" for _ in parent_rating_keys)
-            query += f"AND parent_rating_key IN ({placeholders}) "
-            params.extend(parent_rating_keys)
+        if parent_item_keys is not None:
+            placeholders = ",".join("?" for _ in parent_item_keys)
+            query += f"AND parent_item_key IN ({placeholders}) "
+            params.extend(parent_item_keys)
 
-        query += "GROUP BY parent_rating_key"
+        query += "GROUP BY parent_item_key"
 
         rows = conn.execute(query, params).fetchall()
 
@@ -1231,7 +1254,7 @@ def get_album_familiarity(
             else:
                 level = "light"
 
-            result[row["parent_rating_key"]] = {
+            result[row["parent_item_key"]] = {
                 "level": level,
                 "last_viewed_at": row["last_viewed"],
             }
@@ -1256,7 +1279,7 @@ def search_cached_tracks(
         search_term = f"%{query}%"
         rows = conn.execute(
             """
-            SELECT rating_key, title, artist, album,
+            SELECT item_key, title, artist, album,
                    duration_ms, year, genres
             FROM tracks
             WHERE artist LIKE ? COLLATE NOCASE
@@ -1285,22 +1308,22 @@ def search_cached_tracks(
 
 
 # =============================================================================
-def get_tracks_by_rating_keys(rating_keys: list[str]) -> dict[str, dict[str, Any]]:
-    """Fetch track metadata for a list of rating_keys from the local cache.
+def get_tracks_by_item_keys(item_keys: list[str]) -> dict[str, dict[str, Any]]:
+    """Fetch track metadata for a list of item_keys from the local cache.
 
-    Returns a dict mapping rating_key → {title, artist, album} for fast lookup.
-    Missing rating_keys are simply absent from the result dict.
+    Returns a dict mapping item_key → {title, artist, album} for fast lookup.
+    Missing item_keys are simply absent from the result dict.
     """
-    if not rating_keys:
+    if not item_keys:
         return {}
     conn = ensure_db_initialized()
     try:
-        placeholders = ",".join("?" * len(rating_keys))
+        placeholders = ",".join("?" * len(item_keys))
         rows = conn.execute(
-            f"SELECT rating_key, title, artist, album FROM tracks WHERE rating_key IN ({placeholders})",
-            rating_keys,
+            f"SELECT item_key, title, artist, album FROM tracks WHERE item_key IN ({placeholders})",
+            item_keys,
         ).fetchall()
-        return {row["rating_key"]: dict(row) for row in rows}
+        return {row["item_key"]: dict(row) for row in rows}
     finally:
         conn.close()
 
@@ -1314,13 +1337,13 @@ def get_albums_by_artist(artist: str, max_albums: int = 50) -> list[dict[str, An
         max_albums: Maximum albums to return (default 50).
 
     Returns:
-        List of dicts with keys: album, artist, year, genres, rating_key (parent_rating_key).
+        List of dicts with keys: album, artist, year, genres, item_key (parent_item_key).
     """
     conn = ensure_db_initialized()
     try:
         rows = conn.execute(
             """
-            SELECT parent_rating_key, album, artist, year, genres
+            SELECT parent_item_key, album, artist, year, genres
             FROM tracks
             WHERE LOWER(artist) LIKE LOWER(?)
             GROUP BY album, artist
@@ -1331,7 +1354,7 @@ def get_albums_by_artist(artist: str, max_albums: int = 50) -> list[dict[str, An
         ).fetchall()
         return [
             {
-                "rating_key": row[0],
+                "item_key": row[0],
                 "album": row[1],
                 "artist": row[2],
                 "year": row[3],
@@ -1354,7 +1377,7 @@ def save_result(
     snapshot: dict,
     track_count: int,
     artist: str | None = None,
-    art_rating_key: str | None = None,
+    art_item_key: str | None = None,
     subtitle: str | None = None,
 ) -> str:
     """Save a generated result and return its unique ID.
@@ -1366,7 +1389,7 @@ def save_result(
         snapshot: Full serialized response (GenerateResponse or RecommendGenerateResponse)
         track_count: Number of tracks in the result
         artist: Primary artist (for album recs)
-        art_rating_key: Rating key for thumbnail art
+        art_item_key: Rating key for thumbnail art
         subtitle: Pre-computed subtitle for history feed cards
 
     Returns:
@@ -1379,9 +1402,9 @@ def save_result(
         for _ in range(10):
             result_id = secrets.token_hex(8)
             cursor = conn.execute(
-                """INSERT OR IGNORE INTO results (id, type, title, prompt, snapshot, track_count, artist, art_rating_key, subtitle)
+                """INSERT OR IGNORE INTO results (id, type, title, prompt, snapshot, track_count, artist, art_item_key, subtitle)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (result_id, result_type, title, prompt, json.dumps(snapshot), track_count, artist, art_rating_key, subtitle),
+                (result_id, result_type, title, prompt, json.dumps(snapshot), track_count, artist, art_item_key, subtitle),
             )
             if cursor.rowcount > 0:
                 break
@@ -1403,7 +1426,7 @@ def get_result(result_id: str) -> dict[str, Any] | None:
     conn = ensure_db_initialized()
     try:
         row = conn.execute(
-            "SELECT id, type, title, prompt, snapshot, track_count, artist, art_rating_key, subtitle, created_at FROM results WHERE id = ?",
+            "SELECT id, type, title, prompt, snapshot, track_count, artist, art_item_key, subtitle, created_at FROM results WHERE id = ?",
             (result_id,),
         ).fetchone()
         if not row:
@@ -1416,7 +1439,7 @@ def get_result(result_id: str) -> dict[str, Any] | None:
             "snapshot": json.loads(row["snapshot"]),
             "track_count": row["track_count"],
             "artist": row["artist"],
-            "art_rating_key": row["art_rating_key"],
+            "art_item_key": row["art_item_key"],
             "subtitle": row["subtitle"],
             "created_at": row["created_at"],
         }
@@ -1457,7 +1480,7 @@ def list_results(
 
         # Get page
         rows = conn.execute(
-            f"""SELECT id, type, title, prompt, track_count, artist, art_rating_key, subtitle, created_at
+            f"""SELECT id, type, title, prompt, track_count, artist, art_item_key, subtitle, created_at
                 FROM results {where_clause}
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?""",
@@ -1472,7 +1495,7 @@ def list_results(
                 "prompt": row["prompt"],
                 "track_count": row["track_count"],
                 "artist": row["artist"],
-                "art_rating_key": row["art_rating_key"],
+                "art_item_key": row["art_item_key"],
                 "subtitle": row["subtitle"],
                 "created_at": row["created_at"],
             }

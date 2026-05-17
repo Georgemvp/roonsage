@@ -41,7 +41,7 @@ def album_key(artist: str, album: str, lower: bool = True) -> str:
 class Track(BaseModel):
     """A music track from the Roon library."""
 
-    rating_key: str
+    item_key: str
     title: str
     artist: str
     album: str
@@ -210,7 +210,7 @@ class AnalyzeTrackRequest(BaseModel):
     items instead of track metadata).
     """
 
-    rating_key: str
+    item_key: str
     # Optional metadata — populated by the frontend from SQLite search results.
     # When present these take priority over a Roon Browse API lookup.
     title: str | None = None
@@ -272,7 +272,7 @@ class FilterLibraryResponse(BaseModel):
 class SeedTrackInput(BaseModel):
     """Seed track input for generation."""
 
-    rating_key: str
+    item_key: str
     selected_dimensions: list[str]
 
 
@@ -310,7 +310,7 @@ class GenerateResponse(BaseModel):
     track_reasons: dict[str, str] = {}
 
 
-def _validate_rating_keys(v: list[str]) -> list[str]:
+def _validate_item_keys(v: list[str]) -> list[str]:
     """Validate a list of rating keys (must be non-empty strings)."""
     if not v:
         raise ValueError("At least one track is required")
@@ -329,7 +329,7 @@ class SavePlaylistRequest(BaseModel):
     """Request to queue tracks to a Roon zone."""
 
     name: str
-    rating_keys: list[str]
+    item_keys: list[str]
     description: str = ""  # Optional description
 
     @field_validator("name")
@@ -344,10 +344,10 @@ class SavePlaylistRequest(BaseModel):
     def truncate_description(cls, v: str) -> str:
         return _truncate_description(v)
 
-    @field_validator("rating_keys")
+    @field_validator("item_keys")
     @classmethod
-    def validate_rating_keys(cls, v: list[str]) -> list[str]:
-        return _validate_rating_keys(v)
+    def validate_item_keys(cls, v: list[str]) -> list[str]:
+        return _validate_item_keys(v)
 
 
 class SavePlaylistResponse(BaseModel):
@@ -733,14 +733,14 @@ class SyncTriggerResponse(BaseModel):
 class AlbumCandidate(BaseModel):
     """An album from the user's Roon library, aggregated from cached tracks."""
 
-    parent_rating_key: str
+    parent_item_key: str
     album: str
     album_artist: str
     year: int | None = None
     genres: list[str] = []
     decade: str = ""
     track_count: int = 0
-    track_rating_keys: list[str] = []
+    track_item_keys: list[str] = []
 
 
 class ClarifyingQuestion(BaseModel):
@@ -769,8 +769,8 @@ class AlbumRecommendation(BaseModel):
     album: str
     artist: str
     year: int | None = None
-    rating_key: str | None = None
-    track_rating_keys: list[str] = []
+    item_key: str | None = None
+    track_item_keys: list[str] = []
     art_url: str | None = None
     pitch: SommelierPitch = SommelierPitch()
     research_available: bool = False
@@ -966,7 +966,7 @@ class ResultListItem(BaseModel):
     prompt: str
     track_count: int
     artist: str | None = None
-    art_rating_key: str | None = None
+    art_item_key: str | None = None
     subtitle: str | None = None
     created_at: str
 
@@ -987,7 +987,7 @@ class ResultDetail(BaseModel):
     prompt: str
     track_count: int
     artist: str | None = None
-    art_rating_key: str | None = None
+    art_item_key: str | None = None
     subtitle: str | None = None
     created_at: str
     snapshot: dict

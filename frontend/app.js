@@ -106,7 +106,7 @@ const state = {
     // Curator narrative
     playlistTitle: '',      // Generated title with date
     narrative: '',          // 2-3 sentence curator note
-    trackReasons: {},       // { rating_key: "reason string" }
+    trackReasons: {},       // { item_key: "reason string" }
     userRequest: '',        // Original user prompt for display
 
     // Cost tracking (accumulated across analysis + generation)
@@ -319,7 +319,7 @@ async function analyzeTrack(track) {
     return apiCall('/analyze/track', {
         method: 'POST',
         body: JSON.stringify({
-            rating_key: track.rating_key,
+            item_key: track.item_key,
             title: track.title || null,
             artist: track.artist || null,
             album: track.album || null,
@@ -497,10 +497,10 @@ async function fetchRoonZones() {
     return apiCall('/roon/zones');
 }
 
-async function createPlayQueue(ratingKeys, zoneId, mode) {
+async function createPlayQueue(itemKeys, zoneId, mode) {
     return apiCall('/queue', {
         method: 'POST',
-        body: JSON.stringify({ item_keys: ratingKeys, zone_id: zoneId, mode }),
+        body: JSON.stringify({ item_keys: itemKeys, zone_id: zoneId, mode }),
     });
 }
 
@@ -1542,14 +1542,14 @@ function renderNarrativeBox() {
     }
 }
 
-function showTrackReason(ratingKey) {
+function showTrackReason(itemKey) {
     const panel = document.getElementById('track-reason-panel');
     if (!panel) return;
 
     const placeholder = panel.querySelector('.reason-placeholder');
     const content = panel.querySelector('.reason-content');
 
-    if (!ratingKey) {
+    if (!itemKey) {
         // Show placeholder
         placeholder.classList.remove('hidden');
         content.classList.add('hidden');
@@ -1557,11 +1557,11 @@ function showTrackReason(ratingKey) {
     }
 
     // Find track in playlist
-    const track = state.playlist.find(t => t.rating_key === ratingKey);
+    const track = state.playlist.find(t => t.item_key === itemKey);
     if (!track) return;
 
     // Get reason for this track
-    const reason = state.trackReasons[ratingKey] || 'Selected for this playlist';
+    const reason = state.trackReasons[itemKey] || 'Selected for this playlist';
 
     // Update album art
     const artContainer = panel.querySelector('.reason-album-art-container');
@@ -1584,34 +1584,34 @@ function showTrackReason(ratingKey) {
     content.classList.remove('hidden');
 }
 
-function selectTrack(ratingKey) {
-    state.selectedTrackKey = ratingKey;
+function selectTrack(itemKey) {
+    state.selectedTrackKey = itemKey;
 
     // Toggle .selected class on track rows
     document.querySelectorAll('.playlist-track').forEach(el => {
-        const isSelected = el.dataset.ratingKey === ratingKey;
+        const isSelected = el.dataset.itemKey === itemKey;
         el.classList.toggle('selected', isSelected);
         el.setAttribute('aria-selected', isSelected ? 'true' : 'false');
     });
 
     // Update detail panel
-    showTrackReason(ratingKey);
+    showTrackReason(itemKey);
 }
 
 function isMobileView() {
     return window.innerWidth <= 768;
 }
 
-function openBottomSheet(ratingKey) {
+function openBottomSheet(itemKey) {
     const sheet = document.getElementById('bottom-sheet');
     if (!sheet) return;
 
     // Find track in playlist
-    const track = state.playlist.find(t => t.rating_key === ratingKey);
+    const track = state.playlist.find(t => t.item_key === itemKey);
     if (!track) return;
 
     // Get reason for this track
-    const reason = state.trackReasons[ratingKey] || 'Selected for this playlist';
+    const reason = state.trackReasons[itemKey] || 'Selected for this playlist';
 
     // Update content
     sheet.querySelector('.bottom-sheet-track-title').textContent = track.title;
@@ -1640,7 +1640,7 @@ function updatePlaylist() {
     const container = document.getElementById('playlist-tracks');
     container.innerHTML = state.playlist.map((track, index) => `
         <div class="playlist-track" role="option" tabindex="0"
-             data-rating-key="${escapeHtml(track.rating_key)}"
+             data-item-key="${escapeHtml(track.item_key)}"
              aria-selected="false"
              aria-label="${escapeHtml(track.title)} by ${escapeHtml(track.artist)}">
             <span class="track-number">${index + 1}</span>
@@ -1652,7 +1652,7 @@ function updatePlaylist() {
                 </div>
                 <div class="track-artist">${escapeHtml(track.artist)} - ${escapeHtml(track.album)}</div>
             </div>
-            <button class="track-remove" tabindex="0" data-rating-key="${escapeHtml(track.rating_key)}"
+            <button class="track-remove" tabindex="0" data-item-key="${escapeHtml(track.item_key)}"
                     aria-label="Remove ${escapeHtml(track.title)}">&times;</button>
         </div>
     `).join('');
@@ -1662,9 +1662,9 @@ function updatePlaylist() {
         trackEl.addEventListener('click', (e) => {
             if (e.target.closest('.track-remove')) return;
             if (isMobileView()) {
-                openBottomSheet(trackEl.dataset.ratingKey);
+                openBottomSheet(trackEl.dataset.itemKey);
             } else {
-                selectTrack(trackEl.dataset.ratingKey);
+                selectTrack(trackEl.dataset.itemKey);
             }
         });
 
@@ -1674,9 +1674,9 @@ function updatePlaylist() {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 if (isMobileView()) {
-                    openBottomSheet(trackEl.dataset.ratingKey);
+                    openBottomSheet(trackEl.dataset.itemKey);
                 } else {
-                    selectTrack(trackEl.dataset.ratingKey);
+                    selectTrack(trackEl.dataset.itemKey);
                 }
             }
         });
@@ -1685,11 +1685,11 @@ function updatePlaylist() {
     // Auto-select: restore previous selection or pick first track (desktop)
     if (!isMobileView() && state.playlist.length > 0) {
         const hasSelected = state.selectedTrackKey &&
-            state.playlist.some(t => t.rating_key === state.selectedTrackKey);
+            state.playlist.some(t => t.item_key === state.selectedTrackKey);
         if (hasSelected) {
             selectTrack(state.selectedTrackKey);
         } else {
-            selectTrack(state.playlist[0].rating_key);
+            selectTrack(state.playlist[0].item_key);
         }
     } else if (state.playlist.length === 0) {
         state.selectedTrackKey = null;
@@ -2757,15 +2757,15 @@ function setupEventListeners() {
         const removeBtn = e.target.closest('.track-remove');
         if (!removeBtn) return;
 
-        const ratingKey = removeBtn.dataset.ratingKey;
-        const removedIndex = state.playlist.findIndex(t => t.rating_key === ratingKey);
-        state.playlist = state.playlist.filter(t => t.rating_key !== ratingKey);
+        const itemKey = removeBtn.dataset.itemKey;
+        const removedIndex = state.playlist.findIndex(t => t.item_key === itemKey);
+        state.playlist = state.playlist.filter(t => t.item_key !== itemKey);
 
         // If removed track was selected, auto-select next or first
-        if (state.selectedTrackKey === ratingKey) {
+        if (state.selectedTrackKey === itemKey) {
             if (state.playlist.length > 0) {
                 const nextIndex = Math.min(removedIndex, state.playlist.length - 1);
-                state.selectedTrackKey = state.playlist[nextIndex].rating_key;
+                state.selectedTrackKey = state.playlist[nextIndex].item_key;
             } else {
                 state.selectedTrackKey = null;
             }
@@ -2985,7 +2985,7 @@ function renderSearchResults(tracks) {
     }
 
     container.innerHTML = tracks.map(track => `
-        <div class="search-result-item" data-rating-key="${escapeHtml(track.rating_key)}"
+        <div class="search-result-item" data-item-key="${escapeHtml(track.item_key)}"
              role="option" tabindex="0"
              aria-label="${escapeHtml(track.title)} by ${escapeHtml(track.artist)}">
             ${trackArtHtml(track)}
@@ -2998,17 +2998,17 @@ function renderSearchResults(tracks) {
 
     // Add click and keyboard handlers
     container.querySelectorAll('.search-result-item').forEach(item => {
-        item.addEventListener('click', () => selectSeedTrack(item.dataset.ratingKey, tracks));
+        item.addEventListener('click', () => selectSeedTrack(item.dataset.itemKey, tracks));
         item.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                selectSeedTrack(item.dataset.ratingKey, tracks);
+                selectSeedTrack(item.dataset.itemKey, tracks);
             }
         });
     });
 }
 
-async function selectSeedTrack(ratingKey, tracks) {
+async function selectSeedTrack(itemKey, tracks) {
     // Check if services are configured before proceeding
     if (!state.config?.roon_connected) {
         showError('Connect to Roon in Settings first');
@@ -3019,7 +3019,7 @@ async function selectSeedTrack(ratingKey, tracks) {
         return;
     }
 
-    const track = tracks.find(t => t.rating_key === ratingKey);
+    const track = tracks.find(t => t.item_key === itemKey);
     if (!track) return;
 
     state.seedTrack = track;
@@ -3225,7 +3225,7 @@ async function handleGenerate() {
         }
     } else {
         request.seed_track = {
-            rating_key: state.seedTrack.rating_key,
+            item_key: state.seedTrack.item_key,
             selected_dimensions: state.selectedDimensions,
         };
         if (state.additionalNotes) {
@@ -3826,9 +3826,9 @@ async function executePlayQueue(clientId, mode) {
     setLoading(true, 'Sending to device...');
 
     try {
-        const ratingKeys = state._pendingRatingKeys || state.playlist.map(t => t.rating_key);
+        const itemKeys = state._pendingRatingKeys || state.playlist.map(t => t.item_key);
         state._pendingRatingKeys = null;
-        const response = await createPlayQueue(ratingKeys, clientId, mode);
+        const response = await createPlayQueue(itemKeys, clientId, mode);
 
         setLoading(false);
         if (response.success) {
@@ -4893,8 +4893,8 @@ function renderRecResults() {
                             ${escapeHtml(pitch.connection)}
                         </div>` : ''}
                     <div class="rec-primary-actions">
-                        ${primary.track_rating_keys?.length ? `
-                            <button class="btn btn-primary rec-play-btn" data-rating-keys="${escapeHtml(primary.track_rating_keys.join(','))}">${primary.source === 'qobuz' ? '&#9654; Speel via Qobuz' : '&#9654; Play Now'}</button>
+                        ${primary.track_item_keys?.length ? `
+                            <button class="btn btn-primary rec-play-btn" data-item-keys="${escapeHtml(primary.track_item_keys.join(','))}">${primary.source === 'qobuz' ? '&#9654; Speel via Qobuz' : '&#9654; Play Now'}</button>
                         ` : primary.playable === false ? `
                             <span class="rec-unavailable">Niet beschikbaar voor streaming</span>
                         ` : ''}
@@ -4925,9 +4925,9 @@ function renderRecResults() {
                         <div class="rec-secondary-info">
                             <div class="rec-secondary-title">${escapeHtml(rec.album)}</div>
                             <div class="rec-secondary-artist">${escapeHtml(rec.artist)}${rec.year ? ` (${rec.year})` : ''}</div>
-                            ${rec.track_rating_keys?.length ? `
+                            ${rec.track_item_keys?.length ? `
                                 <div class="rec-secondary-actions">
-                                    <button class="btn btn-secondary btn-sm rec-play-btn" data-rating-keys="${escapeHtml(rec.track_rating_keys.join(','))}">${rec.source === 'qobuz' ? '&#9654; Qobuz' : '&#9654; Play'}</button>
+                                    <button class="btn btn-secondary btn-sm rec-play-btn" data-item-keys="${escapeHtml(rec.track_item_keys.join(','))}">${rec.source === 'qobuz' ? '&#9654; Qobuz' : '&#9654; Play'}</button>
                                 </div>
                             ` : rec.playable === false ? `
                                 <div class="rec-secondary-actions">
@@ -5197,7 +5197,7 @@ function setupRecEventListeners() {
 function handleRecResultAction(e) {
     const playBtn = e.target.closest('.rec-play-btn');
     if (playBtn) {
-        const keys = playBtn.dataset.ratingKeys.split(',');
+        const keys = playBtn.dataset.itemKeys.split(',');
         // Store rating keys for the play queue flow, then open client picker
         state._pendingRatingKeys = keys;
         const modal = document.getElementById('client-picker-modal');

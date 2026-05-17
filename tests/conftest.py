@@ -11,7 +11,7 @@ def mock_roon_tracks() -> list[Track]:
     """Sample library tracks for testing filter/match logic."""
     return [
         Track(
-            rating_key="1",
+            item_key="1",
             title="Fake Plastic Trees",
             artist="Radiohead",
             album="The Bends",
@@ -21,7 +21,7 @@ def mock_roon_tracks() -> list[Track]:
             art_url="/api/art/1",
         ),
         Track(
-            rating_key="2",
+            item_key="2",
             title="Black",
             artist="Pearl Jam",
             album="Ten",
@@ -31,7 +31,7 @@ def mock_roon_tracks() -> list[Track]:
             art_url="/api/art/2",
         ),
         Track(
-            rating_key="3",
+            item_key="3",
             title="Creep",
             artist="Radiohead",
             album="Pablo Honey",
@@ -41,7 +41,7 @@ def mock_roon_tracks() -> list[Track]:
             art_url="/api/art/3",
         ),
         Track(
-            rating_key="4",
+            item_key="4",
             title="Bitter Sweet Symphony",
             artist="The Verve",
             album="Urban Hymns",
@@ -51,7 +51,7 @@ def mock_roon_tracks() -> list[Track]:
             art_url="/api/art/4",
         ),
         Track(
-            rating_key="5",
+            item_key="5",
             title="Wonderwall",
             artist="Oasis",
             album="(What's the Story) Morning Glory?",
@@ -61,7 +61,7 @@ def mock_roon_tracks() -> list[Track]:
             art_url="/api/art/5",
         ),
         Track(
-            rating_key="6",
+            item_key="6",
             title="Say It Ain't So",
             artist="Weezer",
             album="Weezer (Blue Album)",
@@ -71,7 +71,7 @@ def mock_roon_tracks() -> list[Track]:
             art_url="/api/art/6",
         ),
         Track(
-            rating_key="7",
+            item_key="7",
             title="Under the Bridge",
             artist="Red Hot Chili Peppers",
             album="Blood Sugar Sex Magik",
@@ -81,7 +81,7 @@ def mock_roon_tracks() -> list[Track]:
             art_url="/api/art/7",
         ),
         Track(
-            rating_key="8",
+            item_key="8",
             title="Smells Like Teen Spirit",
             artist="Nirvana",
             album="Nevermind",
@@ -91,7 +91,7 @@ def mock_roon_tracks() -> list[Track]:
             art_url="/api/art/8",
         ),
         Track(
-            rating_key="9",
+            item_key="9",
             title="Champagne Supernova - Live",
             artist="Oasis",
             album="Live at Knebworth 1996",
@@ -101,7 +101,7 @@ def mock_roon_tracks() -> list[Track]:
             art_url="/api/art/9",
         ),
         Track(
-            rating_key="10",
+            item_key="10",
             title="Purple Rain",
             artist="Prince",
             album="Purple Rain",

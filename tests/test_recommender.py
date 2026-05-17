@@ -371,8 +371,8 @@ class TestWritePitchesGrounding:
                 album="Agaetis byrjun",
                 artist="Sigur Ros",
                 year=1999,
-                rating_key="123",
-                track_rating_keys=["456"],
+                item_key="123",
+                track_item_keys=["456"],
             ),
         ]
 
@@ -436,7 +436,7 @@ class TestWritePitchesGrounding:
 
         recs = [AlbumRecommendation(
             rank="primary", album="Test", artist="Test",
-            rating_key="1", track_rating_keys=["2"],
+            item_key="1", track_item_keys=["2"],
         )]
 
         # No extracted_facts passed — should still work without [:500] truncation

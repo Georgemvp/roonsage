@@ -360,7 +360,7 @@ async def recommend_generate(request: RecommendGenerateRequest, raw_request: Req
             familiarity_data = None
             if request.familiarity_pref != "any" and not is_discovery:
                 try:
-                    candidate_keys = [c.parent_rating_key for c in loaded_candidates if c.parent_rating_key]
+                    candidate_keys = [c.parent_item_key for c in loaded_candidates if c.parent_item_key]
                     if candidate_keys:
                         familiarity_data = await asyncio.to_thread(
                             library_cache.get_album_familiarity, candidate_keys
@@ -406,13 +406,13 @@ async def recommend_generate(request: RecommendGenerateRequest, raw_request: Req
             if not is_discovery:
                 roon_client_for_tracks = get_roon_client()
                 for rec in recommendations:
-                    if not rec.track_rating_keys and rec.rating_key:
+                    if not rec.track_item_keys and rec.item_key:
                         try:
                             track_keys = await asyncio.to_thread(
                                 roon_client_for_tracks.get_album_track_keys,
-                                rec.rating_key,
+                                rec.item_key,
                             )
-                            rec.track_rating_keys = track_keys
+                            rec.track_item_keys = track_keys
                         except Exception as e:
                             logger.warning(
                                 "Failed to get track keys for album %s: %s", rec.album, e
@@ -563,7 +563,7 @@ async def recommend_generate(request: RecommendGenerateRequest, raw_request: Req
                 from rapidfuzz import fuzz
                 from backend.qobuz_browser import search_qobuz_tracks
 
-                discovery_recs = [r for r in recommendations if not r.track_rating_keys]
+                discovery_recs = [r for r in recommendations if not r.track_item_keys]
                 if discovery_recs:
                     yield f"event: progress\ndata: {json.dumps({'step': 'qobuz_lookup', 'message': 'Zoeken naar album op Qobuz...'})}\n\n"
 
@@ -593,8 +593,8 @@ async def recommend_generate(request: RecommendGenerateRequest, raw_request: Req
                                     ) >= 70
                                 ]
                             if album_tracks:
-                                rec.track_rating_keys = [t["item_key"] for t in album_tracks]
-                                rec.rating_key = album_tracks[0]["item_key"]
+                                rec.track_item_keys = [t["item_key"] for t in album_tracks]
+                                rec.item_key = album_tracks[0]["item_key"]
                                 rec.source = "qobuz"
                                 rec.playable = True
                             else:
@@ -622,7 +622,7 @@ async def recommend_generate(request: RecommendGenerateRequest, raw_request: Req
                 if primary_rec:
                     rec_title = f"{primary_rec.album} by {primary_rec.artist}"
                     rec_artist = primary_rec.artist
-                    rec_art_key = primary_rec.track_rating_keys[0] if primary_rec.track_rating_keys else None
+                    rec_art_key = primary_rec.track_item_keys[0] if primary_rec.track_item_keys else None
                     rec_subtitle = primary_rec.pitch.hook if primary_rec.pitch and primary_rec.pitch.hook else _prompt
                 else:
                     rec_title = "Album Recommendation"
@@ -637,7 +637,7 @@ async def recommend_generate(request: RecommendGenerateRequest, raw_request: Req
                     snapshot=result.model_dump(mode="json"),
                     track_count=len(recommendations),
                     artist=rec_artist,
-                    art_rating_key=rec_art_key,
+                    art_item_key=rec_art_key,
                     subtitle=rec_subtitle,
                 )
             except Exception as e:

@@ -103,7 +103,7 @@ class RoonSearchMixin:
         art_url = f"/api/art/{item_key}" if item_key else None
 
         return Track(
-            rating_key=item_key,
+            item_key=item_key,
             title=title,
             artist=artist,
             album=album,

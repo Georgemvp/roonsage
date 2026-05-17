@@ -41,7 +41,7 @@ async def generate_playlist_sse(request: GenerateRequest) -> StreamingResponse:
     selected_dimensions = None
     if request.seed_track:
         seed_track = await asyncio.to_thread(
-            roon_client.get_track_by_key, request.seed_track.rating_key
+            roon_client.get_track_by_key, request.seed_track.item_key
         )
         if not seed_track:
             raise HTTPException(status_code=404, detail="Seed track not found")
@@ -115,7 +115,7 @@ async def analyze_track(request: AnalyzeTrackRequest) -> AnalyzeTrackResponse:
             request.artist,
         )
         track = Track(
-            rating_key=request.rating_key,
+            item_key=request.item_key,
             title=request.title,
             artist=request.artist,
             album=request.album or "Unknown Album",
@@ -130,9 +130,9 @@ async def analyze_track(request: AnalyzeTrackRequest) -> AnalyzeTrackResponse:
             raise HTTPException(status_code=503, detail="Roon not connected")
         logger.info(
             "analyze_track: no metadata in request, falling back to Roon lookup for key %r",
-            request.rating_key,
+            request.item_key,
         )
-        track = await asyncio.to_thread(roon_client.get_track_by_key, request.rating_key)
+        track = await asyncio.to_thread(roon_client.get_track_by_key, request.item_key)
         if not track:
             raise HTTPException(status_code=404, detail="Track not found")
 

@@ -114,14 +114,14 @@ def generate_narrative(
 def _cached_track_to_model(cached: dict) -> Track:
     """Convert a cached track dict to a Track model."""
     return Track(
-        rating_key=cached["rating_key"],
+        item_key=cached["item_key"],
         title=cached["title"],
         artist=cached["artist"],
         album=cached["album"],
         duration_ms=cached.get("duration_ms") or 0,
         year=cached.get("year"),
         genres=cached.get("genres") or [],
-        art_url=f"/api/art/{cached['rating_key']}",
+        art_url=f"/api/art/{cached['item_key']}",
     )
 
 
@@ -354,7 +354,7 @@ def generate_playlist_stream(
             MAX_PER_ARTIST = 2
 
             if seed_track:
-                used_keys.add(seed_track.rating_key)
+                used_keys.add(seed_track.item_key)
 
             for selection in track_selections:
                 if len(matched_tracks) >= track_count:
@@ -372,15 +372,15 @@ def generate_playlist_stream(
 
                 if track_num is not None and 1 <= track_num <= len(filtered_tracks):
                     track = filtered_tracks[track_num - 1]
-                    if track.rating_key not in used_keys:
+                    if track.item_key not in used_keys:
                         artist_lower = track.artist.lower().strip()
                         if artist_counts.get(artist_lower, 0) >= MAX_PER_ARTIST:
                             continue
                         matched_tracks.append(track)
-                        used_keys.add(track.rating_key)
+                        used_keys.add(track.item_key)
                         artist_counts[artist_lower] = artist_counts.get(artist_lower, 0) + 1
                         if reason:
-                            track_reasons[track.rating_key] = reason
+                            track_reasons[track.item_key] = reason
                         match_method_counts["number"] += 1
                         continue
 
@@ -390,17 +390,17 @@ def generate_playlist_stream(
                 if artist or title:
                     fuzzy_matched = False
                     for track in filtered_tracks:
-                        if track.rating_key in used_keys:
+                        if track.item_key in used_keys:
                             continue
                         if _tracks_match(artist, title, track):
                             artist_lower = track.artist.lower().strip()
                             if artist_counts.get(artist_lower, 0) >= MAX_PER_ARTIST:
                                 continue
                             matched_tracks.append(track)
-                            used_keys.add(track.rating_key)
+                            used_keys.add(track.item_key)
                             artist_counts[artist_lower] = artist_counts.get(artist_lower, 0) + 1
                             if reason:
-                                track_reasons[track.rating_key] = reason
+                                track_reasons[track.item_key] = reason
                             match_method_counts["fuzzy"] += 1
                             fuzzy_matched = True
                             break
@@ -515,7 +515,7 @@ def generate_playlist_stream(
             # Title: always use the LLM-generated playlist title
             result_title = playlist_title
             # Use first track's rating key for card thumbnail
-            first_art_key = matched_tracks[0].rating_key if matched_tracks else None
+            first_art_key = matched_tracks[0].item_key if matched_tracks else None
             # Subtitle: seed playlists show origin track, prompt playlists show prompt + count
             if seed_track:
                 result_subtitle = f"From: {seed_track.title} by {seed_track.artist} \u00b7 {len(matched_tracks)} tracks"
@@ -529,7 +529,7 @@ def generate_playlist_stream(
                 prompt=prompt or "",
                 snapshot=result.model_dump(mode="json"),
                 track_count=len(matched_tracks),
-                art_rating_key=first_art_key,
+                art_item_key=first_art_key,
                 subtitle=result_subtitle,
             )
         except Exception as e:
@@ -693,7 +693,7 @@ def _discover_qobuz_tracks(
             seen_keys.add(item_key)
 
             track = Track(
-                rating_key=item_key,
+                item_key=item_key,
                 title=result.get("title") or title,
                 artist=result.get("artist") or artist,
                 album=result.get("album") or suggestion.get("album", ""),
