@@ -141,8 +141,6 @@ const state = {
 
     // Instant Queue (005) — Update Existing
     saveMode: 'replace_queue', // 'replace_queue' | 'play_now' | 'queue_next'
-    selectedPlaylistId: null,
-    // plexPlaylists removed — Roon uses queue, not saved playlists
 
     // Recommendation (006)
     rec: {
@@ -491,15 +489,6 @@ function generatePlaylistStream(request, onProgress, onComplete, onError) {
     });
 }
 
-async function savePlaylist(name, ratingKeys, description = '') {
-    // Roon does not support playlist creation via the Extension API.
-    // Return a structured error so callers can display an appropriate message.
-    return {
-        success: false,
-        error: 'Roon does not support saving playlists via the Extension API. Use "Play Now" to queue tracks to a zone.',
-    };
-}
-
 // =============================================================================
 // Instant Queue API Calls (005)
 // =============================================================================
@@ -512,22 +501,6 @@ async function createPlayQueue(ratingKeys, zoneId, mode) {
     return apiCall('/queue', {
         method: 'POST',
         body: JSON.stringify({ item_keys: ratingKeys, zone_id: zoneId, mode }),
-    });
-}
-
-// fetchPlexPlaylists removed — Roon uses queue API instead
-async function _unused_fetchRoonQueue() {
-}
-
-async function sendPlaylistUpdate(playlistId, ratingKeys, mode, description = '') {
-    return apiCall('/playlist/update', {
-        method: 'POST',
-        body: JSON.stringify({
-            playlist_id: playlistId,
-            rating_keys: ratingKeys,
-            mode,
-            description,
-        }),
     });
 }
 
@@ -1742,8 +1715,6 @@ function updatePlaylist() {
     // Update footer
     updateResultsFooter();
 
-    // Update playlist name input
-    document.getElementById('playlist-name-input').value = state.playlistName;
 }
 
 function updateResultsFooter() {
@@ -1766,8 +1737,6 @@ function updateResultsFooter() {
         }
     }
 
-    // Keep append track count in sync
-    updateAppendTrackCount();
 }
 
 function updateSettings() {
@@ -2904,14 +2873,6 @@ function setupEventListeners() {
         opt.addEventListener('click', () => setSaveMode(opt.dataset.mode));
     });
 
-    // Playlist picker change
-    document.getElementById('playlist-picker').addEventListener('change', (e) => {
-        state.selectedPlaylistId = e.target.value;
-    });
-
-    // Update success modal — Start New Playlist
-    document.getElementById('update-new-playlist-btn').addEventListener('click', handleUpdateSuccessNewPlaylist);
-
     // Bottom sheet close handlers
     const bottomSheet = document.getElementById('bottom-sheet');
     if (bottomSheet) {
@@ -2941,7 +2902,6 @@ function setupEventListeners() {
             { id: 'play-choice-modal', dismiss: dismissPlayChoice },
             { id: 'client-picker-modal', dismiss: dismissClientPicker },
             { id: 'play-success-modal', dismiss: dismissPlaySuccess },
-            { id: 'update-success-modal', dismiss: dismissUpdateSuccess },
             { id: 'success-modal', dismiss: dismissSuccessModal },
             { id: 'bottom-sheet', dismiss: closeBottomSheet },
         ];
@@ -3728,7 +3688,6 @@ function dismissModal(id, afterDismiss) {
 function dismissClientPicker() { dismissModal('client-picker-modal'); }
 function dismissPlayChoice() { dismissModal('play-choice-modal', () => { state._pendingClientId = null; }); }
 function dismissPlaySuccess() { dismissModal('play-success-modal'); }
-function dismissUpdateSuccess() { dismissModal('update-success-modal'); }
 function dismissRecRestartModal() { pendingNavHash = null; dismissModal('rec-restart-modal'); }
 function dismissPlaylistRestartModal() { pendingNavHash = null; dismissModal('playlist-restart-modal'); }
 
@@ -3917,48 +3876,6 @@ function toggleSaveModeDropdown() {
     }
 }
 
-// =============================================================================
-// Instant Queue — Update Existing Handlers (005)
-// =============================================================================
-
-async function fetchAndPopulatePlaylists() {
-    const picker = document.getElementById('playlist-picker');
-
-    // Only fetch if cache is empty
-    if (false) { // Roon uses zone-based queue, not playlist saving
-        // Show loading state in picker
-        picker.innerHTML = '<option value="" disabled>Loading playlists...</option>';
-
-        try {
-            // state.roonPlaylists not used
-        } catch (error) {
-            showError('Failed to load playlists: ' + error.message);
-            picker.innerHTML = '<option value="__scratch__">RoonSage - Now Playing</option>';
-            return;
-        }
-    }
-
-    // Rebuild picker options: fixed scratch option first, then server playlists
-    picker.innerHTML = '<option value="__scratch__">RoonSage - Now Playing</option>';
-    for (const pl of []) { // Roon playlist picker disabled
-        // Skip if it's the same as the scratch playlist title (avoid duplicate)
-        if (pl.title === 'RoonSage - Now Playing') continue;
-        const option = document.createElement('option');
-        option.value = pl.rating_key;
-        option.textContent = `${pl.title} (${pl.track_count} tracks)`;
-        picker.appendChild(option);
-    }
-
-    // Restore previous selection if available
-    if (state.selectedPlaylistId) {
-        picker.value = state.selectedPlaylistId;
-    }
-}
-
-function updateAppendTrackCount() {
-    // No-op: append mode removed; button label is now static per saveMode.
-}
-
 function setSaveMode(mode) {
     state.saveMode = mode;
 
@@ -3973,14 +3890,7 @@ function setSaveMode(mode) {
         opt.querySelector('.save-mode-check').innerHTML = isActive ? '&#10003;' : '';
     });
 
-    // Roon does not support saved playlists — always hide name/picker inputs.
-    // The mode controls only how tracks are sent to the active zone.
     const saveBtn = document.getElementById('save-playlist-btn');
-    const nameContainer = document.querySelector('.playlist-name-container');
-    const pickerContainer = document.getElementById('playlist-picker-container');
-
-    nameContainer.classList.add('hidden');
-    pickerContainer.classList.add('hidden');
 
     if (mode === 'play_now') {
         saveBtn.innerHTML = '<span class="btn-label-long">Play Now</span><span class="btn-label-short">Play</span>';
@@ -3993,77 +3903,6 @@ function setSaveMode(mode) {
 
     // Persist to localStorage
     try { localStorage.setItem('roonsage-save-mode', mode); } catch (e) { /* private browsing */ }
-}
-
-async function handleUpdatePlaylist() {
-    const picker = document.getElementById('playlist-picker');
-    const playlistId = picker.value;
-    const matchedPlaylist = null; // Roon uses zone-based queue, not saved playlists
-    const playlistTitle = matchedPlaylist?.title || picker.options[picker.selectedIndex]?.textContent || 'Playlist';
-
-    if (!playlistId) {
-        showError('Please select a playlist');
-        return;
-    }
-
-    if (!state.playlist.length) {
-        showError('Playlist is empty');
-        return;
-    }
-
-    setLoading(true, 'Updating playlist...');
-
-    try {
-        const ratingKeys = state.playlist.map(t => t.rating_key);
-        const response = await sendPlaylistUpdate(
-            playlistId,
-            ratingKeys,
-            state.saveMode,
-            state.narrative,
-        );
-
-        setLoading(false);
-        if (response.success) {
-            // Show update success modal with mode-aware message
-            let message;
-            if (state.saveMode === 'append') {
-                message = `Updated ${playlistTitle} — Added ${response.tracks_added} tracks`;
-                if (response.duplicates_skipped > 0) {
-                    message += ` (${response.duplicates_skipped} duplicates skipped)`;
-                }
-            } else {
-                message = `Updated ${playlistTitle} — Replaced with ${response.tracks_added} tracks`;
-            }
-
-            if (response.warning) {
-                message += ` ⚠ ${response.warning}`;
-            }
-
-            document.getElementById('update-success-message').textContent = message;
-
-            const openBtn = document.getElementById('update-open-in-roon-btn');
-            // Roon has no web URLs — always hide the "Open in Roon" link button
-            openBtn.style.display = 'none';
-
-            const updateModal = document.getElementById('update-success-modal');
-            updateModal.classList.remove('hidden');
-            lockScroll();
-            focusManager.openModal(updateModal);
-
-            // Invalidate playlist cache so newly created scratch playlist appears next time
-            // state.roonPlaylists = []; (not used)
-        } else {
-            showError(response.error || 'Failed to update playlist');
-        }
-    } catch (error) {
-        setLoading(false);
-        showError(error.message);
-    }
-}
-
-function handleUpdateSuccessNewPlaylist() {
-    dismissUpdateSuccess();
-    resetPlaylistState();
 }
 
 // =============================================================================
@@ -5369,20 +5208,6 @@ function handleRecResultAction(e) {
         return;
     }
 
-    const saveBtn = e.target.closest('.rec-save-btn');
-    if (saveBtn) {
-        const album = saveBtn.dataset.album;
-        const artist = saveBtn.dataset.artist;
-        const keys = saveBtn.dataset.ratingKeys.split(',');
-        const pitch = saveBtn.dataset.pitch;
-        handleRecSaveToPlaylist(album, artist, keys, pitch);
-    }
-}
-
-async function handleRecSaveToPlaylist(album, artist, ratingKeys, pitch) {
-    // Roon does not support saving playlists via the Extension API.
-    // This recommendation is already saved automatically to local history.
-    showError('Roon does not support saving playlists via the Extension API. Use "Play Now" to queue tracks to a zone.');
 }
 
 // =============================================================================
@@ -5847,5 +5672,4 @@ window.dismissSuccessModal = dismissSuccessModal;
 window.dismissClientPicker = dismissClientPicker;
 window.dismissPlayChoice = dismissPlayChoice;
 window.dismissPlaySuccess = dismissPlaySuccess;
-window.dismissUpdateSuccess = dismissUpdateSuccess;
 window.closeBottomSheet = closeBottomSheet;

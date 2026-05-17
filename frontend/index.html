@@ -428,20 +428,6 @@
 
                         <div class="results-grid">
                             <div class="results-header-left">
-                                <div class="playlist-name-container">
-                                    <input
-                                        type="text"
-                                        id="playlist-name-input"
-                                        class="playlist-name-input"
-                                        placeholder="Enter playlist name..."
-                                        aria-label="Playlist name"
-                                    >
-                                </div>
-                                <div id="playlist-picker-container" class="playlist-picker-container hidden">
-                                    <select id="playlist-picker" class="playlist-picker-select" aria-label="Select playlist to update">
-                                        <option value="__scratch__">RoonSage - Now Playing</option>
-                                    </select>
-                                </div>
                                 <div id="narrative-box" class="narrative-box hidden"></div>
                                 <div class="results-header-meta">
                                     <span id="results-track-count" class="meta-pill"></span>
@@ -527,29 +513,6 @@
                     </div>
                 </div>
 
-                <!-- Update Success Modal -->
-                <div id="update-success-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="update-success-title">
-                    <div class="modal-card modal-card--success">
-                        <button class="modal-close" onclick="dismissUpdateSuccess()" aria-label="Close">&times;</button>
-                        <div class="success-hero">
-                            <div class="success-ring" aria-hidden="true">
-                                <svg class="success-ring-svg" viewBox="0 0 48 48" fill="none">
-                                    <circle class="success-ring-bg" cx="24" cy="24" r="22" stroke-width="3"/>
-                                    <circle class="success-ring-progress" cx="24" cy="24" r="22" stroke-width="3"/>
-                                </svg>
-                                <div class="success-ring-icon">&#10003;</div>
-                            </div>
-                            <h2 id="update-success-title">Playlist Updated</h2>
-                        </div>
-                        <div class="success-details">
-                            <p id="update-success-message" class="success-detail-line"></p>
-                        </div>
-                        <div class="success-actions">
-                            <a id="update-open-in-roon-btn" class="btn btn-roon" style="display:none" href="#" target="_blank" rel="noopener">Open in Roon <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg></a>
-                            <button id="update-new-playlist-btn" class="btn btn-primary">New Playlist</button>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             <!-- Recommend Album View -->
