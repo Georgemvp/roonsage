@@ -11,9 +11,7 @@ Covers:
 
 import json
 import sqlite3
-import tempfile
 import threading
-import time
 from pathlib import Path
 from typing import Generator
 from unittest.mock import MagicMock, patch
@@ -52,9 +50,6 @@ def tmp_db(tmp_path: Path) -> Generator[Path, None, None]:
 def patched_db(tmp_db: Path):
     """Patch all DB access to use the temporary database."""
     import backend.db as db_module
-    import backend.taste_profile as tp_module
-
-    orig_get = db_module.get_db_connection
 
     def fake_get_db():
         conn = sqlite3.connect(str(tmp_db), timeout=30.0)

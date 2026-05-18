@@ -245,7 +245,6 @@ class TasteProfile:
                 conn.close()
 
             # ── Merge computed scores with existing profile ───────────────────
-            existing = TasteProfile.get()
             updates: dict = {}
             if genre_scores:
                 updates["genres"] = genre_scores

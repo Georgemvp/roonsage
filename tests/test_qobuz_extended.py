@@ -9,11 +9,9 @@ Covers:
 - Error handling: 401, 429, network errors
 """
 
-import asyncio
-import datetime
 import json
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -163,20 +161,20 @@ class TestQobuzClientPlaylistManagement:
 
     def test_update_playlist_name(self, client):
         client._client.post.return_value = _mock_response(200, {"id": 101, "name": "New Name"})
-        result = client.update_playlist("101", name="New Name")
+        client.update_playlist("101", name="New Name")
         data = client._client.post.call_args[1]["data"]
         assert data["name"] == "New Name"
         assert data["playlist_id"] == "101"
 
     def test_delete_playlist(self, client):
         client._client.post.return_value = _mock_response(200, {"status": "ok"})
-        result = client.delete_playlist("101")
+        client.delete_playlist("101")
         data = client._client.post.call_args[1]["data"]
         assert data["playlist_id"] == "101"
 
     def test_remove_tracks_from_playlist(self, client):
         client._client.post.return_value = _mock_response(200, {"status": "ok"})
-        result = client.remove_tracks_from_playlist("101", ["5", "10", "15"])
+        client.remove_tracks_from_playlist("101", ["5", "10", "15"])
         data = client._client.post.call_args[1]["data"]
         assert data["playlist_track_ids"] == "5,10,15"
         assert data["playlist_id"] == "101"

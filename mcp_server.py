@@ -1584,7 +1584,7 @@ async def add_to_qobuz_favorites(
                     # Fall through to direct Qobuz API call for artist search
                     pass
             # For artists, we use the direct Qobuz API endpoint
-            qr = await _api_call("POST", "/api/qobuz/favorite/add", json={"type": "artist", "ids": []})
+            await _api_call("POST", "/api/qobuz/favorite/add", json={"type": "artist", "ids": []})
             # Artists require a direct Qobuz artist search — delegate to the backend
             not_found.append(f"{name} (artist search requires direct Qobuz lookup)")
         else:
@@ -1876,11 +1876,11 @@ async def prepare_for_arc(
         return f"Prepare for Arc failed: {result.get('error', 'Unknown error')}"
 
     lines = [
-        f"✅ Playlist saved to Qobuz for Roon Arc!",
-        f"",
+        "✅ Playlist saved to Qobuz for Roon Arc!",
+        "",
         f"📋 **{result.get('playlist_name')}**",
         f"🔗 {result.get('playlist_url', '')}",
-        f"",
+        "",
         f"✓ {result.get('tracks_resolved', 0)} tracks saved to Qobuz playlist",
     ]
     if result.get("tracks_skipped", 0):
