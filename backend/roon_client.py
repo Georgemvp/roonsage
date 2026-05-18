@@ -15,6 +15,7 @@ from typing import Any
 
 from backend.roon_browse import RoonBrowseMixin
 from backend.roon_connection import RoonConnectionMixin
+from backend.roon_intelligence import RoonIntelligenceMixin
 from backend.roon_playback import RoonPlaybackMixin
 from backend.roon_search import RoonSearchMixin
 from backend.roon_utils import (
@@ -52,6 +53,7 @@ class RoonClient(
     RoonBrowseMixin,
     RoonPlaybackMixin,
     RoonSearchMixin,
+    RoonIntelligenceMixin,
 ):
     """Client for interacting with a Roon Core via roonapi."""
 

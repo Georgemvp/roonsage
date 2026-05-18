@@ -1893,6 +1893,352 @@ async def prepare_for_arc(
 
 
 # ---------------------------------------------------------------------------
+# Intelligence layer tools (MCP v5.0)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_taste_profile() -> str:
+    """Get the user's musical taste profile built from listening history and feedback.
+
+    Call this at the START of every session to understand the user's preferences.
+    The profile contains genre preferences, favorite artists, preferred decades,
+    mood patterns, and explicit dislikes. Use this to inform all curation decisions:
+    - Boost genres/artists with high scores in filter_tracks calls
+    - Avoid anything in the dislikes list
+    - Take notes into account when selecting tracks
+
+    No parameters required.
+    """
+    logger.info("GET_TASTE_PROFILE called")
+    result = await _api_call("GET", "/api/taste/profile")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+
+
+@mcp.tool()
+async def update_taste_profile(
+    genre_preferences: Optional[dict] = None,
+    artist_preferences: Optional[dict] = None,
+    decade_preferences: Optional[dict] = None,
+    mood_preferences: Optional[dict] = None,
+    dislikes: Optional[list[str]] = None,
+    notes: Optional[list[str]] = None,
+) -> str:
+    """Update the user's taste profile based on this session's interactions.
+
+    Call this AFTER a successful playlist that the user enjoyed, or when the user
+    gives explicit feedback about their preferences. Scores are 0.0-1.0 where
+    1.0 = strong preference. Only include items clearly indicated by this session.
+
+    Examples:
+    - User loved a jazz session -> genre_preferences={"Jazz": 0.85}
+    - User said "more Radiohead" -> artist_preferences={"Radiohead": 0.9}
+    - User said "never Christmas music" -> dislikes=["christmas"]
+
+    Args:
+        genre_preferences:  e.g. {"Jazz": 0.8, "Electronic": 0.6}
+        artist_preferences: e.g. {"Radiohead": 0.9, "Miles Davis": 0.85}
+        decade_preferences: e.g. {"1990s": 0.7, "1980s": 0.6}
+        mood_preferences:   e.g. {"melancholic": 0.7, "energetic": 0.4}
+        dislikes:           Explicit dislikes, e.g. ["christmas music", "karaoke"]
+        notes:              Behavioral notes, e.g. ["prefers vinyl-era production"]
+    """
+    logger.info("UPDATE_TASTE_PROFILE called")
+    updates: dict = {}
+    if genre_preferences:
+        updates["genres"] = genre_preferences
+    if artist_preferences:
+        updates["artists"] = artist_preferences
+    if decade_preferences:
+        updates["decades"] = decade_preferences
+    if mood_preferences:
+        updates["moods"] = mood_preferences
+    if dislikes:
+        updates["dislikes"] = dislikes
+    if notes:
+        updates["notes"] = notes
+
+    if not updates:
+        return "No updates provided — nothing changed."
+
+    result = await _api_call("POST", "/api/taste/profile", json={"updates": updates}, retryable=False)
+    if isinstance(result, str):
+        return result
+
+    genres = result.get("genres", {})
+    top_genres = sorted(genres.items(), key=lambda x: -x[1])[:5]
+    return (
+        "Taste profile updated.\n"
+        "Top genres now: " + ", ".join(f"{g} ({s:.2f})" for g, s in top_genres) + "\n"
+        "Dislikes: " + str(result.get("dislikes", [])) + "\n"
+        "Notes: " + str(result.get("notes", []))
+    )
+
+
+@mcp.tool()
+async def rate_playlist(
+    playlist_name: str,
+    rating: int,
+    feedback: Optional[str] = None,
+) -> str:
+    """Rate a recently generated playlist and provide optional feedback.
+
+    This logs the rating as a taste event so future recommendations improve.
+    After rating, consider also calling update_taste_profile with session insights.
+
+    Args:
+        playlist_name: Name or description of the playlist being rated.
+        rating:        1-5 score (1=poor, 3=okay, 5=excellent).
+        feedback:      Optional text, e.g. "too much jazz, needed more variety".
+    """
+    logger.info("RATE_PLAYLIST: '%s' rating=%d", playlist_name, rating)
+    if not 1 <= rating <= 5:
+        return "Rating must be between 1 and 5."
+
+    event_data: dict = {"playlist_name": playlist_name, "rating": rating}
+    if feedback:
+        event_data["feedback"] = feedback
+
+    result = await _api_call(
+        "POST", "/api/taste/event",
+        json={"event_type": "playlist_rated", "data": event_data},
+        retryable=False,
+    )
+    if isinstance(result, str):
+        return result
+
+    msg = f"Rating {rating}/5 logged for '{playlist_name}'."
+    if feedback:
+        msg += f" Feedback: \"{feedback}\""
+    if rating >= 4:
+        msg += "\n✓ Good rating! Consider calling update_taste_profile with the genres/artists from this session."
+    elif rating <= 2:
+        msg += "\n✗ Low rating noted. Consider calling update_taste_profile with notes about what didn't work."
+    return msg
+
+
+@mcp.tool()
+async def get_listening_history(days: int = 7, limit: int = 30) -> str:
+    """Get recent listening history recorded passively from Roon zones.
+
+    Shows what the user has actually been playing, including skip patterns.
+    Use this at session start to understand the current mood and avoid
+    suggesting tracks that were recently skipped.
+
+    Args:
+        days:  How many days back to look (default 7, max 90).
+        limit: Maximum entries to return (default 30).
+    """
+    logger.info("GET_LISTENING_HISTORY: days=%d limit=%d", days, limit)
+    result = await _api_call("GET", "/api/listening/history", params={"days": days, "limit": limit})
+    if isinstance(result, str):
+        return result
+    if not result:
+        return f"No listening history recorded in the last {days} days."
+
+    lines = [f"Listening history (last {days} days, {len(result)} entries):"]
+    for entry in result:
+        skipped = " [SKIPPED]" if entry.get("skipped") else ""
+        played = entry.get("played_seconds", 0)
+        lines.append(
+            f"  {str(entry.get('timestamp', ''))[:16]}  "
+            f"{entry.get('artist', '?')} — {entry.get('track_title', '?')} ({played}s{skipped})"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def save_playlist(
+    name: str,
+    prompt: str,
+    session_id: str,
+    track_numbers: list[int],
+    source_mode: str = "library",
+    tags: Optional[list[str]] = None,
+) -> str:
+    """Save a curated playlist to the local library for future replay.
+
+    Call this after a successful curate_and_play when the user is happy.
+    The playlist is stored in SQLite and can be replayed with replay_saved_playlist.
+
+    Args:
+        name:          Descriptive playlist name, e.g. "Zondagochtend Jazz".
+        prompt:        The original prompt that generated this playlist.
+        session_id:    The filter_tracks session_id used for curation.
+        track_numbers: The selected track numbers from the session.
+        source_mode:   "library", "hybrid", or "qobuz".
+        tags:          Optional tags, e.g. ["avond", "werk", "roadtrip"].
+    """
+    logger.info("SAVE_PLAYLIST: name='%s' session=%s tracks=%d", name, session_id, len(track_numbers))
+    result = await _api_call(
+        "POST", "/api/playlists/saved/from-session",
+        json={
+            "name": name, "prompt": prompt, "session_id": session_id,
+            "track_numbers": track_numbers, "source_mode": source_mode,
+            "tags": tags or [],
+        },
+        retryable=False,
+    )
+    if isinstance(result, str):
+        return result
+
+    pid = result.get("playlist_id")
+    tc = result.get("track_count", 0)
+    return (
+        f"Playlist '{name}' saved (id={pid}, {tc} tracks).\n"
+        f"Replay later: replay_saved_playlist(playlist_id={pid}, zone_id=...)\n"
+        "Export to Qobuz: save_to_qobuz"
+    )
+
+
+@mcp.tool()
+async def list_saved_playlists(tag: Optional[str] = None, limit: int = 20) -> str:
+    """List previously saved playlists from the local library.
+
+    Use when the user asks "play that playlist from last week",
+    "show me my saved playlists", or "wat heb ik eerder opgeslagen?".
+
+    Args:
+        tag:   Optional tag filter, e.g. "avond" or "roadtrip".
+        limit: Maximum playlists to return (default 20).
+    """
+    logger.info("LIST_SAVED_PLAYLISTS: tag=%s limit=%d", tag, limit)
+    params: dict = {"limit": limit}
+    if tag:
+        params["tag"] = tag
+    result = await _api_call("GET", "/api/playlists/saved", params=params)
+    if isinstance(result, str):
+        return result
+    if not result:
+        return "No saved playlists found."
+
+    lines = [f"Saved playlists ({len(result)}):"]
+    for p in result:
+        tags_str = ", ".join(p.get("tags", [])) or "—"
+        rating = p.get("rating")
+        rating_str = f" ★{rating}" if rating else ""
+        lines.append(
+            f"  [{p['id']}] {p['name']} — {p['track_count']} tracks"
+            f" | {str(p.get('created_at', ''))[:10]} | {p.get('source_mode', 'library')}"
+            f" | tags: {tags_str}{rating_str}"
+        )
+        if p.get("prompt"):
+            lines.append(f"       Prompt: \"{str(p['prompt'])[:80]}\"")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def replay_saved_playlist(playlist_id: int, zone_id: str) -> str:
+    """Replay a previously saved playlist on a Roon zone.
+
+    Fetches the saved track item_keys and sends them to the zone immediately.
+    Use list_saved_playlists first to find the playlist_id.
+
+    Args:
+        playlist_id: ID from list_saved_playlists.
+        zone_id:     Roon zone to play in (from list_zones).
+    """
+    logger.info("REPLAY_SAVED_PLAYLIST: id=%d zone=%s", playlist_id, zone_id)
+    playlist = await _api_call("GET", f"/api/playlists/saved/{playlist_id}/tracks")
+    if isinstance(playlist, str):
+        return playlist
+
+    tracks = playlist.get("tracks", [])
+    if not tracks:
+        return f"Playlist {playlist_id} has no tracks stored."
+
+    item_keys = [t.get("item_key") for t in tracks if t.get("item_key")]
+    if not item_keys:
+        return "No playable item_keys found in this saved playlist."
+
+    try:
+        response = await _get_playback_client().post(
+            f"{ROONSAGE_URL}/api/queue",
+            json={"item_keys": item_keys, "zone_id": zone_id},
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception as exc:
+        return f"Playback failed: {exc}"
+
+    name = playlist.get("name", f"Playlist {playlist_id}")
+    return f"Playing '{name}' ({len(item_keys)} tracks) on zone {zone_id}. {data.get('message', 'started')}"
+
+
+@mcp.tool()
+async def browse_tags() -> str:
+    """Browse the user's Roon tags (user-created collections like "Chill", "Workout").
+
+    Tags are custom groupings created in Roon. Use them as additional curation context:
+    if the user has a "Road Trip" tag, those tracks are marked as suitable for driving.
+
+    Returns tag names and item_keys. No parameters required.
+    """
+    logger.info("BROWSE_TAGS called")
+    result = await _api_call("GET", "/api/roon/tags")
+    if isinstance(result, str):
+        return result
+    if not result:
+        return (
+            "No Roon tags found. The user may not have created any tags, "
+            "or the Tags section is unavailable in this Roon version."
+        )
+
+    lines = [f"Roon tags ({len(result)}):"]
+    for tag in result:
+        lines.append(f"  {tag.get('title', '?')}  [key: {str(tag.get('item_key', '?'))[:20]}...]")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def modify_playlist(
+    session_id: str,
+    remove_numbers: Optional[list[int]] = None,
+    add_numbers: Optional[list[int]] = None,
+    swap: Optional[list[list[int]]] = None,
+) -> str:
+    """Modify a curated playlist without starting over.
+
+    Works on an active filter_tracks session. Returns the updated track list.
+    Use the returned track_numbers with curate_and_play.
+
+    Args:
+        session_id:     Active session ID from a filter_tracks call.
+        remove_numbers: Track numbers to remove, e.g. [7, 12].
+        add_numbers:    Track numbers to add from the pool, e.g. [42, 88].
+        swap:           Pairs to swap in order, e.g. [[3, 15]] swaps positions of 3 and 15.
+    """
+    logger.info("MODIFY_PLAYLIST: session=%s remove=%s add=%s swap=%s",
+                session_id, remove_numbers, add_numbers, swap)
+    body: dict = {"session_id": session_id}
+    if remove_numbers:
+        body["remove_numbers"] = remove_numbers
+    if add_numbers:
+        body["add_numbers"] = add_numbers
+    if swap:
+        body["swap"] = swap
+
+    result = await _api_call("POST", "/api/playlists/modify", json=body, retryable=False)
+    if isinstance(result, str):
+        return result
+
+    track_numbers = result.get("track_numbers", [])
+    tracks = result.get("tracks", [])
+
+    lines = [
+        f"Playlist modified: {result.get('track_count', 0)} tracks.",
+        f"Removed: {result.get('removed', [])}  Added: {result.get('added', [])}  Swapped: {result.get('swapped', [])}",
+        "",
+        "Updated order (first 30):",
+    ]
+    for t in tracks[:30]:
+        lines.append(f"  {t['number']}. {t.get('artist', '?')} — {t.get('title', '?')} ")
+    lines.append("")
+    lines.append(f"Call curate_and_play with track_numbers={track_numbers}, session_id='{session_id}'")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

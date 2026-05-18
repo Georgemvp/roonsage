@@ -19,6 +19,7 @@ from backend import library_cache
 from backend.llm_client import init_llm_client
 from backend.routes import setup, library, generate, recommend, roon, config_routes, results
 from backend.routes.qobuz_playlist import router as qobuz_playlist_router
+from backend.routes.intelligence import router as intelligence_router
 from backend.dependencies import ROONSAGE_PASSWORD
 import backend.routes.recommend as _recommend_module
 
@@ -69,6 +70,16 @@ async def lifespan(app: FastAPI):
                 logger.error("Auto-resync failed: %s", e)
 
         asyncio.create_task(_run_resync())
+
+    # Start listening history monitor once Roon is available.
+    # We attempt immediately; if Roon is still connecting the monitor will
+    # wait internally until is_connected() returns True.
+    if roon_client is not None:
+        try:
+            roon_client.start_listening_monitor()
+            logger.info("Listening history monitor started")
+        except Exception as exc:
+            logger.warning("Could not start listening monitor: %s", exc)
 
     yield
 
@@ -147,6 +158,7 @@ app.include_router(roon.router)
 app.include_router(config_routes.router)
 app.include_router(results.router)
 app.include_router(qobuz_playlist_router)
+app.include_router(intelligence_router)
 
 
 # =============================================================================

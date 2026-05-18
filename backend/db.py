@@ -238,6 +238,69 @@ def init_schema(conn: sqlite3.Connection) -> bool:
     # Index on parent_item_key (must come after migration adds the column)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tracks_parent_key ON tracks(parent_item_key)")
 
+    # -----------------------------------------------------------------------
+    # Intelligence layer tables (MCP v5.0)
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        -- Persistent taste profile: one row, updated in-place
+        CREATE TABLE IF NOT EXISTS taste_profile (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            profile_json TEXT NOT NULL DEFAULT '{}'
+        );
+        INSERT OR IGNORE INTO taste_profile (id, profile_json) VALUES (1, '{}');
+
+        -- Event log: every taste signal (playlist rated, feedback, skip, etc.)
+        CREATE TABLE IF NOT EXISTS taste_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            event_type TEXT NOT NULL,
+            data_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX IF NOT EXISTS idx_taste_events_ts ON taste_events(timestamp DESC);
+
+        -- Passive listening history from Roon zones
+        CREATE TABLE IF NOT EXISTS listening_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            zone_name TEXT,
+            track_title TEXT,
+            artist TEXT,
+            album TEXT,
+            genre TEXT,
+            duration_seconds INTEGER,
+            played_seconds INTEGER,
+            skipped INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_listening_ts ON listening_history(timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_listening_artist ON listening_history(artist);
+
+        -- Saved playlists from curation sessions
+        CREATE TABLE IF NOT EXISTS saved_playlists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            prompt TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            source_mode TEXT DEFAULT 'library',
+            track_count INTEGER DEFAULT 0,
+            tracks_json TEXT,
+            tags TEXT DEFAULT '',
+            qobuz_playlist_id TEXT,
+            rating INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_saved_playlists_created ON saved_playlists(created_at DESC);
+
+        -- Similar artists for seed-based recommendations
+        CREATE TABLE IF NOT EXISTS similar_artists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            artist_name TEXT NOT NULL,
+            similar_to TEXT NOT NULL,
+            score REAL DEFAULT 0.5,
+            source TEXT DEFAULT 'musicbrainz',
+            UNIQUE(artist_name, similar_to)
+        );
+    """)
+
     conn.commit()
     return migrated
 

@@ -211,3 +211,64 @@ Gebruik hiervoor `add_to_qobuz_favorites(item_type="album", names=["Artist - Alb
 - Gebruik `browse_qobuz_new_releases` als de gebruiker vraagt "wat is er nieuw?" of "verras me met iets recent".
 
 **Stelregel:** Roon Arc en Qobuz-favorites zijn één systeem. Wat in Qobuz staat, speelt in Arc.  
+
+---
+
+## Smaakprofiel & Intelligence — gebruik dit elke sessie
+
+### Begin van elke conversatie
+
+1. `get_taste_profile` — laad het smaakprofiel (genres, artiesten, decades, dislikes, notes)
+2. `get_listening_history(days=3, limit=15)` — recent luistergedrag en skip-patroon
+3. Pas de curatie direct aan op basis van het profiel:
+   - **Genres met hoge score** → voeg toe aan `filter_tracks(genres=[...])`
+   - **Dislikes** → voeg toe aan `filter_tracks(exclude_keywords=[...])`
+   - **Notes** → neem mee in je selectiecriteria
+
+*Voorbeeld: profiel toont `{"Jazz": 0.85, "dislikes": ["christmas"]}` → filter altijd op Jazz en sluit "christmas" uit.*
+
+### Na een succesvolle playlist
+
+1. `save_playlist` — sla op als de gebruiker tevreden is (vraag altijd welke tags)
+2. Bied aan om te raten: *"Was dit wat je zocht? (1–5)"*
+3. Na rating ≥ 4 → `update_taste_profile` met de dominante genres/artiesten van de sessie
+4. Na rating ≤ 2 of expliciete feedback → `update_taste_profile` met correctie-notes
+
+### Bij expliciete feedback — direct bijwerken
+
+| Wat de gebruiker zegt | Actie |
+|---|---|
+| "Te veel jazz, iets meer rock" | `update_taste_profile(notes=["wil minder jazz, meer rock"])` |
+| "Ik heb deze week een Radiohead-fase" | `update_taste_profile(artist_preferences={"Radiohead": 0.95})` |
+| "Nooit meer kerst" | `update_taste_profile(dislikes=["christmas", "kerst"])` |
+| "Meer jaren 80" | `update_taste_profile(decade_preferences={"1980s": 0.85})` |
+| "Goed, maar meer uptempo" | `update_taste_profile(mood_preferences={"energetic": 0.75})` |
+
+Sla **alleen duidelijke signalen** op — geen gissingen. Houd scores realistisch (0.5 = neutraal, 0.8 = sterke voorkeur, 1.0 = absoluut favoriet).
+
+### Opgeslagen playlists
+
+- `list_saved_playlists` — als de gebruiker vraagt "play die playlist van gisteren" of "wat heb ik eerder gemaakt"
+- `replay_saved_playlist(playlist_id=..., zone_id=...)` — replay direct
+- `list_saved_playlists(tag="avond")` — filter op tag
+
+### Roon Tags
+
+- `browse_tags` — bekijk de gebruiker's eigen organisatie in Roon
+- Gebruik tags als curatie-context: "Maak iets energieker dan mijn 'Chill' tag"
+- Tags geven expliciete signalen over wat de gebruiker goed vindt — laat dit zwaar meewegen
+
+### Playlist aanpassen (zonder opnieuw te beginnen)
+
+Als de gebruiker wil sleutelen aan een net gegenereerde playlist:
+
+1. `modify_playlist(session_id=..., remove_numbers=[7,12], add_numbers=[42])` — voer de wijziging door
+2. Gebruik de teruggegeven `track_numbers` direct met `curate_and_play`
+
+*Voorbeeld: "Haal track 7 eruit en zet er iets van Nick Cave voor terug" → verwijder 7, zoek Nick Cave in de pool (met `search_library`), voeg het nummer toe via `add_numbers`.*
+
+### Compactheid van het profiel
+
+Het smaakprofiel is bewust compact (< 2 000 tokens). Na elke `update_taste_profile` worden scores gewogen gemiddeld — oude voorkeuren vervagen langzaam. Dit betekent:
+- Het profiel reflecteert *huidige* smaak, niet smaak van 2 jaar geleden
+- Je kunt altijd vragen: "Hoe ziet mijn smaakprofiel eruit?" → `get_taste_profile`
