@@ -25,24 +25,6 @@ import backend.routes.recommend as _recommend_module
 
 logging.basicConfig(level=logging.INFO)
 
-
-class _CredentialFilter(logging.Filter):
-    """Block log records that contain credentials in URLs.
-
-    Uses a Filter instead of setLevel because uvicorn calls logging.config.dictConfig()
-    during startup which resets logger levels — but does NOT remove existing filters.
-    """
-    def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage()
-        if "password=" in msg or "password%3D" in msg.lower():
-            return False
-        return True
-
-
-_cred_filter = _CredentialFilter()
-logging.getLogger("httpx").addFilter(_cred_filter)
-logging.getLogger("httpcore").addFilter(_cred_filter)
-
 logger = logging.getLogger(__name__)
 
 
@@ -64,11 +46,6 @@ async def lifespan(app: FastAPI):
     # Local providers (ollama, custom) don't need an API key
     if config.llm.api_key or config.llm.provider in ("ollama", "custom"):
         init_llm_client(config.llm)
-
-    # Re-apply credential filter — uvicorn's dictConfig() resets logger levels
-    # but does NOT remove filters, so addFilter() is idempotent here.
-    logging.getLogger("httpx").addFilter(_cred_filter)
-    logging.getLogger("httpcore").addFilter(_cred_filter)
 
     # Initialize Qobuz direct API client (for playlist save — independent of Roon)
     # app_id and app_secret are auto-extracted from the Qobuz web player.

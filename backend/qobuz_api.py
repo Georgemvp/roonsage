@@ -39,6 +39,63 @@ _KNOWN_APP_IDS = [
 
 
 # ---------------------------------------------------------------------------
+# urllib-based login — produces ZERO log output regardless of logging config
+# ---------------------------------------------------------------------------
+
+def _urllib_login(email: str, password: str, app_id: str):
+    """Login via urllib.request — no httpx, no logging dependency.
+
+    urllib.request does not emit any log records, so this is immune to
+    uvicorn's dictConfig() resets that override setLevel() / addFilter()
+    on httpx loggers.
+
+    Returns a response-like object with .status_code and .json(), or None
+    on network/timeout error.
+    """
+    import urllib.request
+    import urllib.parse
+    import urllib.error
+    import json as _json
+
+    params = urllib.parse.urlencode({
+        "email": email,
+        "password": password,
+        "app_id": app_id,
+    })
+    url = f"{QOBUZ_API_BASE}/user/login?{params}"
+    req = urllib.request.Request(url, headers={"User-Agent": _BROWSER_UA})
+
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode("utf-8")
+            status = resp.status
+
+            class _FakeResp:
+                status_code = status
+                def json(self):
+                    return _json.loads(body)
+
+            return _FakeResp()
+
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8") if e.fp else "{}"
+        code = e.code
+
+        class _FakeErrResp:
+            status_code = code
+            def json(self):
+                try:
+                    return _json.loads(body)
+                except Exception:
+                    return {"message": f"HTTP {code}"}
+
+        return _FakeErrResp()
+
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Request hook — redact credentials from any URL that reaches logging
 # ---------------------------------------------------------------------------
 
@@ -183,89 +240,69 @@ class QobuzClient:
         from the web player. For each app_id, tries both plain-text and
         MD5-hashed password.
 
-        Does NOT use X-App-Id header during login — only app_id query param.
+        Uses _urllib_login() — no httpx, no log output containing credentials.
         Sets X-App-Id and X-User-Auth-Token headers AFTER successful login.
         """
-        # Disable httpx logger for the duration of login — the request URL
-        # contains the password as a query parameter and httpx logs full URLs
-        # at INFO level. logger.disabled=True is the only mechanism that
-        # survives uvicorn's logging.config.dictConfig() reconfiguration;
-        # setLevel() and addFilter() are both reset/removed by dictConfig().
-        _httpx_logger = logging.getLogger("httpx")
-        _httpx_logger.disabled = True
-        try:
-            # Known app_ids first, then extracted from web player as fallback
-            app_ids_to_try = list(_KNOWN_APP_IDS)
-            extracted = self._extract_app_id()
-            if extracted and extracted not in app_ids_to_try:
-                app_ids_to_try.append(extracted)
+        # Known app_ids first, then extracted from web player as fallback
+        app_ids_to_try = list(_KNOWN_APP_IDS)
+        extracted = self._extract_app_id()
+        if extracted and extracted not in app_ids_to_try:
+            app_ids_to_try.append(extracted)
 
-            password_md5 = hashlib.md5(password.encode("utf-8")).hexdigest()
+        password_md5 = hashlib.md5(password.encode("utf-8")).hexdigest()
 
-            last_error = ""
-            for app_id in app_ids_to_try:
-                for pw_label, pw in [("plain", password), ("md5", password_md5)]:
-                    try:
-                        resp = self._client.get(
-                            f"{QOBUZ_API_BASE}/user/login",
-                            params={
-                                "email": email,
-                                "password": pw,
-                                "app_id": app_id,
-                            },
-                        )
+        last_error = ""
+        for app_id in app_ids_to_try:
+            for pw_label, pw in [("plain", password), ("md5", password_md5)]:
+                resp = _urllib_login(email, pw, app_id)
+                if resp is None:
+                    last_error = "Network error during login"
+                    continue
 
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            token = data.get("user_auth_token")
-                            if not token:
-                                last_error = "Geen auth token in response"
-                                continue
+                if resp.status_code == 200:
+                    data = resp.json()
+                    token = data.get("user_auth_token")
+                    if not token:
+                        last_error = "Geen auth token in response"
+                        continue
 
-                            self.app_id = app_id
-                            self._token = token
-                            self._user_id = data["user"]["id"]
-                            self._user_display_name = data["user"].get("display_name", email)
-                            self._subscription = data["user"].get("credential", {}).get("label", "Onbekend")
+                    self.app_id = app_id
+                    self._token = token
+                    self._user_id = data["user"]["id"]
+                    self._user_display_name = data["user"].get("display_name", email)
+                    self._subscription = data["user"].get("credential", {}).get("label", "Onbekend")
 
-                            # Set persistent headers for all future API calls
-                            self._client.headers["X-App-Id"] = app_id
-                            self._client.headers["X-User-Auth-Token"] = self._token
+                    # Set persistent headers for all future API calls
+                    self._client.headers["X-App-Id"] = app_id
+                    self._client.headers["X-User-Auth-Token"] = self._token
 
-                            logger.info(
-                                "Qobuz login geslaagd (app_id=%s, pw=%s): %s (%s)",
-                                app_id, pw_label,
-                                self._user_display_name, self._subscription,
-                            )
-                            return
+                    logger.info(
+                        "Qobuz login geslaagd (app_id=%s, pw=%s): %s (%s)",
+                        app_id, pw_label,
+                        self._user_display_name, self._subscription,
+                    )
+                    return
 
-                        # Parse error message
-                        try:
-                            msg = resp.json().get("message", f"HTTP {resp.status_code}")
-                        except Exception:
-                            msg = f"HTTP {resp.status_code}"
+                # Parse error message
+                try:
+                    msg = resp.json().get("message", f"HTTP {resp.status_code}")
+                except Exception:
+                    msg = f"HTTP {resp.status_code}"
 
-                        # "Invalid or missing app_id" → skip to next app_id
-                        if "app_id" in msg.lower():
-                            logger.debug("app_id %s rejected: %s", app_id, msg)
-                            break  # No point trying MD5 with same invalid app_id
+                # "Invalid or missing app_id" → skip to next app_id
+                if "app_id" in msg.lower():
+                    logger.debug("app_id %s rejected: %s", app_id, msg)
+                    break  # No point trying MD5 with same invalid app_id
 
-                        # "User authentication is required" → different auth flow needed
-                        if "authentication is required" in msg.lower():
-                            logger.debug("app_id %s requires different auth flow, skipping", app_id)
-                            break  # Skip to next app_id
+                # "User authentication is required" → different auth flow needed
+                if "authentication is required" in msg.lower():
+                    logger.debug("app_id %s requires different auth flow, skipping", app_id)
+                    break  # Skip to next app_id
 
-                        last_error = msg
-                        logger.debug("Login failed (app_id=%s, pw=%s): %s", app_id, pw_label, msg)
+                last_error = msg
+                logger.debug("Login failed (app_id=%s, pw=%s): %s", app_id, pw_label, msg)
 
-                    except Exception as exc:
-                        last_error = str(exc)
-                        logger.debug("Login exception (app_id=%s, pw=%s): %s", app_id, pw_label, exc)
-
-            raise QobuzAPIError(f"Qobuz login mislukt: {last_error}")
-
-        finally:
-            _httpx_logger.disabled = False
+        raise QobuzAPIError(f"Qobuz login mislukt: {last_error}")
 
     # ------------------------------------------------------------------
     # Public helpers
