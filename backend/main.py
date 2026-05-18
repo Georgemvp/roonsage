@@ -24,6 +24,11 @@ from backend.dependencies import ROONSAGE_PASSWORD
 import backend.routes.recommend as _recommend_module
 
 logging.basicConfig(level=logging.INFO)
+# Suppress httpx/httpcore INFO logging — their request logs expose credentials
+# in the URL (e.g. Qobuz login: GET .../user/login?password=PLAINTEXT).
+# Must be set AFTER basicConfig, otherwise basicConfig resets it to INFO.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 

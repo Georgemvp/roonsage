@@ -18,10 +18,6 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Prevent httpx from logging full URLs (which contain credentials during login)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-
 QOBUZ_API_BASE = "https://www.qobuz.com/api.json/0.2"
 QOBUZ_PLAY_URL = "https://play.qobuz.com"
 
@@ -40,6 +36,30 @@ _KNOWN_APP_IDS = [
     "579939560",   # Used across multiple regions (JP, NZ, UK, CA)
     "942852567",   # Used by LMS Qobuz plugin
 ]
+
+
+# ---------------------------------------------------------------------------
+# Request hook — redact credentials from any URL that reaches logging
+# ---------------------------------------------------------------------------
+
+def _redact_url_logging(request: httpx.Request) -> None:
+    """httpx event hook: log the request URL with sensitive params redacted.
+
+    Belt-and-suspenders defence — even if the httpx logger is somehow
+    re-enabled at INFO level, this hook fires first and logs a sanitised
+    version via our own logger (which does NOT include the password).
+    """
+    import urllib.parse
+
+    url_str = str(request.url)
+    if "password" in url_str:
+        parsed = urllib.parse.urlparse(url_str)
+        params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        if "password" in params:
+            params["password"] = ["********"]
+        redacted_query = urllib.parse.urlencode(params, doseq=True)
+        redacted_url = parsed._replace(query=redacted_query).geturl()
+        logger.debug("Qobuz request: %s %s", request.method, redacted_url)
 
 
 # ---------------------------------------------------------------------------
@@ -72,10 +92,12 @@ class QobuzClient:
         self._subscription: str | None = None
 
         # API client — no redirects (API calls should not redirect)
+        # event_hooks: redact password from URL before any log output reaches handlers
         self._client = httpx.Client(
             timeout=20.0,
             follow_redirects=False,
             headers={"User-Agent": _BROWSER_UA},
+            event_hooks={"request": [_redact_url_logging]},
         )
 
         # Scrape client — follows redirects (needed for web player pages)
