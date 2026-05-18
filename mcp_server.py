@@ -203,6 +203,44 @@ async def search_library(query: str) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
+# ---------------------------------------------------------------------------
+# filter_tracks helpers
+# ---------------------------------------------------------------------------
+
+def _build_key_map(tracks: list[dict]) -> dict[str, str]:
+    """Build a 1-based track-number → item_key mapping from a track list."""
+    return {str(i): track.get("item_key", "") for i, track in enumerate(tracks, start=1)}
+
+
+async def _store_session(key_map: dict[str, str], total: int, returned: int) -> str:
+    """Store key_map server-side and return a session_id, or '' on failure."""
+    try:
+        store_resp = await _get_client().post(
+            f"{ROONSAGE_URL}/api/library/filter/session",
+            json={"key_map": key_map, "total_matching": total, "returned": returned},
+        )
+        store_resp.raise_for_status()
+        return store_resp.json().get("session_id", "")
+    except Exception as exc:
+        logger.warning("Session storage failed — key_map will be sent as fallback: %s", exc)
+        return ""
+
+
+def _format_compact_line(i: int, track: dict) -> str:
+    """Format a track as 'nr. Artist — Title [Album] (Year) | Genres'."""
+    genres_str = ", ".join(track.get("genres") or [])
+    year = track.get("year") or ""
+    return (
+        f"{i}. {track.get('artist', '?')} — {track.get('title', '?')} "
+        f"[{track.get('album', '?')}] ({year}) | {genres_str}"
+    )
+
+
+def _format_ultra_line(i: int, track: dict) -> str:
+    """Format a track as 'nr. Artist — Title'."""
+    return f"{i}. {track.get('artist', '?')} — {track.get('title', '?')}"
+
+
 @mcp.tool()
 async def filter_tracks(
     genres: Optional[list[str]] = None,
@@ -286,23 +324,9 @@ async def filter_tracks(
     # Ultra-compact output: only "nr. Artist — Title" per line
     # -----------------------------------------------------------------------
     if output_format == "ultra":
-        lines: list[str] = []
-        key_map: dict[str, str] = {}
-        for i, track in enumerate(tracks, start=1):
-            item_key = track.get("item_key", "")
-            key_map[str(i)] = item_key
-            lines.append(f"{i}. {track.get('artist', '?')} — {track.get('title', '?')}")
-
-        session_id = ""
-        try:
-            store_resp = await _get_client().post(
-                f"{ROONSAGE_URL}/api/library/filter/session",
-                json={"key_map": key_map, "total_matching": total, "returned": returned},
-            )
-            store_resp.raise_for_status()
-            session_id = store_resp.json().get("session_id", "")
-        except Exception:
-            pass
+        key_map = _build_key_map(tracks)
+        lines = [_format_ultra_line(i, t) for i, t in enumerate(tracks, start=1)]
+        session_id = await _store_session(key_map, total, returned)
 
         result: dict = {
             "total_matching": total,
@@ -327,46 +351,26 @@ async def filter_tracks(
     # Compact output: numbered text list + server-side session for curation
     # -----------------------------------------------------------------------
     if output_format == "compact":
-        lines: list[str] = []
-        key_map: dict[str, str] = {}
-        for i, track in enumerate(tracks, start=1):
-            item_key = track.get("item_key", "")
-            key_map[str(i)] = item_key
-            genres_str = ", ".join(track.get("genres") or [])
-            year = track.get("year") or ""
-            line = (
-                f"{i}. {track.get('artist', '?')} — {track.get('title', '?')} "
-                f"[{track.get('album', '?')}] ({year}) | {genres_str}"
-            )
-            lines.append(line)
-
+        key_map = _build_key_map(tracks)
+        lines = [_format_compact_line(i, t) for i, t in enumerate(tracks, start=1)]
         # Store key_map server-side — get a session_id back so it doesn't
         # need to travel through Claude's context window (~10-20k tokens saved).
-        session_id = ""
-        try:
-            store_resp = await _get_client().post(
-                f"{ROONSAGE_URL}/api/library/filter/session",
-                json={"key_map": key_map, "total_matching": total, "returned": returned},
-            )
-            store_resp.raise_for_status()
-            session_id = store_resp.json().get("session_id", "")
-        except Exception:
-            # Fallback: if server-side storage fails, include key_map directly
-            # so curate_and_play can still work (it handles both paths).
-            pass
+        session_id = await _store_session(key_map, total, returned)
 
         result: dict = {
             "total_matching": total,
             "returned": returned,
             "tracks": "\n".join(lines),
             "session_id": session_id,
-            "note": (
+        }
+        if session_id:
+            result["note"] = (
                 "Selecteer tracks op nummer. Gebruik session_id met curate_and_play "
                 "om de selectie af te spelen. De key_map is server-side opgeslagen."
-            ),
-        }
-        if not session_id:
-            # Fallback: include key_map so curate_and_play can still work
+            )
+        else:
+            # Fallback: if server-side storage fails, include key_map directly
+            # so curate_and_play can still work (it handles both paths).
             result["key_map"] = key_map
             result["note"] = (
                 "Server-side sessie-opslag mislukt. key_map is meegestuurd als fallback. "
