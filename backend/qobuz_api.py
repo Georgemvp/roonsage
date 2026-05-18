@@ -176,30 +176,14 @@ class QobuzClient:
         for app_id in app_ids_to_try:
             for pw_label, pw in [("plain", password), ("md5", password_md5)]:
                 try:
-                    # Try POST with form data first (keeps credentials out of URL)
-                    resp = self._client.post(
+                    resp = self._client.get(
                         f"{QOBUZ_API_BASE}/user/login",
-                        data={
+                        params={
                             "email": email,
                             "password": pw,
                             "app_id": app_id,
                         },
                     )
-                    # Some older app_ids only accept GET — fall back if POST gives
-                    # a non-auth error (4xx that isn't 400/401/403).
-                    if resp.status_code not in (200, 400, 401, 403):
-                        logger.debug(
-                            "POST login returned %d for app_id=%s, retrying with GET",
-                            resp.status_code, app_id,
-                        )
-                        resp = self._client.get(
-                            f"{QOBUZ_API_BASE}/user/login",
-                            params={
-                                "email": email,
-                                "password": pw,
-                                "app_id": app_id,
-                            },
-                        )
 
                     if resp.status_code == 200:
                         data = resp.json()
