@@ -176,4 +176,38 @@ De key_map wordt server-side opgeslagen. `filter_tracks` retourneert een `sessio
   Meld aan de gebruiker: "De playlist is verstuurd naar [zone]. De muziek speelt waarschijnlijk al — hoor je iets?"  
   Stuur NOOIT dezelfde of een nieuwe playlist opnieuw zonder expliciete bevestiging van de gebruiker.  
 - **Bij `tracks_queued < gevraagd`:** Dat is normaal — sommige klassieke tracks hebben lange zoekquery's die Roon niet vindt. Meld hoeveel tracks gequeued zijn en ga verder.  
-- **NOOIT een tweede `curate_and_play` of `filter_tracks` doen voor hetzelfde verzoek** zonder dat de gebruiker expliciet zegt "probeer opnieuw" of "dat werkte niet".  
+- **NOOIT een tweede `curate_and_play` of `filter_tracks` doen voor hetzelfde verzoek** zonder dat de gebruiker expliciet zegt "probeer opnieuw" of "dat werkte niet".
+
+---
+
+## Arc-integratie — Qobuz als brug naar Roon Arc
+
+Roon Arc is onzichtbaar voor de Extension API. Maar alles in Qobuz-favorites en Qobuz-playlists verschijnt automatisch in Roon Arc. Gebruik dit als de gebruiker onderweg wil luisteren.
+
+**Nieuw gereedschap (gebruik proactief):**
+
+- `prepare_for_arc` — sla een gecureerde playlist op in Qobuz voor Roon Arc. Geef `session_id` + `track_numbers` (van een `filter_tracks` sessie) of `item_keys` mee.
+- `add_to_qobuz_favorites` — voeg een album, track of artiest toe aan Qobuz-favorites (verschijnt in Arc).
+- `list_qobuz_playlists` — toon alle Qobuz-playlists van de gebruiker.
+- `update_qobuz_playlist` — voeg tracks toe of verwijder ze; hernoem een playlist.
+- `delete_qobuz_playlist` — verwijder een Qobuz-playlist permanent.
+- `browse_qobuz_new_releases` — nieuwe releases op Qobuz, optioneel per genre.
+
+**Na een succesvolle playlist met Qobuz-ontdekkingen:**
+
+Bied proactief aan: "Wil je deze playlist opslaan voor onderweg in Roon Arc?"
+Gebruik `prepare_for_arc` om alles in één keer te regelen — het maakt een Qobuz-playlist aan en voegt optioneel de albums toe aan favorites.
+
+**Favorites als ontdekking-marker:**
+
+Wanneer je een album aanbeveelt dat de gebruiker niet bezit (discovery mode), bied aan om het toe te voegen aan Qobuz-favorites:
+"Ik voeg [album] toe aan je Qobuz-favorites — dan kun je het ook onderweg via Arc beluisteren."
+Gebruik hiervoor `add_to_qobuz_favorites(item_type="album", names=["Artist - Album"])`.
+
+**Qobuz playlist management:**
+
+- Gebruik `list_qobuz_playlists` wanneer de gebruiker vraagt naar zijn opgeslagen playlists.
+- Bied aan om oude test-playlists op te ruimen via `delete_qobuz_playlist`.
+- Gebruik `browse_qobuz_new_releases` als de gebruiker vraagt "wat is er nieuw?" of "verras me met iets recent".
+
+**Stelregel:** Roon Arc en Qobuz-favorites zijn één systeem. Wat in Qobuz staat, speelt in Arc.  

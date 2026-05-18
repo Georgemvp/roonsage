@@ -1,8 +1,8 @@
 """Direct Qobuz API client for playlist management.
 
-Provides authentication, track search, playlist creation, and track
-addition via Qobuz's JSON API. Independent of Roon — uses the user's
-own Qobuz credentials.
+Provides authentication, track search, playlist creation, track addition,
+favorites management, playlist CRUD, and new release browsing via Qobuz's
+JSON API. Independent of Roon — uses the user's own Qobuz credentials.
 
 Only app_id is extracted from the Qobuz web player — app_secret is NOT
 needed for playlist management, track search, or login operations.
@@ -372,6 +372,233 @@ class QobuzClient:
             len(tracks),
         )
         return {"matched": matched, "unmatched": unmatched}
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _api_get(self, endpoint: str, params: dict | None = None, retries: int = 3) -> dict[str, Any]:
+        """GET request with 429 retry logic."""
+        params = params or {}
+        for attempt in range(retries):
+            try:
+                resp = self._client.get(f"{QOBUZ_API_BASE}/{endpoint}", params=params)
+                if resp.status_code == 429:
+                    wait = 2 ** attempt  # 1s, 2s, 4s
+                    logger.warning("Qobuz 429 on GET %s, retrying in %ds (attempt %d/%d)", endpoint, wait, attempt + 1, retries)
+                    time.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.HTTPStatusError:
+                raise
+        raise QobuzAPIError(f"Qobuz GET {endpoint} failed after {retries} retries (rate limited)")
+
+    def _api_post(self, endpoint: str, data: dict | None = None, retries: int = 3) -> dict[str, Any]:
+        """POST request with 429 retry logic."""
+        data = data or {}
+        for attempt in range(retries):
+            try:
+                resp = self._client.post(f"{QOBUZ_API_BASE}/{endpoint}", data=data)
+                if resp.status_code == 429:
+                    wait = 2 ** attempt
+                    logger.warning("Qobuz 429 on POST %s, retrying in %ds (attempt %d/%d)", endpoint, wait, attempt + 1, retries)
+                    time.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.HTTPStatusError:
+                raise
+        raise QobuzAPIError(f"Qobuz POST {endpoint} failed after {retries} retries (rate limited)")
+
+    # ------------------------------------------------------------------
+    # Favorites
+    # ------------------------------------------------------------------
+
+    def add_favorite(self, item_type: str, item_ids: list[str]) -> dict[str, Any]:
+        """Add items to Qobuz favorites.
+
+        Args:
+            item_type: 'track', 'album', or 'artist'
+            item_ids:  List of Qobuz IDs to favorite.
+        """
+        if not item_ids:
+            return {"status": "ok", "added": 0}
+        ids_csv = ",".join(str(i) for i in item_ids)
+        key_map = {"track": "track_ids", "album": "album_ids", "artist": "artist_ids"}
+        key = key_map.get(item_type)
+        if not key:
+            raise QobuzAPIError(f"Invalid item_type '{item_type}'. Must be track, album, or artist.")
+        result = self._api_post("favorite/create", {key: ids_csv})
+        logger.info("Qobuz favorites add: type=%s ids=%s -> %s", item_type, ids_csv, result)
+        return result
+
+    def remove_favorite(self, item_type: str, item_ids: list[str]) -> dict[str, Any]:
+        """Remove items from Qobuz favorites.
+
+        Args:
+            item_type: 'track', 'album', or 'artist'
+            item_ids:  List of Qobuz IDs to un-favorite.
+        """
+        if not item_ids:
+            return {"status": "ok", "removed": 0}
+        ids_csv = ",".join(str(i) for i in item_ids)
+        key_map = {"track": "track_ids", "album": "album_ids", "artist": "artist_ids"}
+        key = key_map.get(item_type)
+        if not key:
+            raise QobuzAPIError(f"Invalid item_type '{item_type}'. Must be track, album, or artist.")
+        result = self._api_post("favorite/delete", {key: ids_csv})
+        logger.info("Qobuz favorites remove: type=%s ids=%s -> %s", item_type, ids_csv, result)
+        return result
+
+    def get_favorites(self, item_type: str, limit: int = 500) -> dict[str, Any]:
+        """Get user's Qobuz favorites.
+
+        Args:
+            item_type: 'tracks', 'albums', or 'artists' (plural form for list endpoints)
+            limit:     Maximum number of items to fetch.
+        """
+        result = self._api_get("favorite/getUserFavorites", {
+            "type": item_type,
+            "limit": limit,
+            "offset": 0,
+        })
+        return result
+
+    # ------------------------------------------------------------------
+    # Playlist management
+    # ------------------------------------------------------------------
+
+    def get_user_playlists(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Get all user playlists from Qobuz."""
+        result = self._api_get("playlist/getUserPlaylists", {"limit": limit, "offset": 0})
+        playlists = result.get("playlists", {}).get("items", [])
+        return [
+            {
+                "id": str(p.get("id", "")),
+                "name": p.get("name", ""),
+                "tracks_count": p.get("tracks_count", 0),
+                "duration": p.get("duration", 0),
+                "created_at": p.get("created_at", ""),
+                "updated_at": p.get("updated_at", ""),
+                "is_public": p.get("is_public", False),
+            }
+            for p in playlists
+        ]
+
+    def get_playlist(self, playlist_id: str) -> dict[str, Any]:
+        """Get playlist details with tracks."""
+        return self._api_get("playlist/get", {"playlist_id": playlist_id, "extra": "tracks"})
+
+    def update_playlist(
+        self,
+        playlist_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        """Update playlist name and/or description."""
+        data: dict = {"playlist_id": playlist_id}
+        if name is not None:
+            data["name"] = name
+        if description is not None:
+            data["description"] = description
+        result = self._api_post("playlist/update", data)
+        logger.info("Qobuz playlist updated: id=%s name=%s", playlist_id, name)
+        return result
+
+    def delete_playlist(self, playlist_id: str) -> dict[str, Any]:
+        """Delete a Qobuz playlist."""
+        result = self._api_post("playlist/delete", {"playlist_id": playlist_id})
+        logger.info("Qobuz playlist deleted: id=%s", playlist_id)
+        return result
+
+    def remove_tracks_from_playlist(
+        self,
+        playlist_id: str,
+        playlist_track_ids: list[str],
+    ) -> dict[str, Any]:
+        """Remove tracks from a Qobuz playlist by their positional IDs within the playlist.
+
+        Note: playlist_track_ids are the position IDs within the playlist,
+        not the global Qobuz track IDs.
+        """
+        if not playlist_track_ids:
+            return {"status": "ok", "removed": 0}
+        ids_csv = ",".join(str(i) for i in playlist_track_ids)
+        result = self._api_post("playlist/deleteTracks", {
+            "playlist_id": playlist_id,
+            "playlist_track_ids": ids_csv,
+        })
+        logger.info("Qobuz playlist tracks removed: playlist=%s tracks=%s", playlist_id, ids_csv)
+        return result
+
+    def add_tracks_to_playlist_by_id(
+        self,
+        playlist_id: str,
+        track_ids: list[str],
+    ) -> dict[str, Any]:
+        """Add tracks to an existing Qobuz playlist by track IDs (string version).
+
+        Complement to add_tracks_to_playlist which takes int IDs.
+        """
+        if not track_ids:
+            return {"status": "ok", "tracks_added": 0}
+        ids_csv = ",".join(str(tid) for tid in track_ids)
+        resp = self._client.post(
+            f"{QOBUZ_API_BASE}/playlist/addTracks",
+            data={
+                "playlist_id": playlist_id,
+                "track_ids": ids_csv,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    # ------------------------------------------------------------------
+    # Discovery / New releases
+    # ------------------------------------------------------------------
+
+    def get_new_releases(self, genre_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        """Get featured / new release albums from Qobuz.
+
+        Args:
+            genre_id: Optional Qobuz genre ID to filter (e.g. "6" for Jazz).
+            limit:    Number of albums to return.
+        """
+        params: dict = {"type": "new-releases", "limit": limit, "offset": 0}
+        if genre_id:
+            params["genre_id"] = genre_id
+        result = self._api_get("album/getFeatured", params)
+        albums = result.get("albums", {}).get("items", [])
+        return [
+            {
+                "id": str(a.get("id", "")),
+                "title": a.get("title", ""),
+                "artist": a.get("artist", {}).get("name", ""),
+                "release_date": a.get("release_date_original", a.get("released_at", "")),
+                "genre": a.get("genre", {}).get("name", ""),
+                "tracks_count": a.get("tracks_count", 0),
+                "image_url": a.get("image", {}).get("large", ""),
+            }
+            for a in albums
+        ]
+
+    def search_artist(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Search for artists on Qobuz by name."""
+        try:
+            resp = self._client.get(
+                f"{QOBUZ_API_BASE}/artist/search",
+                params={"query": query, "limit": limit},
+            )
+            resp.raise_for_status()
+            return resp.json().get("artists", {}).get("items", [])
+        except Exception as exc:
+            logger.warning("Qobuz artist search failed for '%s': %s", query, exc)
+            return []
+
+    # ------------------------------------------------------------------
+    # Save playlist (original, kept for backward compat)
+    # ------------------------------------------------------------------
 
     def save_playlist(
         self,

@@ -1058,3 +1058,110 @@ class SetupCompleteResponse(BaseModel):
     """Response from marking setup as complete."""
 
     success: bool
+
+
+# =============================================================================
+# Qobuz Extended Models
+# =============================================================================
+
+
+class QobuzFavoriteRequest(BaseModel):
+    """Request to add or remove Qobuz favorites."""
+
+    type: Literal["track", "album", "artist"]
+    ids: list[str]
+
+
+class QobuzFavoritesResponse(BaseModel):
+    """Response from getting Qobuz favorites."""
+
+    type: str
+    items: list[dict[str, Any]] = []
+    total: int = 0
+    error: str | None = None
+
+
+class QobuzPlaylistSummary(BaseModel):
+    """Summary of a Qobuz playlist (for listing)."""
+
+    id: str
+    name: str
+    tracks_count: int = 0
+    duration: int = 0
+    created_at: str = ""
+    updated_at: str = ""
+    is_public: bool = False
+
+
+class QobuzPlaylistsResponse(BaseModel):
+    """Response from listing Qobuz playlists."""
+
+    playlists: list[QobuzPlaylistSummary]
+    total: int = 0
+
+
+class QobuzPlaylistUpdateRequest(BaseModel):
+    """Request to update a Qobuz playlist."""
+
+    name: str | None = None
+    description: str | None = None
+    add_track_ids: list[str] | None = None          # Qobuz track IDs to add
+    remove_playlist_track_ids: list[str] | None = None  # Positional IDs to remove
+
+
+class QobuzPlaylistUpdateResponse(BaseModel):
+    """Response from updating a Qobuz playlist."""
+
+    success: bool
+    playlist_id: str
+    tracks_added: int = 0
+    tracks_removed: int = 0
+    error: str | None = None
+
+
+class QobuzAlbumSummary(BaseModel):
+    """Summary of a new release album."""
+
+    id: str
+    title: str
+    artist: str
+    release_date: str = ""
+    genre: str = ""
+    tracks_count: int = 0
+    image_url: str = ""
+
+
+class QobuzNewReleasesResponse(BaseModel):
+    """Response from new releases endpoint."""
+
+    albums: list[QobuzAlbumSummary]
+    total: int = 0
+
+
+class PrepareForArcTrackInput(BaseModel):
+    """A track to resolve for Arc preparation."""
+
+    title: str
+    artist: str
+    item_key: str | None = None  # Optional Roon item_key (not used in Qobuz resolution)
+
+
+class PrepareForArcRequest(BaseModel):
+    """Request to prepare a playlist for Roon Arc via Qobuz."""
+
+    playlist_name: str
+    track_items: list[PrepareForArcTrackInput]
+    add_to_favorites: bool = True
+
+
+class PrepareForArcResponse(BaseModel):
+    """Response from prepare-for-arc endpoint."""
+
+    success: bool
+    playlist_id: str | None = None
+    playlist_url: str | None = None
+    playlist_name: str | None = None
+    tracks_resolved: int = 0
+    tracks_skipped: int = 0
+    albums_favorited: int = 0
+    error: str | None = None

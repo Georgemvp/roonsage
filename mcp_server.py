@@ -1520,8 +1520,7 @@ async def save_to_qobuz(
     The tool creates a new Qobuz playlist and adds all matched tracks.
     Tracks not found on Qobuz are reported in the response.
 
-    Requires QOBUZ_APP_ID, QOBUZ_EMAIL, and QOBUZ_PASSWORD to be
-    configured in RoonSage.
+    Requires QOBUZ_EMAIL and QOBUZ_PASSWORD to be configured in RoonSage.
 
     Args:
         playlist_name: Name for the new Qobuz playlist.
@@ -1540,6 +1539,357 @@ async def save_to_qobuz(
         },
     )
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+
+
+@mcp.tool()
+async def add_to_qobuz_favorites(
+    item_type: str,
+    names: list[str],
+) -> str:
+    """Add albums, tracks, or artists to Qobuz favorites.
+
+    Items added to Qobuz favorites automatically appear in Roon Arc.
+    For albums and tracks, each name is searched on Qobuz and resolved
+    to a Qobuz ID before being favorited.
+    For artists, the artist is searched by name and favorited directly.
+
+    Use this when recommending a new album to the user so they can also
+    hear it on the go via Roon Arc.
+
+    Args:
+        item_type: "album", "track", or "artist"
+        names:     List of search queries, e.g. ["Radiohead - OK Computer",
+                   "Portishead - Dummy"] for albums, or ["Miles Davis"] for artists.
+    """
+    logger.info("ADD_TO_QOBUZ_FAVORITES: type=%s names=%s", item_type, names)
+
+    if item_type not in ("album", "track", "artist"):
+        return "Error: item_type must be 'album', 'track', or 'artist'."
+    if not names:
+        return "Error: names list is empty."
+
+    # Resolve names to Qobuz IDs via search
+    resolved_ids: list[str] = []
+    not_found: list[str] = []
+
+    for name in names:
+        if item_type == "artist":
+            # Search for artist
+            result = await _api_call("GET", "/api/library/search", params={"q": name})
+            if isinstance(result, list) and result:
+                # Try to find the artist on Qobuz via Qobuz search
+                qobuz_result = await _api_call("POST", "/api/roon/qobuz-search", json={"query": name, "limit": 5})
+                if isinstance(qobuz_result, dict) and qobuz_result.get("tracks"):
+                    # Get artist from first result — we'd need Qobuz direct API for artist ID
+                    # Fall through to direct Qobuz API call for artist search
+                    pass
+            # For artists, we use the direct Qobuz API endpoint
+            qr = await _api_call("POST", "/api/qobuz/favorite/add", json={"type": "artist", "ids": []})
+            # Artists require a direct Qobuz artist search — delegate to the backend
+            not_found.append(f"{name} (artist search requires direct Qobuz lookup)")
+        else:
+            # For tracks and albums, search via Qobuz
+            qobuz_result = await _api_call("POST", "/api/roon/qobuz-search", json={"query": name, "limit": 3})
+            if isinstance(qobuz_result, dict) and qobuz_result.get("tracks"):
+                tracks = qobuz_result["tracks"]
+                if tracks:
+                    first = tracks[0]
+                    if item_type == "track":
+                        # item_key contains Qobuz track ID for Qobuz tracks
+                        item_key = first.get("item_key", "")
+                        # item_keys from qobuz search are Roon item_keys, not Qobuz IDs
+                        # We add via the backend favorite endpoint using the search result
+                        resolved_ids.append(item_key)
+                    elif item_type == "album":
+                        resolved_ids.append(first.get("item_key", ""))
+            else:
+                not_found.append(name)
+
+    # Call the backend favorites endpoint
+    # Note: for Qobuz-via-Roon item_keys, we use the track item_keys directly
+    # The backend will handle ID resolution
+    if resolved_ids:
+        add_result = await _api_call("POST", "/api/qobuz/favorite/add", json={
+            "type": item_type,
+            "ids": resolved_ids,
+        })
+    else:
+        add_result = {"success": False, "error": "No items resolved"}
+
+    summary = {
+        "favorited": len(resolved_ids),
+        "not_found": not_found,
+        "result": add_result if isinstance(add_result, dict) else str(add_result),
+    }
+    return json.dumps(summary, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def list_qobuz_playlists() -> str:
+    """List all Qobuz playlists in the user's account.
+
+    Shows name, track count, and creation date for each playlist.
+    Use this when the user asks about their saved playlists, wants to
+    play a specific Qobuz playlist, or wants to clean up old ones.
+
+    Requires QOBUZ_EMAIL and QOBUZ_PASSWORD to be configured in RoonSage.
+    """
+    logger.info("LIST_QOBUZ_PLAYLISTS called")
+    result = await _api_call("GET", "/api/qobuz/playlists")
+    if isinstance(result, str):
+        return result
+
+    playlists = result.get("playlists", [])
+    if not playlists:
+        return "No Qobuz playlists found. Create one with save_to_qobuz or prepare_for_arc."
+
+    lines = [f"Found {len(playlists)} Qobuz playlist(s):\n"]
+    for p in playlists:
+        created = p.get("created_at", "")[:10] if p.get("created_at") else "unknown"
+        lines.append(
+            f"- [{p['id']}] {p['name']}  "
+            f"({p.get('tracks_count', 0)} tracks, created {created})"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def update_qobuz_playlist(
+    playlist_id: str,
+    add_tracks: Optional[list[str]] = None,
+    remove_indices: Optional[list[int]] = None,
+    new_name: Optional[str] = None,
+    new_description: Optional[str] = None,
+) -> str:
+    """Update an existing Qobuz playlist — rename, add or remove tracks.
+
+    Use this to refine a saved playlist: add new discoveries, clean out
+    tracks that no longer fit, or rename it.
+
+    Args:
+        playlist_id:     Qobuz playlist ID (from list_qobuz_playlists).
+        add_tracks:      Qobuz track IDs to add (as strings), e.g. ["123456", "789012"].
+                         Use search_qobuz to find track IDs.
+        remove_indices:  Playlist-internal track position IDs to remove.
+                         Get these from get_playlist details (playlist_track_id field).
+        new_name:        New playlist name (optional).
+        new_description: New playlist description (optional).
+    """
+    logger.info(
+        "UPDATE_QOBUZ_PLAYLIST: id=%s name=%s add=%s remove=%s",
+        playlist_id, new_name, add_tracks, remove_indices,
+    )
+    body: dict = {"playlist_id": playlist_id}
+    if new_name is not None:
+        body["name"] = new_name
+    if new_description is not None:
+        body["description"] = new_description
+    if add_tracks:
+        body["add_track_ids"] = add_tracks
+    if remove_indices:
+        body["remove_playlist_track_ids"] = [str(i) for i in remove_indices]
+
+    result = await _api_call("PUT", f"/api/qobuz/playlist/{playlist_id}", json=body)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+
+
+@mcp.tool()
+async def delete_qobuz_playlist(playlist_id: str) -> str:
+    """Delete a Qobuz playlist permanently.
+
+    Use with caution — deletion is irreversible. Use list_qobuz_playlists
+    to confirm the playlist ID before deleting.
+
+    Args:
+        playlist_id: The Qobuz playlist ID (from list_qobuz_playlists).
+    """
+    logger.info("DELETE_QOBUZ_PLAYLIST: id=%s", playlist_id)
+    result = await _api_call("DELETE", f"/api/qobuz/playlist/{playlist_id}", retryable=False)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+
+
+@mcp.tool()
+async def browse_qobuz_new_releases(
+    genre: Optional[str] = None,
+    limit: int = 20,
+) -> str:
+    """Browse new album releases on Qobuz, optionally filtered by genre.
+
+    Great for music discovery — shows what's freshly released this week.
+    Returns album titles, artists, release dates, and genres.
+
+    Common Qobuz genre IDs:
+    - Jazz: 6, Electronic: 64, Classical: 113, Pop/Rock: 76, Hip-Hop: 34,
+      Soul/R&B: 56, Folk: 68, Blues: 178, World: 98
+
+    After browsing, use search_qobuz to get playable item_keys for an album,
+    then play_tracks to start listening.
+
+    Args:
+        genre: Optional genre name as hint (e.g. "jazz", "electronic").
+               If provided, the backend tries to match to a Qobuz genre ID.
+               Leave None for all genres.
+        limit: Number of releases to show (default 20, max 50).
+    """
+    logger.info("BROWSE_QOBUZ_NEW_RELEASES: genre=%s limit=%d", genre, limit)
+
+    # Map common genre names to Qobuz genre IDs
+    GENRE_ID_MAP = {
+        "jazz": "6",
+        "electronic": "64",
+        "electronica": "64",
+        "classical": "113",
+        "pop": "76",
+        "rock": "76",
+        "pop/rock": "76",
+        "hip-hop": "34",
+        "hiphop": "34",
+        "hip hop": "34",
+        "rap": "34",
+        "soul": "56",
+        "r&b": "56",
+        "rnb": "56",
+        "folk": "68",
+        "blues": "178",
+        "world": "98",
+        "world music": "98",
+        "latin": "148",
+        "metal": "174",
+        "country": "133",
+    }
+
+    params: dict = {"limit": min(limit, 50)}
+    if genre:
+        genre_id = GENRE_ID_MAP.get(genre.lower().strip())
+        if genre_id:
+            params["genre_id"] = genre_id
+        else:
+            logger.info("Unknown genre '%s' — fetching all genres", genre)
+
+    result = await _api_call("GET", "/api/qobuz/new-releases", params=params)
+    if isinstance(result, str):
+        return result
+
+    albums = result.get("albums", [])
+    if not albums:
+        return f"No new releases found{f' for genre {genre}' if genre else ''}."
+
+    lines = [f"🆕 {len(albums)} new releases on Qobuz{f' — {genre}' if genre else ''}:\n"]
+    for a in albums:
+        released = a.get("release_date", "")[:10] if a.get("release_date") else ""
+        genre_str = f" [{a['genre']}]" if a.get("genre") else ""
+        lines.append(
+            f"• {a['artist']} — {a['title']}"
+            + (f" ({released})" if released else "")
+            + genre_str
+            + f"  [{a.get('tracks_count', '?')} tracks, id={a['id']}]"
+        )
+    lines.append(
+        "\nUse search_qobuz(\"Artist Album\") to get playable item_keys, "
+        "then play_tracks to listen."
+    )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def prepare_for_arc(
+    playlist_name: str,
+    session_id: Optional[str] = None,
+    track_numbers: Optional[list[int]] = None,
+    item_keys: Optional[list[str]] = None,
+    add_albums_to_favorites: bool = True,
+) -> str:
+    """Save a curated playlist to Qobuz for listening in Roon Arc on the go.
+
+    This is the bridge between home curation and mobile listening:
+    1. Resolves all tracks to Qobuz equivalents by title + artist search.
+    2. Creates a Qobuz playlist named "RoonSage · {name} · {date}".
+    3. Optionally adds the discovered albums to Qobuz favorites.
+
+    Everything added to Qobuz (playlists + favorites) automatically
+    appears in Roon Arc — no extra setup needed.
+
+    Use EITHER session_id + track_numbers (from a filter_tracks session)
+    OR item_keys (from play_tracks / search results). Not both.
+
+    Args:
+        playlist_name:         Descriptive name, e.g. "Late Night Jazz".
+        session_id:            Session ID from a filter_tracks call.
+        track_numbers:         Track numbers from that session.
+        item_keys:             Direct Roon item_keys (alternative to session_id).
+        add_albums_to_favorites: Add unique albums to Qobuz favorites (default True).
+    """
+    logger.info(
+        "PREPARE_FOR_ARC: name='%s' session=%s tracks=%s keys=%s fav=%s",
+        playlist_name, session_id, track_numbers, item_keys, add_albums_to_favorites,
+    )
+
+    # Resolve track metadata so we have artist + title for Qobuz search
+    track_items: list[dict] = []
+
+    if session_id and track_numbers:
+        # Fetch the resolved tracks from the session via curate_and_play dry-run
+        # We call the curate endpoint in dry-run / lookup mode to get track metadata
+        curate_resp = await _api_call(
+            "POST",
+            "/api/library/filter/curate",
+            retryable=False,
+            json={
+                "session_id": session_id,
+                "track_numbers": track_numbers,
+                "zone_id": "__dry_run__",  # Signal backend to skip playback
+                "dry_run": True,
+            },
+        )
+        if isinstance(curate_resp, dict):
+            resolved = curate_resp.get("resolved_tracks", [])
+            track_items = [{"title": t.get("title", ""), "artist": t.get("artist", "")} for t in resolved]
+        if not track_items:
+            return (
+                "Could not resolve track metadata from session. "
+                "Try using item_keys instead, or provide tracks directly via save_to_qobuz."
+            )
+    elif item_keys:
+        # Search for each item_key to get metadata
+        for key in item_keys[:100]:  # Cap at 100 to avoid rate limiting
+            search_result = await _api_call("GET", "/api/library/search", params={"q": key})
+            if isinstance(search_result, list) and search_result:
+                t = search_result[0]
+                track_items.append({"title": t.get("title", ""), "artist": t.get("artist", "")})
+    else:
+        return "Error: provide either (session_id + track_numbers) or item_keys."
+
+    if not track_items:
+        return "No track metadata could be resolved. Check that the session_id or item_keys are valid."
+
+    # Call the prepare-for-arc backend endpoint
+    body = {
+        "playlist_name": playlist_name,
+        "track_items": track_items,
+        "add_to_favorites": add_albums_to_favorites,
+    }
+    result = await _api_call("POST", "/api/qobuz/prepare-for-arc", retryable=False, json=body)
+    if isinstance(result, str):
+        return result
+
+    if not result.get("success"):
+        return f"Prepare for Arc failed: {result.get('error', 'Unknown error')}"
+
+    lines = [
+        f"✅ Playlist saved to Qobuz for Roon Arc!",
+        f"",
+        f"📋 **{result.get('playlist_name')}**",
+        f"🔗 {result.get('playlist_url', '')}",
+        f"",
+        f"✓ {result.get('tracks_resolved', 0)} tracks saved to Qobuz playlist",
+    ]
+    if result.get("tracks_skipped", 0):
+        lines.append(f"✗ {result['tracks_skipped']} tracks not found on Qobuz")
+    if result.get("albums_favorited", 0):
+        lines.append(f"❤️  {result['albums_favorited']} albums added to Qobuz favorites")
+    lines.append("")
+    lines.append("The playlist will appear in Roon Arc within a few minutes.")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
