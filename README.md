@@ -13,7 +13,7 @@ RoonSage is a self-hosted web app that connects to your Roon Core as an Extensio
 
 ## Claude Desktop Integration
 
-This is the primary way to use RoonSage. A full MCP server gives Claude Desktop **27 tools** to interact with your library and Roon — and Claude does all the curation work itself, using its own musical judgment. No separate API key, no per-token costs — just your existing Claude Pro subscription.
+This is the primary way to use RoonSage. A full MCP server gives Claude Desktop **42 tools** to interact with your library and Roon — and Claude does all the curation work itself, using its own musical judgment. No separate API key, no per-token costs — just your existing Claude Pro subscription.
 
 ```
 "Make a playlist for a late Friday evening, something melancholic but not depressing."
@@ -22,9 +22,15 @@ This is the primary way to use RoonSage. A full MCP server gives Claude Desktop 
 "Give me everything by Nick Cave that I own."
 "Turn on shuffle and set volume to 40%."
 "Group the living room and kitchen."
+"Save this playlist to Qobuz so I can listen on the go in Arc."
+"What's new on Qobuz this week in jazz?"
+"What does my taste profile look like right now?"
+"Save this playlist as 'Sunday Morning Jazz' so I can replay it."
+"I hated that last one — note that in my profile."
 
 (Dutch / "Maak een playlist voor een late vrijdagavond, iets melancholisch maar niet depressief.")
 (Dutch / "Meer zoals wat er nu speelt, maar wat energieker.")
+(Dutch / "Sla deze playlist op als 'Zondagochtend jazz'.")
 ```
 
 ### How Claude curates
@@ -48,6 +54,41 @@ Claude handles **all** playlist, seed, and recommendation flows itself. The back
 | **Qobuz** | "something new", "surprise me", "I don't know yet" | multiple `search_qobuz` calls → curate → `play_tracks` |
 
 When in doubt, Claude asks which source you want.
+
+### Intelligence layer — taste profile & history
+
+RoonSage tracks your listening and remembers what you like. Claude reads your profile at the start of each session and adjusts its recommendations accordingly.
+
+**What is tracked automatically:**
+- Every track you play is logged to a listening history table — artist, title, album, genre, how long you listened, and whether you skipped it.
+- After each playlist, Claude can update your taste profile (genres, decades, artists, moods) using a weighted merge with 30% recency bias, so your profile evolves without losing long-term preferences.
+- Explicit feedback ("I hated that one", "add jazz to my dislikes") is applied immediately.
+
+**Taste profile structure:**
+
+```json
+{
+  "genres":   {"Jazz": 0.8, "Electronic": 0.6},
+  "decades":  {"1990s": 0.7, "2000s": 0.5},
+  "artists":  {"Radiohead": 0.9, "Miles Davis": 0.85},
+  "moods":    {"melancholic": 0.7, "energetic": 0.4},
+  "dislikes": ["christmas", "karaoke"],
+  "notes":    ["prefers album-oriented listening", "no live versions"],
+  "stats":    {"total_playlists": 42, "avg_rating": 4.2}
+}
+```
+
+**Saved playlists** — any curated playlist can be saved by name. Claude can replay it later (via `replay_saved_playlist`) or use it as inspiration for a new session.
+
+**Session-start workflow (Claude Desktop):**
+
+```
+1. get_taste_profile          → Claude knows your current preferences
+2. (optional) get_listening_history  → Claude sees what you've been playing lately
+3. [curate playlist]          → guided by profile
+4. rate_playlist              → 1–5 stars + optional note
+5. update_taste_profile       → profile evolves based on feedback
+```
 
 ### Setup
 
@@ -88,7 +129,7 @@ If RoonSage runs at a different address, set `ROONSAGE_URL` before starting Clau
 
 Start with Sonnet. Switch to Opus for prompts like "something that feels like driving in the rain at night."
 
-### Available tools (27)
+### Available tools (42)
 
 **Library**
 
@@ -135,7 +176,32 @@ Start with Sonnet. Switch to Opus for prompts like "something that feels like dr
 | `transfer_zone` | Move playback from one zone to another |
 | `zone_grouping` | Group or ungroup zones for synchronised playback |
 | `get_result_history` | Previously generated playlists and recommendations |
-| `save_to_qobuz` | Sla een gecureerde playlist op in je Qobuz-account |
+
+**Intelligence & taste profile**
+
+| Tool | What it does |
+|------|-------------|
+| `get_taste_profile` | Retrieve your full taste profile (genres, decades, artists, moods, dislikes, notes, stats) |
+| `update_taste_profile` | Merge new preferences into your profile — genres, moods, dislikes, freeform notes |
+| `rate_playlist` | Rate a saved playlist 1–5 stars with an optional comment |
+| `get_listening_history` | Recent listening history — artist, title, play duration, skip flag |
+| `save_playlist` | Save a curated playlist by name for future replay |
+| `list_saved_playlists` | List all saved playlists with metadata and ratings |
+| `replay_saved_playlist` | Play a previously saved playlist by name or ID |
+| `browse_tags` | List all Roon Tags from your library for tag-based filtering |
+| `modify_playlist` | Adjust a playing or proposed playlist — remove tracks, change mood, swap artists |
+
+**Qobuz & Roon Arc**
+
+| Tool | What it does |
+|------|-------------|
+| `save_to_qobuz` | Save a curated playlist to your Qobuz account by artist + title search |
+| `prepare_for_arc` | Save a playlist to Qobuz **and** add albums to favorites in one step — the playlist and favorites automatically appear in Roon Arc |
+| `add_to_qobuz_favorites` | Add albums, tracks, or artists to Qobuz favorites (appears instantly in Roon Arc) |
+| `list_qobuz_playlists` | List all playlists in your Qobuz account with track counts and dates |
+| `update_qobuz_playlist` | Rename a playlist, add tracks, or remove tracks by position |
+| `delete_qobuz_playlist` | Permanently delete a Qobuz playlist |
+| `browse_qobuz_new_releases` | Browse new/featured album releases on Qobuz, optionally filtered by genre |
 
 ---
 
@@ -176,7 +242,9 @@ The web interface works without Claude Desktop and offers the same playlist and 
 
 **Qobuz integration** — three source modes: Library only, Mix (library + Qobuz discoveries), and Qobuz Discovery (new music only). Automatically detected when Qobuz is configured in Roon.
 
-**Opslaan in Qobuz** — sla gegenereerde playlists direct op als Qobuz-afspeellijst in je account. Configureer je Qobuz e-mail en wachtwoord via de Instellingen-pagina — de app haalt automatisch de benodigde API-credentials op. Elke track wordt opgezocht in de Qobuz-catalogus via artiest + titel; gevonden tracks worden toegevoegd aan een nieuwe Qobuz-playlist. Tracks die niet op Qobuz staan worden overgeslagen met melding.
+**Save to Qobuz** — save any generated playlist directly to your Qobuz account. Configure your Qobuz email and password in Settings — the app auto-detects the required API credentials. Each track is looked up in the Qobuz catalogue by artist + title; matched tracks are added to a new Qobuz playlist. Unmatched tracks are reported. Via Claude Desktop you can additionally manage playlists, handle favorites, and prepare Arc-ready collections.
+
+**Roon Arc integration** — everything you save to Qobuz (playlists and favorites) automatically appears in Roon Arc. Via Claude Desktop, say _"Save this for Arc"_ and `prepare_for_arc` creates the Qobuz playlist and adds the albums to your favorites in one call. Claude can also browse new Qobuz releases by genre, manage existing Qobuz playlists, and add individual albums to favorites after a discovery recommendation.
 
 **Smart filtering** — filter by genre, decade, and live exclusion before the LLM sees anything. Real-time track counts show exactly how your choices narrow the pool. Estimated token costs are shown before you generate.
 
@@ -251,6 +319,10 @@ Used by the web interface and by Claude Desktop when the filtered pool is too la
 ```
 
 Library data is synced once to SQLite via the Roon Browse API (`browse_browse` / `browse_load`). All subsequent queries read from the local cache — no Roon API calls needed during generation.
+
+### Intelligence layer (background)
+
+A passive listening monitor runs alongside Roon. Every 10 seconds it checks which tracks are playing across all zones. When a track plays for at least 5 seconds, it is logged to `listening_history` with artist, title, album, genre, play duration, and a skip flag (skipped = played less than 30 s). This data is used to recompute genre and artist preference scores and to evolve the taste profile over time — entirely locally, with no cloud dependency.
 
 ---
 
@@ -500,9 +572,31 @@ Interactive docs at `/docs` when the server is running.
 | `/api/roon/radio` | POST | Play an internet radio station |
 | `/api/roon/playlists` | POST | List or play Roon playlists |
 | `/api/roon/qobuz-search` | POST | Search Qobuz catalogue via Roon |
-| `/api/qobuz/playlist/save` | POST | Playlist opslaan in Qobuz-account |
-| `/api/qobuz/save-status` | GET | Check of Qobuz-opslag beschikbaar is |
-| `/api/qobuz/validate` | POST | Qobuz credentials valideren |
+| `/api/qobuz/playlist/save` | POST | Save a playlist to the user's Qobuz account |
+| `/api/qobuz/save-status` | GET | Check whether Qobuz save is configured |
+| `/api/qobuz/validate` | POST | Validate Qobuz credentials |
+| `/api/qobuz/favorite/add` | POST | Add tracks, albums, or artists to Qobuz favorites |
+| `/api/qobuz/favorite/remove` | POST | Remove items from Qobuz favorites |
+| `/api/qobuz/favorites` | GET | List user's Qobuz favorites (tracks/albums/artists) |
+| `/api/qobuz/playlists` | GET | List all Qobuz playlists in user's account |
+| `/api/qobuz/playlist/{id}` | GET | Get Qobuz playlist details with tracks |
+| `/api/qobuz/playlist/{id}` | PUT | Update playlist — rename, add or remove tracks |
+| `/api/qobuz/playlist/{id}` | DELETE | Delete a Qobuz playlist |
+| `/api/qobuz/new-releases` | GET | Browse new/featured Qobuz albums, optional `genre_id` filter |
+| `/api/qobuz/prepare-for-arc` | POST | Resolve tracks → create Qobuz playlist → add to favorites (Arc workflow) |
+| `/api/intelligence/taste-profile` | GET | Retrieve the user's taste profile |
+| `/api/intelligence/taste-profile` | PUT | Merge updates into the taste profile |
+| `/api/intelligence/taste-events` | GET | Recent taste events (plays, ratings, feedback) |
+| `/api/intelligence/listening-history` | GET | Paginated listening history with skip/duration data |
+| `/api/intelligence/listening-history/recompute` | POST | Recompute the taste profile from listening history |
+| `/api/playlists/saved` | GET | List all saved playlists |
+| `/api/playlists/saved` | POST | Save a new playlist by name |
+| `/api/playlists/saved/from-session` | POST | Save the current filter session as a named playlist |
+| `/api/playlists/saved/{id}` | GET | Retrieve a saved playlist with its tracks |
+| `/api/playlists/saved/{id}` | PUT | Update rating or notes on a saved playlist |
+| `/api/playlists/saved/{id}` | DELETE | Delete a saved playlist |
+| `/api/playlists/saved/{id}/play` | POST | Play a saved playlist in a Roon zone |
+| `/api/roon/tags` | GET | List all Roon Tags from the library |
 | `/api/queue` | POST | Send tracks to a Roon zone |
 | `/api/queue/append` | POST | Append tracks to a zone queue |
 | `/api/recommend/questions` | POST | Generate clarifying questions |
