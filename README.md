@@ -13,7 +13,7 @@ RoonSage is a self-hosted web app that connects to your Roon Core as an Extensio
 
 ## Claude Desktop Integration
 
-This is the primary way to use RoonSage. A full MCP server gives Claude Desktop **27 tools** to interact with your library and Roon — and Claude does all the curation work itself, using its own musical judgment. No separate API key, no per-token costs — just your existing Claude Pro subscription.
+This is the primary way to use RoonSage. A full MCP server gives Claude Desktop **33 tools** to interact with your library and Roon — and Claude does all the curation work itself, using its own musical judgment. No separate API key, no per-token costs — just your existing Claude Pro subscription.
 
 ```
 "Make a playlist for a late Friday evening, something melancholic but not depressing."
@@ -22,6 +22,8 @@ This is the primary way to use RoonSage. A full MCP server gives Claude Desktop 
 "Give me everything by Nick Cave that I own."
 "Turn on shuffle and set volume to 40%."
 "Group the living room and kitchen."
+"Save this playlist to Qobuz so I can listen on the go in Arc."
+"What's new on Qobuz this week in jazz?"
 
 (Dutch / "Maak een playlist voor een late vrijdagavond, iets melancholisch maar niet depressief.")
 (Dutch / "Meer zoals wat er nu speelt, maar wat energieker.")
@@ -88,7 +90,7 @@ If RoonSage runs at a different address, set `ROONSAGE_URL` before starting Clau
 
 Start with Sonnet. Switch to Opus for prompts like "something that feels like driving in the rain at night."
 
-### Available tools (27)
+### Available tools (33)
 
 **Library**
 
@@ -135,7 +137,18 @@ Start with Sonnet. Switch to Opus for prompts like "something that feels like dr
 | `transfer_zone` | Move playback from one zone to another |
 | `zone_grouping` | Group or ungroup zones for synchronised playback |
 | `get_result_history` | Previously generated playlists and recommendations |
-| `save_to_qobuz` | Sla een gecureerde playlist op in je Qobuz-account |
+
+**Qobuz & Roon Arc**
+
+| Tool | What it does |
+|------|-------------|
+| `save_to_qobuz` | Save a curated playlist to your Qobuz account by artist + title search |
+| `prepare_for_arc` | Save a playlist to Qobuz **and** add albums to favorites in one step — the playlist and favorites automatically appear in Roon Arc |
+| `add_to_qobuz_favorites` | Add albums, tracks, or artists to Qobuz favorites (appears instantly in Roon Arc) |
+| `list_qobuz_playlists` | List all playlists in your Qobuz account with track counts and dates |
+| `update_qobuz_playlist` | Rename a playlist, add tracks, or remove tracks by position |
+| `delete_qobuz_playlist` | Permanently delete a Qobuz playlist |
+| `browse_qobuz_new_releases` | Browse new/featured album releases on Qobuz, optionally filtered by genre |
 
 ---
 
@@ -176,7 +189,9 @@ The web interface works without Claude Desktop and offers the same playlist and 
 
 **Qobuz integration** — three source modes: Library only, Mix (library + Qobuz discoveries), and Qobuz Discovery (new music only). Automatically detected when Qobuz is configured in Roon.
 
-**Opslaan in Qobuz** — sla gegenereerde playlists direct op als Qobuz-afspeellijst in je account. Configureer je Qobuz e-mail en wachtwoord via de Instellingen-pagina — de app haalt automatisch de benodigde API-credentials op. Elke track wordt opgezocht in de Qobuz-catalogus via artiest + titel; gevonden tracks worden toegevoegd aan een nieuwe Qobuz-playlist. Tracks die niet op Qobuz staan worden overgeslagen met melding.
+**Save to Qobuz** — save any generated playlist directly to your Qobuz account. Configure your Qobuz email and password in Settings — the app auto-detects the required API credentials. Each track is looked up in the Qobuz catalogue by artist + title; matched tracks are added to a new Qobuz playlist. Unmatched tracks are reported. Via Claude Desktop you can additionally manage playlists, handle favorites, and prepare Arc-ready collections.
+
+**Roon Arc integration** — everything you save to Qobuz (playlists and favorites) automatically appears in Roon Arc. Via Claude Desktop, say _"Save this for Arc"_ and `prepare_for_arc` creates the Qobuz playlist and adds the albums to your favorites in one call. Claude can also browse new Qobuz releases by genre, manage existing Qobuz playlists, and add individual albums to favorites after a discovery recommendation.
 
 **Smart filtering** — filter by genre, decade, and live exclusion before the LLM sees anything. Real-time track counts show exactly how your choices narrow the pool. Estimated token costs are shown before you generate.
 
@@ -500,9 +515,18 @@ Interactive docs at `/docs` when the server is running.
 | `/api/roon/radio` | POST | Play an internet radio station |
 | `/api/roon/playlists` | POST | List or play Roon playlists |
 | `/api/roon/qobuz-search` | POST | Search Qobuz catalogue via Roon |
-| `/api/qobuz/playlist/save` | POST | Playlist opslaan in Qobuz-account |
-| `/api/qobuz/save-status` | GET | Check of Qobuz-opslag beschikbaar is |
-| `/api/qobuz/validate` | POST | Qobuz credentials valideren |
+| `/api/qobuz/playlist/save` | POST | Save a playlist to the user's Qobuz account |
+| `/api/qobuz/save-status` | GET | Check whether Qobuz save is configured |
+| `/api/qobuz/validate` | POST | Validate Qobuz credentials |
+| `/api/qobuz/favorite/add` | POST | Add tracks, albums, or artists to Qobuz favorites |
+| `/api/qobuz/favorite/remove` | POST | Remove items from Qobuz favorites |
+| `/api/qobuz/favorites` | GET | List user's Qobuz favorites (tracks/albums/artists) |
+| `/api/qobuz/playlists` | GET | List all Qobuz playlists in user's account |
+| `/api/qobuz/playlist/{id}` | GET | Get Qobuz playlist details with tracks |
+| `/api/qobuz/playlist/{id}` | PUT | Update playlist — rename, add or remove tracks |
+| `/api/qobuz/playlist/{id}` | DELETE | Delete a Qobuz playlist |
+| `/api/qobuz/new-releases` | GET | Browse new/featured Qobuz albums, optional `genre_id` filter |
+| `/api/qobuz/prepare-for-arc` | POST | Resolve tracks → create Qobuz playlist → add to favorites (Arc workflow) |
 | `/api/queue` | POST | Send tracks to a Roon zone |
 | `/api/queue/append` | POST | Append tracks to a zone queue |
 | `/api/recommend/questions` | POST | Generate clarifying questions |
