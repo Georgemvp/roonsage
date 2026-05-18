@@ -18,6 +18,10 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Prevent httpx from logging full URLs (which contain credentials during login)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 QOBUZ_API_BASE = "https://www.qobuz.com/api.json/0.2"
 QOBUZ_PLAY_URL = "https://play.qobuz.com"
 
@@ -172,14 +176,30 @@ class QobuzClient:
         for app_id in app_ids_to_try:
             for pw_label, pw in [("plain", password), ("md5", password_md5)]:
                 try:
-                    resp = self._client.get(
+                    # Try POST with form data first (keeps credentials out of URL)
+                    resp = self._client.post(
                         f"{QOBUZ_API_BASE}/user/login",
-                        params={
+                        data={
                             "email": email,
                             "password": pw,
                             "app_id": app_id,
                         },
                     )
+                    # Some older app_ids only accept GET — fall back if POST gives
+                    # a non-auth error (4xx that isn't 400/401/403).
+                    if resp.status_code not in (200, 400, 401, 403):
+                        logger.debug(
+                            "POST login returned %d for app_id=%s, retrying with GET",
+                            resp.status_code, app_id,
+                        )
+                        resp = self._client.get(
+                            f"{QOBUZ_API_BASE}/user/login",
+                            params={
+                                "email": email,
+                                "password": pw,
+                                "app_id": app_id,
+                            },
+                        )
 
                     if resp.status_code == 200:
                         data = resp.json()
