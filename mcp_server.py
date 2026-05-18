@@ -1090,40 +1090,37 @@ async def analyze_prompt(prompt: str) -> str:
 async def recommend_album_interactive(
     prompt: str,
     answers: Optional[list[str]] = None,
+    session_id: Optional[str] = None,
     mode: str = "library",
     familiarity_pref: str = "any",
 ) -> str:
     """Interactive album recommendation with clarifying questions.
 
     Two-step flow:
-    - Step 1 (answers=None): Returns a session_id and clarifying questions.
-      Present these questions to the user.
-    - Step 2 (answers=[...]): Pass the session_id in the prompt field
-      (format: "SESSION:<session_id>|<original prompt>") along with the user's
-      answers to generate a precise recommendation.
+    - Step 1 (answers=None, session_id=None): Returns a session_id and
+      clarifying questions. Present these questions to the user.
+    - Step 2 (answers=[...], session_id="<from step 1>"): Pass the session_id
+      returned from step 1 as the session_id parameter, keep the original
+      prompt unchanged, and include the user's answers to generate a precise
+      recommendation.
 
     This produces much more personalized picks than recommend_album.
 
     Args:
-        prompt:          Mood/occasion description. In step 2, prefix with
-                         "SESSION:<session_id>|" to reuse the session.
+        prompt:          Mood/occasion description. Pass the same value in
+                         both step 1 and step 2.
         answers:         List of answer strings (one per clarifying question).
                          Pass None or omit for step 1.
+        session_id:      Session ID returned by step 1. Required in step 2;
+                         omit (or pass None) for step 1.
         mode:            "library" (user's collection) or "discovery" (new albums).
         familiarity_pref: "comfort", "hidden_gem", "rediscovery", or "any".
     """
     logger.info("RECOMMEND_ALBUM_INTERACTIVE: mode=%s step=%s", mode, "2" if answers is not None else "1")
-    # Step 2: answers provided — extract session_id from prompt prefix
+    # Step 2: answers provided — use session_id directly
     if answers is not None:
-        session_id = None
-        original_prompt = prompt
-        if prompt.startswith("SESSION:"):
-            parts = prompt[8:].split("|", 1)
-            session_id = parts[0]
-            original_prompt = parts[1] if len(parts) > 1 else prompt
-
         if not session_id:
-            return "Error: session_id missing. Run step 1 first (call without answers)."
+            return "Error: session_id missing. Call this tool first without answers to get a session_id."
 
         generate_body = {
             "session_id": session_id,
@@ -1207,7 +1204,7 @@ async def recommend_album_interactive(
         "step": 1,
         "instructions": (
             "Present these questions to the user. Then call recommend_album_interactive again "
-            f"with prompt='SESSION:{session_id}|{prompt}' and answers=[...their answers...]."
+            f"with session_id='{session_id}', prompt='{prompt}', and answers=[...their answers...]."
         ),
         "session_id": session_id,
         "questions": questions,

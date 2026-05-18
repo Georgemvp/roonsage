@@ -216,6 +216,11 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
   - Frontend: Qobuz settings section (email + password only, app_id auto-detected) with validate button
   - Frontend: "Opslaan in Qobuz" button on playlist results (visible when Qobuz is configured)
   - Config: `QOBUZ_EMAIL`, `QOBUZ_PASSWORD` environment variables (no app_id needed)
+- **MCP v4.7 (2026-05-18):** recommend_album_interactive parameter fix:
+  - `recommend_album_interactive` now accepts `session_id: Optional[str] = None` as a proper parameter
+  - Removed fragile `"SESSION:<id>|<prompt>"` prompt-prefix encoding (broke when prompt contained `|`)
+  - Step 2 passes `session_id` directly; step 1 response instructions updated accordingly
+  - `filter_tracks` helpers extracted: `_build_key_map`, `_store_session`, `_format_compact_line`, `_format_ultra_line` — eliminates duplication between compact/ultra branches; `except Exception: pass` replaced with `logger.warning()`
 
 ## MCP Server
 
@@ -240,7 +245,7 @@ The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip insta
 | `seed_track_playlist` | `POST /api/generate/stream` (SSE) | "More like this" playlist from seed track; `source_mode` = library/hybrid/qobuz; `qobuz_percentage` for hybrid |
 | `analyze_prompt` | `POST /api/analyze/prompt` | Preview prompt → filter mapping |
 | `recommend_album` | `POST /api/recommend/questions` + `generate` | Quick album recommendation; `mode="discovery"` suggests new albums, looked up on Qobuz for playback |
-| `recommend_album_interactive` | `POST /api/recommend/questions` + `generate` | 2-step Q&A album recommendation; `mode="discovery"` supports Qobuz playback |
+| `recommend_album_interactive` | `POST /api/recommend/questions` + `generate` | 2-step Q&A album recommendation; step 2 passes `session_id` from step 1 as a separate parameter; `mode="discovery"` supports Qobuz playback |
 | `play_album` | `GET /api/library/search` + `POST /api/queue` | Search + play album in one step |
 | `list_zones` | `GET /api/roon/zones` | List active Roon zones |
 | `get_now_playing` | `GET /api/roon/zones` | Current playback state per zone |
