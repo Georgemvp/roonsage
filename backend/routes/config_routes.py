@@ -1,7 +1,6 @@
 """Configuration and Ollama endpoints."""
 
 import asyncio
-import os
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse

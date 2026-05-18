@@ -78,7 +78,7 @@ class TestGetLibraryStats:
         mock_client.request.return_value = _make_response(payload)
 
         from mcp_server import get_library_stats
-        result = await get_library_stats()
+        _result = await get_library_stats()
 
         mock_client.request.assert_called_once()
         call_args = mock_client.request.call_args
@@ -217,7 +217,7 @@ class TestCurateAndPlay:
         })
 
         from mcp_server import curate_and_play
-        result = await curate_and_play(
+        _result = await curate_and_play(
             track_numbers=[1, 5, 12],
             session_id="sess-abc",
             zone_id="zone-123",
@@ -308,7 +308,7 @@ class TestSearchQobuz:
         mock_client.request.return_value = _make_response(payload)
 
         from mcp_server import search_qobuz
-        result = await search_qobuz(query="Miles Davis", limit=5)
+        _result = await search_qobuz(query="Miles Davis", limit=5)
 
         call_args = mock_client.request.call_args
         assert call_args[0][0] == "POST"
@@ -429,7 +429,7 @@ class TestVolumeControl:
         mock_client.request.return_value = _make_response({"success": True, "volume": 50})
 
         from mcp_server import volume_control
-        result = await volume_control(zone_name="Woonkamer", action="set", value=50)
+        _result = await volume_control(zone_name="Woonkamer", action="set", value=50)
 
         call_args = mock_client.request.call_args
         assert call_args[0][0] == "POST"

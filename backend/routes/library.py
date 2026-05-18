@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from backend import library_cache
 from backend.config import get_config
 from backend.filter_sessions import get_session, store_session
+from backend.roon_client import get_roon_client
 from backend.llm_client import estimate_cost_for_model
 from backend.models import (
     DecadeCount,
@@ -110,7 +111,7 @@ def _validate_track_selection(
             })
 
     return {"valid": len(warnings) == 0, "warnings": warnings}
-from backend.roon_client import get_roon_client
+
 
 router = APIRouter(prefix="/api", tags=["library"])
 

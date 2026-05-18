@@ -9,7 +9,6 @@ from pydantic import BaseModel
 
 from backend.config import get_qobuz_config
 from backend.qobuz_api import (
-    QobuzClient,
     get_qobuz_api_client,
     get_qobuz_api_error,
     init_qobuz_api_client,

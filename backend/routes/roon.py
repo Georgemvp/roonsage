@@ -4,7 +4,6 @@ import asyncio
 import logging
 from urllib.parse import urlparse
 
-import httpx
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from backend.models import (
@@ -352,7 +351,7 @@ async def qobuz_search(request: QobuzSearchRequest) -> QobuzSearchResponse:
     Requires Qobuz to be configured and logged in within Roon.
     Returns empty tracks list (not an error) when Qobuz is unavailable.
     """
-    from backend.qobuz_browser import check_qobuz_available, search_qobuz_tracks
+    from backend.qobuz_browser import search_qobuz_tracks
 
     roon_client = get_roon_client()
     if not roon_client or not roon_client.is_connected():
