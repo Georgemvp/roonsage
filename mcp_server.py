@@ -44,6 +44,11 @@ TIMEOUT = 30.0
 STREAM_TIMEOUT = 300.0  # 5 minutes for SSE streams
 PLAYBACK_TIMEOUT = 180.0  # 3 minutes for curate_and_play (30+ tracks × 4 Roon Browse calls each)
 
+# Retry configuration for transient HTTP errors
+RETRYABLE_STATUS = {502, 503, 504}
+MAX_RETRIES = 2
+RETRY_BACKOFF = [1.0, 3.0]  # seconds to wait before attempt 2 and 3
+
 mcp = FastMCP("roonsage")
 
 # ---------------------------------------------------------------------------
@@ -124,24 +129,50 @@ def _unavailable_msg() -> str:
     )
 
 
-async def _api_call(method: str, path: str, **kwargs) -> dict | list | str:
-    """Make an API call to RoonSage, handling errors uniformly."""
-    try:
-        logger.info("API %s %s", method, path)
-        response = await _get_client().request(method, f"{ROONSAGE_URL}{path}", **kwargs)
-        response.raise_for_status()
-        data = response.json()
-        if isinstance(data, list):
-            logger.info("API %s %s -> %d items", method, path, len(data))
-        elif isinstance(data, dict):
-            logger.info("API %s %s -> keys: %s", method, path, list(data.keys()))
-        return data
-    except httpx.ConnectError:
-        logger.error("API %s %s -> CONNECT ERROR", method, path)
-        return _unavailable_msg()
-    except httpx.HTTPStatusError as exc:
-        logger.error("API %s %s -> HTTP %d: %s", method, path, exc.response.status_code, exc.response.text[:200])
-        return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
+async def _api_call(method: str, path: str, *, retryable: bool = True, **kwargs) -> dict | list | str:
+    """Make an API call to RoonSage, handling errors uniformly.
+
+    Args:
+        method:    HTTP method (GET, POST, …).
+        path:      Path relative to ROONSAGE_URL (e.g. "/api/library/stats/cached").
+        retryable: When True (default), ConnectErrors and 502/503/504 responses are
+                   retried up to MAX_RETRIES times with exponential backoff.
+                   Pass False for mutating operations (playback, transport, volume)
+                   where a duplicate request would have unintended side-effects.
+        **kwargs:  Passed directly to httpx AsyncClient.request().
+    """
+    attempts = MAX_RETRIES + 1 if retryable else 1
+    last_error: str | None = None
+
+    for attempt in range(attempts):
+        if attempt > 0:
+            wait = RETRY_BACKOFF[attempt - 1]
+            logger.warning("API %s %s -> retrying in %.1fs (attempt %d/%d)", method, path, wait, attempt + 1, attempts)
+            await asyncio.sleep(wait)
+
+        try:
+            logger.info("API %s %s", method, path)
+            response = await _get_client().request(method, f"{ROONSAGE_URL}{path}", **kwargs)
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, list):
+                logger.info("API %s %s -> %d items", method, path, len(data))
+            elif isinstance(data, dict):
+                logger.info("API %s %s -> keys: %s", method, path, list(data.keys()))
+            return data
+        except httpx.ConnectError:
+            logger.error("API %s %s -> CONNECT ERROR (attempt %d)", method, path, attempt + 1)
+            last_error = _unavailable_msg()
+            if not retryable:
+                break
+        except httpx.HTTPStatusError as exc:
+            logger.error("API %s %s -> HTTP %d: %s", method, path, exc.response.status_code, exc.response.text[:200])
+            if retryable and exc.response.status_code in RETRYABLE_STATUS:
+                last_error = f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
+            else:
+                return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    return last_error or _unavailable_msg()
 
 
 async def _parse_sse_events(response) -> AsyncGenerator[tuple[str, dict], None]:
@@ -1248,7 +1279,7 @@ async def play_album(query: str, zone_id: str) -> str:
     item_keys = [t.get("item_key", "") for t in album_tracks if t.get("item_key")]
 
     # Play the tracks
-    play_data = await _api_call("POST", "/api/queue", json={"item_keys": item_keys, "zone_id": zone_id})
+    play_data = await _api_call("POST", "/api/queue", retryable=False, json={"item_keys": item_keys, "zone_id": zone_id})
     if isinstance(play_data, str):
         return play_data
 
@@ -1298,7 +1329,7 @@ async def transport_control(
     if seek_offset is not None:
         body["seek_offset"] = seek_offset
 
-    result = await _api_call("POST", "/api/roon/transport", json=body)
+    result = await _api_call("POST", "/api/roon/transport", retryable=False, json=body)
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
@@ -1356,7 +1387,7 @@ async def volume_control(
     if value is not None:
         body["value"] = value
 
-    result = await _api_call("POST", "/api/roon/volume", json=body)
+    result = await _api_call("POST", "/api/roon/volume", retryable=False, json=body)
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
 
 
