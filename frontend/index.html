@@ -8,6 +8,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#e5a00d">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -30,6 +33,8 @@
                     </div>
                 </div>
                 <button class="nav-btn" data-nav="recommend-album" aria-current="false">Recommend Album</button>
+                <button class="nav-btn" data-nav="playlists" aria-current="false">Playlists</button>
+                <button class="nav-btn" data-nav="taste" aria-current="false">My Taste</button>
                 <button class="nav-btn nav-btn--icon" data-nav="settings" aria-current="false" aria-label="Settings"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
             </nav>
         </header>
@@ -470,6 +475,9 @@
                                     <button id="save-to-qobuz-btn" class="btn btn-outline hidden">
                                         &#9654; Opslaan in Qobuz
                                     </button>
+                                    <button id="save-for-arc-btn" class="btn btn-outline hidden">
+                                        📱 Save for Arc
+                                    </button>
                                     <div id="qobuz-save-result" class="qobuz-save-result hidden"></div>
                                     <button id="playlist-start-over" class="rec-action-link rec-action-link--subtle">Start over</button>
                                 </div>
@@ -630,6 +638,44 @@
                     </div>
                 </div>
 
+            </div>
+
+            <!-- Playlists Library View -->
+            <div id="playlists-view" class="view">
+                <h2 class="view-title">Mijn Playlists</h2>
+                <div class="playlists-toolbar">
+                    <input type="search" id="playlists-search" class="playlists-search-input" placeholder="Zoek op naam of prompt…" aria-label="Search playlists">
+                    <button id="playlists-refresh-btn" class="btn btn-secondary btn-sm">↺ Vernieuwen</button>
+                </div>
+                <div id="playlists-filter-bar" class="playlists-filter-bar"></div>
+                <div id="playlists-tag-row" class="playlists-tag-row"></div>
+                <div id="playlists-grid" class="playlists-grid"></div>
+            </div>
+
+            <!-- My Taste View -->
+            <div id="taste-view" class="view">
+                <h2 class="view-title">My Taste</h2>
+                <p id="taste-status" class="taste-status"></p>
+
+                <section class="taste-section">
+                    <h2 class="taste-section-title">Genre Radar</h2>
+                    <div id="taste-radar-section" class="taste-radar-wrap"></div>
+                </section>
+
+                <section class="taste-section">
+                    <h2 class="taste-section-title">Luisterstatistieken</h2>
+                    <div id="taste-stats-section"></div>
+                </section>
+
+                <section class="taste-section">
+                    <h2 class="taste-section-title">Recent Beluisterd</h2>
+                    <div id="taste-history-section" class="taste-history-list"></div>
+                </section>
+
+                <section class="taste-section">
+                    <h2 class="taste-section-title">Smaakprofiel</h2>
+                    <div id="taste-notes-section"></div>
+                </section>
             </div>
 
             <!-- Settings View -->
@@ -893,6 +939,27 @@
             </div>
         </div>
 
+        <!-- Save for Arc Modal -->
+        <div id="arc-global-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="arc-modal-title">
+            <div class="modal-card">
+                <button class="modal-close" id="arc-global-close" aria-label="Close">&times;</button>
+                <h2 id="arc-modal-title">Save for Roon Arc</h2>
+                <div class="form-group">
+                    <label for="arc-global-name">Playlist naam</label>
+                    <input type="text" id="arc-global-name" class="form-input" placeholder="Mijn playlist">
+                </div>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="arc-global-favorites" checked>
+                    <span>Voeg albums toe aan favorites</span>
+                </label>
+                <div id="arc-global-result" class="arc-modal-result hidden"></div>
+                <div class="modal-actions" style="margin-top:1rem;display:flex;gap:.5rem;">
+                    <button id="arc-global-save" class="btn btn-primary">Opslaan</button>
+                    <button id="arc-global-cancel" class="btn btn-secondary">Annuleren</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Error Toast -->
         <div id="error-toast" class="toast error hidden" role="alert" aria-live="assertive">
             <span id="error-message"></span>
@@ -905,6 +972,9 @@
             <button class="toast-close" onclick="hideSuccess()" aria-label="Dismiss message">&times;</button>
         </div>
 
+
+        <!-- Now Playing Bar -->
+        <div id="now-playing-bar" class="now-playing-bar now-playing-bar--hidden" role="region" aria-label="Now playing"></div>
 
         <!-- Footer -->
         <footer class="app-footer app-footer--loading">

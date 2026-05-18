@@ -25,6 +25,9 @@ import {
 import { setupRecEventListeners, initRecommendView, renderPromptPills, PLAYLIST_PROMPT_GROUPS } from './modules/recommend.js';
 import { setupHistoryEventListeners }     from './modules/history.js';
 import { enterSetupWizard }               from './modules/setup-wizard.js';
+import { startNowPlaying }                from './modules/nowplaying.js';
+import { initPlaylistsView }              from './modules/playlists.js';
+import { initTasteView }                  from './modules/taste.js';
 
 // =============================================================================
 // Initialization
@@ -115,7 +118,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         initRecommendView();
     } else if (state.view === 'home') {
         renderHistoryFeed();
+    } else if (state.view === 'playlists') {
+        initPlaylistsView();
+    } else if (state.view === 'taste') {
+        initTasteView();
     }
+
+    // Start Now Playing polling (persistent — runs on all views)
+    startNowPlaying();
+
+    // Wire "Save for Arc" button in results view
+    _wireArcButton();
 
     // Handle direct navigation to a saved result (e.g., bookmarked URL)
     const initHash = location.hash.slice(1);
@@ -135,6 +148,89 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     } catch (e) { /* private browsing / storage disabled */ }
     setSaveMode(initialMode);
+});
+
+// =============================================================================
+// Save for Arc — results view integration
+// =============================================================================
+
+function _wireArcButton() {
+    const btn = document.getElementById('save-for-arc-btn');
+    if (!btn) return;
+
+    btn.addEventListener('click', () => {
+        const modal = document.getElementById('arc-global-modal');
+        const nameInput = document.getElementById('arc-global-name');
+        const resultEl  = document.getElementById('arc-global-result');
+        const saveBtn   = document.getElementById('arc-global-save');
+        if (!modal) return;
+
+        // Pre-fill with playlist title
+        if (nameInput) nameInput.value = state.playlistTitle || state.playlistName || 'My Playlist';
+        if (resultEl)  { resultEl.textContent = ''; resultEl.className = 'arc-modal-result hidden'; }
+        if (saveBtn)   { saveBtn.disabled = false; saveBtn.textContent = 'Opslaan'; }
+        modal.classList.remove('hidden');
+
+        saveBtn?.addEventListener('click', async function _save() {
+            const name = nameInput?.value.trim() || 'My Playlist';
+            const addFav = document.getElementById('arc-global-favorites')?.checked ?? true;
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Opslaan…';
+            resultEl.className = 'arc-modal-result';
+            resultEl.textContent = '';
+            try {
+                const { apiCall: ac } = await import('./modules/api.js');
+                const resp = await ac('/qobuz/prepare-for-arc', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        item_keys: state.playlist.map(t => t.item_key).filter(Boolean),
+                        name,
+                        add_to_favorites: addFav,
+                    }),
+                });
+                resultEl.className = 'arc-modal-result arc-modal-result--success';
+                resultEl.textContent = `✓ Opgeslagen als Qobuz-playlist — beschikbaar in Roon Arc (${resp.saved || 0} tracks, ${resp.skipped || 0} geskipt)`;
+                saveBtn.textContent = 'Opgeslagen';
+            } catch (e) {
+                resultEl.className = 'arc-modal-result arc-modal-result--error';
+                resultEl.textContent = 'Fout: ' + e.message;
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Opslaan';
+            }
+            // Remove one-time listener after first save attempt
+            saveBtn.removeEventListener('click', _save);
+        }, { once: true });
+    });
+
+    document.getElementById('arc-global-close')?.addEventListener('click', () => {
+        document.getElementById('arc-global-modal')?.classList.add('hidden');
+    });
+    document.getElementById('arc-global-cancel')?.addEventListener('click', () => {
+        document.getElementById('arc-global-modal')?.classList.add('hidden');
+    });
+    document.getElementById('arc-global-modal')?.addEventListener('click', e => {
+        if (e.target === document.getElementById('arc-global-modal')) {
+            document.getElementById('arc-global-modal').classList.add('hidden');
+        }
+    });
+}
+
+// Expose dismissArcModal for inline usage
+window.dismissArcModal = () => document.getElementById('arc-global-modal')?.classList.add('hidden');
+
+// Refresh button for playlists view
+document.addEventListener('click', e => {
+    if (e.target?.id === 'playlists-refresh-btn') {
+        initPlaylistsView();
+    }
+});
+
+// Show arc button when playlist results are shown (whenever state.playlist changes)
+const _originalUpdatePlaylist = window._originalUpdatePlaylist;
+// Hook into hash changes to show/hide save-for-arc btn
+window.addEventListener('hashchange', () => {
+    const arcBtn = document.getElementById('save-for-arc-btn');
+    if (arcBtn) arcBtn.classList.toggle('hidden', !state.playlist?.length);
 });
 
 // =============================================================================

@@ -34,7 +34,9 @@ export function updateView() {
     document.querySelectorAll('.nav-btn[data-nav]').forEach(btn => {
         const hash = btn.dataset.nav;
         const isActive = (hash === 'recommend-album' && state.view === 'recommend') ||
-                         (hash === 'settings' && state.view === 'settings');
+                         (hash === 'settings' && state.view === 'settings') ||
+                         (hash === 'playlists' && state.view === 'playlists') ||
+                         (hash === 'taste' && state.view === 'taste');
         btn.classList.toggle('active', isActive);
         btn.setAttribute('aria-current', isActive ? 'true' : 'false');
     });
@@ -742,6 +744,12 @@ export function updatePlaylist() {
         // Reset result feedback when playlist changes
         const qobuzResult = document.getElementById('qobuz-save-result');
         if (qobuzResult) qobuzResult.classList.add('hidden');
+    }
+
+    // Show/hide Save for Arc button when Qobuz save is available and playlist has tracks
+    const arcBtn = document.getElementById('save-for-arc-btn');
+    if (arcBtn) {
+        arcBtn.classList.toggle('hidden', !(state.qobuzSaveAvailable && state.playlist.length > 0));
     }
 
     // Update footer

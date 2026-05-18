@@ -8,6 +8,8 @@ import { updateView, updateMode, updateStep, resetPlaylistState, updatePlaylist,
 import { resetRecState, initRecommendView, updateRecStep, renderRecResults } from './recommend.js';
 import { loadSettings } from './playlist.js';
 import { renderHistoryFeed } from './history.js';
+import { initPlaylistsView } from './playlists.js';
+import { initTasteView } from './taste.js';
 
 export const HASH_TO_VIEW = {
     'home': 'home',
@@ -16,6 +18,8 @@ export const HASH_TO_VIEW = {
     'recommend-album': 'recommend',
     'settings': 'settings',
     'result': 'result',
+    'playlists': 'playlists',
+    'taste': 'taste',
     // Backward compat
     'make-playlist': 'create',
 };
@@ -29,6 +33,8 @@ export const VIEW_TO_HASH = {
     'create': null,  // determined by mode
     'recommend': 'recommend-album',
     'settings': 'settings',
+    'playlists': 'playlists',
+    'taste': 'taste',
 };
 
 export function hashForCurrentState() {
@@ -82,6 +88,10 @@ export function navigateTo(view, mode) {
         initRecommendView();
     } else if (view === 'home') {
         renderHistoryFeed();
+    } else if (view === 'playlists') {
+        initPlaylistsView();
+    } else if (view === 'taste') {
+        initTasteView();
     }
 }
 
