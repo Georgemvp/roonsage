@@ -2,7 +2,7 @@
 // =============================================================================
 
 import { state, allGenresSelected, allDecadesSelected } from './state.js';
-import { apiCall, searchTracks, analyzeTrack, analyzePrompt, generatePlaylistStream, fetchRoonZones, createPlayQueue } from './api.js';
+import { apiCall, searchTracks, analyzeTrack, analyzePrompt, generatePlaylistStream, fetchRoonZones, createPlayQueue, fetchLibraryStats } from './api.js';
 import { escapeHtml, trackArtHtml, artPlaceholderHtml } from './utils.js';
 import { focusManager } from './focus.js';
 import {
@@ -11,22 +11,24 @@ import {
     renderNarrativeBox, selectTrack, isMobileView, openBottomSheet, updateResultsFooter,
     updateFilterPreview, showProviderSettings, checkOllamaStatus, updateOllamaContextDisplay,
     updateCustomMaxTracks, validateCustomContextInline, validateCustomUrlInline,
-    hideSuccessModal, dismissSuccessModal, closeBottomSheet
+    hideSuccessModal, dismissSuccessModal, closeBottomSheet, recalculateCostDisplay
 } from './ui.js';
 import { markHistoryStale } from './history.js';
 import {
     openRecRestartModal, openPlaylistRestartModal,
     dismissRecRestartModal, dismissPlaylistRestartModal,
-    handlePlayNow, toggleSaveModeDropdown, setSaveMode
+    handlePlayNow, toggleSaveModeDropdown, setSaveMode,
+    refreshClientList, dismissPlayChoice, dismissClientPicker, dismissPlaySuccess,
+    executePlayQueue, handlePlaySuccessNewPlaylist
 } from './instant-queue.js';
 import {
     loadSettings, handleRefinePlaylist, handleRefineSubmit, handleSaveToQobuz, handleSavePlaylist,
-    handleSaveSettings, handleValidateQobuz
+    handleSaveSettings, handleValidateQobuz, generatePlaylistName
 } from './playlist.js';
 import { showTimedStepLoading, showStepLoading, hideStepLoading, updateStepProgress, PLAYLIST_STEPS, PLAYLIST_STEP_MAP } from './loading.js';
 import { resetRecState, initRecommendView, PLAYLIST_PROMPT_GROUPS, shufflePromptPills, handlePlaylistRefineNext, setupQuestionEventHandlers, renderPlaylistQuestions } from './recommend.js';
 import { checkLibraryStatus, handleRefreshLibrary, showSyncModal } from './library.js';
-import { viewFromHash, modeFromHash, navigateTo } from './router.js';
+import { viewFromHash, modeFromHash, navigateTo, loadSavedResult } from './router.js';
 
 // pendingNavHash is declared here and exported so instant-queue.js can read/set it
 export let pendingNavHash = null;
