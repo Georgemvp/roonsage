@@ -114,6 +114,11 @@ def search_qobuz_tracks_sync(roon, query: str, limit: int = 10) -> list[dict[str
             # None means no path has run yet; the global search fallback sets it when all
             # browse-hierarchy paths (A / B / C) fail to find a search entry point.
             result_items: list[dict[str, Any]] | None = None
+            # Tracks which Roon Browse hierarchy owns the item_keys in result_items.
+            # Must be used consistently for all subsequent browse calls (Step 5/6) so
+            # that item_keys resolve correctly.  Set to "search" when the global Roon
+            # search fallback fires; stays "browse" for the normal Qobuz hierarchy paths.
+            used_hierarchy = "browse"
 
             if qobuz_list_has_input:
                 # Path A — search prompt is at list level; send input directly.
@@ -146,6 +151,7 @@ def search_qobuz_tracks_sync(roon, query: str, limit: int = 10) -> list[dict[str
                         })
                         _fb = roon._api.browse_load({"hierarchy": "search", "count": 100})
                         result_items = _fb.get("items", []) if _fb else []
+                        used_hierarchy = "search"
                     else:
                         logger.debug("Path C: navigating into '%s'", my_qobuz_item.get("title"))
                         # Navigate into My Qobuz — item_key only, NO input (Roon API rule).
@@ -186,6 +192,7 @@ def search_qobuz_tracks_sync(roon, query: str, limit: int = 10) -> list[dict[str
                                 })
                                 _fb = roon._api.browse_load({"hierarchy": "search", "count": 100})
                                 result_items = _fb.get("items", []) if _fb else []
+                                used_hierarchy = "search"
                             else:
                                 # Navigate to the search entry inside My Qobuz — separate call, no input yet.
                                 logger.debug("Path C: navigating to search entry '%s' inside 'My Qobuz'", deep_search.get("title"))
@@ -252,11 +259,11 @@ def search_qobuz_tracks_sync(roon, query: str, limit: int = 10) -> list[dict[str
                 )
                 if tracks_section and tracks_section.get("item_key"):
                     roon._api.browse_browse({
-                        "hierarchy": "browse",
+                        "hierarchy": used_hierarchy,
                         "item_key": tracks_section["item_key"],
                     })
                     tracks_page = roon._api.browse_load({
-                        "hierarchy": "browse",
+                        "hierarchy": used_hierarchy,
                         "count": min(limit * 2, 100),
                     })
                     sub_items = tracks_page.get("items", []) if tracks_page else []

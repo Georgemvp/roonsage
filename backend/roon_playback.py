@@ -301,12 +301,65 @@ class RoonPlaybackMixin:
 
             chosen = action_item or fallback_item
             if not chosen or not chosen.get("item_key"):
-                logger.warning(
-                    "Direct-key play: no action found for key %s (items: %s)",
+                # Browse hierarchy returned wrong content (e.g. Qobuz menu instead of
+                # track actions) — try search hierarchy, which works for item_keys that
+                # originated from hierarchy: "search" (e.g. global search fallback).
+                logger.info(
+                    "Direct-key play: browse hierarchy failed, trying search hierarchy for key %s",
                     key,
-                    [i.get("title") for i in items],
                 )
-                return False
+                try:
+                    with self._browse_lock:
+                        self._api.browse_browse({
+                            "hierarchy": "search",
+                            "item_key": key,
+                            "pop_all": True,
+                            "zone_or_output_id": zone_id,
+                        })
+                        search_result = self._api.browse_load({
+                            "hierarchy": "search",
+                            "count": 20,
+                            "zone_or_output_id": zone_id,
+                        })
+                    search_items = search_result.get("items", []) if search_result else []
+
+                    s_action: dict[str, Any] | None = None
+                    s_fallback: dict[str, Any] | None = None
+                    for item in search_items:
+                        title_lower = (item.get("title") or "").lower().strip()
+                        if title_lower in target_keywords and item.get("item_key"):
+                            s_action = item
+                            break
+                        if (
+                            title_lower in fallback_keywords
+                            and item.get("item_key")
+                            and s_fallback is None
+                        ):
+                            s_fallback = item
+
+                    s_chosen = s_action or s_fallback
+                    if not s_chosen or not s_chosen.get("item_key"):
+                        logger.warning(
+                            "Direct-key play: no action found for key %s (items: %s)",
+                            key,
+                            [i.get("title") for i in search_items],
+                        )
+                        return False
+
+                    with self._browse_lock:
+                        self._api.browse_browse({
+                            "hierarchy": "search",
+                            "item_key": s_chosen["item_key"],
+                            "zone_or_output_id": zone_id,
+                        })
+                    return True
+
+                except Exception as se:
+                    logger.warning(
+                        "Direct-key play: search-hierarchy fallback also failed for key %s: %s",
+                        key, se,
+                    )
+                    return False
 
             with self._browse_lock:
                 self._api.browse_browse({
