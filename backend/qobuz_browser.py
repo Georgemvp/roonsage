@@ -273,15 +273,42 @@ def search_qobuz_tracks_sync(roon, query: str, limit: int = 10) -> list[dict[str
                     ][:limit]
 
             # Step 6 — Convert to dicts
+            # NOTE: item_keys from hierarchy:"search" (global search fallback) are
+            # ephemeral session keys — they expire as soon as the search session
+            # changes (e.g. by the next search call).  Replaying them minutes later
+            # via play_tracks resolves to wrong/random content.
+            #
+            # When used_hierarchy == "search" we therefore encode the track metadata
+            # in a synthetic key of the form:
+            #
+            #   qobuz_search::<url-encoded artist>::<url-encoded title>
+            #
+            # play_tracks detects this prefix and performs a FRESH Roon global search
+            # at play time instead of browsing the stale key.
+            import urllib.parse  # noqa: PLC0415 (local import, tiny perf cost)
+
             output = []
             for item in tracks:
                 subtitle = item.get("subtitle") or ""
                 parts = [p.strip() for p in subtitle.split("•")]
                 artist = parts[0] if parts else ""
                 album = parts[1] if len(parts) > 1 else ""
+                title = item.get("title", "Unknown Track")
+
+                if used_hierarchy == "search":
+                    # Synthetic key — encodes artist+title for fresh-search playback.
+                    item_key = (
+                        "qobuz_search::"
+                        + urllib.parse.quote(artist, safe="")
+                        + "::"
+                        + urllib.parse.quote(title, safe="")
+                    )
+                else:
+                    item_key = item["item_key"]
+
                 output.append({
-                    "item_key": item["item_key"],
-                    "title": item.get("title", "Unknown Track"),
+                    "item_key": item_key,
+                    "title": title,
                     "subtitle": subtitle,
                     "artist": artist,
                     "album": album,

@@ -1,6 +1,6 @@
 # RoonSage Development Guidelines
 
-Last updated: 2026-05-19 (MCP v4.8 — Qobuz global-search fallback)
+Last updated: 2026-05-19 (MCP v4.9 — Synthetic key fix for Qobuz global-search playback)
 
 ## Project Overview
 
@@ -216,6 +216,11 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
   - Frontend: Qobuz settings section (email + password only, app_id auto-detected) with validate button
   - Frontend: "Opslaan in Qobuz" button on playlist results (visible when Qobuz is configured)
   - Config: `QOBUZ_EMAIL`, `QOBUZ_PASSWORD` environment variables (no app_id needed)
+- **MCP v4.9 (2026-05-19):** Synthetic key fix — Qobuz global-search playback:
+  - Root cause: `item_key` values returned by `hierarchy: "search"` (global search fallback) are ephemeral session keys. They expire as soon as another browse/search call changes the session state. Using them minutes later in `play_tracks` resolves to wrong content (e.g. "Not Found" by Bert Joris).
+  - Fix in `backend/qobuz_browser.py` Step 6: when `used_hierarchy == "search"`, generate a synthetic key `qobuz_search::{url-encoded artist}::{url-encoded title}` instead of the real session key. Browse-hierarchy paths (A/B/C) are unaffected — their item_keys are stable and continue to be returned as-is.
+  - Fix in `backend/roon_playback.py` `play_tracks`: at the start of each track's loop, detect the `qobuz_search::` prefix. Parse `artist` and `title` from the key, build a fresh search query, and call `_play_track_via_search` directly — skipping all stale-key browse logic. Uses `continue` to bypass the normal `meta`/direct-key path entirely.
+  - Result: Qobuz tracks found via global search now play correctly regardless of time elapsed between `search_qobuz` and `play_tracks` / `curate_and_play`.
 - **MCP v4.8 (2026-05-19):** Qobuz search global-search fallback:
   - Fix: `search_qobuz_tracks_sync` in `backend/qobuz_browser.py` no longer returns `[]` when the Qobuz Browse hierarchy has no search entry point (Paths A/B/C all fail). It now falls back to Roon's `hierarchy: "search"` global search, which searches all configured services simultaneously and is present on all Roon versions.
   - `result_items` is initialised to `None` before Path A/B/C; both Path C failure branches populate it via global search; Step 4 only runs when `result_items is None` (i.e. a browse-hierarchy entry was found). No existing paths were changed.
