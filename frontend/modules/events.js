@@ -20,7 +20,8 @@ import {
     handlePlayNow, toggleSaveModeDropdown, setSaveMode
 } from './instant-queue.js';
 import {
-    loadSettings, handleRefinePlaylist, handleRefineSubmit, handleSaveToQobuz, handleSavePlaylist
+    loadSettings, handleRefinePlaylist, handleRefineSubmit, handleSaveToQobuz, handleSavePlaylist,
+    handleSaveSettings, handleValidateQobuz
 } from './playlist.js';
 import { showTimedStepLoading, showStepLoading, hideStepLoading, updateStepProgress, PLAYLIST_STEPS, PLAYLIST_STEP_MAP } from './loading.js';
 import { resetRecState, initRecommendView, PLAYLIST_PROMPT_GROUPS, shufflePromptPills, handlePlaylistRefineNext, setupQuestionEventHandlers, renderPlaylistQuestions } from './recommend.js';
