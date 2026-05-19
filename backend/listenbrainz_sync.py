@@ -55,10 +55,13 @@ class ListenBrainzSync:
     # Public API
     # ------------------------------------------------------------------
 
-    async def sync_all(self) -> dict:
+    async def sync_all(self, force: bool = False) -> dict:
         """Pull all configured LB stats and cache them.
 
-        Only re-fetches stats whose cache is older than CACHE_TTL_HOURS.
+        Args:
+            force: When True, bypass the cache TTL and always re-fetch every stat.
+                   Use this for manual "Sync now" actions so stale/corrupt cache data
+                   is always overwritten.
 
         Returns:
             Summary dict: {stat_type: "synced" | "cached" | "failed"}
@@ -66,14 +69,14 @@ class ListenBrainzSync:
         summary: dict[str, str] = {}
 
         for stat_type, method_name, kwargs in _STAT_DEFS:
-            if self.is_stale(stat_type):
+            if force or self.is_stale(stat_type):
                 ok = await self.sync_stat(stat_type, method_name, kwargs)
                 summary[stat_type] = "synced" if ok else "failed"
             else:
                 summary[stat_type] = "cached"
 
         for stat_type, score in _FEEDBACK_DEFS:
-            if self.is_stale(stat_type):
+            if force or self.is_stale(stat_type):
                 try:
                     data = await self._lb.get_user_feedback(score=score)
                     self._write_cache(stat_type, data or [])
@@ -107,8 +110,23 @@ class ListenBrainzSync:
             method = getattr(self._lb, method_name)
             data = await method(**(kwargs or {}))
             if data is not None:
+                # Log what we actually received for debugging
+                if isinstance(data, list):
+                    logger.info("LB sync %s: received %d items", stat_type, len(data))
+                elif isinstance(data, dict):
+                    logger.info(
+                        "LB sync %s: received dict with keys %s",
+                        stat_type,
+                        list(data.keys())[:5],
+                    )
+                else:
+                    logger.info("LB sync %s: received %s", stat_type, type(data).__name__)
                 self._write_cache(stat_type, data)
                 return True
+            else:
+                logger.warning(
+                    "LB sync %s: received None (API call returned nothing)", stat_type
+                )
         except Exception as exc:
             logger.warning("LB sync_stat %s failed: %s", stat_type, exc)
         return False

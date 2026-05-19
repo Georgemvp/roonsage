@@ -674,13 +674,32 @@ async def get_detailed_taste_profile() -> dict:
 
 @router.post("/intelligence/listenbrainz/sync")
 async def trigger_listenbrainz_sync() -> dict:
-    """Manually trigger a ListenBrainz stats sync. Returns sync summary."""
+    """Manually trigger a ListenBrainz stats sync.
+
+    Always forces a full re-fetch (ignores cache TTL) so that stale or
+    corrupt data from a previous buggy sync is always overwritten.
+    Returns sync summary.
+    """
     try:
+        from backend.db import get_db_connection  # noqa: PLC0415
         from backend.listenbrainz_sync import get_sync_instance  # noqa: PLC0415
+
         lb_sync = get_sync_instance()
         if not lb_sync:
             raise HTTPException(status_code=503, detail="ListenBrainz not configured")
-        summary = await lb_sync.sync_all()
+
+        # Clear the entire cache before a forced sync so that buggy/empty entries
+        # from a previous deployment cannot survive as "fresh" data.
+        conn = get_db_connection()
+        try:
+            conn.execute("DELETE FROM lb_stats_cache")
+            conn.commit()
+            logger.info("Cleared lb_stats_cache for forced manual sync")
+        finally:
+            conn.close()
+
+        # force=True bypasses the 6-hour TTL — the whole point of a manual sync.
+        summary = await lb_sync.sync_all(force=True)
         return {"status": "ok", "summary": summary}
     except HTTPException:
         raise
