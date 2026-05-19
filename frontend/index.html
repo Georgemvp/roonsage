@@ -657,84 +657,102 @@
                 <h2 class="view-title">My Taste</h2>
                 <p id="taste-status" class="taste-status"></p>
 
-                <section class="taste-section">
-                    <h2 class="taste-section-title">Genre Radar</h2>
-                    <div id="taste-radar-section" class="taste-radar-wrap"></div>
+                <!-- Intelligence Banner -->
+                <section class="taste-section taste-intel-banner">
+                    <div class="taste-intel-content">
+                        <div class="taste-intel-text">
+                            <h3 class="taste-intel-headline">Your taste profile powers every playlist</h3>
+                            <p class="taste-intel-subtitle" id="taste-intel-subtitle">Based on — listened tracks</p>
+                        </div>
+                        <div class="taste-intel-chips">
+                            <span class="taste-intel-chip" id="intel-chip-playlists">— playlists</span>
+                            <span class="taste-intel-chip" id="intel-chip-peak">Peak: —</span>
+                            <span class="taste-intel-chip" id="intel-chip-skip">Skip: —</span>
+                        </div>
+                    </div>
                 </section>
 
+                <!-- 2-Column Grid -->
+                <div class="taste-grid">
+                    <!-- Left Column: Genre Radar + Era Distribution -->
+                    <div class="taste-grid-col">
+                        <section class="taste-section">
+                            <h2 class="taste-section-title">Genre Radar</h2>
+                            <div id="taste-radar-section" class="taste-radar-wrap"></div>
+                        </section>
+                        <section class="taste-section">
+                            <h2 class="taste-section-title">Era-verdeling</h2>
+                            <div id="lb-era-section" class="lb-bar-chart">
+                                <p class="lb-no-data">Geen data. Sync ListenBrainz om era-data op te halen.</p>
+                            </div>
+                        </section>
+                    </div>
+
+                    <!-- Right Column: Heatmap + Top Artists -->
+                    <div class="taste-grid-col">
+                        <section class="taste-section">
+                            <h2 class="taste-section-title">Luisterpatronen</h2>
+                            <div id="lb-heatmap-section" class="lb-heatmap-container">
+                                <p class="lb-no-data">Geen heatmap data. Sync ListenBrainz om data op te halen.</p>
+                            </div>
+                        </section>
+                        <section class="taste-section">
+                            <h2 class="taste-section-title">Top Artiesten</h2>
+                            <div id="lb-artists-section" class="lb-list">
+                                <p class="lb-no-data">Nog geen luisterdata beschikbaar.</p>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+
+                <!-- Below Grid: Countries + Loved Tracks -->
+                <div class="taste-grid taste-grid--below">
+                    <section class="taste-section">
+                        <h2 class="taste-section-title">Artiesten per Land</h2>
+                        <div id="lb-countries-section" class="lb-bar-chart">
+                            <p class="lb-no-data">Geen data. Sync ListenBrainz om landendata op te halen.</p>
+                        </div>
+                    </section>
+                    <section class="taste-section">
+                        <h2 class="taste-section-title">Favorieten</h2>
+                        <div id="lb-loved-section" class="lb-list">
+                            <p class="lb-no-data">Geen loved tracks. Markeer nummers op ListenBrainz.</p>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Voorkeuren: Likes + Dislikes compact row -->
                 <section class="taste-section">
-                    <h2 class="taste-section-title">Luisterstatistieken</h2>
-                    <div id="taste-stats-section"></div>
+                    <h2 class="taste-section-title">Voorkeuren</h2>
+                    <div id="taste-notes-section" class="taste-prefs-row"></div>
                 </section>
 
+                <!-- Luistergeschiedenis grouped by day -->
                 <section class="taste-section">
-                    <h2 class="taste-section-title">Recent Beluisterd</h2>
+                    <h2 class="taste-section-title">Luistergeschiedenis</h2>
                     <div id="taste-history-section" class="taste-history-list"></div>
                 </section>
 
-                <section class="taste-section">
-                    <h2 class="taste-section-title">Smaakprofiel</h2>
-                    <div id="taste-notes-section"></div>
-                </section>
-
-                <!-- ListenBrainz sections (shown when LB is configured) -->
-                <div id="lb-taste-sections" class="hidden">
-                    <div class="taste-section-divider">
-                        <span>📡 ListenBrainz Data</span>
+                <!-- ListenBrainz Status (collapsed details, revealed when LB is configured) -->
+                <details class="taste-lb-details hidden" id="lb-taste-sections">
+                    <summary class="taste-lb-summary">📡 ListenBrainz Status</summary>
+                    <div class="lb-status-card" id="lb-status-section" style="margin-top:0.75rem">
+                        <div class="lb-status-row">
+                            <span class="status-dot" id="lb-status-dot"></span>
+                            <span id="lb-status-text">Niet verbonden</span>
+                        </div>
+                        <div id="lb-status-details" class="lb-status-details hidden">
+                            <span id="lb-scrobble-count" class="lb-stat-chip"></span>
+                            <span id="lb-last-sync" class="lb-stat-chip"></span>
+                            <a id="lb-profile-link" href="#" target="_blank" class="lb-profile-link hidden">Bekijk LB profiel ↗</a>
+                        </div>
+                        <div class="lb-actions">
+                            <button id="lb-sync-btn" class="btn btn-outline btn-sm">Sync nu</button>
+                            <button id="lb-enrich-btn" class="btn btn-outline btn-sm">Verrijk history</button>
+                            <button id="lb-recompute-btn" class="btn btn-outline btn-sm">Herbereken profiel</button>
+                        </div>
                     </div>
-
-                    <section class="taste-section">
-                        <h2 class="taste-section-title">ListenBrainz Status</h2>
-                        <div id="lb-status-section" class="lb-status-card">
-                            <div class="lb-status-row">
-                                <span class="status-dot" id="lb-status-dot"></span>
-                                <span id="lb-status-text">Niet verbonden</span>
-                            </div>
-                            <div id="lb-status-details" class="lb-status-details hidden">
-                                <span id="lb-scrobble-count" class="lb-stat-chip"></span>
-                                <span id="lb-last-sync" class="lb-stat-chip"></span>
-                                <a id="lb-profile-link" href="#" target="_blank" class="lb-profile-link hidden">Bekijk LB profiel ↗</a>
-                            </div>
-                            <div class="lb-actions" style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
-                                <button id="lb-sync-btn" class="btn btn-outline btn-sm">Sync nu</button>
-                                <button id="lb-enrich-btn" class="btn btn-outline btn-sm">Verrijk history</button>
-                                <button id="lb-recompute-btn" class="btn btn-outline btn-sm">Herbereken profiel</button>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section class="taste-section">
-                        <h2 class="taste-section-title">Top Genres</h2>
-                        <div id="lb-genres-section" class="lb-bar-chart"></div>
-                    </section>
-
-                    <section class="taste-section">
-                        <h2 class="taste-section-title">Luister-heatmap (dag × uur)</h2>
-                        <div id="lb-heatmap-section" class="lb-heatmap-container">
-                            <p class="lb-no-data">Geen heatmap data beschikbaar. Sync ListenBrainz om data op te halen.</p>
-                        </div>
-                    </section>
-
-                    <section class="taste-section">
-                        <h2 class="taste-section-title">Era-verdeling</h2>
-                        <div id="lb-era-section" class="lb-bar-chart"></div>
-                    </section>
-
-                    <section class="taste-section">
-                        <h2 class="taste-section-title">Top Artiesten (ListenBrainz)</h2>
-                        <div id="lb-artists-section" class="lb-list"></div>
-                    </section>
-
-                    <section class="taste-section">
-                        <h2 class="taste-section-title">Artiesten per Land</h2>
-                        <div id="lb-countries-section" class="lb-bar-chart"></div>
-                    </section>
-
-                    <section class="taste-section">
-                        <h2 class="taste-section-title">Loved Tracks ❤️</h2>
-                        <div id="lb-loved-section" class="lb-list"></div>
-                    </section>
-                </div>
+                </details>
             </div>
 
             <!-- Settings View -->

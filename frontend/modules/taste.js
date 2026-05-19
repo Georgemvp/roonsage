@@ -26,10 +26,18 @@ export async function initTasteView() {
             apiCall('/intelligence/listenbrainz/status').catch(() => null),
         ]);
 
+        _renderIntelBanner(profile, stats, lbStatus);
         _renderProfile(profile);
-        _renderStats(stats);
         _renderHistory(history);
         _renderTasteNotes(profile);
+
+        // Top artists: populate from local stats as fallback (LB will overwrite if configured)
+        if (stats?.top_artists?.length) {
+            _renderLbList('lb-artists-section', stats.top_artists.slice(0, 15).map(a => ({
+                name: a.name || a.artist || String(a),
+                meta: `${a.count || a.plays || 0} plays`,
+            })));
+        }
 
         // ListenBrainz sections (only when configured)
         if (lbStatus?.configured) {
@@ -44,6 +52,43 @@ export async function initTasteView() {
         const section = document.getElementById('taste-status');
         if (section) section.textContent = 'Could not load taste data: ' + e.message;
     }
+}
+
+// ── Intelligence Banner ───────────────────────────────────────────────────────
+function _renderIntelBanner(profile, stats, lbStatus) {
+    // total_playlists from profile.stats
+    const totalPlaylists = profile?.stats?.total_playlists ?? '—';
+
+    // peak_hour from profile listening patterns
+    const peakHour = profile?.listening_patterns?.peak_hour ?? profile?.peak_hour ?? null;
+    const peakLabel = peakHour != null
+        ? `Peak: ${String(peakHour).padStart(2, '0')}:00`
+        : 'Peak: —';
+
+    // skip_rate from stats
+    const skipRate = stats?.skip_rate != null
+        ? `${Math.round(stats.skip_rate * 100)}%`
+        : '—';
+
+    // subtitle: listened tracks + scrobbles
+    const totalPlays = stats?.total_plays ?? '—';
+    const scrobbles = lbStatus?.scrobble_count ?? null;
+
+    const subtitleEl = document.getElementById('taste-intel-subtitle');
+    if (subtitleEl) {
+        const parts = [`Based on ${totalPlays} listened tracks`];
+        if (scrobbles != null) parts.push(`${scrobbles} scrobbles`);
+        subtitleEl.textContent = parts.join(' and ');
+    }
+
+    const playlistsEl = document.getElementById('intel-chip-playlists');
+    if (playlistsEl) playlistsEl.textContent = `${totalPlaylists} playlists`;
+
+    const peakEl = document.getElementById('intel-chip-peak');
+    if (peakEl) peakEl.textContent = peakLabel;
+
+    const skipEl = document.getElementById('intel-chip-skip');
+    if (skipEl) skipEl.textContent = `Skip: ${skipRate}`;
 }
 
 // ── ListenBrainz buttons ──────────────────────────────────────────────────────
@@ -102,6 +147,7 @@ function _setupLbButtons() {
 
 // ── ListenBrainz status card ──────────────────────────────────────────────────
 function _renderLbStatus(status) {
+    // Reveal the collapsed <details> element
     const sections = document.getElementById('lb-taste-sections');
     if (sections) sections.classList.remove('hidden');
 
@@ -127,8 +173,7 @@ function _renderLbStatus(status) {
 
 // ── ListenBrainz data sections ────────────────────────────────────────────────
 function _renderLbSections(lbData, profile) {
-    // Top genres — from local profile scores (LB genre_activity is often empty)
-    _renderBarChart('lb-genres-section', _extractTopGenres(lbData, profile));
+    // Genre Radar already rendered from profile; render era, heatmap, artists, countries, loved
 
     // Era distribution — from lbData.era_activity (list of {year, listen_count})
     if (lbData?.era_activity?.length) {
@@ -143,6 +188,19 @@ function _renderLbSections(lbData, profile) {
         _renderBarChart('lb-era-section', eraData);
     }
 
+    // Heatmap — from lbData.daily_activity
+    if (lbData?.daily_activity) {
+        _renderHeatmap('lb-heatmap-section', lbData.daily_activity);
+    }
+
+    // Top LB artists — overwrites the local-stats fallback
+    if (lbData?.top_artists?.length) {
+        _renderLbList('lb-artists-section', lbData.top_artists.slice(0, 15).map(a => ({
+            name: a.artist_name || a.artist || a.name || '?',
+            meta: `${a.listen_count || 0} plays`,
+        })));
+    }
+
     // Artist countries — from lbData.artist_map (list of {country, artist_count})
     if (lbData?.artist_map?.length) {
         const countryData = lbData.artist_map
@@ -152,15 +210,7 @@ function _renderLbSections(lbData, profile) {
         _renderBarChart('lb-countries-section', countryData);
     }
 
-    // Top LB artists — from lbData.top_artists (list of {artist_name, listen_count})
-    if (lbData?.top_artists?.length) {
-        _renderLbList('lb-artists-section', lbData.top_artists.slice(0, 15).map(a => ({
-            name: a.artist_name || a.artist || a.name || '?',
-            meta: `${a.listen_count || 0} plays`,
-        })));
-    }
-
-    // Loved tracks — from lbData.feedback_loved (list of LB feedback objects)
+    // Loved tracks — from lbData.feedback_loved
     if (lbData?.feedback_loved?.length) {
         _renderLbList('lb-loved-section', lbData.feedback_loved.slice(0, 15).map(r => {
             const meta = r.track_metadata || {};
@@ -170,23 +220,6 @@ function _renderLbSections(lbData, profile) {
             };
         }));
     }
-
-    // Heatmap — from lbData.daily_activity (already works)
-    if (lbData?.daily_activity) {
-        _renderHeatmap('lb-heatmap-section', lbData.daily_activity);
-    }
-}
-
-function _extractTopGenres(lbData, profile) {
-    // Try LB genre activity first, fall back to local profile genres
-    const localGenres = profile?.genres || {};
-    if (Object.keys(localGenres).length) {
-        return Object.entries(localGenres)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 12)
-            .map(([genre, score]) => ({ label: genre, value: Math.round(score * 100) }));
-    }
-    return [];
 }
 
 function _renderBarChart(containerId, items) {
@@ -269,7 +302,7 @@ function _renderHeatmap(containerId, dailyActivity) {
     }
 
     const hourLabels = Array.from({ length: 24 }, (_, i) => i % 6 === 0 ? String(i) : '');
-    const hoursHtml = `<div class="lb-heatmap-labels">${hourLabels.map(l => `<div style="width:16px;text-align:center">${l}</div>`).join('')}</div>`;
+    const hoursHtml = `<div class="lb-heatmap-labels">${hourLabels.map(l => `<div style="width:20px;text-align:center">${l}</div>`).join('')}</div>`;
 
     const rowsHtml = days.map((day, di) => {
         const cells = grid[di].map(v => {
@@ -357,160 +390,7 @@ function _renderProfile(profile) {
     });
 }
 
-// ── Listening Stats ───────────────────────────────────────────────────────────
-function _renderStats(stats) {
-    const section = document.getElementById('taste-stats-section');
-    if (!section) return;
-
-    if (!stats) {
-        section.innerHTML = '<p class="taste-empty">No listening statistics available yet.</p>';
-        return;
-    }
-
-    // ── Top artists (horizontal bar) ──────────────────────────────────────────
-    const topArtists = stats.top_artists || [];
-    const artistsHtml = topArtists.length
-        ? `<div class="taste-chart-block">
-               <h3>Top Artiesten</h3>
-               <canvas id="artists-bar-chart" aria-label="Top artists" role="img"></canvas>
-           </div>`
-        : '';
-
-    // ── Day-of-week ───────────────────────────────────────────────────────────
-    const byDay = stats.by_day_of_week || [];
-    const byDayHtml = byDay.length
-        ? `<div class="taste-chart-block">
-               <h3>Luistertijd per dag</h3>
-               <canvas id="day-bar-chart" aria-label="Listening by day" role="img"></canvas>
-           </div>`
-        : '';
-
-    // ── Genre donut ───────────────────────────────────────────────────────────
-    const genreBreak = stats.genre_breakdown || [];
-    const genreDonutHtml = genreBreak.length
-        ? `<div class="taste-chart-block">
-               <h3>Genre verdeling (deze maand)</h3>
-               <canvas id="genre-donut-chart" aria-label="Genre donut chart" role="img"></canvas>
-           </div>`
-        : '';
-
-    // ── Metric pills ──────────────────────────────────────────────────────────
-    const skipRate = stats.skip_rate != null ? `${Math.round(stats.skip_rate * 100)}%` : '—';
-    const discRatio = stats.discovery_ratio != null ? `${Math.round(stats.discovery_ratio * 100)}%` : '—';
-
-    section.innerHTML = `
-        <div class="taste-metrics-grid">
-            <div class="taste-metric">
-                <div class="taste-metric-value">${skipRate}</div>
-                <div class="taste-metric-label">Skip rate</div>
-            </div>
-            <div class="taste-metric">
-                <div class="taste-metric-value">${discRatio}</div>
-                <div class="taste-metric-label">Discovery ratio</div>
-            </div>
-            <div class="taste-metric">
-                <div class="taste-metric-value">${stats.total_plays ?? '—'}</div>
-                <div class="taste-metric-label">Totaal plays</div>
-            </div>
-            <div class="taste-metric">
-                <div class="taste-metric-value">${stats.unique_artists ?? '—'}</div>
-                <div class="taste-metric-label">Artiesten</div>
-            </div>
-        </div>
-        <div class="taste-charts-grid">
-            ${artistsHtml}
-            ${byDayHtml}
-            ${genreDonutHtml}
-        </div>
-    `;
-
-    // Draw charts after DOM insertion
-    requestAnimationFrame(() => {
-        if (topArtists.length) {
-            const ctx = document.getElementById('artists-bar-chart')?.getContext('2d');
-            if (ctx) {
-                if (_chartInstances.artists) _chartInstances.artists.destroy();
-                _chartInstances.artists = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: topArtists.slice(0, 10).map(a => a.name || a.artist || String(a)),
-                        datasets: [{
-                            data: topArtists.slice(0, 10).map(a => a.count || a.plays || 1),
-                            backgroundColor: 'rgba(229, 160, 13, 0.7)',
-                            borderColor: '#e5a00d',
-                            borderWidth: 1,
-                        }],
-                    },
-                    options: {
-                        indexAxis: 'y',
-                        responsive: true,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            x: { ticks: { color: '#a0a0a0' }, grid: { color: '#333' } },
-                            y: { ticks: { color: '#e0e0e0' }, grid: { color: '#333' } },
-                        },
-                    },
-                });
-            }
-        }
-
-        if (byDay.length) {
-            const ctx = document.getElementById('day-bar-chart')?.getContext('2d');
-            if (ctx) {
-                const days = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'];
-                if (_chartInstances.day) _chartInstances.day.destroy();
-                _chartInstances.day = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: byDay.map((_, i) => days[i] || i),
-                        datasets: [{
-                            data: byDay,
-                            backgroundColor: 'rgba(229, 160, 13, 0.7)',
-                            borderColor: '#e5a00d',
-                            borderWidth: 1,
-                        }],
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            x: { ticks: { color: '#e0e0e0' }, grid: { color: '#333' } },
-                            y: { ticks: { color: '#a0a0a0' }, grid: { color: '#333' } },
-                        },
-                    },
-                });
-            }
-        }
-
-        if (genreBreak.length) {
-            const ctx = document.getElementById('genre-donut-chart')?.getContext('2d');
-            if (ctx) {
-                const palette = ['#e5a00d','#f0b020','#c87a00','#ffcb47','#a05c00','#d4941a','#ffdf80','#8b5000'];
-                if (_chartInstances.donut) _chartInstances.donut.destroy();
-                _chartInstances.donut = new Chart(ctx, {
-                    type: 'doughnut',
-                    data: {
-                        labels: genreBreak.map(g => g.genre || String(g)),
-                        datasets: [{
-                            data: genreBreak.map(g => g.count || 1),
-                            backgroundColor: genreBreak.map((_, i) => palette[i % palette.length]),
-                            borderColor: '#1a1a1a',
-                            borderWidth: 2,
-                        }],
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: {
-                            legend: { labels: { color: '#e0e0e0', font: { size: 11 } } },
-                        },
-                    },
-                });
-            }
-        }
-    });
-}
-
-// ── Recent Activity ───────────────────────────────────────────────────────────
+// ── Listening History (grouped by day, max 20 items) ─────────────────────────
 function _renderHistory(history) {
     const section = document.getElementById('taste-history-section');
     if (!section) return;
@@ -521,29 +401,55 @@ function _renderHistory(history) {
         return;
     }
 
-    section.innerHTML = events.slice(0, 30).map(ev => {
-        const artKey = ev.image_key || ev.art_key;
-        const artHtml = artKey
-            ? `<img src="/api/art/${artKey}?width=40&height=40" class="taste-hist-art" alt="" onerror="this.style.display='none'">`
-            : `<div class="taste-hist-art taste-hist-art--placeholder">♪</div>`;
-        const ts = ev.timestamp ? new Date(ev.timestamp).toLocaleString('nl-NL', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '';
-        const skippedClass = ev.skipped ? ' taste-hist-event--skipped' : '';
-        return `
-        <div class="taste-hist-event${skippedClass}">
-            ${artHtml}
-            <div class="taste-hist-info">
-                <div class="taste-hist-title">${escapeHtml(ev.title || ev.track || '')}</div>
-                <div class="taste-hist-artist">${escapeHtml(ev.artist || '')}</div>
-            </div>
-            <div class="taste-hist-meta">
-                ${ts ? `<span class="taste-hist-time">${ts}</span>` : ''}
-                ${ev.skipped ? '<span class="taste-hist-skip">skipped</span>' : ''}
-            </div>
-        </div>`;
-    }).join('');
+    // Group events by calendar date (max 20 items)
+    const limited = events.slice(0, 20);
+    const groups = new Map();
+
+    for (const ev of limited) {
+        const dateKey = ev.timestamp
+            ? new Date(ev.timestamp).toLocaleDateString('nl-NL', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+            })
+            : 'Onbekende datum';
+        if (!groups.has(dateKey)) groups.set(dateKey, []);
+        groups.get(dateKey).push(ev);
+    }
+
+    let html = '';
+    let firstGroup = true;
+    for (const [date, evs] of groups) {
+        html += `<div class="date-group-header${firstGroup ? ' date-group-header--first' : ''}">${escapeHtml(date)}</div>`;
+        firstGroup = false;
+        for (const ev of evs) {
+            const artKey = ev.image_key || ev.art_key;
+            const artHtml = artKey
+                ? `<img src="/api/art/${artKey}?width=40&height=40" class="taste-hist-art" alt="" onerror="this.style.display='none'">`
+                : `<div class="taste-hist-art taste-hist-art--placeholder">♪</div>`;
+            const ts = ev.timestamp
+                ? new Date(ev.timestamp).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+                : '';
+            const skippedClass = ev.skipped ? ' taste-hist-event--skipped' : '';
+            html += `
+            <div class="taste-hist-event${skippedClass}">
+                ${artHtml}
+                <div class="taste-hist-info">
+                    <div class="taste-hist-title">${escapeHtml(ev.title || ev.track || '')}</div>
+                    <div class="taste-hist-artist">${escapeHtml(ev.artist || '')}</div>
+                </div>
+                <div class="taste-hist-meta">
+                    ${ts ? `<span class="taste-hist-time">${ts}</span>` : ''}
+                    ${ev.skipped ? '<span class="taste-hist-skip">skipped</span>' : ''}
+                </div>
+            </div>`;
+        }
+    }
+    section.innerHTML = html;
 }
 
-// ── Taste Notes ───────────────────────────────────────────────────────────────
+// ── Taste Notes (Voorkeuren) ───────────────────────────────────────────────────
 function _renderTasteNotes(profile) {
     const section = document.getElementById('taste-notes-section');
     if (!section) return;
