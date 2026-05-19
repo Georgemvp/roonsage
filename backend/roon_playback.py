@@ -339,11 +339,72 @@ class RoonPlaybackMixin:
 
                     s_chosen = s_action or s_fallback
                     if not s_chosen or not s_chosen.get("item_key"):
-                        logger.warning(
-                            "Direct-key play: no action found for key %s (items: %s)",
-                            key,
-                            [i.get("title") for i in search_items],
+                        # Search results land on an artist/result detail page whose
+                        # items are navigation entries ('My Babe', 'Albums', 'Tracks',
+                        # 'Works' …).  The actual track + play actions are one level
+                        # deeper — inside the first navigable item.
+                        first_navigable = next(
+                            (i for i in search_items if i.get("item_key")),
+                            None,
                         )
+                        if first_navigable:
+                            logger.info(
+                                "Direct-key play: navigating deeper into '%s' for key %s",
+                                first_navigable.get("title"), key,
+                            )
+                            with self._browse_lock:
+                                self._api.browse_browse({
+                                    "hierarchy": "search",
+                                    "item_key": first_navigable["item_key"],
+                                    "zone_or_output_id": zone_id,
+                                })
+                                deeper_result = self._api.browse_load({
+                                    "hierarchy": "search",
+                                    "count": 10,
+                                    "zone_or_output_id": zone_id,
+                                })
+                            deeper_items = deeper_result.get("items", []) if deeper_result else []
+
+                            d_action: dict[str, Any] | None = None
+                            d_fallback: dict[str, Any] | None = None
+                            for item in deeper_items:
+                                title_lower = (item.get("title") or "").lower().strip()
+                                if title_lower in target_keywords and item.get("item_key"):
+                                    d_action = item
+                                    break
+                                if (
+                                    title_lower in fallback_keywords
+                                    and item.get("item_key")
+                                    and d_fallback is None
+                                ):
+                                    d_fallback = item
+
+                            d_chosen = d_action or d_fallback
+                            if d_chosen and d_chosen.get("item_key"):
+                                with self._browse_lock:
+                                    self._api.browse_browse({
+                                        "hierarchy": "search",
+                                        "item_key": d_chosen["item_key"],
+                                        "zone_or_output_id": zone_id,
+                                    })
+                                logger.info(
+                                    "Direct-key play: queued via deeper navigation "
+                                    "(action: '%s') for key %s",
+                                    d_chosen.get("title"), key,
+                                )
+                                return True
+
+                            logger.warning(
+                                "Direct-key play: deeper navigation also found no action "
+                                "for key %s (items: %s)",
+                                key, [i.get("title") for i in deeper_items],
+                            )
+                        else:
+                            logger.warning(
+                                "Direct-key play: no action found for key %s (items: %s)",
+                                key,
+                                [i.get("title") for i in search_items],
+                            )
                         return False
 
                     with self._browse_lock:
@@ -479,6 +540,49 @@ class RoonPlaybackMixin:
                         queued = self._play_track_via_direct_key(
                             zone_id, key, target_kw, fallback_kw
                         )
+
+                        # Fallback for streaming tracks (e.g. Qobuz): extract
+                        # title/artist from the search hierarchy and retry via
+                        # the search-based path.
+                        if not queued:
+                            try:
+                                with self._browse_lock:
+                                    self._api.browse_browse({
+                                        "hierarchy": "search",
+                                        "item_key": key,
+                                        "pop_all": True,
+                                    })
+                                    meta_result = self._api.browse_load({
+                                        "hierarchy": "search",
+                                        "count": 5,
+                                    })
+                                meta_items = meta_result.get("items", []) if meta_result else []
+                                if meta_items:
+                                    extracted_title = meta_items[0].get("title", "")
+                                    extracted_subtitle = meta_items[0].get("subtitle", "") or ""
+                                    if extracted_title:
+                                        extracted_artist = (
+                                            extracted_subtitle.split("•")[0].strip()
+                                            if extracted_subtitle else ""
+                                        )
+                                        search_q = (
+                                            f"{extracted_artist} {extracted_title}"
+                                            if extracted_artist else extracted_title
+                                        )
+                                        logger.info(
+                                            "Streaming track not in cache, trying search "
+                                            "for '%s'",
+                                            search_q,
+                                        )
+                                        queued = self._play_track_via_search(
+                                            zone_id, search_q, extracted_title,
+                                            extracted_artist,
+                                            target_kw, fallback_kw,
+                                        )
+                            except Exception as e:
+                                logger.debug(
+                                    "Metadata extraction for key %s failed: %s", key, e
+                                )
 
                     if queued:
                         tracks_queued += 1
