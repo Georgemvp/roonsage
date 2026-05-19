@@ -14,18 +14,83 @@ Profile structure
         "avg_rating": 4.2,
         "favorite_time_of_day": "evening",
         "last_updated": "2026-05-18T22:00:00"
-    }
+    },
+    "recently_active": {
+        "period": "7d",
+        "top_genres": [...],
+        "top_artists": [...],
+        "total_plays": 87,
+        "avg_per_day": 12.4
+    },
+    "listening_patterns": {
+        "evening_genres": [...],
+        "morning_genres": [...],
+        "weekend_genres": [...],
+        "peak_hour": 21,
+        "peak_day": "Friday"
+    },
+    "skip_signals": {
+        "genres":  [{"genre": "Country", "skip_rate": 0.78, "plays": 12}],
+        "artists": [{"artist": "Ed Sheeran", "skip_rate": 0.82, "plays": 8}]
+    },
+    "artist_streaks": [
+        {"artist": "Nick Cave", "plays_7d": 15, "plays_30d": 22}
+    ],
+    "top_albums": [
+        {"album": "OK Computer", "artist": "Radiohead", "plays": 24}
+    ]
 }
 """
 
 import json
 import logging
 import threading
+from collections import defaultdict
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 _profile_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Module-level constants
+# ---------------------------------------------------------------------------
+
+# Maps genre keywords (checked as substring of lowercased genre name) to mood categories.
+GENRE_MOOD_MAP: dict[str, str] = {
+    "ambient": "contemplative",
+    "classical": "contemplative",
+    "new age": "contemplative",
+    "electronic": "energetic",
+    "dance": "energetic",
+    "house": "energetic",
+    "techno": "energetic",
+    "jazz": "smooth",
+    "soul": "smooth",
+    "r&b": "smooth",
+    "blues": "smooth",
+    "alternative": "melancholic",
+    "indie": "melancholic",
+    "singer-songwriter": "melancholic",
+    "rock": "intense",
+    "metal": "intense",
+    "punk": "intense",
+    "hardcore": "intense",
+    "pop": "upbeat",
+    "funk": "upbeat",
+    "disco": "upbeat",
+}
+
+# ISO weekday (Python: 0=Mon, 6=Sun) to name string.
+_DAY_NAMES: dict[int, str] = {
+    0: "Monday",
+    1: "Tuesday",
+    2: "Wednesday",
+    3: "Thursday",
+    4: "Friday",
+    5: "Saturday",
+    6: "Sunday",
+}
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -48,6 +113,17 @@ def _weighted_merge(current: float, new_value: float, weight: float = 0.3) -> fl
     """
     merged = current * (1.0 - weight) + new_value * weight
     return round(max(0.0, min(1.0, merged)), 4)
+
+
+def _age_weight(age_days: float) -> float:
+    """Return a recency multiplier for a play that occurred *age_days* days ago."""
+    if age_days <= 7:
+        return 3.0
+    if age_days <= 30:
+        return 1.5
+    if age_days <= 90:
+        return 1.0
+    return 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +169,8 @@ class TasteProfile:
         - dislikes:  append + deduplicate (case-insensitive)
         - notes:     append + deduplicate (case-insensitive)
         - stats:     always overwrite individual keys
+        - recently_active / listening_patterns / skip_signals /
+          artist_streaks / top_albums / lb_* : always overwrite entirely
         """
         with _profile_lock:
             try:
@@ -173,122 +251,311 @@ class TasteProfile:
         try:
             conn = _get_conn()
             try:
-                # ── Genre scores from listening history ──────────────────────
-                genre_rows = conn.execute(
+                # ── 1 & 2: Time-weighted genre aggregation (with genre splitting) ──
+                #
+                # Fetch raw rows so we can split comma-separated genre strings in
+                # Python before aggregating.  age_days is computed by SQLite so we
+                # avoid datetime parsing overhead in Python.
+                raw_genre_rows = conn.execute(
                     """
-                    SELECT genre, COUNT(*) as plays,
-                           SUM(CASE WHEN skipped = 0 THEN 1 ELSE 0 END) as full_plays
+                    SELECT genre,
+                           CAST(julianday('now') - julianday(timestamp) AS REAL) AS age_days,
+                           skipped
                     FROM listening_history
                     WHERE genre IS NOT NULL AND genre != ''
-                    GROUP BY genre
-                    ORDER BY plays DESC
-                    LIMIT 30
+                    LIMIT 15000
                     """,
                 ).fetchall()
 
-                genre_scores: dict[str, float] = {}
-                if genre_rows:
-                    max_plays = max(r[1] for r in genre_rows) or 1
-                    for row in genre_rows:
-                        genre, plays, full_plays = row[0], row[1], row[2]
-                        completion_rate = full_plays / max(plays, 1)
-                        normalized = (plays / max_plays) * 0.6 + completion_rate * 0.4
-                        genre_scores[genre] = round(min(1.0, normalized), 4)
+                # weighted_plays and weighted_full_plays per individual genre
+                genre_weighted: dict[str, float] = defaultdict(float)
+                genre_full_weighted: dict[str, float] = defaultdict(float)
 
-                # ── Artist scores from listening history ─────────────────────
+                for genre_str, age_days_val, skipped in raw_genre_rows:
+                    w = _age_weight(float(age_days_val or 9999))
+                    for g in genre_str.split(", "):
+                        g = g.strip()
+                        if not g:
+                            continue
+                        genre_weighted[g] += w
+                        if not skipped:
+                            genre_full_weighted[g] += w
+
+                genre_scores: dict[str, float] = {}
+                if genre_weighted:
+                    max_w = max(genre_weighted.values()) or 1.0
+                    # Top 30 genres by weighted plays
+                    top_genre_items = sorted(
+                        genre_weighted.items(), key=lambda x: x[1], reverse=True
+                    )[:30]
+                    for g, w_plays in top_genre_items:
+                        completion_rate = genre_full_weighted[g] / max(genre_weighted[g], 1)
+                        normalized = (w_plays / max_w) * 0.6 + completion_rate * 0.4
+                        genre_scores[g] = round(min(1.0, normalized), 4)
+
+                # ── 1: Time-weighted artist scores ────────────────────────────
+                _weight_case = """
+                    CASE
+                        WHEN julianday('now') - julianday(timestamp) <= 7  THEN 3.0
+                        WHEN julianday('now') - julianday(timestamp) <= 30 THEN 1.5
+                        WHEN julianday('now') - julianday(timestamp) <= 90 THEN 1.0
+                        ELSE 0.5
+                    END
+                """
                 artist_rows = conn.execute(
-                    """
-                    SELECT artist, COUNT(*) as plays,
-                           SUM(CASE WHEN skipped = 0 THEN 1 ELSE 0 END) as full_plays
+                    f"""
+                    SELECT artist,
+                           SUM({_weight_case}) AS weighted_plays,
+                           SUM(CASE WHEN skipped = 0 THEN {_weight_case} ELSE 0 END) AS weighted_full_plays
                     FROM listening_history
                     WHERE artist IS NOT NULL AND artist != ''
                     GROUP BY artist
-                    ORDER BY plays DESC
+                    ORDER BY weighted_plays DESC
                     LIMIT 50
                     """,
                 ).fetchall()
 
                 artist_scores: dict[str, float] = {}
                 if artist_rows:
-                    max_plays = max(r[1] for r in artist_rows) or 1
-                    for row in artist_rows:
-                        artist, plays, full_plays = row[0], row[1], row[2]
-                        completion_rate = full_plays / max(plays, 1)
-                        normalized = (plays / max_plays) * 0.6 + completion_rate * 0.4
+                    max_w = max((r[1] or 0) for r in artist_rows) or 1.0
+                    for artist, w_plays, w_full in artist_rows:
+                        w_plays = w_plays or 0
+                        w_full = w_full or 0
+                        completion_rate = w_full / max(w_plays, 1)
+                        normalized = (w_plays / max_w) * 0.6 + completion_rate * 0.4
                         artist_scores[artist] = round(min(1.0, normalized), 4)
 
-                # ── Decade scores from listening_history ─────────────────────
+                # ── 1: Time-weighted decade scores ────────────────────────────
                 decade_rows = conn.execute(
-                    """
-                    SELECT decade, COUNT(*) as plays,
-                           SUM(CASE WHEN skipped = 0 THEN 1 ELSE 0 END) as full_plays
+                    f"""
+                    SELECT decade,
+                           SUM({_weight_case}) AS weighted_plays,
+                           SUM(CASE WHEN skipped = 0 THEN {_weight_case} ELSE 0 END) AS weighted_full_plays
                     FROM listening_history
                     WHERE decade IS NOT NULL AND decade != ''
                     GROUP BY decade
-                    ORDER BY plays DESC
+                    ORDER BY weighted_plays DESC
                     """,
                 ).fetchall()
 
                 decade_scores: dict[str, float] = {}
                 if decade_rows:
-                    max_plays = max(r[1] for r in decade_rows) or 1
-                    for row in decade_rows:
-                        decade, plays, full_plays = row[0], row[1], row[2]
-                        completion_rate = full_plays / max(plays, 1)
-                        normalized = (plays / max_plays) * 0.6 + completion_rate * 0.4
+                    max_w = max((r[1] or 0) for r in decade_rows) or 1.0
+                    for decade, w_plays, w_full in decade_rows:
+                        w_plays = w_plays or 0
+                        w_full = w_full or 0
+                        completion_rate = w_full / max(w_plays, 1)
+                        normalized = (w_plays / max_w) * 0.6 + completion_rate * 0.4
                         decade_scores[decade] = round(min(1.0, normalized), 4)
 
-                # ── Listening patterns ────────────────────────────────────────
-                stats_row = conn.execute(
-                    """
-                    SELECT
-                        COUNT(*) as total_tracks,
-                        SUM(played_seconds) / 3600.0 as total_hours,
-                        SUM(CASE WHEN skipped = 1 THEN 1 ELSE 0 END) * 1.0 / COUNT(*) as skip_rate,
-                        AVG(played_seconds) / 60.0 as avg_session_min
-                    FROM listening_history
-                    """
-                ).fetchone()
+                # ── 6: Mood scores derived from genre_scores ──────────────────
+                mood_totals: dict[str, list[float]] = {}
+                for genre, score in genre_scores.items():
+                    genre_lower = genre.lower()
+                    for keyword, mood in GENRE_MOOD_MAP.items():
+                        if keyword in genre_lower:
+                            mood_totals.setdefault(mood, []).append(score)
+                            break  # first matching keyword wins
+                mood_scores: dict[str, float] = {
+                    mood: round(sum(scores_list) / len(scores_list), 4)
+                    for mood, scores_list in mood_totals.items()
+                }
 
-                # Peak hour (most listens)
-                peak_hour_row = conn.execute(
+                # ── 3: Recently active (last 7 days) ──────────────────────────
+                recent_raw = conn.execute(
                     """
-                    SELECT hour_of_day, COUNT(*) as cnt
+                    SELECT genre, artist
+                    FROM listening_history
+                    WHERE timestamp >= datetime('now', '-7 days')
+                    """,
+                ).fetchall()
+
+                recent_genre_counter: dict[str, int] = defaultdict(int)
+                recent_artist_counter: dict[str, int] = defaultdict(int)
+                for genre_str, artist in recent_raw:
+                    if genre_str:
+                        for g in genre_str.split(", "):
+                            g = g.strip()
+                            if g:
+                                recent_genre_counter[g] += 1
+                    if artist:
+                        recent_artist_counter[artist] += 1
+
+                recent_total = len(recent_raw)
+                recently_active: dict = {
+                    "period": "7d",
+                    "top_genres": [
+                        g for g, _ in sorted(
+                            recent_genre_counter.items(), key=lambda x: x[1], reverse=True
+                        )[:5]
+                    ],
+                    "top_artists": [
+                        a for a, _ in sorted(
+                            recent_artist_counter.items(), key=lambda x: x[1], reverse=True
+                        )[:10]
+                    ],
+                    "total_plays": recent_total,
+                    "avg_per_day": round(recent_total / 7, 1),
+                }
+
+                # ── 4: Listening patterns ──────────────────────────────────────
+                pattern_raw = conn.execute(
+                    """
+                    SELECT genre, hour_of_day, day_of_week
                     FROM listening_history
                     WHERE hour_of_day IS NOT NULL
-                    GROUP BY hour_of_day
-                    ORDER BY cnt DESC LIMIT 1
-                    """
-                ).fetchone()
+                    """,
+                ).fetchall()
 
-                # Peak day (0=Mon, 6=Sun)
-                peak_day_row = conn.execute(
+                evening_genres: dict[str, int] = defaultdict(int)
+                morning_genres: dict[str, int] = defaultdict(int)
+                weekend_genres: dict[str, int] = defaultdict(int)
+                hour_counter: dict[int, int] = defaultdict(int)
+                day_counter: dict[int, int] = defaultdict(int)
+
+                for genre_str, hour, day in pattern_raw:
+                    if hour is not None:
+                        hour_counter[int(hour)] += 1
+                    if day is not None:
+                        day_counter[int(day)] += 1
+                    if not genre_str:
+                        continue
+                    for g in genre_str.split(", "):
+                        g = g.strip()
+                        if not g:
+                            continue
+                        if hour is not None and 18 <= int(hour) <= 23:
+                            evening_genres[g] += 1
+                        if hour is not None and 6 <= int(hour) <= 11:
+                            morning_genres[g] += 1
+                        if day is not None and int(day) in (5, 6):
+                            weekend_genres[g] += 1
+
+                peak_hour: int | None = (
+                    max(hour_counter, key=lambda h: hour_counter[h]) if hour_counter else None
+                )
+                peak_day_num: int | None = (
+                    max(day_counter, key=lambda d: day_counter[d]) if day_counter else None
+                )
+                peak_day: str | None = (
+                    _DAY_NAMES.get(peak_day_num) if peak_day_num is not None else None
+                )
+
+                def _top3(counter: dict[str, int]) -> list[str]:
+                    return [
+                        g for g, _ in sorted(counter.items(), key=lambda x: x[1], reverse=True)[:3]
+                    ]
+
+                listening_patterns: dict = {
+                    "evening_genres": _top3(evening_genres),
+                    "morning_genres": _top3(morning_genres),
+                    "weekend_genres": _top3(weekend_genres),
+                    "peak_hour": peak_hour,
+                    "peak_day": peak_day,
+                }
+
+                # ── 5: Skip signals ────────────────────────────────────────────
+                # Genre skip signals — reuse raw_genre_rows (already has skipped flag)
+                skip_genre_total: dict[str, int] = defaultdict(int)
+                skip_genre_skipped: dict[str, int] = defaultdict(int)
+
+                for genre_str, _age, skipped in raw_genre_rows:
+                    for g in genre_str.split(", "):
+                        g = g.strip()
+                        if not g:
+                            continue
+                        skip_genre_total[g] += 1
+                        if skipped:
+                            skip_genre_skipped[g] += 1
+
+                skip_genre_signals: list[dict] = []
+                for g, total in skip_genre_total.items():
+                    if total >= 5:
+                        sr = skip_genre_skipped[g] / total
+                        if sr > 0.5:
+                            skip_genre_signals.append(
+                                {"genre": g, "skip_rate": round(sr, 3), "plays": total}
+                            )
+                skip_genre_signals.sort(key=lambda x: x["skip_rate"], reverse=True)
+                skip_genre_signals = skip_genre_signals[:10]
+
+                # Artist skip signals — via SQL (artist column is never comma-separated)
+                skip_artist_rows = conn.execute(
                     """
-                    SELECT day_of_week, COUNT(*) as cnt
+                    SELECT artist,
+                           COUNT(*) AS total,
+                           SUM(CASE WHEN skipped = 1 THEN 1 ELSE 0 END) AS skipped_count
                     FROM listening_history
-                    WHERE day_of_week IS NOT NULL
-                    GROUP BY day_of_week
-                    ORDER BY cnt DESC LIMIT 1
-                    """
-                ).fetchone()
+                    WHERE artist IS NOT NULL AND artist != ''
+                    GROUP BY artist
+                    HAVING COUNT(*) >= 5
+                    ORDER BY (SUM(CASE WHEN skipped = 1 THEN 1 ELSE 0 END) * 1.0 / COUNT(*)) DESC
+                    LIMIT 10
+                    """,
+                ).fetchall()
 
-                # Top albums
+                skip_artist_signals: list[dict] = []
+                for artist, total, skip_count in skip_artist_rows:
+                    sr = (skip_count or 0) / max(total, 1)
+                    if sr > 0.5:
+                        skip_artist_signals.append(
+                            {"artist": artist, "skip_rate": round(sr, 3), "plays": total}
+                        )
+
+                skip_signals: dict = {
+                    "genres": skip_genre_signals,
+                    "artists": skip_artist_signals,
+                }
+
+                # ── 7: Artist streaks ──────────────────────────────────────────
+                streak_rows = conn.execute(
+                    """
+                    SELECT artist,
+                           SUM(CASE WHEN julianday('now') - julianday(timestamp) <= 7  THEN 1 ELSE 0 END) AS plays_7d,
+                           SUM(CASE WHEN julianday('now') - julianday(timestamp) <= 30 THEN 1 ELSE 0 END) AS plays_30d
+                    FROM listening_history
+                    WHERE artist IS NOT NULL AND artist != ''
+                    GROUP BY artist
+                    HAVING plays_7d >= 5
+                    ORDER BY plays_7d DESC
+                    LIMIT 5
+                    """,
+                ).fetchall()
+
+                artist_streaks: list[dict] = [
+                    {"artist": r[0], "plays_7d": r[1], "plays_30d": r[2]}
+                    for r in streak_rows
+                ]
+
+                # ── 8: Top albums (top-level key, limit 15) ────────────────────
                 album_rows = conn.execute(
                     """
-                    SELECT album, artist, COUNT(*) as plays
+                    SELECT album, artist, COUNT(*) AS plays
                     FROM listening_history
                     WHERE album IS NOT NULL AND album != ''
                     GROUP BY album, artist
                     ORDER BY plays DESC
-                    LIMIT 20
-                    """
+                    LIMIT 15
+                    """,
                 ).fetchall()
-                top_albums = [
+                top_albums: list[dict] = [
                     {"album": r[0], "artist": r[1], "plays": r[2]}
                     for r in album_rows
                 ]
 
-                # ── Rating stats from taste_events ───────────────────────────
+                # ── General stats ──────────────────────────────────────────────
+                stats_row = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total_tracks,
+                        SUM(played_seconds) / 3600.0 AS total_hours,
+                        SUM(CASE WHEN skipped = 1 THEN 1 ELSE 0 END) * 1.0 / COUNT(*) AS skip_rate,
+                        AVG(played_seconds) / 60.0 AS avg_session_min
+                    FROM listening_history
+                    """,
+                ).fetchone()
+
+                # ── Rating stats from taste_events ─────────────────────────────
                 rating_rows = conn.execute(
                     """
                     SELECT data_json FROM taste_events
@@ -298,7 +565,7 @@ class TasteProfile:
                     """,
                 ).fetchall()
 
-                ratings = []
+                ratings: list[int] = []
                 for r in rating_rows:
                     try:
                         d = json.loads(r[0] or "{}")
@@ -315,14 +582,24 @@ class TasteProfile:
             finally:
                 conn.close()
 
-            # ── Merge computed scores with existing profile ───────────────────
+            # ── Assemble updates dict ──────────────────────────────────────────
             updates: dict = {}
+
             if genre_scores:
                 updates["genres"] = genre_scores
             if artist_scores:
                 updates["artists"] = artist_scores
             if decade_scores:
                 updates["decades"] = decade_scores
+            if mood_scores:
+                updates["moods"] = mood_scores
+
+            # New top-level keys — always overwrite (fresh computation)
+            updates["recently_active"] = recently_active
+            updates["listening_patterns"] = listening_patterns
+            updates["skip_signals"] = skip_signals
+            updates["artist_streaks"] = artist_streaks
+            updates["top_albums"] = top_albums
 
             listening_stats: dict = {}
             if stats_row and stats_row[0]:
@@ -331,8 +608,9 @@ class TasteProfile:
                     "total_hours": round(stats_row[1] or 0, 1),
                     "skip_rate": round(stats_row[2] or 0, 3),
                     "avg_session_min": round(stats_row[3] or 0, 1),
-                    "peak_hour": peak_hour_row[0] if peak_hour_row else None,
-                    "peak_day": peak_day_row[0] if peak_day_row else None,
+                    "peak_hour": peak_hour,
+                    "peak_day": peak_day,
+                    # backward-compat: keep top_albums inside stats too (limit 20 → 15)
                     "top_albums": top_albums,
                 }
 
@@ -342,7 +620,7 @@ class TasteProfile:
                 **listening_stats,
             }
 
-            # ── ListenBrainz data integration ─────────────────────────────────
+            # ── ListenBrainz data integration ──────────────────────────────────
             try:
                 from backend.listenbrainz_sync import get_sync_instance  # noqa: PLC0415
                 lb_sync = get_sync_instance()
@@ -431,6 +709,12 @@ def _empty_profile() -> dict:
         "dislikes": [],
         "notes": [],
         "stats": {},
+        # Computed analytics (always overwritten on recompute)
+        "recently_active": {},
+        "listening_patterns": {},
+        "skip_signals": {"genres": [], "artists": []},
+        "artist_streaks": [],
+        "top_albums": [],
         # ListenBrainz-enriched data (prefix lb_)
         "lb_genre_by_hour": {},
         "lb_era_distribution": {},
@@ -503,19 +787,25 @@ def _merge_profiles(current: dict, updates: dict) -> dict:
         "dislikes": list(current.get("dislikes", [])),
         "notes":    list(current.get("notes", [])),
         "stats":    dict(current.get("stats", {})),
+        # Computed analytics — seeded from current; overwritten below if present in updates
+        "recently_active":    current.get("recently_active", {}),
+        "listening_patterns": current.get("listening_patterns", {}),
+        "skip_signals":       current.get("skip_signals", {"genres": [], "artists": []}),
+        "artist_streaks":     current.get("artist_streaks", []),
+        "top_albums":         current.get("top_albums", []),
         # LB keys: always overwrite (fresh from LB API)
-        "lb_genre_by_hour":     current.get("lb_genre_by_hour", {}),
-        "lb_era_distribution":  current.get("lb_era_distribution", {}),
-        "lb_daily_heatmap":     current.get("lb_daily_heatmap", {}),
-        "lb_artist_countries":  current.get("lb_artist_countries", {}),
-        "lb_loved_recordings":  current.get("lb_loved_recordings", []),
-        "lb_hated_recordings":  current.get("lb_hated_recordings", []),
-        "lb_similar_users":     current.get("lb_similar_users", []),
-        "lb_top_artists":       current.get("lb_top_artists", []),
-        "lb_top_recordings":    current.get("lb_top_recordings", []),
-        "lb_top_releases":      current.get("lb_top_releases", []),
+        "lb_genre_by_hour":      current.get("lb_genre_by_hour", {}),
+        "lb_era_distribution":   current.get("lb_era_distribution", {}),
+        "lb_daily_heatmap":      current.get("lb_daily_heatmap", {}),
+        "lb_artist_countries":   current.get("lb_artist_countries", {}),
+        "lb_loved_recordings":   current.get("lb_loved_recordings", []),
+        "lb_hated_recordings":   current.get("lb_hated_recordings", []),
+        "lb_similar_users":      current.get("lb_similar_users", []),
+        "lb_top_artists":        current.get("lb_top_artists", []),
+        "lb_top_recordings":     current.get("lb_top_recordings", []),
+        "lb_top_releases":       current.get("lb_top_releases", []),
         "lb_listening_activity": current.get("lb_listening_activity", []),
-        "lb_last_synced":       current.get("lb_last_synced"),
+        "lb_last_synced":        current.get("lb_last_synced"),
     }
 
     # Score maps: weighted merge
@@ -548,15 +838,30 @@ def _merge_profiles(current: dict, updates: dict) -> dict:
     stat_updates: dict = updates.get("stats") or {}
     result["stats"].update(stat_updates)
 
-    # LB keys: always overwrite (fresh API data takes precedence)
-    _lb_overwrite_keys = [
-        "lb_genre_by_hour", "lb_era_distribution", "lb_daily_heatmap",
-        "lb_artist_countries", "lb_loved_recordings", "lb_hated_recordings",
-        "lb_similar_users", "lb_top_artists", "lb_top_recordings",
-        "lb_top_releases", "lb_listening_activity", "lb_last_synced",
+    # All overwrite keys: fresh computed data replaces stored data entirely
+    _overwrite_keys = [
+        # Computed analytics
+        "recently_active",
+        "listening_patterns",
+        "skip_signals",
+        "artist_streaks",
+        "top_albums",
+        # LB keys
+        "lb_genre_by_hour",
+        "lb_era_distribution",
+        "lb_daily_heatmap",
+        "lb_artist_countries",
+        "lb_loved_recordings",
+        "lb_hated_recordings",
+        "lb_similar_users",
+        "lb_top_artists",
+        "lb_top_recordings",
+        "lb_top_releases",
+        "lb_listening_activity",
+        "lb_last_synced",
     ]
-    for lb_key in _lb_overwrite_keys:
-        if lb_key in updates:
-            result[lb_key] = updates[lb_key]
+    for key in _overwrite_keys:
+        if key in updates:
+            result[key] = updates[key]
 
     return result
