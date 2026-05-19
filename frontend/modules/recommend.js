@@ -12,7 +12,7 @@ import { handleRefreshLibrary, checkLibraryStatus, showSyncModal } from './libra
 import { markHistoryStale } from './history.js';
 import { pendingNavHash, setPendingNavHash } from './events.js';
 import { hashForCurrentState } from './router.js';
-import { lockScroll, refreshClientList } from './instant-queue.js';
+import { lockScroll, refreshClientList, dismissRecRestartModal, dismissPlaylistRestartModal } from './instant-queue.js';
 
 export const PLAYLIST_PROMPT_GROUPS = [
     /* Mood / Energy */
