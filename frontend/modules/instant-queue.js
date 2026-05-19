@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import { fetchRoonZones, createPlayQueue } from './api.js';
 import { focusManager } from './focus.js';
-import { setLoading, showError } from './ui.js';
+import { setLoading, showError, resetPlaylistState } from './ui.js';
 import { escapeHtml } from './utils.js';
 import { setPendingNavHash } from './events.js';
 

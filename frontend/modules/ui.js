@@ -1,5 +1,5 @@
 import { state, allGenresSelected, allDecadesSelected } from './state.js';
-import { apiCall, fetchConfig, updateConfig, fetchOllamaStatus, fetchOllamaModels, fetchOllamaModelInfo } from './api.js';
+import { apiCall, fetchConfig, updateConfig, fetchOllamaStatus, fetchOllamaModels, fetchOllamaModelInfo, fetchSetupStatus } from './api.js';
 import { escapeHtml, artistHue, artPlaceholderHtml, trackArtHtml } from './utils.js';
 import { focusManager } from './focus.js';
 // Circular-dep imports — all resolved at call-time (ES modules handle function-level circularity fine)

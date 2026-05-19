@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { state } from './state.js';
-import { apiCall } from './api.js';
+import { apiCall, fetchLibraryStats } from './api.js';
 import { escapeHtml, artPlaceholderHtml, trackArtHtml } from './utils.js';
 import { focusManager } from './focus.js';
 import { setLoading, showError, updateRecModelSuggestion, updateAlbumLimitButtons, isMobileView, openBottomSheet, hideError, updateStep, resetPlaylistState } from './ui.js';
