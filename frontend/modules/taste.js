@@ -222,25 +222,45 @@ function _renderHeatmap(containerId, dailyActivity) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    const payload = dailyActivity?.payload?.daily_activity || dailyActivity;
-    if (!payload || !Array.isArray(payload) || !payload.length) {
-        container.innerHTML = '<p class="lb-no-data">Geen heatmap data. Sync ListenBrainz om data op te halen.</p>';
-        return;
-    }
-
-    // Build 7×24 grid
+    // LB returns: {"Monday": [{hour, listen_count}, ...], "Tuesday": [...], ...}
+    // Legacy fallback: array of {day_of_week, hour, listen_count}
+    const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     const days = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'];
     const grid = Array(7).fill(null).map(() => Array(24).fill(0));
     let maxVal = 0;
+    let hasData = false;
 
-    for (const item of payload) {
-        const d = item.day_of_week;  // 0-6
-        const h = item.hour;         // 0-23
-        const c = item.listen_count || 0;
-        if (d >= 0 && d < 7 && h >= 0 && h < 24) {
-            grid[d][h] = c;
-            if (c > maxVal) maxVal = c;
+    if (dailyActivity && typeof dailyActivity === 'object' && !Array.isArray(dailyActivity)) {
+        // Dict format (new): {dayName: [{hour, listen_count}]}
+        DAY_NAMES.forEach((dayName, di) => {
+            const entries = dailyActivity[dayName] || [];
+            for (const entry of entries) {
+                const h = entry.hour;
+                const c = entry.listen_count || 0;
+                if (h >= 0 && h < 24 && c > 0) {
+                    grid[di][h] = c;
+                    if (c > maxVal) maxVal = c;
+                    hasData = true;
+                }
+            }
+        });
+    } else if (Array.isArray(dailyActivity) && dailyActivity.length) {
+        // Legacy array format: [{day_of_week, hour, listen_count}]
+        for (const item of dailyActivity) {
+            const d = item.day_of_week;  // 0-6
+            const h = item.hour;         // 0-23
+            const c = item.listen_count || 0;
+            if (d >= 0 && d < 7 && h >= 0 && h < 24) {
+                grid[d][h] = c;
+                if (c > maxVal) maxVal = c;
+                hasData = true;
+            }
         }
+    }
+
+    if (!hasData) {
+        container.innerHTML = '<p class="lb-no-data">Geen heatmap data. Sync ListenBrainz om data op te halen.</p>';
+        return;
     }
 
     const hourLabels = Array.from({ length: 24 }, (_, i) => i % 6 === 0 ? String(i) : '');

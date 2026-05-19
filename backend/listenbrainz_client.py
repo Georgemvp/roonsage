@@ -229,7 +229,7 @@ class ListenBrainzClient:
 
     async def get_top_artists(
         self, range: str = "all_time", count: int = 25
-    ) -> dict:
+    ) -> list[dict]:
         """Return top artists for the user.
 
         Args:
@@ -238,60 +238,77 @@ class ListenBrainzClient:
             count: Number of results.
 
         Returns:
-            Raw LB response dict (artists list under payload.artists).
+            List of artist dicts with keys: artist_name, listen_count, etc.
         """
         if not self._username:
-            return {}
+            return []
         result = await self._get(
             f"/1/stats/user/{self._username}/artists",
             params={"range": range, "count": count},
         )
-        return result or {}
+        if result is None:
+            return []
+        return result.get("payload", {}).get("artists", [])
 
     async def get_top_recordings(
         self, range: str = "all_time", count: int = 25
-    ) -> dict:
-        """Return top recordings (tracks) for the user."""
+    ) -> list[dict]:
+        """Return top recordings (tracks) for the user.
+
+        Returns:
+            List of recording dicts with keys: track_name, artist_name, listen_count, etc.
+        """
         if not self._username:
-            return {}
+            return []
         result = await self._get(
             f"/1/stats/user/{self._username}/recordings",
             params={"range": range, "count": count},
         )
-        return result or {}
+        if result is None:
+            return []
+        return result.get("payload", {}).get("recordings", [])
 
     async def get_top_releases(
         self, range: str = "all_time", count: int = 25
-    ) -> dict:
-        """Return top releases (albums) for the user."""
+    ) -> list[dict]:
+        """Return top releases (albums) for the user.
+
+        Returns:
+            List of release dicts with keys: release_name, artist_name, listen_count, etc.
+        """
         if not self._username:
-            return {}
+            return []
         result = await self._get(
             f"/1/stats/user/{self._username}/releases",
             params={"range": range, "count": count},
         )
-        return result or {}
+        if result is None:
+            return []
+        return result.get("payload", {}).get("releases", [])
 
     async def get_genre_activity(self) -> list[dict]:
         """Return genre-by-hour activity for the user.
 
-        Returns list of {genre, hour_of_day, listen_count} dicts.
+        Returns list of {genre, hour, listen_count} dicts.
+
+        Note: The LB /genre-activity endpoint returns data under the top-level
+        "result" key (NOT under "payload"), e.g.:
+            {"result": [{"genre": "rock", "hour": 11, "listen_count": 16}, ...]}
         """
         if not self._username:
             return []
-        # LB genre-activity endpoint may not be available on all versions.
-        # Try the actual genre-activity endpoint first:
         genre_result = await self._get(
             f"/1/stats/user/{self._username}/genre-activity",
         )
-        if genre_result:
-            return genre_result.get("payload", {}).get("genre_activity", [])
-        return []
+        if genre_result is None:
+            return []
+        return genre_result.get("result", [])
 
     async def get_daily_activity(self, range: str = "all_time") -> dict:
         """Return daily listening activity heatmap (day × hour).
 
-        Returns dict with payload.daily_activity (list of day/hour/listen_count).
+        Returns dict keyed by day name, e.g.:
+            {"Monday": [{"hour": 0, "listen_count": 3}, ...], "Tuesday": [...], ...}
         """
         if not self._username:
             return {}
@@ -299,34 +316,27 @@ class ListenBrainzClient:
             f"/1/stats/user/{self._username}/daily-activity",
             params={"range": range},
         )
-        return result or {}
+        if result is None:
+            return {}
+        return result.get("payload", {}).get("daily_activity", {})
 
     async def get_era_activity(self, range: str = "all_time") -> list[dict]:
         """Return listening activity per release year (era distribution).
 
-        Returns list of {year, listen_count} dicts.
+        Uses the correct /1/stats/user/{user}/era-activity endpoint.
+
+        Returns list of {year, listen_count} dicts, e.g.:
+            [{"year": 1975, "listen_count": 42}, {"year": 1976, "listen_count": 18}, ...]
         """
         if not self._username:
             return []
         result = await self._get(
-            f"/1/stats/user/{self._username}/year-in-music",
+            f"/1/stats/user/{self._username}/era-activity",
+            params={"range": range},
         )
-        if result:
-            return result.get("payload", {}).get("top_releases_coverart", [])
-        # Fallback: recordings with year data
-        recs = await self._get(
-            f"/1/stats/user/{self._username}/recordings",
-            params={"range": range, "count": 100},
-        )
-        if recs:
-            items = recs.get("payload", {}).get("recordings", [])
-            year_counts: dict[int, int] = {}
-            for item in items:
-                year = item.get("release_year")
-                if year:
-                    year_counts[year] = year_counts.get(year, 0) + item.get("listen_count", 1)
-            return [{"year": y, "listen_count": c} for y, c in sorted(year_counts.items())]
-        return []
+        if result is None:
+            return []
+        return result.get("payload", {}).get("era_activity", [])
 
     async def get_artist_map(self, range: str = "all_time") -> list[dict]:
         """Return listening activity mapped to artist countries.
