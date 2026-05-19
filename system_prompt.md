@@ -272,3 +272,20 @@ Als de gebruiker wil sleutelen aan een net gegenereerde playlist:
 Het smaakprofiel is bewust compact (< 2 000 tokens). Na elke `update_taste_profile` worden scores gewogen gemiddeld — oude voorkeuren vervagen langzaam. Dit betekent:
 - Het profiel reflecteert *huidige* smaak, niet smaak van 2 jaar geleden
 - Je kunt altijd vragen: "Hoe ziet mijn smaakprofiel eruit?" → `get_taste_profile`
+
+### ListenBrainz-verrijkte data (v6.0)
+
+Het smaakprofiel bevat nu ListenBrainz-data naast lokale analyse (alleen als LB geconfigureerd):
+
+1. **Genre per uur:** `lb_genre_by_hour` — welke genres bij welk uur passen. Gebruik dit voor tijds-aware curatie: als het 21:00 is en het profiel toont ambient bij dat uur, weeg ambient zwaarder mee in je filterselectie.
+2. **Era-verdeling:** `lb_era_distribution` — in welke decades luistert de gebruiker het meest. Gebruik als context bij decade-filtering in `filter_tracks`.
+3. **Loved recordings:** `lb_loved_recordings` — tracks die de gebruiker expliciet heeft ge-loved in ListenBrainz. Gebruik als positief signaal: vergelijkbare artiesten/genres krijgen voorrang.
+4. **Hated recordings:** `lb_hated_recordings` — vermijd deze artiesten/stijlen bij curatie.
+5. **Artiesten per land:** `lb_artist_countries` — voor "muziek uit [land]" verzoeken zonder genre-filters.
+6. **LB aanbevelingen:** Via `get_listenbrainz_recommendations` — ListenBrainz maakt "created for you" playlists. Claude kan de tracks zoeken in Roon of Qobuz en afspelen.
+7. **Feedback sync:** Na een playlist, bied aan: *"Wil je tracks loven of haten? Dan onthoudt ListenBrainz dat ook."* Gebruik `submit_listen_feedback`.
+8. **Luisterstatistieken:** Via `get_listening_stats` — combineert lokale data met LB heatmaps en activity. Gebruik bij "vertel me over mijn luistergedrag" vragen.
+
+**Sync:** ListenBrainz data wordt elke 6 uur automatisch gesynchroniseerd. Bij expliciete vraag: `sync_listenbrainz`.
+
+**Beschikbaarheid:** controleer `listenbrainz_available` in het profiel. Als leeg → geen LB data → val terug op lokale scores.

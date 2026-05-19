@@ -301,6 +301,37 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         );
     """)
 
+    # -----------------------------------------------------------------------
+    # ListenBrain v6.0 migrations: enriched listening_history + lb_stats_cache
+    # -----------------------------------------------------------------------
+
+    # New columns in listening_history
+    for col_def in [
+        ("year", "INTEGER"),
+        ("decade", "TEXT"),
+        ("hour_of_day", "INTEGER"),
+        ("day_of_week", "INTEGER"),
+        ("source", "TEXT DEFAULT 'library'"),
+    ]:
+        col_name, col_type = col_def
+        try:
+            conn.execute(
+                f"ALTER TABLE listening_history ADD COLUMN {col_name} {col_type}"
+            )
+            logger.info("Migration applied: added %s column to listening_history", col_name)
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+    # ListenBrainz stats cache table (single-row JSON cache per stat type)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS lb_stats_cache (
+            stat_type TEXT PRIMARY KEY,
+            data_json TEXT NOT NULL DEFAULT '{}',
+            range TEXT DEFAULT 'all_time',
+            synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+
     conn.commit()
     return migrated
 

@@ -5,12 +5,35 @@ This mixin is intentionally kept separate from roon_browse.py because:
 - Mixing browse-lock usage with the monitor thread would cause deadlocks.
 """
 
+import asyncio
 import logging
 import threading
 import time
+from datetime import datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Module-level reference to the running asyncio event loop (set by main.py lifespan).
+# Used to schedule fire-and-forget coroutines from sync monitor threads.
+_event_loop: asyncio.AbstractEventLoop | None = None
+
+
+def set_monitor_event_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """Register the main asyncio event loop for fire-and-forget LB submissions."""
+    global _event_loop
+    _event_loop = loop
+
+
+def _fire_and_forget(coro) -> None:
+    """Schedule *coro* on the registered event loop without blocking."""
+    loop = _event_loop
+    if loop is None or loop.is_closed():
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(coro, loop)
+    except Exception as exc:
+        logger.debug("fire_and_forget failed: %s", exc)
 
 # Minimum seconds a track must play before being logged (avoids noise from
 # brief previews or accidental presses).
@@ -102,15 +125,27 @@ class RoonIntelligenceMixin:
         if not prev or prev.get("track_key") != track_key:
             # New track started — record start state
             three = now_playing.get("three_line", {})
+            title = three.get("line1") or now_playing.get("one_line", {}).get("line1", "")
+            artist = three.get("line2", "")
+            album = three.get("line3", "")
             self._last_zone_states[zone_id] = {
                 "track_key": track_key,
-                "title":     three.get("line1") or now_playing.get("one_line", {}).get("line1", ""),
-                "artist":    three.get("line2", ""),
-                "album":     three.get("line3", ""),
+                "title":     title,
+                "artist":    artist,
+                "album":     album,
                 "genre":     "",  # Roon doesn't expose genre in now_playing
                 "duration":  now_playing.get("length", 0),
                 "started_at": time.time(),
             }
+            # Fire-and-forget: submit now_playing to ListenBrainz
+            if title and artist:
+                try:
+                    from backend.listenbrainz_client import get_lb_client  # noqa: PLC0415
+                    lb = get_lb_client()
+                    if lb:
+                        _fire_and_forget(lb.submit_now_playing(artist, title, album))
+                except Exception as exc:
+                    logger.debug("LB now_playing submit failed: %s", exc)
 
     def _log_listen(
         self,
@@ -119,37 +154,114 @@ class RoonIntelligenceMixin:
         skipped: int,
         zone_name: str,
     ) -> None:
-        """Insert a completed listen into listening_history."""
+        """Insert a completed listen into listening_history with enriched metadata."""
         try:
             from backend.db import get_db_connection  # noqa: PLC0415
             conn = get_db_connection()
             try:
+                title = track_info.get("title", "")
+                artist = track_info.get("artist", "")
+                album = track_info.get("album", "")
+                duration = track_info.get("duration", 0)
+
+                # ── Genre/year enrichment from SQLite library cache ────────────
+                genre = track_info.get("genre", "")
+                year: int | None = None
+                decade: str | None = None
+                try:
+                    if not genre and artist and title:
+                        from rapidfuzz import fuzz  # noqa: PLC0415
+                        # Search for matching track in library cache
+                        candidates = conn.execute(
+                            "SELECT item_key, title, artist, year FROM tracks "
+                            "WHERE artist LIKE ? LIMIT 20",
+                            (f"%{artist[:20]}%",),
+                        ).fetchall()
+                        best_key: str | None = None
+                        best_score = 0
+                        for row in candidates:
+                            score = fuzz.token_sort_ratio(
+                                f"{artist} {title}",
+                                f"{row['artist']} {row['title']}",
+                            )
+                            if score > best_score:
+                                best_score = score
+                                best_key = row["item_key"]
+                                if row["year"]:
+                                    year = row["year"]
+                        if best_key and best_score >= 80:
+                            genre_rows = conn.execute(
+                                "SELECT genre FROM track_genres WHERE track_key = ?",
+                                (best_key,),
+                            ).fetchall()
+                            genre = ", ".join(r["genre"] for r in genre_rows)
+                except Exception as enrich_exc:
+                    logger.debug("Genre enrichment failed: %s", enrich_exc)
+
+                # ── Decade ────────────────────────────────────────────────────
+                if year:
+                    decade = f"{(year // 10) * 10}s"
+
+                # ── Time columns ──────────────────────────────────────────────
+                now = datetime.now()
+                hour_of_day = now.hour
+                day_of_week = now.weekday()  # 0 = Monday
+
                 conn.execute(
                     """
                     INSERT INTO listening_history
                         (zone_name, track_title, artist, album, genre,
-                         duration_seconds, played_seconds, skipped)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                         duration_seconds, played_seconds, skipped,
+                         year, decade, hour_of_day, day_of_week, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         zone_name,
-                        track_info.get("title", ""),
-                        track_info.get("artist", ""),
-                        track_info.get("album", ""),
-                        track_info.get("genre", ""),
-                        track_info.get("duration", 0),
+                        title,
+                        artist,
+                        album,
+                        genre,
+                        duration,
                         played_seconds,
                         skipped,
+                        year,
+                        decade,
+                        hour_of_day,
+                        day_of_week,
+                        "library",
                     ),
                 )
                 conn.commit()
                 logger.debug(
-                    "Logged listen: '%s' by %s (%ds, skipped=%d)",
-                    track_info.get("title"),
-                    track_info.get("artist"),
+                    "Logged listen: '%s' by %s (%ds, skipped=%d, genre=%s)",
+                    title,
+                    artist,
                     played_seconds,
                     skipped,
+                    genre or "?",
                 )
+
+                # ── ListenBrainz scrobble (fire-and-forget) ───────────────────
+                # Scrobble when: not skipped AND (played >= 30s OR played >= duration/2)
+                duration_threshold = max(30, (duration // 2) if duration > 0 else 30)
+                if played_seconds >= duration_threshold and title and artist:
+                    try:
+                        from backend.listenbrainz_client import get_lb_client  # noqa: PLC0415
+                        lb = get_lb_client()
+                        if lb:
+                            listened_at = int(time.time())
+                            _fire_and_forget(
+                                lb.submit_listen(
+                                    artist=artist,
+                                    title=title,
+                                    album=album,
+                                    duration_ms=duration * 1000,
+                                    listened_at=listened_at,
+                                )
+                            )
+                    except Exception as lb_exc:
+                        logger.debug("LB scrobble failed: %s", lb_exc)
+
             finally:
                 conn.close()
         except Exception as exc:

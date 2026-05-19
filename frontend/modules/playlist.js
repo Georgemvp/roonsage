@@ -279,6 +279,12 @@ export async function handleSaveSettings() {
     if (qobuzEmail) updates.qobuz_email = qobuzEmail;
     if (qobuzPassword) updates.qobuz_password = qobuzPassword;
 
+    // ListenBrainz settings (saved via validate endpoint — store in user config if filled)
+    const lbToken = document.getElementById('lb-token')?.value.trim();
+    const lbUsername = document.getElementById('lb-username')?.value.trim();
+    if (lbToken) updates.listenbrainz_token = lbToken;
+    if (lbUsername) updates.listenbrainz_username = lbUsername;
+
     if (Object.keys(updates).length === 0) {
         showError('No settings to update');
         return;

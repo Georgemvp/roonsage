@@ -91,5 +91,8 @@ data/*.db-shm
 tmp/
 temp/
 *.tmp
+
+# Linux FUSE temp files
+data/.fuse_hidden*
 .archive/
 specs/

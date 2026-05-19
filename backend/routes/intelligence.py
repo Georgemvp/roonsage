@@ -558,6 +558,264 @@ async def modify_playlist(request: ModifyPlaylistRequest) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# ListenBrainz integration endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/intelligence/listening-stats")
+async def get_intelligence_listening_stats(days: int = Query(30, ge=1, le=365)) -> dict:
+    """Combined local + ListenBrainz stats in one response."""
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+    conn = get_db_connection()
+    try:
+        # Local stats
+        totals = conn.execute(
+            """
+            SELECT COUNT(*) as total,
+                   SUM(CASE WHEN skipped = 1 THEN 1 ELSE 0 END) as skipped,
+                   SUM(played_seconds) as total_seconds
+            FROM listening_history WHERE timestamp >= ?
+            """,
+            (cutoff,),
+        ).fetchone()
+
+        artist_rows = conn.execute(
+            """
+            SELECT artist, COUNT(*) as plays
+            FROM listening_history
+            WHERE timestamp >= ? AND artist IS NOT NULL AND artist != ''
+            GROUP BY artist ORDER BY plays DESC LIMIT 15
+            """,
+            (cutoff,),
+        ).fetchall()
+
+        genre_rows = conn.execute(
+            """
+            SELECT genre, COUNT(*) as plays
+            FROM listening_history
+            WHERE timestamp >= ? AND genre IS NOT NULL AND genre != ''
+            GROUP BY genre ORDER BY plays DESC LIMIT 10
+            """,
+            (cutoff,),
+        ).fetchall()
+
+        decade_rows = conn.execute(
+            """
+            SELECT decade, COUNT(*) as plays
+            FROM listening_history
+            WHERE timestamp >= ? AND decade IS NOT NULL AND decade != ''
+            GROUP BY decade ORDER BY plays DESC
+            """,
+            (cutoff,),
+        ).fetchall()
+
+        # Hour heatmap (local)
+        hour_rows = conn.execute(
+            """
+            SELECT hour_of_day, COUNT(*) as plays
+            FROM listening_history
+            WHERE timestamp >= ? AND hour_of_day IS NOT NULL
+            GROUP BY hour_of_day ORDER BY hour_of_day
+            """,
+            (cutoff,),
+        ).fetchall()
+
+        total = totals[0] or 0
+        skipped_count = totals[1] or 0
+        total_minutes = round((totals[2] or 0) / 60)
+        skip_rate = round(skipped_count / total * 100, 1) if total else 0.0
+
+        local_stats = {
+            "period_days": days,
+            "total_tracks": total,
+            "total_minutes": total_minutes,
+            "skip_rate_pct": skip_rate,
+            "top_artists": [{"artist": r[0], "plays": r[1]} for r in artist_rows],
+            "top_genres": [{"genre": r[0], "plays": r[1]} for r in genre_rows],
+            "decades": [{"decade": r[0], "plays": r[1]} for r in decade_rows],
+            "hour_heatmap": {str(r[0]): r[1] for r in hour_rows},
+        }
+    finally:
+        conn.close()
+
+    # ListenBrainz cached stats
+    lb_data: dict = {}
+    try:
+        from backend.listenbrainz_sync import get_sync_instance  # noqa: PLC0415
+        lb_sync = get_sync_instance()
+        if lb_sync:
+            for stat_key in [
+                "genre_activity", "daily_activity", "era_activity",
+                "artist_map", "top_artists", "top_recordings",
+                "similar_users", "feedback_loved", "listening_activity",
+            ]:
+                cached = lb_sync.get_cached_stat(stat_key)
+                if cached is not None:
+                    lb_data[stat_key] = cached
+            lb_data["last_synced"] = lb_sync.get_last_sync_time()
+    except Exception as lb_exc:
+        logger.debug("LB stats fetch failed: %s", lb_exc)
+
+    return {"local": local_stats, "listenbrainz": lb_data}
+
+
+@router.get("/intelligence/taste-profile/detailed")
+async def get_detailed_taste_profile() -> dict:
+    """Return the full taste profile including ListenBrainz data."""
+    profile = TasteProfile.get()
+    # Also recompute from history for freshness (async to avoid blocking)
+    try:
+        profile = await asyncio.to_thread(TasteProfile.compute_profile_from_history)
+    except Exception as exc:
+        logger.warning("compute_profile_from_history failed: %s", exc)
+    return profile
+
+
+@router.post("/intelligence/listenbrainz/sync")
+async def trigger_listenbrainz_sync() -> dict:
+    """Manually trigger a ListenBrainz stats sync. Returns sync summary."""
+    try:
+        from backend.listenbrainz_sync import get_sync_instance  # noqa: PLC0415
+        lb_sync = get_sync_instance()
+        if not lb_sync:
+            raise HTTPException(status_code=503, detail="ListenBrainz not configured")
+        summary = await lb_sync.sync_all()
+        return {"status": "ok", "summary": summary}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("LB sync failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/intelligence/listenbrainz/status")
+async def get_listenbrainz_status() -> dict:
+    """Return ListenBrainz configuration and sync status."""
+    from backend.config import get_listenbrainz_config  # noqa: PLC0415
+
+    lb_cfg = get_listenbrainz_config()
+    configured = bool(lb_cfg["token"])
+    username = lb_cfg["username"] or ""
+
+    # Scrobble count (listens with source != null)
+    scrobble_count = 0
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM listening_history WHERE source IS NOT NULL AND source != ''"
+        ).fetchone()
+        scrobble_count = row[0] if row else 0
+    finally:
+        conn.close()
+
+    # Last sync time
+    last_synced = None
+    try:
+        from backend.listenbrainz_sync import get_sync_instance  # noqa: PLC0415
+        lb_sync = get_sync_instance()
+        if lb_sync:
+            last_synced = lb_sync.get_last_sync_time()
+    except Exception:
+        pass
+
+    return {
+        "configured": configured,
+        "username": username,
+        "last_synced": last_synced,
+        "scrobble_count": scrobble_count,
+        "connected": configured,
+        "profile_url": f"https://listenbrainz.org/user/{username}" if username else None,
+    }
+
+
+@router.get("/intelligence/listenbrainz/recommendations")
+async def get_listenbrainz_recommendations() -> list[dict]:
+    """Return ListenBrainz 'created for you' playlist recommendations."""
+    try:
+        from backend.listenbrainz_client import get_lb_client  # noqa: PLC0415
+        lb = get_lb_client()
+        if not lb:
+            raise HTTPException(status_code=503, detail="ListenBrainz not configured")
+        playlists = await lb.get_playlists_created_for()
+        return playlists
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("LB recommendations fetch failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class ListenFeedbackRequest(BaseModel):
+    artist: str
+    title: str
+    recording_msid: Optional[str] = None
+    score: int  # +1 love, -1 hate
+
+
+@router.post("/intelligence/listening-history/enrich")
+async def enrich_listening_history() -> dict:
+    """Backfill genre/year/decade for listening_history rows with empty genre.
+
+    Fuzzy-matches tracks against the library cache using artist + title.
+    """
+    from rapidfuzz import fuzz  # noqa: PLC0415
+
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, track_title, artist
+            FROM listening_history
+            WHERE (genre IS NULL OR genre = '')
+            AND track_title IS NOT NULL AND track_title != ''
+            AND artist IS NOT NULL AND artist != ''
+            LIMIT 500
+            """
+        ).fetchall()
+
+        updated = 0
+        for row in rows:
+            hist_id, title, artist = row[0], row[1], row[2]
+            try:
+                candidates = conn.execute(
+                    "SELECT item_key, title, artist, year FROM tracks WHERE artist LIKE ? LIMIT 20",
+                    (f"%{artist[:20]}%",),
+                ).fetchall()
+                best_key = None
+                best_score = 0
+                best_year = None
+                for c in candidates:
+                    score = fuzz.token_sort_ratio(
+                        f"{artist} {title}",
+                        f"{c['artist']} {c['title']}",
+                    )
+                    if score > best_score:
+                        best_score = score
+                        best_key = c["item_key"]
+                        best_year = c["year"]
+                if best_key and best_score >= 80:
+                    genre_rows = conn.execute(
+                        "SELECT genre FROM track_genres WHERE track_key = ?",
+                        (best_key,),
+                    ).fetchall()
+                    genre = ", ".join(r[0] for r in genre_rows)
+                    decade = f"{(best_year // 10) * 10}s" if best_year else None
+                    conn.execute(
+                        "UPDATE listening_history SET genre=?, year=?, decade=? WHERE id=?",
+                        (genre, best_year, decade, hist_id),
+                    )
+                    updated += 1
+            except Exception as row_exc:
+                logger.debug("Enrich row %d failed: %s", hist_id, row_exc)
+
+        conn.commit()
+        return {"status": "ok", "rows_checked": len(rows), "rows_updated": updated}
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Roon Tags endpoint
 # ---------------------------------------------------------------------------
 

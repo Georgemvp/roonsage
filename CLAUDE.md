@@ -1,6 +1,6 @@
 # RoonSage Development Guidelines
 
-Last updated: 2026-05-19 (MCP v4.9 — Synthetic key fix for Qobuz global-search playback)
+Last updated: 2026-05-19 (MCP v6.0 — ListenBrain + ListenBrainz integration)
 
 ## Project Overview
 
@@ -20,8 +20,10 @@ RoonSage is a self-hosted web application that generates Roon music playlists us
 backend/
 ├── main.py              # FastAPI app, lifespan, router registration, static files
 ├── dependencies.py      # Shared helpers, auth, rate limiting
+├── listenbrainz_client.py  # ListenBrainz API client (scrobbling, stats, feedback)
+├── listenbrainz_sync.py    # LB stats sync service + lb_stats_cache management
 ├── routes/
-│   ├── setup.py         # Setup/onboarding endpoints
+│   ├── setup.py         # Setup/onboarding endpoints + validate-listenbrainz
 │   ├── library.py       # Library cache, sync, search, filter endpoints
 │   ├── generate.py      # Playlist generation + analysis endpoints
 │   ├── recommend.py     # Album recommendation pipeline endpoints
@@ -100,6 +102,9 @@ CUSTOM_CONTEXT_WINDOW=4096
 QOBUZ_EMAIL=                # Qobuz account email (for playlist save)
 QOBUZ_PASSWORD=             # Qobuz account password (for playlist save)
 # app_id is auto-detected — no manual configuration needed
+# ListenBrainz integration (optional — v6.0)
+LISTENBRAINZ_TOKEN=         # ListenBrainz user token (from listenbrainz.org/profile)
+LISTENBRAINZ_USERNAME=      # ListenBrainz username
 ```
 
 ## Key Design Decisions
@@ -157,6 +162,18 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
 - Zero cost (local inference)
 
 ## Recent Changes
+
+- **MCP v6.0 (2026-05-19):** ListenBrain + ListenBrainz integration:
+  - New module `backend/listenbrainz_client.py`: async httpx client for all LB API calls (scrobbling, stats, feedback, social). Rate-limit-aware. Optional (no-op when unconfigured).
+  - New module `backend/listenbrainz_sync.py`: pulls LB stats (genre activity, daily heatmap, era distribution, artist map, top artists/recordings/releases, similar users, feedback) and caches in `lb_stats_cache` SQLite table. TTL 6h, auto-syncs every 6h in background.
+  - `backend/db.py`: new columns in `listening_history` (year, decade, hour_of_day, day_of_week, source); new `lb_stats_cache` table.
+  - `backend/roon_intelligence.py`: `_log_listen()` now enriches genre/year/decade via fuzzy match against library cache; logs hour_of_day + day_of_week; fire-and-forget scrobble to LB after track completion; `_process_zone_change()` sends now_playing to LB on track start.
+  - `backend/taste_profile.py`: `compute_profile_from_history()` expanded with decade scores, listening patterns (peak_hour, peak_day, top_albums, total_hours), and full LB data integration (lb_genre_by_hour, lb_era_distribution, lb_daily_heatmap, lb_artist_countries, lb_loved/hated_recordings, lb_similar_users, lb_top_artists/recordings/releases). All LB keys prefixed `lb_`.
+  - `backend/config.py`: `get_listenbrainz_config()` reads LISTENBRAINZ_TOKEN + LISTENBRAINZ_USERNAME from env/config.user.yaml.
+  - New endpoints: `GET /api/intelligence/listening-stats`, `GET /api/intelligence/taste-profile/detailed`, `POST /api/intelligence/listenbrainz/sync`, `GET /api/intelligence/listenbrainz/status`, `GET /api/intelligence/listenbrainz/recommendations`, `POST /api/intelligence/listening-history/enrich`, `POST /api/setup/validate-listenbrainz`.
+  - MCP tools: `get_listening_stats`, `get_listenbrainz_recommendations`, `submit_listen_feedback`, `sync_listenbrainz`. `get_taste_profile` now calls `/api/intelligence/taste-profile/detailed`.
+  - Frontend: ListenBrainz settings section in Settings (token + username + validate button). "My Taste" view extended with LB status card, bar charts (genres, era, countries), 7×24 listening heatmap, LB top artists, loved tracks. CSS: new LB-specific utility classes.
+  - `system_prompt.md`: new "ListenBrainz-verrijkte data (v6.0)" section with usage guidance for all lb_* profile keys.
 
 - roon-support: Converted from Plex to Roon Labs Extension API. All library access via Browse API. SQLite cache for fast queries. Playlist creation not available (Roon API limitation).
 - Refactored `main.py` into FastAPI routers (`routes/` directory)

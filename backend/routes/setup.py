@@ -283,3 +283,41 @@ async def setup_complete() -> SetupCompleteResponse:
     except Exception as e:
         logger.warning("Failed to save setup complete flag: %s", e)
     return SetupCompleteResponse(success=True)
+
+
+@router.post("/validate-listenbrainz")
+async def validate_listenbrainz(request: dict) -> dict:
+    """Validate ListenBrainz token and optionally save to config.
+
+    Request body: {"token": str, "username": str}
+    """
+    from backend.listenbrainz_client import ListenBrainzClient  # noqa: PLC0415
+
+    token = request.get("token", "")
+    username = request.get("username", "")
+
+    if not token:
+        return {"valid": False, "error": "Token is required"}
+
+    client = ListenBrainzClient(token=token, username=username)
+    try:
+        result = await client.validate_token()
+    finally:
+        await client.close()
+
+    if result.get("valid"):
+        # Save to config
+        try:
+            save_user_config({"listenbrainz": {"token": token, "username": username}})
+        except Exception as save_exc:
+            logger.warning("Failed to save LB config: %s", save_exc)
+        # Re-init the singleton client
+        try:
+            from backend.listenbrainz_client import init_lb_client  # noqa: PLC0415
+            from backend.listenbrainz_sync import init_sync_instance  # noqa: PLC0415
+            lb = init_lb_client(token, username)
+            init_sync_instance(lb)
+        except Exception as init_exc:
+            logger.warning("Failed to re-init LB client: %s", init_exc)
+
+    return result

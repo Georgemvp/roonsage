@@ -676,6 +676,65 @@
                     <h2 class="taste-section-title">Smaakprofiel</h2>
                     <div id="taste-notes-section"></div>
                 </section>
+
+                <!-- ListenBrainz sections (shown when LB is configured) -->
+                <div id="lb-taste-sections" class="hidden">
+                    <div class="taste-section-divider">
+                        <span>📡 ListenBrainz Data</span>
+                    </div>
+
+                    <section class="taste-section">
+                        <h2 class="taste-section-title">ListenBrainz Status</h2>
+                        <div id="lb-status-section" class="lb-status-card">
+                            <div class="lb-status-row">
+                                <span class="status-dot" id="lb-status-dot"></span>
+                                <span id="lb-status-text">Niet verbonden</span>
+                            </div>
+                            <div id="lb-status-details" class="lb-status-details hidden">
+                                <span id="lb-scrobble-count" class="lb-stat-chip"></span>
+                                <span id="lb-last-sync" class="lb-stat-chip"></span>
+                                <a id="lb-profile-link" href="#" target="_blank" class="lb-profile-link hidden">Bekijk LB profiel ↗</a>
+                            </div>
+                            <div class="lb-actions" style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+                                <button id="lb-sync-btn" class="btn btn-outline btn-sm">Sync nu</button>
+                                <button id="lb-enrich-btn" class="btn btn-outline btn-sm">Verrijk history</button>
+                                <button id="lb-recompute-btn" class="btn btn-outline btn-sm">Herbereken profiel</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="taste-section">
+                        <h2 class="taste-section-title">Top Genres</h2>
+                        <div id="lb-genres-section" class="lb-bar-chart"></div>
+                    </section>
+
+                    <section class="taste-section">
+                        <h2 class="taste-section-title">Luister-heatmap (dag × uur)</h2>
+                        <div id="lb-heatmap-section" class="lb-heatmap-container">
+                            <p class="lb-no-data">Geen heatmap data beschikbaar. Sync ListenBrainz om data op te halen.</p>
+                        </div>
+                    </section>
+
+                    <section class="taste-section">
+                        <h2 class="taste-section-title">Era-verdeling</h2>
+                        <div id="lb-era-section" class="lb-bar-chart"></div>
+                    </section>
+
+                    <section class="taste-section">
+                        <h2 class="taste-section-title">Top Artiesten (ListenBrainz)</h2>
+                        <div id="lb-artists-section" class="lb-list"></div>
+                    </section>
+
+                    <section class="taste-section">
+                        <h2 class="taste-section-title">Artiesten per Land</h2>
+                        <div id="lb-countries-section" class="lb-bar-chart"></div>
+                    </section>
+
+                    <section class="taste-section">
+                        <h2 class="taste-section-title">Loved Tracks ❤️</h2>
+                        <div id="lb-loved-section" class="lb-list"></div>
+                    </section>
+                </div>
             </div>
 
             <!-- Settings View -->
@@ -811,6 +870,29 @@
                             Valideren
                         </button>
                     </div>
+                </section>
+
+                <section class="settings-section">
+                    <h3>ListenBrainz</h3>
+                    <div class="status-indicator" id="lb-settings-status">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Niet geconfigureerd</span>
+                    </div>
+                    <p style="font-size:0.85rem;opacity:0.7;margin:0.25rem 0 0.75rem">Verbind met ListenBrainz voor scrobbling en uitgebreide muziekstatistieken. Token op <a href="https://listenbrainz.org/profile/" target="_blank" style="color:#e5a00d">listenbrainz.org/profile</a>.</p>
+                    <div class="form-group">
+                        <label for="lb-token">ListenBrainz Token</label>
+                        <input type="password" id="lb-token" placeholder="Jouw LB user token">
+                    </div>
+                    <div class="form-group">
+                        <label for="lb-username">ListenBrainz Gebruikersnaam</label>
+                        <input type="text" id="lb-username" placeholder="jouw-gebruikersnaam">
+                    </div>
+                    <div class="settings-actions" style="margin-top: 0.5rem; margin-bottom: 0;">
+                        <button id="validate-lb-btn" class="btn btn-outline">
+                            Valideren
+                        </button>
+                    </div>
+                    <div id="lb-validate-result" style="margin-top:0.5rem;font-size:0.85rem;"></div>
                 </section>
 
                 <div class="settings-actions">

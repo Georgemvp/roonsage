@@ -15,21 +15,251 @@ export async function initTasteView() {
     // Show skeleton while loading
     _showSkeleton();
 
+    // Wire up LB action buttons
+    _setupLbButtons();
+
     try {
-        const [profile, stats, history] = await Promise.all([
+        const [profile, stats, history, lbStatus] = await Promise.all([
             apiCall('/taste/profile').catch(() => null),
             apiCall('/listening/stats').catch(() => null),
             apiCall('/listening/history').catch(() => null),
+            apiCall('/intelligence/listenbrainz/status').catch(() => null),
         ]);
 
         _renderProfile(profile);
         _renderStats(stats);
         _renderHistory(history);
         _renderTasteNotes(profile);
+
+        // ListenBrainz sections (only when configured)
+        if (lbStatus?.configured) {
+            _renderLbStatus(lbStatus);
+            // Load detailed stats
+            const detailedStats = await apiCall('/intelligence/listening-stats?days=90').catch(() => null);
+            if (detailedStats?.listenbrainz) {
+                _renderLbSections(detailedStats.listenbrainz, profile);
+            }
+        }
     } catch (e) {
         const section = document.getElementById('taste-status');
         if (section) section.textContent = 'Could not load taste data: ' + e.message;
     }
+}
+
+// ── ListenBrainz buttons ──────────────────────────────────────────────────────
+function _setupLbButtons() {
+    const syncBtn = document.getElementById('lb-sync-btn');
+    if (syncBtn) {
+        syncBtn.addEventListener('click', async () => {
+            syncBtn.disabled = true;
+            syncBtn.textContent = 'Syncing…';
+            try {
+                const res = await apiCall('/intelligence/listenbrainz/sync', { method: 'POST' });
+                if (res?.status === 'ok') {
+                    syncBtn.textContent = '✓ Gesynchroniseerd';
+                    setTimeout(() => initTasteView(), 500);
+                } else {
+                    syncBtn.textContent = '✗ Fout bij sync';
+                }
+            } catch {
+                syncBtn.textContent = '✗ Fout bij sync';
+            }
+            setTimeout(() => { syncBtn.textContent = 'Sync nu'; syncBtn.disabled = false; }, 3000);
+        });
+    }
+
+    const enrichBtn = document.getElementById('lb-enrich-btn');
+    if (enrichBtn) {
+        enrichBtn.addEventListener('click', async () => {
+            enrichBtn.disabled = true;
+            enrichBtn.textContent = 'Verrijken…';
+            try {
+                const res = await apiCall('/intelligence/listening-history/enrich', { method: 'POST' });
+                enrichBtn.textContent = `✓ ${res?.rows_updated || 0} rijen bijgewerkt`;
+            } catch {
+                enrichBtn.textContent = '✗ Fout';
+            }
+            setTimeout(() => { enrichBtn.textContent = 'Verrijk history'; enrichBtn.disabled = false; }, 3000);
+        });
+    }
+
+    const recomputeBtn = document.getElementById('lb-recompute-btn');
+    if (recomputeBtn) {
+        recomputeBtn.addEventListener('click', async () => {
+            recomputeBtn.disabled = true;
+            recomputeBtn.textContent = 'Herberekenen…';
+            try {
+                await apiCall('/intelligence/taste-profile/detailed');
+                recomputeBtn.textContent = '✓ Profiel bijgewerkt';
+                setTimeout(() => initTasteView(), 500);
+            } catch {
+                recomputeBtn.textContent = '✗ Fout';
+            }
+            setTimeout(() => { recomputeBtn.textContent = 'Herbereken profiel'; recomputeBtn.disabled = false; }, 3000);
+        });
+    }
+}
+
+// ── ListenBrainz status card ──────────────────────────────────────────────────
+function _renderLbStatus(status) {
+    const sections = document.getElementById('lb-taste-sections');
+    if (sections) sections.classList.remove('hidden');
+
+    const dot = document.getElementById('lb-status-dot');
+    const text = document.getElementById('lb-status-text');
+    const details = document.getElementById('lb-status-details');
+    const countChip = document.getElementById('lb-scrobble-count');
+    const syncChip = document.getElementById('lb-last-sync');
+    const profileLink = document.getElementById('lb-profile-link');
+
+    if (dot) dot.classList.add('status-dot--ok');
+    if (text) text.textContent = `Verbonden als ${status.username || 'onbekend'}`;
+    if (details) details.classList.remove('hidden');
+    if (countChip) countChip.textContent = `${status.scrobble_count || 0} scrobbles`;
+    if (syncChip && status.last_synced) {
+        syncChip.textContent = `Sync: ${new Date(status.last_synced).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' })}`;
+    }
+    if (profileLink && status.profile_url) {
+        profileLink.href = status.profile_url;
+        profileLink.classList.remove('hidden');
+    }
+}
+
+// ── ListenBrainz data sections ────────────────────────────────────────────────
+function _renderLbSections(lbData, profile) {
+    // Top genres (from local history merged with LB)
+    _renderBarChart('lb-genres-section', _extractTopGenres(lbData, profile));
+
+    // Era distribution
+    if (profile?.lb_era_distribution && Object.keys(profile.lb_era_distribution).length) {
+        const eraData = Object.entries(profile.lb_era_distribution)
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([decade, count]) => ({ label: decade, value: count }));
+        _renderBarChart('lb-era-section', eraData);
+    }
+
+    // Artist countries
+    if (profile?.lb_artist_countries && Object.keys(profile.lb_artist_countries).length) {
+        const countryData = Object.entries(profile.lb_artist_countries)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([country, count]) => ({ label: country, value: count }));
+        _renderBarChart('lb-countries-section', countryData);
+    }
+
+    // Top LB artists
+    if (profile?.lb_top_artists?.length) {
+        _renderLbList('lb-artists-section', profile.lb_top_artists.slice(0, 15).map(a => ({
+            name: a.artist_name || a.artist,
+            meta: `${a.listen_count || 0} plays`,
+        })));
+    }
+
+    // Loved tracks
+    if (profile?.lb_loved_recordings?.length) {
+        _renderLbList('lb-loved-section', profile.lb_loved_recordings.slice(0, 15).map(r => {
+            const meta = r.track_metadata || {};
+            return {
+                name: `${meta.artist_name || '?'} — ${meta.track_name || '?'}`,
+                meta: '❤️',
+            };
+        }));
+    }
+
+    // Heatmap
+    if (lbData?.daily_activity) {
+        _renderHeatmap('lb-heatmap-section', lbData.daily_activity);
+    }
+}
+
+function _extractTopGenres(lbData, profile) {
+    // Try LB genre activity first, fall back to local profile genres
+    const localGenres = profile?.genres || {};
+    if (Object.keys(localGenres).length) {
+        return Object.entries(localGenres)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 12)
+            .map(([genre, score]) => ({ label: genre, value: Math.round(score * 100) }));
+    }
+    return [];
+}
+
+function _renderBarChart(containerId, items) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    if (!items || !items.length) {
+        container.innerHTML = '<p class="lb-no-data">Geen data beschikbaar.</p>';
+        return;
+    }
+    const max = Math.max(...items.map(i => i.value), 1);
+    container.innerHTML = items.map(item => `
+        <div class="lb-bar-row">
+            <div class="lb-bar-label" title="${escapeHtml(String(item.label))}">${escapeHtml(String(item.label))}</div>
+            <div class="lb-bar-track">
+                <div class="lb-bar-fill" style="width:${Math.round((item.value / max) * 100)}%"></div>
+            </div>
+            <div class="lb-bar-value">${item.value}</div>
+        </div>
+    `).join('');
+}
+
+function _renderLbList(containerId, items) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    if (!items || !items.length) {
+        container.innerHTML = '<p class="lb-no-data">Geen data beschikbaar.</p>';
+        return;
+    }
+    container.innerHTML = items.map((item, i) => `
+        <div class="lb-list-item">
+            <span class="lb-list-item-name">${i + 1}. ${escapeHtml(item.name || '')}</span>
+            <span class="lb-list-item-meta">${escapeHtml(item.meta || '')}</span>
+        </div>
+    `).join('');
+}
+
+function _renderHeatmap(containerId, dailyActivity) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const payload = dailyActivity?.payload?.daily_activity || dailyActivity;
+    if (!payload || !Array.isArray(payload) || !payload.length) {
+        container.innerHTML = '<p class="lb-no-data">Geen heatmap data. Sync ListenBrainz om data op te halen.</p>';
+        return;
+    }
+
+    // Build 7×24 grid
+    const days = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'];
+    const grid = Array(7).fill(null).map(() => Array(24).fill(0));
+    let maxVal = 0;
+
+    for (const item of payload) {
+        const d = item.day_of_week;  // 0-6
+        const h = item.hour;         // 0-23
+        const c = item.listen_count || 0;
+        if (d >= 0 && d < 7 && h >= 0 && h < 24) {
+            grid[d][h] = c;
+            if (c > maxVal) maxVal = c;
+        }
+    }
+
+    const hourLabels = Array.from({ length: 24 }, (_, i) => i % 6 === 0 ? String(i) : '');
+    const hoursHtml = `<div class="lb-heatmap-labels">${hourLabels.map(l => `<div style="width:16px;text-align:center">${l}</div>`).join('')}</div>`;
+
+    const rowsHtml = days.map((day, di) => {
+        const cells = grid[di].map(v => {
+            const intensity = maxVal > 0 ? v / maxVal : 0;
+            const alpha = Math.round(intensity * 0.85 * 100) / 100;
+            const color = `rgba(229, 160, 13, ${alpha})`;
+            return `<div class="lb-heatmap-cell" style="background:${color}" title="${v} plays"></div>`;
+        }).join('');
+        return `<div style="display:flex;align-items:center;gap:3px">
+            <div class="lb-heatmap-day-label">${day}</div>
+            ${cells}
+        </div>`;
+    }).join('');
+
+    container.innerHTML = hoursHtml + rowsHtml;
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────

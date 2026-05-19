@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from backend.config import get_config, get_qobuz_config
+from backend.config import get_config, get_qobuz_config, get_listenbrainz_config
 from backend.version import get_version
 from backend.roon_client import get_roon_client, init_roon_client
 from backend.qobuz_api import init_qobuz_api_client
@@ -56,6 +56,19 @@ async def lifespan(app: FastAPI):
             qobuz_cfg["password"],
         )
 
+    # Initialize ListenBrainz client if configured
+    lb_cfg = get_listenbrainz_config()
+    if lb_cfg["token"]:
+        from backend.listenbrainz_client import init_lb_client  # noqa: PLC0415
+        lb_client = init_lb_client(lb_cfg["token"], lb_cfg["username"])
+        app.state.lb_client = lb_client
+        logger.info("ListenBrainz client initialized for user: %s", lb_cfg["username"])
+        # Also init the sync instance
+        from backend.listenbrainz_sync import init_sync_instance  # noqa: PLC0415
+        init_sync_instance(lb_client)
+    else:
+        app.state.lb_client = None
+
     # Initialize DB schema early so migration flag is set
     library_cache.ensure_db_initialized().close()
 
@@ -72,6 +85,10 @@ async def lifespan(app: FastAPI):
 
         asyncio.create_task(_run_resync())
 
+    # Register the event loop for fire-and-forget LB scrobbles from monitor thread
+    from backend.roon_intelligence import set_monitor_event_loop  # noqa: PLC0415
+    set_monitor_event_loop(asyncio.get_event_loop())
+
     # Start listening history monitor once Roon is available.
     # We attempt immediately; if Roon is still connecting the monitor will
     # wait internally until is_connected() returns True.
@@ -81,6 +98,23 @@ async def lifespan(app: FastAPI):
             logger.info("Listening history monitor started")
         except Exception as exc:
             logger.warning("Could not start listening monitor: %s", exc)
+
+    # Start ListenBrainz background sync (every 6 hours)
+    if getattr(app.state, "lb_client", None) is not None:
+        async def _lb_sync_loop():
+            from backend.listenbrainz_sync import get_sync_instance  # noqa: PLC0415
+            await asyncio.sleep(30)  # Small delay so app is fully started
+            while True:
+                try:
+                    sync = get_sync_instance()
+                    if sync:
+                        await sync.sync_all()
+                except Exception as exc:
+                    logger.warning("ListenBrainz background sync error: %s", exc)
+                await asyncio.sleep(6 * 3600)  # every 6 hours
+
+        asyncio.create_task(_lb_sync_loop())
+        logger.info("ListenBrainz background sync scheduled (every 6 hours)")
 
     yield
 

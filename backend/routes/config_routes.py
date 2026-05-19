@@ -108,6 +108,24 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
             qobuz_cfg.get("password", ""),
         )
 
+    # Persist ListenBrainz credentials when provided via settings UI
+    if any(k in updates for k in ["listenbrainz_token", "listenbrainz_username"]):
+        from backend.config import save_user_config, get_listenbrainz_config  # noqa: PLC0415
+        lb_updates: dict = {}
+        if updates.get("listenbrainz_token"):
+            lb_updates["token"] = updates["listenbrainz_token"]
+        if updates.get("listenbrainz_username"):
+            lb_updates["username"] = updates["listenbrainz_username"]
+        if lb_updates:
+            save_user_config({"listenbrainz": lb_updates})
+            # Re-init client if token present
+            lb_cfg = get_listenbrainz_config()
+            if lb_cfg["token"]:
+                from backend.listenbrainz_client import init_lb_client  # noqa: PLC0415
+                from backend.listenbrainz_sync import init_sync_instance  # noqa: PLC0415
+                lb = init_lb_client(lb_cfg["token"], lb_cfg["username"])
+                init_sync_instance(lb)
+
     return _build_config_response(config, get_roon_client())
 
 

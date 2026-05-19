@@ -314,6 +314,39 @@ export function setupEventListeners() {
     // Validate Qobuz credentials
     document.getElementById('validate-qobuz-btn')?.addEventListener('click', handleValidateQobuz);
 
+    // Validate ListenBrainz token
+    document.getElementById('validate-lb-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('validate-lb-btn');
+        const resultEl = document.getElementById('lb-validate-result');
+        const token = document.getElementById('lb-token')?.value?.trim();
+        const username = document.getElementById('lb-username')?.value?.trim();
+        if (!token) {
+            if (resultEl) resultEl.textContent = 'Voer een token in.';
+            return;
+        }
+        if (btn) { btn.disabled = true; btn.textContent = 'Valideren...'; }
+        try {
+            const res = await fetch('/api/setup/validate-listenbrainz', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, username }),
+            });
+            const data = await res.json();
+            if (data.valid) {
+                if (resultEl) resultEl.innerHTML = `<span style="color:#4caf50">✓ Verbonden als <strong>${data.user_name || username}</strong></span>`;
+                const dot = document.querySelector('#lb-settings-status .status-dot');
+                const txt = document.querySelector('#lb-settings-status .status-text');
+                if (dot) { dot.style.background = '#4caf50'; }
+                if (txt) txt.textContent = `Verbonden als ${data.user_name || username}`;
+            } else {
+                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.message || 'Ongeldig token'}</span>`;
+            }
+        } catch (e) {
+            if (resultEl) resultEl.textContent = 'Fout: ' + e.message;
+        }
+        if (btn) { btn.disabled = false; btn.textContent = 'Valideren'; }
+    });
+
     // Success modal - Start New Playlist
     document.getElementById('new-playlist-btn').addEventListener('click', hideSuccessModal);
 

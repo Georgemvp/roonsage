@@ -4396,6 +4396,166 @@ body.no-scroll {
 }
 
 /* =============================================================================
+   LISTENBRAINZ TASTE SECTIONS
+   ============================================================================= */
+
+.taste-section-divider {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin: var(--spacing-lg) 0 var(--spacing-md);
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+.taste-section-divider::before,
+.taste-section-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+}
+
+.lb-status-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--spacing-md);
+}
+.lb-status-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+.lb-status-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    align-items: center;
+}
+.lb-stat-chip {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 2px 10px;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+}
+.lb-profile-link {
+    color: var(--accent);
+    font-size: var(--font-size-xs);
+    text-decoration: none;
+}
+.lb-profile-link:hover { text-decoration: underline; }
+
+.lb-bar-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.lb-bar-row {
+    display: grid;
+    grid-template-columns: 120px 1fr 40px;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-size-sm);
+}
+.lb-bar-label {
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.lb-bar-track {
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    height: 8px;
+    overflow: hidden;
+}
+.lb-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+.lb-bar-value {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    text-align: right;
+}
+
+.lb-heatmap-container {
+    overflow-x: auto;
+}
+.lb-heatmap {
+    display: grid;
+    gap: 3px;
+}
+.lb-heatmap-cell {
+    width: 16px;
+    height: 16px;
+    border-radius: 2px;
+    background: var(--bg-tertiary);
+}
+.lb-heatmap-labels {
+    display: flex;
+    gap: 3px;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    padding-left: 48px;
+}
+.lb-heatmap-day-label {
+    width: 44px;
+    font-size: 10px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+}
+
+.lb-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.lb-list-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px var(--spacing-sm);
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+}
+.lb-list-item-name {
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    margin-right: var(--spacing-sm);
+}
+.lb-list-item-meta {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+}
+
+.lb-no-data {
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+    padding: var(--spacing-md) 0;
+}
+
+.btn-sm {
+    padding: 4px 12px;
+    font-size: var(--font-size-sm);
+}
+
+/* =============================================================================
    MOBILE RESPONSIVE
    ============================================================================= */
 @media (max-width: 768px) {

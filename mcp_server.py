@@ -1911,8 +1911,31 @@ async def get_taste_profile() -> str:
     No parameters required.
     """
     logger.info("GET_TASTE_PROFILE called")
-    result = await _api_call("GET", "/api/taste/profile")
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    result = await _api_call("GET", "/api/intelligence/taste-profile/detailed")
+    if isinstance(result, str):
+        return result
+    # Compact the profile for token efficiency
+    compact: dict = {}
+    for key in ("genres", "decades", "artists", "moods", "dislikes", "notes", "stats"):
+        val = result.get(key)
+        if val:
+            if isinstance(val, dict):
+                compact[key] = dict(sorted(val.items(), key=lambda x: -x[1])[:20]) if val else {}
+            else:
+                compact[key] = val
+    # Include LB summary
+    lb_keys = [k for k in result if k.startswith("lb_") and result[k]]
+    if lb_keys:
+        compact["listenbrainz_available"] = lb_keys
+        if result.get("lb_last_synced"):
+            compact["lb_last_synced"] = result["lb_last_synced"]
+        if result.get("lb_loved_recordings"):
+            compact["lb_loved"] = [
+                f"{r.get('track_metadata', {}).get('artist_name', '?')} — "
+                f"{r.get('track_metadata', {}).get('track_name', '?')}"
+                for r in result["lb_loved_recordings"][:10]
+            ]
+    return json.dumps(compact, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
@@ -2235,6 +2258,211 @@ async def modify_playlist(
         lines.append(f"  {t['number']}. {t.get('artist', '?')} — {t.get('title', '?')} ")
     lines.append("")
     lines.append(f"Call curate_and_play with track_numbers={track_numbers}, session_id='{session_id}'")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# ListenBrainz tools (MCP v6.0)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_listening_stats(days: int = 30) -> str:
+    """Get combined local + ListenBrainz listening statistics.
+
+    Provides a rich overview of the user's music listening patterns:
+    - Local stats: top artists, genres, decades, hour heatmap
+    - ListenBrainz stats (when configured): genre by hour, era distribution,
+      artist map by country, daily activity heatmap, similar users
+
+    Use this to inform time-aware curation decisions (e.g. ambient in the evening).
+
+    Args:
+        days: Number of days to look back for local stats (default 30).
+    """
+    logger.info("GET_LISTENING_STATS: days=%d", days)
+    result = await _api_call("GET", "/api/intelligence/listening-stats", params={"days": days})
+    if isinstance(result, str):
+        return result
+
+    local = result.get("local", {})
+    lb = result.get("listenbrainz", {})
+
+    lines = [
+        f"📊 Listening stats (last {days} days):",
+        f"  Total tracks: {local.get('total_tracks', 0)}",
+        f"  Total minutes: {local.get('total_minutes', 0)}",
+        f"  Skip rate: {local.get('skip_rate_pct', 0)}%",
+        "",
+    ]
+
+    if local.get("top_artists"):
+        lines.append("Top artists:")
+        for a in local["top_artists"][:10]:
+            lines.append(f"  {a['artist']} ({a['plays']} plays)")
+        lines.append("")
+
+    if local.get("top_genres"):
+        lines.append("Top genres:")
+        for g in local["top_genres"][:8]:
+            lines.append(f"  {g['genre']} ({g['plays']} plays)")
+        lines.append("")
+
+    if local.get("decades"):
+        lines.append("Decades:")
+        for d in local["decades"]:
+            lines.append(f"  {d['decade']}: {d['plays']} plays")
+        lines.append("")
+
+    if lb:
+        lines.append("── ListenBrainz data ──")
+        if lb.get("last_synced"):
+            lines.append(f"  Last synced: {str(lb['last_synced'])[:16]}")
+        if lb.get("artist_map"):
+            countries = lb["artist_map"][:5]
+            lines.append(f"  Artist countries: {', '.join(c.get('country', '') for c in countries)}")
+        if lb.get("similar_users"):
+            similar = lb["similar_users"][:3]
+            lines.append(f"  Similar users: {', '.join(u.get('user_name', '') for u in similar)}")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def get_listenbrainz_recommendations() -> str:
+    """Get ListenBrainz 'Created for You' playlist recommendations.
+
+    ListenBrainz analyses your listening history and creates personalised
+    playlist suggestions. This tool fetches those recommendations so you can
+    search the tracks in Roon or Qobuz and play them.
+
+    Requires LISTENBRAINZ_TOKEN and LISTENBRAINZ_USERNAME to be configured.
+    """
+    logger.info("GET_LISTENBRAINZ_RECOMMENDATIONS called")
+    result = await _api_call("GET", "/api/intelligence/listenbrainz/recommendations")
+    if isinstance(result, str):
+        return result
+    if not result:
+        return (
+            "No ListenBrainz recommendations available. "
+            "Make sure LISTENBRAINZ_TOKEN is configured and you have enough listening history."
+        )
+
+    lines = [f"🎵 ListenBrainz has {len(result)} recommendation playlist(s) for you:\n"]
+    for playlist in result[:5]:
+        title = playlist.get("playlist", {}).get("title", "Untitled")
+        description = playlist.get("playlist", {}).get("annotation", "")[:80]
+        track_count = len(playlist.get("playlist", {}).get("track", []))
+        lines.append(f"• **{title}** ({track_count} tracks)")
+        if description:
+            lines.append(f"  {description}")
+        lines.append("")
+
+    lines.append(
+        "To play a recommendation: note the track titles/artists from the playlist data "
+        "and use search_library or search_qobuz to find playable versions."
+    )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def submit_listen_feedback(
+    artist: str,
+    title: str,
+    score: int,
+    recording_msid: Optional[str] = None,
+) -> str:
+    """Submit love (+1) or hate (-1) feedback for a track to ListenBrainz.
+
+    This both updates the taste profile (dislikes list for -1, positive signal
+    for +1) and sends the feedback to ListenBrainz so future recommendations
+    are improved.
+
+    Use this when:
+    - The user explicitly says they love or hate a track
+    - After a playlist, offer "Want to mark any tracks as loved or hated?"
+    - When the user skips a track multiple times
+
+    Args:
+        artist:         Track artist name.
+        title:          Track title.
+        score:          +1 (love) or -1 (hate).
+        recording_msid: Optional ListenBrainz MessyBrainz ID. If not provided,
+                        feedback is only applied to the taste profile, not sent to LB.
+    """
+    logger.info("SUBMIT_LISTEN_FEEDBACK: '%s — %s' score=%d", artist, title, score)
+    if score not in (1, -1):
+        return "Score must be +1 (love) or -1 (hate)."
+
+    msgs = []
+
+    # 1. Update taste profile
+    if score == -1:
+        updates = {"dislikes": [f"{artist} — {title}"]}
+        await _api_call("POST", "/api/taste/profile", json={"updates": updates}, retryable=False)
+        msgs.append(f"Added '{artist} — {title}' to your dislikes list.")
+    else:
+        # Boost artist preference slightly
+        updates = {"artists": {artist: 0.9}}
+        await _api_call("POST", "/api/taste/profile", json={"updates": updates}, retryable=False)
+        msgs.append(f"Boosted artist preference for {artist}.")
+
+    # 2. Log taste event
+    await _api_call(
+        "POST", "/api/taste/event",
+        json={
+            "event_type": "feedback",
+            "data": {"artist": artist, "title": title, "score": score},
+        },
+        retryable=False,
+    )
+
+    # 3. Send to ListenBrainz (only if recording_msid is provided)
+    if recording_msid:
+        lb_result = await _api_call(
+            "POST", "/api/intelligence/listenbrainz/feedback",
+            json={"artist": artist, "title": title, "recording_msid": recording_msid, "score": score},
+            retryable=False,
+        )
+        if isinstance(lb_result, dict) and lb_result.get("success"):
+            msgs.append(f"Feedback sent to ListenBrainz ({'❤️ loved' if score == 1 else '👎 hated'}).")
+
+    emoji = "❤️" if score == 1 else "👎"
+    return f"{emoji} {' '.join(msgs)}"
+
+
+@mcp.tool()
+async def sync_listenbrainz() -> str:
+    """Manually trigger a ListenBrainz stats synchronisation.
+
+    Pulls fresh genre activity, daily patterns, era distribution, artist map,
+    top artists/recordings/releases, and feedback from ListenBrainz.
+    Caches results for 6 hours (auto-sync runs every 6 hours in the background).
+
+    Use this when:
+    - The user asks for fresh ListenBrainz data
+    - After connecting ListenBrainz for the first time
+    - To get up-to-date recommendations
+
+    No parameters required. Requires ListenBrainz to be configured.
+    """
+    logger.info("SYNC_LISTENBRAINZ called")
+    result = await _api_call("POST", "/api/intelligence/listenbrainz/sync", retryable=False)
+    if isinstance(result, str):
+        return result
+
+    summary = result.get("summary", {})
+    synced = [k for k, v in summary.items() if v == "synced"]
+    cached = [k for k, v in summary.items() if v == "cached"]
+    failed = [k for k, v in summary.items() if v == "failed"]
+
+    lines = ["✅ ListenBrainz sync complete!"]
+    if synced:
+        lines.append(f"  Fresh data: {', '.join(synced)}")
+    if cached:
+        lines.append(f"  Still fresh (cached): {len(cached)} stat types")
+    if failed:
+        lines.append(f"  ⚠️ Failed: {', '.join(failed)}")
     return "\n".join(lines)
 
 

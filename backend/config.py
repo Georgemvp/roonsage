@@ -297,6 +297,20 @@ def get_qobuz_config() -> dict[str, str]:
     }
 
 
+def get_listenbrainz_config() -> dict[str, str]:
+    """Return ListenBrainz credentials from environment variables or config.user.yaml.
+
+    Priority: environment variables > config.user.yaml > empty string.
+    Returns a dict with keys: token, username.
+    """
+    user_config = load_user_yaml_config()
+    lb_yaml = user_config.get("listenbrainz", {})
+    return {
+        "token": get_env_or_yaml("LISTENBRAINZ_TOKEN", lb_yaml.get("token"), ""),
+        "username": get_env_or_yaml("LISTENBRAINZ_USERNAME", lb_yaml.get("username"), ""),
+    }
+
+
 def refresh_config(config_path: Path | None = None) -> AppConfig:
     """Reload configuration from file and environment."""
     global _config
