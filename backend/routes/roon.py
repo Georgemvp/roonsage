@@ -215,6 +215,7 @@ async def qobuz_browse_test(q: str = "Miles Davis"):
                     })
                 else:
                     # Look for a "Search" item to click
+                    search_found = False
                     for item2 in items2:
                         title_lower = (item2.get("title") or "").lower()
                         if any(kw in title_lower for kw in ("search", "zoeken", "suche", "rechercher")):
@@ -245,7 +246,101 @@ async def qobuz_browse_test(q: str = "Miles Davis"):
                                         for i in items4[:20]
                                     ],
                                 })
+                            search_found = True
                             break
+
+                    if not search_found:
+                        # Path C: no search entry at the Qobuz root level — try "My Qobuz"
+                        my_qobuz = next(
+                            (i for i in items2 if "my qobuz" in (i.get("title") or "").lower()),
+                            None,
+                        )
+                        if my_qobuz and my_qobuz.get("item_key"):
+                            result_mq = roon._api.browse_browse({
+                                "hierarchy": "browse",
+                                "item_key": my_qobuz["item_key"],
+                            })
+                            list_mq = result_mq.get("list", {}) if result_mq else {}
+                            loaded_mq = roon._api.browse_load({
+                                "hierarchy": "browse",
+                                "count": min(list_mq.get("count", 0) or 100, 100),
+                            })
+                            items_mq = loaded_mq.get("items", []) if loaded_mq else []
+                            steps.append({
+                                "step": "my_qobuz",
+                                "list_input_prompt": list_mq.get("input_prompt"),
+                                "items": [
+                                    {
+                                        "title": i.get("title"),
+                                        "item_key": i.get("item_key"),
+                                        "hint": i.get("hint"),
+                                        "input_prompt": i.get("input_prompt"),
+                                    }
+                                    for i in items_mq
+                                ],
+                            })
+
+                            if list_mq.get("input_prompt"):
+                                # My Qobuz itself has a list-level search prompt
+                                result_mqs = roon._api.browse_browse({"hierarchy": "browse", "input": q})
+                                count_mqs = result_mqs.get("list", {}).get("count", 0) if result_mqs else 0
+                                loaded_mqs = roon._api.browse_load({"hierarchy": "browse", "count": min(count_mqs, 20)})
+                                items_mqs = loaded_mqs.get("items", []) if loaded_mqs else []
+                                steps.append({
+                                    "step": "search_results_via_my_qobuz_direct",
+                                    "query": q,
+                                    "count": len(items_mqs),
+                                    "items": [
+                                        {
+                                            "title": i.get("title"),
+                                            "subtitle": i.get("subtitle"),
+                                            "item_key": i.get("item_key"),
+                                            "hint": i.get("hint"),
+                                        }
+                                        for i in items_mqs[:20]
+                                    ],
+                                })
+                            else:
+                                # Look for a Search child inside My Qobuz
+                                for item_mq in items_mq:
+                                    t_lower = (item_mq.get("title") or "").lower()
+                                    is_search = (
+                                        item_mq.get("hint") == "input_prompt"
+                                        or any(kw in t_lower for kw in ("search", "zoeken", "suche", "rechercher"))
+                                    )
+                                    if is_search and item_mq.get("item_key"):
+                                        result_se = roon._api.browse_browse({
+                                            "hierarchy": "browse",
+                                            "item_key": item_mq["item_key"],
+                                        })
+                                        list_se = result_se.get("list", {}) if result_se else {}
+                                        steps.append({
+                                            "step": "my_qobuz_search_entry",
+                                            "title": item_mq.get("title"),
+                                            "list_input_prompt": list_se.get("input_prompt"),
+                                        })
+                                        if list_se.get("input_prompt"):
+                                            result_sr = roon._api.browse_browse({"hierarchy": "browse", "input": q})
+                                            count_sr = result_sr.get("list", {}).get("count", 0) if result_sr else 0
+                                            loaded_sr = roon._api.browse_load({"hierarchy": "browse", "count": min(count_sr, 20)})
+                                            items_sr = loaded_sr.get("items", []) if loaded_sr else []
+                                            steps.append({
+                                                "step": "search_results_via_my_qobuz_entry",
+                                                "query": q,
+                                                "count": len(items_sr),
+                                                "items": [
+                                                    {
+                                                        "title": i.get("title"),
+                                                        "subtitle": i.get("subtitle"),
+                                                        "item_key": i.get("item_key"),
+                                                        "hint": i.get("hint"),
+                                                    }
+                                                    for i in items_sr[:20]
+                                                ],
+                                            })
+                                        break
+                        else:
+                            steps.append({"step": "my_qobuz", "error": "No 'My Qobuz' item found in Qobuz root"})
 
                 return {"steps": steps}
         except Exception as e:
@@ -351,7 +446,7 @@ async def qobuz_search(request: QobuzSearchRequest) -> QobuzSearchResponse:
     Requires Qobuz to be configured and logged in within Roon.
     Returns empty tracks list (not an error) when Qobuz is unavailable.
     """
-    from backend.qobuz_browser import search_qobuz_tracks
+    from backend.qobuz_browser import check_qobuz_available, search_qobuz_tracks
 
     roon_client = get_roon_client()
     if not roon_client or not roon_client.is_connected():
@@ -364,10 +459,15 @@ async def qobuz_search(request: QobuzSearchRequest) -> QobuzSearchResponse:
 
     try:
         tracks = await search_qobuz_tracks(request.query, request.limit)
+        # Reflect true Qobuz availability (cached; does not add an extra Browse API call
+        # on every search). Returns False when Qobuz is not configured in Roon or the
+        # user is not logged in — even if the search call returned an empty list for an
+        # innocent "no results for this query" reason.
+        qobuz_available = await check_qobuz_available()
         return QobuzSearchResponse(
             tracks=tracks,
             query=request.query,
-            available=True,
+            available=qobuz_available,
         )
     except Exception as e:
         logger.warning("Qobuz search endpoint error: %s", e)
