@@ -301,126 +301,25 @@ class RoonPlaybackMixin:
 
             chosen = action_item or fallback_item
             if not chosen or not chosen.get("item_key"):
-                # Browse hierarchy returned wrong content (e.g. Qobuz menu instead of
-                # track actions) — try search hierarchy, which works for item_keys that
-                # originated from hierarchy: "search" (e.g. global search fallback).
+                # No play action found via browse hierarchy.
+                #
+                # Do NOT fall back to the search hierarchy here using the raw library
+                # item_key.  Roon's search hierarchy does not understand library keys:
+                # combining pop_all=True with a library key leaves the search hierarchy
+                # parked on whatever result it last loaded — causing every subsequent
+                # track in the loop to navigate deeper into that same stale result
+                # (the "all tracks play as song #1" bug).
+                #
+                # The caller (play_tracks) already has two proper search fallbacks that
+                # call _play_track_via_search with the actual title/artist from SQLite
+                # and a fresh pop_all reset each time.  Return False here so those kick in.
                 logger.info(
-                    "Direct-key play: browse hierarchy failed, trying search hierarchy for key %s",
+                    "Direct-key play: browse hierarchy found no play action for key %s "
+                    "(items: %s) — will retry via title/artist search",
                     key,
+                    [i.get("title") for i in items],
                 )
-                try:
-                    with self._browse_lock:
-                        self._api.browse_browse({
-                            "hierarchy": "search",
-                            "item_key": key,
-                            "pop_all": True,
-                            "zone_or_output_id": zone_id,
-                        })
-                        search_result = self._api.browse_load({
-                            "hierarchy": "search",
-                            "count": 20,
-                            "zone_or_output_id": zone_id,
-                        })
-                    search_items = search_result.get("items", []) if search_result else []
-
-                    s_action: dict[str, Any] | None = None
-                    s_fallback: dict[str, Any] | None = None
-                    for item in search_items:
-                        title_lower = (item.get("title") or "").lower().strip()
-                        if title_lower in target_keywords and item.get("item_key"):
-                            s_action = item
-                            break
-                        if (
-                            title_lower in fallback_keywords
-                            and item.get("item_key")
-                            and s_fallback is None
-                        ):
-                            s_fallback = item
-
-                    s_chosen = s_action or s_fallback
-                    if not s_chosen or not s_chosen.get("item_key"):
-                        # Search results land on an artist/result detail page whose
-                        # items are navigation entries ('My Babe', 'Albums', 'Tracks',
-                        # 'Works' …).  The actual track + play actions are one level
-                        # deeper — inside the first navigable item.
-                        first_navigable = next(
-                            (i for i in search_items if i.get("item_key")),
-                            None,
-                        )
-                        if first_navigable:
-                            logger.info(
-                                "Direct-key play: navigating deeper into '%s' for key %s",
-                                first_navigable.get("title"), key,
-                            )
-                            with self._browse_lock:
-                                self._api.browse_browse({
-                                    "hierarchy": "search",
-                                    "item_key": first_navigable["item_key"],
-                                    "zone_or_output_id": zone_id,
-                                })
-                                deeper_result = self._api.browse_load({
-                                    "hierarchy": "search",
-                                    "count": 10,
-                                    "zone_or_output_id": zone_id,
-                                })
-                            deeper_items = deeper_result.get("items", []) if deeper_result else []
-
-                            d_action: dict[str, Any] | None = None
-                            d_fallback: dict[str, Any] | None = None
-                            for item in deeper_items:
-                                title_lower = (item.get("title") or "").lower().strip()
-                                if title_lower in target_keywords and item.get("item_key"):
-                                    d_action = item
-                                    break
-                                if (
-                                    title_lower in fallback_keywords
-                                    and item.get("item_key")
-                                    and d_fallback is None
-                                ):
-                                    d_fallback = item
-
-                            d_chosen = d_action or d_fallback
-                            if d_chosen and d_chosen.get("item_key"):
-                                with self._browse_lock:
-                                    self._api.browse_browse({
-                                        "hierarchy": "search",
-                                        "item_key": d_chosen["item_key"],
-                                        "zone_or_output_id": zone_id,
-                                    })
-                                logger.info(
-                                    "Direct-key play: queued via deeper navigation "
-                                    "(action: '%s') for key %s",
-                                    d_chosen.get("title"), key,
-                                )
-                                return True
-
-                            logger.warning(
-                                "Direct-key play: deeper navigation also found no action "
-                                "for key %s (items: %s)",
-                                key, [i.get("title") for i in deeper_items],
-                            )
-                        else:
-                            logger.warning(
-                                "Direct-key play: no action found for key %s (items: %s)",
-                                key,
-                                [i.get("title") for i in search_items],
-                            )
-                        return False
-
-                    with self._browse_lock:
-                        self._api.browse_browse({
-                            "hierarchy": "search",
-                            "item_key": s_chosen["item_key"],
-                            "zone_or_output_id": zone_id,
-                        })
-                    return True
-
-                except Exception as se:
-                    logger.warning(
-                        "Direct-key play: search-hierarchy fallback also failed for key %s: %s",
-                        key, se,
-                    )
-                    return False
+                return False
 
             with self._browse_lock:
                 self._api.browse_browse({
