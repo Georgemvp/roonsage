@@ -1,6 +1,6 @@
 # RoonSage Development Guidelines
 
-Last updated: 2026-05-16 (MCP v4.6 — queue mismatch fix)
+Last updated: 2026-05-19 (MCP v4.8 — Qobuz global-search fallback)
 
 ## Project Overview
 
@@ -216,6 +216,11 @@ Option: `smart_generation: true` uses analysis model for both (higher quality, ~
   - Frontend: Qobuz settings section (email + password only, app_id auto-detected) with validate button
   - Frontend: "Opslaan in Qobuz" button on playlist results (visible when Qobuz is configured)
   - Config: `QOBUZ_EMAIL`, `QOBUZ_PASSWORD` environment variables (no app_id needed)
+- **MCP v4.8 (2026-05-19):** Qobuz search global-search fallback:
+  - Fix: `search_qobuz_tracks_sync` in `backend/qobuz_browser.py` no longer returns `[]` when the Qobuz Browse hierarchy has no search entry point (Paths A/B/C all fail). It now falls back to Roon's `hierarchy: "search"` global search, which searches all configured services simultaneously and is present on all Roon versions.
+  - `result_items` is initialised to `None` before Path A/B/C; both Path C failure branches populate it via global search; Step 4 only runs when `result_items is None` (i.e. a browse-hierarchy entry was found). No existing paths were changed.
+  - `hierarchy: "search"` is independent from `hierarchy: "browse"` — switching does not corrupt browse state; `input` + `pop_all` can be combined in one call.
+  - Debug endpoint `GET /api/roon/qobuz-browse-test` now always appends `fallback_global_search` + `global_search_results` steps so the global-search output is visible regardless of which path succeeded.
 - **MCP v4.7 (2026-05-18):** recommend_album_interactive parameter fix:
   - `recommend_album_interactive` now accepts `session_id: Optional[str] = None` as a proper parameter
   - Removed fragile `"SESSION:<id>|<prompt>"` prompt-prefix encoding (broke when prompt contained `|`)

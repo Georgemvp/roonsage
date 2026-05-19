@@ -342,6 +342,27 @@ async def qobuz_browse_test(q: str = "Miles Davis"):
                         else:
                             steps.append({"step": "my_qobuz", "error": "No 'My Qobuz' item found in Qobuz root"})
 
+                # Final step: always test global search so the debug output shows
+                # what hierarchy="search" returns for this query.
+                steps.append({"step": "fallback_global_search"})
+                roon._api.browse_browse({"hierarchy": "search", "input": q, "pop_all": True})
+                global_result = roon._api.browse_load({"hierarchy": "search", "count": 20})
+                global_items = global_result.get("items", []) if global_result else []
+                steps.append({
+                    "step": "global_search_results",
+                    "query": q,
+                    "count": len(global_items),
+                    "items": [
+                        {
+                            "title": i.get("title"),
+                            "subtitle": i.get("subtitle"),
+                            "hint": i.get("hint"),
+                            "item_key": i.get("item_key"),
+                        }
+                        for i in global_items[:20]
+                    ],
+                })
+
                 return {"steps": steps}
         except Exception as e:
             return {"error": str(e), "steps": steps}

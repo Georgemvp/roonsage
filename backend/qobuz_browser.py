@@ -110,6 +110,11 @@ def search_qobuz_tracks_sync(roon, query: str, limit: int = 10) -> list[dict[str
             # IMPORTANT: item_key and input must NEVER be combined in the same browse_browse
             # call — Roon ignores one of them silently, causing 0 results.
 
+            # result_items is populated by whichever path successfully reaches search results.
+            # None means no path has run yet; the global search fallback sets it when all
+            # browse-hierarchy paths (A / B / C) fail to find a search entry point.
+            result_items: list[dict[str, Any]] | None = None
+
             if qobuz_list_has_input:
                 # Path A — search prompt is at list level; send input directly.
                 logger.debug("Qobuz search: using list-level input_prompt")
@@ -129,53 +134,71 @@ def search_qobuz_tracks_sync(roon, query: str, limit: int = 10) -> list[dict[str
                     )
                     my_qobuz_item = _find_item_by_title(qobuz_items, {"my qobuz"})
                     if not my_qobuz_item or not my_qobuz_item.get("item_key"):
-                        logger.debug("Path C: no 'My Qobuz' item found in Qobuz sub-items — giving up")
-                        return []
-
-                    logger.debug("Path C: navigating into '%s'", my_qobuz_item.get("title"))
-                    # Navigate into My Qobuz — item_key only, NO input (Roon API rule).
-                    my_nav = roon._api.browse_browse({
-                        "hierarchy": "browse",
-                        "item_key": my_qobuz_item["item_key"],
-                    })
-                    my_list = my_nav.get("list", {}) if my_nav else {}
-
-                    if my_list.get("input_prompt"):
-                        # My Qobuz has a list-level search prompt — browse session is
-                        # now positioned here; Step 4 can submit the query directly.
-                        logger.debug("Path C: 'My Qobuz' has list-level input_prompt — proceeding to search")
-                    else:
-                        # Load My Qobuz sub-items and look for a Search child entry.
-                        my_page = roon._api.browse_load({"hierarchy": "browse", "count": 100})
-                        my_items = my_page.get("items", []) if my_page else []
-                        logger.debug(
-                            "Path C: 'My Qobuz' sub-items (no list input_prompt): %s",
-                            [(i.get("title"), i.get("hint")) for i in my_items[:10]],
+                        # No My Qobuz entry either — fall back to Roon global search.
+                        logger.info(
+                            "Qobuz browse has no search entry — falling back to global Roon search for '%s'",
+                            query,
                         )
-
-                        deep_search = next(
-                            (i for i in my_items if i.get("hint") == "input_prompt" and i.get("item_key")),
-                            None,
-                        ) or _find_item_by_title(my_items, _SEARCH_TITLE_HINTS)
-
-                        if not deep_search or not deep_search.get("item_key"):
-                            logger.debug(
-                                "Path C: no search entry found in 'My Qobuz' sub-items either — giving up"
-                            )
-                            return []
-
-                        # Navigate to the search entry inside My Qobuz — separate call, no input yet.
-                        logger.debug("Path C: navigating to search entry '%s' inside 'My Qobuz'", deep_search.get("title"))
-                        deep_nav = roon._api.browse_browse({
-                            "hierarchy": "browse",
-                            "item_key": deep_search["item_key"],
+                        roon._api.browse_browse({
+                            "hierarchy": "search",
+                            "input": query,
+                            "pop_all": True,
                         })
-                        deep_list = deep_nav.get("list", {}) if deep_nav else {}
-                        if not deep_list.get("input_prompt"):
+                        _fb = roon._api.browse_load({"hierarchy": "search", "count": 100})
+                        result_items = _fb.get("items", []) if _fb else []
+                    else:
+                        logger.debug("Path C: navigating into '%s'", my_qobuz_item.get("title"))
+                        # Navigate into My Qobuz — item_key only, NO input (Roon API rule).
+                        my_nav = roon._api.browse_browse({
+                            "hierarchy": "browse",
+                            "item_key": my_qobuz_item["item_key"],
+                        })
+                        my_list = my_nav.get("list", {}) if my_nav else {}
+
+                        if my_list.get("input_prompt"):
+                            # My Qobuz has a list-level search prompt — browse session is
+                            # now positioned here; Step 4 can submit the query directly.
+                            logger.debug("Path C: 'My Qobuz' has list-level input_prompt — proceeding to search")
+                        else:
+                            # Load My Qobuz sub-items and look for a Search child entry.
+                            my_page = roon._api.browse_load({"hierarchy": "browse", "count": 100})
+                            my_items = my_page.get("items", []) if my_page else []
                             logger.debug(
-                                "Path C: search entry '%s' did not return input_prompt — trying anyway",
-                                deep_search.get("title"),
+                                "Path C: 'My Qobuz' sub-items (no list input_prompt): %s",
+                                [(i.get("title"), i.get("hint")) for i in my_items[:10]],
                             )
+
+                            deep_search = next(
+                                (i for i in my_items if i.get("hint") == "input_prompt" and i.get("item_key")),
+                                None,
+                            ) or _find_item_by_title(my_items, _SEARCH_TITLE_HINTS)
+
+                            if not deep_search or not deep_search.get("item_key"):
+                                # No search entry inside My Qobuz either — fall back to global search.
+                                logger.info(
+                                    "Qobuz browse has no search entry — falling back to global Roon search for '%s'",
+                                    query,
+                                )
+                                roon._api.browse_browse({
+                                    "hierarchy": "search",
+                                    "input": query,
+                                    "pop_all": True,
+                                })
+                                _fb = roon._api.browse_load({"hierarchy": "search", "count": 100})
+                                result_items = _fb.get("items", []) if _fb else []
+                            else:
+                                # Navigate to the search entry inside My Qobuz — separate call, no input yet.
+                                logger.debug("Path C: navigating to search entry '%s' inside 'My Qobuz'", deep_search.get("title"))
+                                deep_nav = roon._api.browse_browse({
+                                    "hierarchy": "browse",
+                                    "item_key": deep_search["item_key"],
+                                })
+                                deep_list = deep_nav.get("list", {}) if deep_nav else {}
+                                if not deep_list.get("input_prompt"):
+                                    logger.debug(
+                                        "Path C: search entry '%s' did not return input_prompt — trying anyway",
+                                        deep_search.get("title"),
+                                    )
                 else:
                     # Path B: navigate to the search entry — separate call, no input yet.
                     nav_result = roon._api.browse_browse({
@@ -189,19 +212,21 @@ def search_qobuz_tracks_sync(roon, query: str, limit: int = 10) -> list[dict[str
                             search_item.get("title"),
                         )
 
-            # Step 4 — Submit the search query in its own browse_browse call (no item_key).
-            search_result = roon._api.browse_browse({
-                "hierarchy": "browse",
-                "input": query,
-            })
-            count = search_result.get("list", {}).get("count", 0) if search_result else 0
-            logger.debug("Qobuz search '%s': count=%d", query, count)
+            if result_items is None:
+                # Step 4 — Submit the search query in its own browse_browse call (no item_key).
+                # Only reached by Paths A / B / C when a search entry point was found above.
+                search_result = roon._api.browse_browse({
+                    "hierarchy": "browse",
+                    "input": query,
+                })
+                count = search_result.get("list", {}).get("count", 0) if search_result else 0
+                logger.debug("Qobuz search '%s': count=%d", query, count)
 
-            results_page = roon._api.browse_load({
-                "hierarchy": "browse",
-                "count": min(max(count, limit * 3), 100),
-            })
-            result_items = results_page.get("items", []) if results_page else []
+                results_page = roon._api.browse_load({
+                    "hierarchy": "browse",
+                    "count": min(max(count, limit * 3), 100),
+                })
+                result_items = results_page.get("items", []) if results_page else []
 
             logger.debug(
                 "Qobuz search '%s' returned %d raw items", query, len(result_items)
