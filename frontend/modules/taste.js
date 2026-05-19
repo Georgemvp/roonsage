@@ -127,37 +127,42 @@ function _renderLbStatus(status) {
 
 // ── ListenBrainz data sections ────────────────────────────────────────────────
 function _renderLbSections(lbData, profile) {
-    // Top genres (from local history merged with LB)
+    // Top genres — from local profile scores (LB genre_activity is often empty)
     _renderBarChart('lb-genres-section', _extractTopGenres(lbData, profile));
 
-    // Era distribution
-    if (profile?.lb_era_distribution && Object.keys(profile.lb_era_distribution).length) {
-        const eraData = Object.entries(profile.lb_era_distribution)
+    // Era distribution — from lbData.era_activity (list of {year, listen_count})
+    if (lbData?.era_activity?.length) {
+        const decadeBuckets = {};
+        for (const item of lbData.era_activity) {
+            const decade = `${Math.floor(item.year / 10) * 10}s`;
+            decadeBuckets[decade] = (decadeBuckets[decade] || 0) + item.listen_count;
+        }
+        const eraData = Object.entries(decadeBuckets)
             .sort((a, b) => a[0].localeCompare(b[0]))
             .map(([decade, count]) => ({ label: decade, value: count }));
         _renderBarChart('lb-era-section', eraData);
     }
 
-    // Artist countries
-    if (profile?.lb_artist_countries && Object.keys(profile.lb_artist_countries).length) {
-        const countryData = Object.entries(profile.lb_artist_countries)
-            .sort((a, b) => b[1] - a[1])
+    // Artist countries — from lbData.artist_map (list of {country, artist_count})
+    if (lbData?.artist_map?.length) {
+        const countryData = lbData.artist_map
+            .sort((a, b) => (b.artist_count || 0) - (a.artist_count || 0))
             .slice(0, 10)
-            .map(([country, count]) => ({ label: country, value: count }));
+            .map(c => ({ label: c.country, value: c.artist_count || 0 }));
         _renderBarChart('lb-countries-section', countryData);
     }
 
-    // Top LB artists
-    if (profile?.lb_top_artists?.length) {
-        _renderLbList('lb-artists-section', profile.lb_top_artists.slice(0, 15).map(a => ({
-            name: a.artist_name || a.artist,
+    // Top LB artists — from lbData.top_artists (list of {artist_name, listen_count})
+    if (lbData?.top_artists?.length) {
+        _renderLbList('lb-artists-section', lbData.top_artists.slice(0, 15).map(a => ({
+            name: a.artist_name || a.artist || a.name || '?',
             meta: `${a.listen_count || 0} plays`,
         })));
     }
 
-    // Loved tracks
-    if (profile?.lb_loved_recordings?.length) {
-        _renderLbList('lb-loved-section', profile.lb_loved_recordings.slice(0, 15).map(r => {
+    // Loved tracks — from lbData.feedback_loved (list of LB feedback objects)
+    if (lbData?.feedback_loved?.length) {
+        _renderLbList('lb-loved-section', lbData.feedback_loved.slice(0, 15).map(r => {
             const meta = r.track_metadata || {};
             return {
                 name: `${meta.artist_name || '?'} — ${meta.track_name || '?'}`,
@@ -166,7 +171,7 @@ function _renderLbSections(lbData, profile) {
         }));
     }
 
-    // Heatmap
+    // Heatmap — from lbData.daily_activity (already works)
     if (lbData?.daily_activity) {
         _renderHeatmap('lb-heatmap-section', lbData.daily_activity);
     }
