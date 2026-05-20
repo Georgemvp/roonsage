@@ -99,7 +99,7 @@ Suggest genres and decades from the available options that best match the user's
             profile.get("genres", {}).items(), key=lambda x: -x[1]
         )[:10]
         if preferred_genres:
-            analysis_prompt += f"\n\nUser's most-listened genres (prioritize these when the request is ambiguous):\n"
+            analysis_prompt += "\n\nUser's most-listened genres (prioritize these when the request is ambiguous):\n"
             analysis_prompt += ", ".join(f"{g} ({s:.0%})" for g, s in preferred_genres)
         recent = profile.get("recently_active", {})
         if recent.get("top_genres"):
