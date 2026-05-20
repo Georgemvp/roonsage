@@ -477,6 +477,69 @@ export function setupEventListeners() {
             }
         }
     });
+
+    // Swipe left/right on main content to switch between top-level tabs (mobile)
+    setupSwipeNavigation();
+}
+
+// Tab order for swipe navigation (left = forward, right = back)
+const SWIPE_TABS = [
+    'playlist-prompt',
+    'playlists',
+    'taste',
+    'discovery',
+    'settings',
+];
+
+function setupSwipeNavigation() {
+    const mainEl = document.getElementById('main-content');
+    if (!mainEl) return;
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartTime = 0;
+
+    mainEl.addEventListener('touchstart', (e) => {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchStartTime = Date.now();
+    }, { passive: true });
+
+    mainEl.addEventListener('touchend', (e) => {
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        const dy = e.changedTouches[0].clientY - touchStartY;
+        const elapsed = Date.now() - touchStartTime;
+
+        // Require: mostly horizontal, ≥ 50 px, completed within 400 ms
+        if (Math.abs(dx) < 50) return;
+        if (Math.abs(dy) > Math.abs(dx) * 0.8) return; // too vertical
+        if (elapsed > 400) return;
+
+        // Bail if a modal is open
+        const openModal = document.querySelector(
+            '.modal-overlay:not(.hidden), #bottom-sheet:not(.hidden)'
+        );
+        if (openModal) return;
+
+        // Resolve current tab from state
+        let currentHash = location.hash.slice(1) || 'home';
+        // Normalise create-view hashes to the first tab
+        if (currentHash === 'playlist-seed') currentHash = 'playlist-prompt';
+
+        const currentIdx = SWIPE_TABS.indexOf(currentHash);
+        if (currentIdx === -1) return; // not a swipeable view
+
+        const nextIdx = dx < 0
+            ? Math.min(currentIdx + 1, SWIPE_TABS.length - 1) // swipe left → forward
+            : Math.max(currentIdx - 1, 0);                    // swipe right → back
+
+        if (nextIdx === currentIdx) return; // already at boundary
+
+        // Haptic feedback (if supported)
+        if (navigator.vibrate) navigator.vibrate(10);
+
+        location.hash = '#' + SWIPE_TABS[nextIdx];
+    }, { passive: true });
 }
 
 export async function handleAnalyzePrompt() {

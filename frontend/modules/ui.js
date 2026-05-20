@@ -41,6 +41,18 @@ export function updateView() {
         btn.classList.toggle('active', isActive);
         btn.setAttribute('aria-current', isActive ? 'true' : 'false');
     });
+
+    // Sync mobile bottom nav active states
+    document.querySelectorAll('.mobile-bottom-nav .mbn-btn[data-nav]').forEach(btn => {
+        const hash = btn.dataset.nav;
+        const isActive = (hash === 'playlist-prompt' && state.view === 'create') ||
+                         (hash === 'playlists' && state.view === 'playlists') ||
+                         (hash === 'taste' && state.view === 'taste') ||
+                         (hash === 'discovery' && state.view === 'discovery') ||
+                         (hash === 'settings' && state.view === 'settings');
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-current', isActive ? 'page' : 'false');
+    });
 }
 
 export function updateMode() {

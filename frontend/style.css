@@ -5283,3 +5283,325 @@ body.no-scroll {
     .taste-chart-wrap--timeline { height: 140px; }
 }
 
+/* =============================================================================
+   MOBILE BOTTOM TAB BAR
+   A fixed 56 px tab bar replaces the header nav on mobile (≤ 768 px).
+   ============================================================================= */
+
+/* The element is added to HTML just before </div>.app */
+.mobile-bottom-nav {
+    display: none; /* hidden on desktop */
+}
+
+@media (max-width: 768px) {
+    /* Hide the header nav on mobile — bottom bar takes over */
+    .header .nav {
+        display: none;
+    }
+
+    /* Show bottom bar */
+    .mobile-bottom-nav {
+        display: flex;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 56px;
+        background: var(--bg-secondary);
+        border-top: 1px solid var(--border);
+        z-index: 200;
+        /* Safe-area inset for notched phones */
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        height: calc(56px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .mobile-bottom-nav .mbn-btn {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-family: var(--font-family);
+        font-size: 10px;
+        font-weight: 500;
+        cursor: pointer;
+        padding: 6px 4px env(safe-area-inset-bottom, 0px);
+        min-height: 56px;
+        transition: color var(--transition-fast);
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mobile-bottom-nav .mbn-btn:active,
+    .mobile-bottom-nav .mbn-btn.active {
+        color: var(--accent);
+    }
+
+    .mobile-bottom-nav .mbn-btn svg {
+        width: 22px;
+        height: 22px;
+        flex-shrink: 0;
+    }
+
+    /* Push main content above the bottom bar */
+    .main {
+        padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--spacing-md));
+    }
+
+    .app-footer {
+        padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--spacing-md));
+    }
+}
+
+/* =============================================================================
+   TABLET RESPONSIVE  (≤ 768 px)
+   ============================================================================= */
+
+@media (max-width: 768px) {
+    /* Zone selector — full width on mobile */
+    #zone-selector,
+    .zone-selector,
+    select[id*="zone"] {
+        width: 100%;
+    }
+
+    /* Prompt textarea — 48 px min-height for comfortable touch */
+    .prompt-textarea {
+        min-height: 48px;
+    }
+
+    /* Settings — stack form rows */
+    .settings-section .form-group {
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Source mode cards — full-width stacked on mobile */
+    .source-mode-cards {
+        flex-direction: column;
+    }
+
+    .source-card {
+        width: 100%;
+        flex-direction: row;
+        min-height: 56px;
+        gap: var(--spacing-md);
+        justify-content: flex-start;
+        text-align: left;
+    }
+
+    /* Heatmap — horizontal scroll container */
+    .lb-heatmap-container,
+    #lb-heatmap-section {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+    }
+
+    #taste-heatmap-canvas {
+        min-width: 540px; /* enough to show all 24 hours readable */
+    }
+}
+
+/* =============================================================================
+   MOBILE RESPONSIVE  (≤ 480 px)
+   ============================================================================= */
+
+@media (max-width: 480px) {
+    /* App container: remove side padding so content fills screen */
+    .app {
+        padding-left: var(--spacing-sm);
+        padding-right: var(--spacing-sm);
+    }
+
+    /* Header: keep logo only, no extra padding */
+    .header {
+        padding: var(--spacing-sm) 0;
+        margin-bottom: var(--spacing-md);
+    }
+
+    /* Playlist single-column grid */
+    .playlists-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Genre / decade chips — horizontal scroll instead of wrapping grid */
+    .chip-container {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none; /* hide scrollbar on Android */
+        padding-bottom: 4px;
+        gap: var(--spacing-xs);
+    }
+
+    .chip-container::-webkit-scrollbar {
+        display: none;
+    }
+
+    .chip-container .chip {
+        flex-shrink: 0; /* chips don't shrink or wrap */
+        white-space: nowrap;
+    }
+
+    /* Track list — compact for small screens */
+    .playlist-track {
+        padding: 6px var(--spacing-sm);
+        gap: var(--spacing-sm);
+    }
+
+    .playlist-track .track-album {
+        display: none; /* hide album column to save horizontal space */
+    }
+
+    .playlist-track .track-info .track-artist {
+        font-size: 0.75rem;
+    }
+
+    .playlist-track .track-title {
+        font-size: var(--font-size-sm);
+    }
+
+    /* Track art — slightly smaller on very narrow screens */
+    .playlist-track .track-art,
+    .playlist-track .art-placeholder {
+        width: 36px;
+        height: 36px;
+    }
+
+    /* Prompt textarea — taller touch target */
+    .prompt-textarea {
+        min-height: 48px;
+        font-size: var(--font-size-base); /* prevent iOS zoom on focus */
+    }
+
+    /* All text inputs — 16px+ to prevent iOS auto-zoom */
+    input[type="text"],
+    input[type="password"],
+    input[type="number"],
+    input[type="email"],
+    input[type="search"],
+    textarea,
+    select {
+        font-size: 16px;
+    }
+
+    /* Ensure minimum 44px touch targets everywhere (Apple HIG) */
+    .btn,
+    .btn-outline,
+    .btn-ghost,
+    .nav-btn,
+    .chip,
+    .count-btn,
+    .limit-btn,
+    .rating-btn,
+    .filter-toggle-all,
+    .taste-filter-btn {
+        min-height: 44px;
+    }
+
+    /* Volume slider — larger thumb for touch */
+    input[type="range"] {
+        height: 32px;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+        width: 28px;
+        height: 28px;
+    }
+
+    input[type="range"]::-moz-range-thumb {
+        width: 28px;
+        height: 28px;
+    }
+
+    /* Step progress bar — hide labels to save space */
+    .step-label {
+        display: none;
+    }
+
+    .step-connector {
+        min-width: 16px;
+        max-width: 32px;
+    }
+
+    /* Results grid — tighter spacing on small screens */
+    .results-grid {
+        gap: var(--spacing-sm);
+    }
+
+    /* Playlist tracks — no horizontal overflow */
+    .playlist-tracks {
+        overflow: visible;
+    }
+
+    /* Settings section — full width inputs, no horizontal overflow */
+    .settings-section {
+        padding: var(--spacing-md);
+    }
+
+    .settings-section input,
+    .settings-section select {
+        width: 100%;
+    }
+
+    /* Refine panel — full width */
+    .refine-panel {
+        width: 100%;
+    }
+
+    /* Filter preview — stack on very narrow screens */
+    .filter-preview {
+        flex-direction: column;
+        gap: var(--spacing-xs);
+        text-align: center;
+    }
+}
+
+/* =============================================================================
+   PWA / SAFE AREA
+   ============================================================================= */
+
+/* Extend safe-area support for status bar and home indicator */
+@supports (padding: env(safe-area-inset-top)) {
+    .header {
+        padding-top: calc(var(--spacing-md) + env(safe-area-inset-top, 0px));
+    }
+
+    .mobile-bottom-nav {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        height: calc(56px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+/* =============================================================================
+   MOBILE CHECKLIST (for QA / testers)
+   ============================================================================= */
+/*
+  MOBILE TEST CHECKLIST
+  ─────────────────────
+  [ ] Prompt textarea is usable with mobile keyboard open
+      — textarea scrolls into view; min-height 48 px; font-size 16 px prevents iOS zoom
+  [ ] Playlist results are scrollable without page bounce
+      — .playlist-tracks has overflow: visible; body scrolls naturally
+  [ ] Settings form fields don't overflow
+      — inputs have width: 100%; settings-section has padding; font-size 16 px
+  [ ] Bottom tab bar does NOT overlap content
+      — .main and .app-footer have padding-bottom: calc(56px + safe-area-inset)
+  [ ] Genre/decade chips scroll horizontally on mobile (≤ 480 px)
+      — .chip-container uses overflow-x: auto; flex-wrap: nowrap
+  [ ] Track list album column hidden on mobile (≤ 480 px)
+      — .playlist-track .track-album { display: none }
+  [ ] All tap targets are ≥ 44 px (Apple HIG)
+      — enforced via min-height: 44px on .btn, .chip, .count-btn etc.
+  [ ] Volume slider thumb is large enough to grab on touch
+      — ::-webkit-slider-thumb is 28 × 28 px on mobile
+  [ ] Heatmap scrolls horizontally on mobile
+      — .lb-heatmap-container has overflow-x: auto; canvas min-width: 540 px
+  [ ] Swipe left / right switches tabs (tested on device or Chrome DevTools)
+      — 50 px threshold; haptic feedback via navigator.vibrate(10)
+*/
