@@ -311,6 +311,54 @@ def get_listenbrainz_config() -> dict[str, str]:
     }
 
 
+_DEFAULT_ENABLED_EVENTS = ["playlist_generated", "library_sync_complete"]
+
+
+def get_notifications_config() -> dict[str, Any]:
+    """Return notification settings from environment variables or config.user.yaml.
+
+    Priority: environment variables > config.user.yaml > defaults.
+    Returns a dict with keys: discord_webhook_url, telegram_bot_token,
+    telegram_chat_id, webhook_url, enabled_events.
+    """
+    user_config = load_user_yaml_config()
+    notif_yaml = user_config.get("notifications", {})
+    return {
+        "discord_webhook_url": get_env_or_yaml(
+            "DISCORD_WEBHOOK_URL", notif_yaml.get("discord_webhook_url"), ""
+        ),
+        "telegram_bot_token": get_env_or_yaml(
+            "TELEGRAM_BOT_TOKEN", notif_yaml.get("telegram_bot_token"), ""
+        ),
+        "telegram_chat_id": get_env_or_yaml(
+            "TELEGRAM_CHAT_ID", notif_yaml.get("telegram_chat_id"), ""
+        ),
+        "webhook_url": get_env_or_yaml(
+            "WEBHOOK_URL", notif_yaml.get("webhook_url"), ""
+        ),
+        "enabled_events": notif_yaml.get(
+            "enabled_events", list(_DEFAULT_ENABLED_EVENTS)
+        ),
+    }
+
+
+def save_notifications_config(updates: dict[str, Any]) -> None:
+    """Persist notification settings to config.user.yaml."""
+    notif_updates: dict[str, Any] = {}
+    for key in (
+        "discord_webhook_url",
+        "telegram_bot_token",
+        "telegram_chat_id",
+        "webhook_url",
+        "enabled_events",
+    ):
+        if key in updates:
+            notif_updates[key] = updates[key]
+
+    if notif_updates:
+        save_user_config({"notifications": notif_updates})
+
+
 def refresh_config(config_path: Path | None = None) -> AppConfig:
     """Reload configuration from file and environment."""
     global _config

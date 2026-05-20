@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from backend.config import get_config, get_qobuz_config, get_listenbrainz_config
+from backend.config import get_config, get_qobuz_config, get_listenbrainz_config, get_notifications_config
 from backend.version import get_version
 from backend.roon_client import get_roon_client, init_roon_client
 from backend.qobuz_api import init_qobuz_api_client
@@ -22,6 +22,7 @@ from backend.routes.qobuz_playlist import router as qobuz_playlist_router
 from backend.routes.intelligence import router as intelligence_router
 from backend.routes.discovery import router as discovery_router
 from backend.routes.templates import router as templates_router
+from backend.routes.notifications import router as notifications_router
 from backend.dependencies import ROONSAGE_PASSWORD
 import backend.routes.recommend as _recommend_module
 
@@ -34,6 +35,11 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Initialize clients on startup."""
     config = get_config()
+
+    # Initialize notification EventBus from saved config
+    from backend.notifications import configure_from_settings, event_bus  # noqa: PLC0415
+    configure_from_settings(get_notifications_config())
+    event_bus.set_event_loop(asyncio.get_event_loop())
 
     # Initialize Roon client if configured
     if config.roon.host:
@@ -198,6 +204,7 @@ app.include_router(qobuz_playlist_router)
 app.include_router(intelligence_router)
 app.include_router(discovery_router)
 app.include_router(templates_router)
+app.include_router(notifications_router)
 
 
 # =============================================================================

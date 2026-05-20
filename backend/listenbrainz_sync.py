@@ -88,6 +88,18 @@ class ListenBrainzSync:
                 summary[stat_type] = "cached"
 
         logger.info("ListenBrainz sync_all complete: %s", summary)
+
+        # Fire-and-forget notification
+        try:
+            from backend.notifications import EventType, event_bus  # noqa: PLC0415
+            synced = [k for k, v in summary.items() if v == "synced"]
+            await event_bus.emit_async(
+                EventType.LISTENBRAINZ_SYNC_COMPLETE,
+                {"synced_stats": synced, "summary": summary},
+            )
+        except Exception:
+            pass
+
         return summary
 
     async def sync_stat(

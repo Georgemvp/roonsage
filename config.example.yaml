@@ -33,3 +33,24 @@ llm:
 defaults:
   # Default number of tracks in generated playlists (15, 25, or 40)
   track_count: 25
+
+notifications:
+  # Discord webhook URL (override with DISCORD_WEBHOOK_URL env var)
+  # Create a webhook in Discord: Server Settings → Integrations → Webhooks
+  discord_webhook_url: ""
+
+  # Telegram bot token + chat ID (override with TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID env vars)
+  # Create a bot via @BotFather, then get your chat ID from @userinfobot
+  telegram_bot_token: ""
+  telegram_chat_id: ""
+
+  # Generic webhook: any HTTP endpoint that accepts POST JSON
+  # (override with WEBHOOK_URL env var)
+  webhook_url: ""
+
+  # Which events trigger notifications.
+  # Available: playlist_generated, library_sync_complete, library_sync_failed,
+  #            lb_sync_complete, new_release_found, listening_milestone
+  enabled_events:
+    - playlist_generated
+    - library_sync_complete

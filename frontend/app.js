@@ -18,7 +18,7 @@ import {
 } from './modules/ui.js';
 import { checkLibraryStatus }             from './modules/library.js';
 import { setupEventListeners }            from './modules/events.js';
-import { loadSettings }                   from './modules/playlist.js';
+import { loadSettings, loadNotificationSettings, initNotificationButtons } from './modules/playlist.js';
 import {
     dismissClientPicker, dismissPlayChoice, dismissPlaySuccess, setSaveMode
 } from './modules/instant-queue.js';
@@ -61,6 +61,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupRecEventListeners();
     setupHistoryEventListeners();
     initTemplates();
+    initNotificationButtons();
     state.view = viewFromHash();
     state.mode = modeFromHash();
     if (!location.hash) {
@@ -74,6 +75,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Load initial config
     try {
         await loadSettings();
+        loadNotificationSettings();  // fire-and-forget; populates notification fields
 
         // Check setup wizard status (only on home view with no deep link)
         const initHash = location.hash.slice(1);

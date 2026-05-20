@@ -425,6 +425,16 @@ def sync_library(
         # New columns are now populated — migration no longer requires a re-sync
         clear_migration_flag()
 
+        # Fire-and-forget notification
+        try:
+            from backend.notifications import EventType, event_bus  # noqa: PLC0415
+            event_bus.emit(
+                EventType.LIBRARY_SYNC_COMPLETE,
+                {"track_count": synced_count, "duration_ms": duration_ms},
+            )
+        except Exception:
+            pass
+
         return {
             "success": True,
             "track_count": synced_count,
@@ -435,6 +445,17 @@ def sync_library(
         logger.exception("Sync failed: %s", exc)
         with _sync_lock:
             _sync_state["error"] = str(exc)
+
+        # Fire-and-forget notification
+        try:
+            from backend.notifications import EventType, event_bus  # noqa: PLC0415
+            event_bus.emit(
+                EventType.LIBRARY_SYNC_FAILED,
+                {"error": str(exc)},
+            )
+        except Exception:
+            pass
+
         return {"success": False, "error": str(exc)}
 
     finally:

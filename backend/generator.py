@@ -612,6 +612,27 @@ def generate_playlist_stream(
         }
         if result_id:
             complete_data["result_id"] = result_id
+
+        # Fire-and-forget notification (never blocks the SSE stream)
+        try:
+            from backend.notifications import EventType, event_bus  # noqa: PLC0415
+            # Calculate total duration in ms from track durations
+            total_ms = sum(
+                t.duration_ms for t in result.tracks if t.duration_ms
+            )
+            event_bus.emit(
+                EventType.PLAYLIST_GENERATED,
+                {
+                    "playlist_name": result.playlist_title,
+                    "playlist_title": result.playlist_title,
+                    "track_count": len(result.tracks),
+                    "duration_ms": total_ms,
+                    "prompt": prompt or "",
+                },
+            )
+        except Exception:
+            pass
+
         yield emit("complete", complete_data)
         logger.info("Complete event emitted successfully")
 

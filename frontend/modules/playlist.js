@@ -274,7 +274,7 @@ export async function handleSaveSettings() {
     }
 
     // Qobuz playlist save settings (app_id is auto-extracted, no field for it)
-    const qobuzEmail = document.getElementById('qobuz-email')?.value.trim();
+    const qobuzEmail = document.getElementById('qobuz-email')?.value.trim() ?? '';
     const qobuzPassword = document.getElementById('qobuz-password')?.value.trim();
     if (qobuzEmail) updates.qobuz_email = qobuzEmail;
     if (qobuzPassword) updates.qobuz_password = qobuzPassword;
@@ -284,6 +284,9 @@ export async function handleSaveSettings() {
     const lbUsername = document.getElementById('lb-username')?.value.trim();
     if (lbToken) updates.listenbrainz_token = lbToken;
     if (lbUsername) updates.listenbrainz_username = lbUsername;
+
+    // Notifications — saved via dedicated endpoint, not the main config endpoint
+    await _saveNotificationSettings();
 
     if (Object.keys(updates).length === 0) {
         showError('No settings to update');
@@ -375,4 +378,126 @@ export async function handleValidateQobuz() {
             btn.textContent = 'Valideren';
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Notification settings helpers
+// ---------------------------------------------------------------------------
+
+const _NOTIF_EVENT_IDS = [
+    'playlist_generated',
+    'library_sync_complete',
+    'library_sync_failed',
+    'lb_sync_complete',
+];
+
+/** Load notification config from the API and populate the form fields. */
+export async function loadNotificationSettings() {
+    try {
+        const res = await fetch('/api/notifications/config');
+        if (!res.ok) return;
+        const cfg = await res.json();
+
+        const discordEl = document.getElementById('notif-discord-url');
+        const tgTokenEl = document.getElementById('notif-tg-token');
+        const tgChatEl  = document.getElementById('notif-tg-chat');
+        const webhookEl = document.getElementById('notif-webhook-url');
+
+        if (discordEl && cfg.discord_webhook_url) discordEl.value = cfg.discord_webhook_url;
+        if (tgChatEl  && cfg.telegram_chat_id)    tgChatEl.value  = cfg.telegram_chat_id;
+        if (webhookEl && cfg.webhook_url)          webhookEl.value = cfg.webhook_url;
+        // Leave password-type token field blank if configured (show placeholder)
+        if (tgTokenEl && cfg.telegram_configured) {
+            tgTokenEl.placeholder = '••••••••••••  (opgeslagen)';
+        }
+
+        // Checkboxes
+        const enabled = new Set(cfg.enabled_events || []);
+        for (const evt of _NOTIF_EVENT_IDS) {
+            const cb = document.getElementById(`notif-evt-${evt}`);
+            if (cb) cb.checked = enabled.has(evt);
+        }
+    } catch (_) {
+        // Best-effort; don't block rest of settings load
+    }
+}
+
+/** Collect notification form values and POST to /api/notifications/config. */
+async function _saveNotificationSettings() {
+    const updates = {};
+
+    const discordUrl = document.getElementById('notif-discord-url')?.value.trim();
+    const tgToken    = document.getElementById('notif-tg-token')?.value.trim();
+    const tgChat     = document.getElementById('notif-tg-chat')?.value.trim();
+    const webhookUrl = document.getElementById('notif-webhook-url')?.value.trim();
+
+    if (discordUrl !== undefined) updates.discord_webhook_url = discordUrl;
+    if (tgToken)                  updates.telegram_bot_token  = tgToken;
+    if (tgChat  !== undefined)    updates.telegram_chat_id    = tgChat;
+    if (webhookUrl !== undefined) updates.webhook_url         = webhookUrl;
+
+    const enabledEvents = _NOTIF_EVENT_IDS.filter(evt => {
+        const cb = document.getElementById(`notif-evt-${evt}`);
+        return cb?.checked;
+    });
+    updates.enabled_events = enabledEvents;
+
+    if (Object.keys(updates).length === 0) return;
+
+    try {
+        await fetch('/api/notifications/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates),
+        });
+    } catch (err) {
+        console.warn('Could not save notification settings:', err);
+    }
+}
+
+/** Send a test notification for a given channel. */
+async function _testNotification(channel, resultElId) {
+    const resultEl = document.getElementById(resultElId);
+    if (resultEl) {
+        resultEl.textContent = 'Versturen…';
+        resultEl.style.color = 'var(--color-text-muted, #888)';
+    }
+
+    const body = { channel };
+    if (channel === 'discord') {
+        body.discord_webhook_url = document.getElementById('notif-discord-url')?.value.trim();
+    } else if (channel === 'telegram') {
+        body.telegram_bot_token = document.getElementById('notif-tg-token')?.value.trim();
+        body.telegram_chat_id   = document.getElementById('notif-tg-chat')?.value.trim();
+    } else if (channel === 'webhook') {
+        body.webhook_url = document.getElementById('notif-webhook-url')?.value.trim();
+    }
+
+    try {
+        const res = await fetch('/api/notifications/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (resultEl) {
+            resultEl.textContent = data.success ? '✓ Verzonden!' : `✗ ${data.error || 'Mislukt'}`;
+            resultEl.style.color = data.success ? '#4caf50' : '#f44336';
+        }
+    } catch (err) {
+        if (resultEl) {
+            resultEl.textContent = `✗ ${err.message}`;
+            resultEl.style.color = '#f44336';
+        }
+    }
+}
+
+/** Wire up test-notification buttons (call once after DOM is ready). */
+export function initNotificationButtons() {
+    document.getElementById('test-discord-btn')
+        ?.addEventListener('click', () => _testNotification('discord', 'test-discord-result'));
+    document.getElementById('test-telegram-btn')
+        ?.addEventListener('click', () => _testNotification('telegram', 'test-telegram-result'));
+    document.getElementById('test-webhook-btn')
+        ?.addEventListener('click', () => _testNotification('webhook', 'test-webhook-result'));
 }

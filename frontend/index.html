@@ -977,6 +977,64 @@
                     <div id="lb-validate-result" style="margin-top:0.5rem;font-size:0.85rem;"></div>
                 </section>
 
+                <section class="settings-section" id="notifications-settings-section">
+                    <h3>Notificaties</h3>
+                    <p style="font-size:0.85rem;opacity:0.7;margin:0.25rem 0 0.75rem">Ontvang meldingen via Discord, Telegram of een eigen webhook wanneer er iets gebeurt in RoonSage.</p>
+
+                    <!-- Discord -->
+                    <div class="form-group">
+                        <label for="notif-discord-url">Discord Webhook URL</label>
+                        <input type="text" id="notif-discord-url" placeholder="https://discord.com/api/webhooks/...">
+                    </div>
+                    <div class="settings-actions" style="margin-top:0.25rem;margin-bottom:0.75rem;">
+                        <button id="test-discord-btn" class="btn btn-outline btn-sm">Test Discord</button>
+                        <span id="test-discord-result" style="font-size:0.82rem;margin-left:0.5rem;"></span>
+                    </div>
+
+                    <!-- Telegram -->
+                    <div class="form-group">
+                        <label for="notif-tg-token">Telegram Bot Token</label>
+                        <input type="password" id="notif-tg-token" placeholder="123456:ABC-DEF...">
+                    </div>
+                    <div class="form-group">
+                        <label for="notif-tg-chat">Telegram Chat ID</label>
+                        <input type="text" id="notif-tg-chat" placeholder="Bijv. -1001234567890">
+                    </div>
+                    <div class="settings-actions" style="margin-top:0.25rem;margin-bottom:0.75rem;">
+                        <button id="test-telegram-btn" class="btn btn-outline btn-sm">Test Telegram</button>
+                        <span id="test-telegram-result" style="font-size:0.82rem;margin-left:0.5rem;"></span>
+                    </div>
+
+                    <!-- Generic webhook -->
+                    <div class="form-group">
+                        <label for="notif-webhook-url">Webhook URL <span class="optional-label">(generiek)</span></label>
+                        <input type="text" id="notif-webhook-url" placeholder="https://jouw-server.nl/hook">
+                    </div>
+                    <div class="settings-actions" style="margin-top:0.25rem;margin-bottom:0.75rem;">
+                        <button id="test-webhook-btn" class="btn btn-outline btn-sm">Test Webhook</button>
+                        <span id="test-webhook-result" style="font-size:0.82rem;margin-left:0.5rem;"></span>
+                    </div>
+
+                    <!-- Events to notify on -->
+                    <div class="form-group">
+                        <label>Meldingen voor</label>
+                        <div id="notif-events-list" style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.35rem;">
+                            <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
+                                <input type="checkbox" id="notif-evt-playlist_generated" value="playlist_generated"> Playlist gegenereerd
+                            </label>
+                            <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
+                                <input type="checkbox" id="notif-evt-library_sync_complete" value="library_sync_complete"> Library gesynchroniseerd
+                            </label>
+                            <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
+                                <input type="checkbox" id="notif-evt-library_sync_failed" value="library_sync_failed"> Library sync mislukt
+                            </label>
+                            <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
+                                <input type="checkbox" id="notif-evt-lb_sync_complete" value="lb_sync_complete"> ListenBrainz sync klaar
+                            </label>
+                        </div>
+                    </div>
+                </section>
+
                 <div class="settings-actions">
                     <button id="save-settings-btn" class="btn btn-primary">
                         Save Settings

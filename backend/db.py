@@ -339,6 +339,22 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         );
     """)
 
+    # -----------------------------------------------------------------------
+    # Notification log table (v7.0)
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS notification_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            event_type TEXT NOT NULL,
+            channel TEXT NOT NULL,
+            success INTEGER NOT NULL DEFAULT 1,
+            error_message TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_notification_log_ts
+            ON notification_log(timestamp DESC);
+    """)
+
     conn.commit()
     return migrated
 
