@@ -44,6 +44,7 @@
                 <button class="nav-btn" data-nav="playlists" aria-current="false">Playlists</button>
                 <button class="nav-btn" data-nav="taste" aria-current="false">My Taste</button>
                 <button class="nav-btn" data-nav="discovery" aria-current="false">Discover</button>
+                <button class="nav-btn" data-nav="watchlist" aria-current="false">Watchlist</button>
                 <button class="nav-btn nav-btn--icon" data-nav="settings" aria-current="false" aria-label="Settings"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
             </nav>
         </header>
@@ -819,6 +820,54 @@
             <!-- Discovery View -->
             <div id="discovery-view" class="view"></div>
 
+            <!-- Watchlist View -->
+            <div id="watchlist-view" class="view">
+                <div class="watchlist-header">
+                    <h2>Artist Watchlist</h2>
+                    <p class="watchlist-subtitle">Monitor artists for new Qobuz releases.</p>
+                    <div class="watchlist-actions">
+                        <div class="watchlist-add-row">
+                            <input
+                                type="text"
+                                id="watchlist-artist-input"
+                                class="watchlist-artist-input"
+                                placeholder="Add artist…"
+                                autocomplete="off"
+                                list="watchlist-artist-suggestions"
+                            />
+                            <datalist id="watchlist-artist-suggestions"></datalist>
+                            <button id="watchlist-add-btn" class="btn btn-primary btn-sm">Add</button>
+                        </div>
+                        <div class="watchlist-action-row">
+                            <button id="watchlist-auto-btn" class="btn btn-secondary btn-sm">
+                                Auto-populate from taste
+                            </button>
+                            <button id="watchlist-scan-btn" class="btn btn-secondary btn-sm">
+                                <span id="watchlist-scan-label">Scan Now</span>
+                                <span id="watchlist-scan-spinner" class="spinner spinner--sm hidden" aria-hidden="true"></span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- New Releases Section -->
+                <section id="watchlist-releases-section" class="watchlist-section hidden">
+                    <h3 class="watchlist-section-title">
+                        🆕 New Releases
+                        <span id="watchlist-releases-badge" class="badge badge--amber"></span>
+                    </h3>
+                    <div id="watchlist-releases-list" class="watchlist-releases-grid"></div>
+                </section>
+
+                <!-- Watched Artists Section -->
+                <section class="watchlist-section">
+                    <h3 class="watchlist-section-title">Watched Artists</h3>
+                    <div id="watchlist-artists-list" class="watchlist-artists-list">
+                        <p class="watchlist-empty">No artists watched yet. Add artists above or use Auto-populate.</p>
+                    </div>
+                </section>
+            </div>
+
             <!-- Settings View -->
             <div id="settings-view" class="view">
                 <h2>Settings</h2>
@@ -1215,6 +1264,10 @@
             <button class="mbn-btn" data-nav="discovery" aria-label="Discover">
                 <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
                 <span>Discover</span>
+            </button>
+            <button class="mbn-btn" data-nav="watchlist" aria-label="Watchlist">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+                <span>Watch</span>
             </button>
             <button class="mbn-btn" data-nav="settings" aria-label="Settings">
                 <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>

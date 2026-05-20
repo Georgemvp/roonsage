@@ -355,6 +355,44 @@ def init_schema(conn: sqlite3.Connection) -> bool:
             ON notification_log(timestamp DESC);
     """)
 
+    # -----------------------------------------------------------------------
+    # Artist Watchlist tables (v8.0)
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        -- Artists the user wants to monitor for new Qobuz releases
+        CREATE TABLE IF NOT EXISTS artist_watchlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            artist_name TEXT NOT NULL UNIQUE,
+            added_at TEXT NOT NULL DEFAULT (datetime('now')),
+            auto_added INTEGER DEFAULT 0,
+            monitor_albums INTEGER DEFAULT 1,
+            monitor_eps INTEGER DEFAULT 1,
+            monitor_singles INTEGER DEFAULT 0,
+            last_checked TEXT,
+            last_new_release TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_watchlist_artist
+            ON artist_watchlist(artist_name);
+
+        -- Cache of every release ever seen for watched artists
+        CREATE TABLE IF NOT EXISTS artist_releases_cache (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            artist_name TEXT NOT NULL,
+            album_title TEXT NOT NULL,
+            release_date TEXT,
+            release_type TEXT,
+            qobuz_id TEXT,
+            item_key TEXT,
+            first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+            notified INTEGER DEFAULT 0,
+            UNIQUE(artist_name, album_title)
+        );
+        CREATE INDEX IF NOT EXISTS idx_releases_artist
+            ON artist_releases_cache(artist_name);
+        CREATE INDEX IF NOT EXISTS idx_releases_notified
+            ON artist_releases_cache(notified);
+    """)
+
     conn.commit()
     return migrated
 

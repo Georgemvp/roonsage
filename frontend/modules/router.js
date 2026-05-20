@@ -11,6 +11,7 @@ import { renderHistoryFeed } from './history.js';
 import { initPlaylistsView } from './playlists.js';
 import { initTasteView } from './taste.js';
 import { initDiscoveryView } from './discovery.js';
+import { initWatchlistView } from './watchlist.js';
 
 export const HASH_TO_VIEW = {
     'home': 'home',
@@ -22,6 +23,7 @@ export const HASH_TO_VIEW = {
     'playlists': 'playlists',
     'taste': 'taste',
     'discovery': 'discovery',
+    'watchlist': 'watchlist',
     // Backward compat
     'make-playlist': 'create',
 };
@@ -38,6 +40,7 @@ export const VIEW_TO_HASH = {
     'playlists': 'playlists',
     'taste': 'taste',
     'discovery': 'discovery',
+    'watchlist': 'watchlist',
 };
 
 export function hashForCurrentState() {
@@ -97,6 +100,8 @@ export function navigateTo(view, mode) {
         initTasteView();
     } else if (view === 'discovery') {
         initDiscoveryView();
+    } else if (view === 'watchlist') {
+        initWatchlistView();
     }
 }
 

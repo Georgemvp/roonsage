@@ -23,6 +23,7 @@ from backend.routes.intelligence import router as intelligence_router
 from backend.routes.discovery import router as discovery_router
 from backend.routes.templates import router as templates_router
 from backend.routes.notifications import router as notifications_router
+from backend.routes.watchlist import router as watchlist_router
 from backend.dependencies import ROONSAGE_PASSWORD
 import backend.routes.recommend as _recommend_module
 
@@ -124,6 +125,26 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_lb_sync_loop())
         logger.info("ListenBrainz background sync scheduled (every 6 hours)")
 
+    # Start Watchlist background scan (every 12 hours)
+    import os  # noqa: PLC0415
+    _watchlist_interval = int(os.environ.get("WATCHLIST_SCAN_INTERVAL_HOURS", "12")) * 3600
+
+    async def _watchlist_scan_loop():
+        from backend.watchlist import scan_all_watched  # noqa: PLC0415
+        await asyncio.sleep(60)  # Wait 60s after startup before first scan
+        while True:
+            try:
+                await scan_all_watched()
+            except Exception as exc:
+                logger.warning("Watchlist background scan error: %s", exc)
+            await asyncio.sleep(_watchlist_interval)
+
+    asyncio.create_task(_watchlist_scan_loop())
+    logger.info(
+        "Watchlist background scan scheduled (every %d hours)",
+        _watchlist_interval // 3600,
+    )
+
     yield
 
     # Shutdown: clean up resources (read from module to get current values, not import-time snapshot)
@@ -205,6 +226,7 @@ app.include_router(intelligence_router)
 app.include_router(discovery_router)
 app.include_router(templates_router)
 app.include_router(notifications_router)
+app.include_router(watchlist_router)
 
 
 # =============================================================================

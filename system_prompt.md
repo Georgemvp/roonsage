@@ -351,3 +351,44 @@ Geen backend LLM-call nodig — jij verwerkt de data en cureeert.
 - "Wat voor genres heb ik?" → `genre_explorer` — sorteer op `artist_count` voor breedte, `track_count` voor diepte
 - Kleine genres (lage artist_count, hoge track_count per artiest) zijn vaak niche-collecties — ideaal voor diepgaande sessies
 - Klik op een genre in de web UI → vult automatisch het playlist-prompt-veld in
+
+---
+
+## Artist Watchlist — nieuwe Qobuz-releases (v8.0)
+
+De Watchlist bewaakt een lijst van artiesten en detecteert nieuwe releases op Qobuz.
+Scans lopen automatisch elke 12 uur op de achtergrond. Je kunt ook handmatig scannen.
+
+### Tools
+
+| Tool | Wat het doet |
+|---|---|
+| `get_watchlist` | Geeft alle bewaakte artiesten terug met status, laatste check en aantal ongelezen nieuwe releases |
+| `add_to_watchlist` | Voeg een artiest toe aan de watchlist (optioneel: monitor_albums, monitor_eps, monitor_singles) |
+| `scan_watchlist` | Trigger een directe scan van alle bewaakte artiesten. Geeft een lijst van nieuwe releases. Kan 30–60s duren. |
+| `play_new_release` | Speel een specifieke nieuwe release af die de watchlist heeft gevonden (artist_name + album_title) |
+
+### Wanneer gebruiken
+
+- **"Zijn er nieuwe releases van artiesten die ik volg?"** → `get_watchlist` (kijk naar `unnotified_count`) → eventueel `scan_watchlist` als de data oud is
+- **"Speel de nieuwe plaat van Nick Cave"** → `scan_watchlist` (of `get_watchlist`) → `play_new_release`
+- **"Volg Radiohead voor nieuwe releases"** → `add_to_watchlist(artist_name="Radiohead")`
+- **"Scan nu op nieuwe releases"** → `scan_watchlist`
+
+### Auto-populate
+
+`POST /api/watchlist/auto-populate` voegt automatisch de top-20 artiesten uit het smaakprofiel toe (gewicht ≥ 0.5). Handig als startpunt; artiesten worden gemarkeerd als `auto_added`.
+
+### Monitor-vlaggen per artiest
+
+Elk artiest heeft drie vlaggen (standaard: albums=aan, EPs=aan, singles=uit):
+- `monitor_albums` — volledige albums
+- `monitor_eps` — EPs en mini-albums
+- `monitor_singles` — singles (veel ruis; standaard uit)
+
+### Workflow nieuw-release afspelen
+
+1. `get_watchlist` — check of er `unnotified_count > 0` is bij een artiest
+2. Als de data oud is: `scan_watchlist` — triggereer een verse scan
+3. `play_new_release(artist_name="...", album_title="...")` — speel direct af
+4. De release wordt automatisch als "gelezen" gemarkeerd na afspelen

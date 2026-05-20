@@ -5407,6 +5407,275 @@ body.no-scroll {
 }
 
 /* =============================================================================
+   WATCHLIST VIEW
+   ============================================================================= */
+
+.watchlist-header {
+    margin-bottom: var(--space-lg);
+}
+
+.watchlist-subtitle {
+    color: var(--text-muted);
+    margin-top: var(--space-xs);
+    margin-bottom: var(--space-md);
+}
+
+.watchlist-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.watchlist-add-row {
+    display: flex;
+    gap: var(--space-sm);
+    align-items: center;
+}
+
+.watchlist-artist-input {
+    flex: 1;
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 14px;
+    min-width: 0;
+}
+
+.watchlist-artist-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.watchlist-action-row {
+    display: flex;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+/* Sections */
+.watchlist-section {
+    margin-bottom: var(--space-xl);
+}
+
+.watchlist-section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: var(--space-md);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+/* Artist rows */
+.watchlist-artists-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.watchlist-artist-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    flex-wrap: wrap;
+}
+
+.watchlist-artist-info {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.watchlist-artist-name {
+    font-weight: 600;
+    color: var(--text);
+    font-size: 14px;
+}
+
+.watchlist-artist-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.watchlist-tag {
+    font-size: 10px;
+    padding: 1px 5px;
+    background: var(--border);
+    color: var(--text-muted);
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.watchlist-artist-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.watchlist-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.watchlist-toggle-label input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+.watchlist-remove-btn {
+    color: var(--text-muted);
+    font-size: 18px;
+    line-height: 1;
+    padding: 4px 8px;
+    min-height: 32px;
+    border-radius: var(--radius);
+}
+
+.watchlist-remove-btn:hover {
+    color: var(--error, #e57373);
+    background: var(--surface-hover);
+}
+
+.watchlist-empty {
+    color: var(--text-muted);
+    font-size: 14px;
+    padding: var(--space-md) 0;
+}
+
+.watchlist-loading,
+.watchlist-error {
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+/* New-releases grid */
+.watchlist-releases-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--space-md);
+}
+
+.release-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.release-art {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    display: block;
+    background: var(--border);
+}
+
+.release-art--placeholder {
+    aspect-ratio: 1;
+    background: var(--border);
+}
+
+.release-card-body {
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+}
+
+.release-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.release-card-artist {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.release-card-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-top: 2px;
+}
+
+.release-date {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.release-type {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
+.release-type--album { background: var(--accent-dim, rgba(229,160,13,0.15)); color: var(--accent); }
+.release-type--ep    { background: rgba(100,180,255,0.15); color: #64b4ff; }
+.release-type--single { background: rgba(120,210,120,0.15); color: #78d278; }
+
+.release-card-actions {
+    display: flex;
+    gap: var(--space-xs);
+    margin-top: auto;
+    padding-top: var(--space-sm);
+}
+
+/* Badge */
+.badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 8px;
+    line-height: 1.6;
+}
+
+.badge--amber {
+    background: var(--accent);
+    color: #000;
+}
+
+/* Spinner size variant */
+.spinner--sm {
+    width: 14px;
+    height: 14px;
+    border-width: 2px;
+}
+
+/* =============================================================================
    MOBILE RESPONSIVE  (≤ 480 px)
    ============================================================================= */
 

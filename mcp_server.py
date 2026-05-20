@@ -2662,6 +2662,204 @@ async def generate_from_template(
 
 
 # ---------------------------------------------------------------------------
+# Watchlist tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_watchlist() -> str:
+    """Return all artists currently on the watchlist with their status.
+
+    Each entry shows: artist name, last time Qobuz was checked, last new release
+    found, and count of unread/unnotified releases.  Use this to see which artists
+    you are monitoring and whether any new releases are waiting.
+    """
+    logger.info("GET_WATCHLIST called")
+    result = await _api_call("GET", "/api/watchlist")
+    if isinstance(result, str):
+        return result
+    artists = result if isinstance(result, list) else result.get("items", [])
+    if not artists:
+        return "Watchlist is empty. Use add_to_watchlist to start monitoring artists."
+    lines = ["## Artist Watchlist\n"]
+    for a in artists:
+        unread = a.get("unnotified_count", 0)
+        checked = a.get("last_checked") or "never"
+        badge = f" 🆕 {unread} new" if unread else ""
+        flags = []
+        if a.get("monitor_albums"):
+            flags.append("albums")
+        if a.get("monitor_eps"):
+            flags.append("EPs")
+        if a.get("monitor_singles"):
+            flags.append("singles")
+        flag_str = ", ".join(flags) if flags else "nothing"
+        auto = " (auto-added)" if a.get("auto_added") else ""
+        lines.append(
+            f"- **{a['artist_name']}**{badge}{auto} — monitoring: {flag_str} — last checked: {checked}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def add_to_watchlist(
+    artist_name: str,
+    monitor_albums: bool = True,
+    monitor_eps: bool = True,
+    monitor_singles: bool = False,
+) -> str:
+    """Add an artist to the watchlist so RoonSage monitors them for new Qobuz releases.
+
+    Args:
+        artist_name:     Name of the artist to monitor.
+        monitor_albums:  Notify on new full-length albums (default True).
+        monitor_eps:     Notify on new EPs (default True).
+        monitor_singles: Notify on new singles (default False).
+    """
+    logger.info("ADD_TO_WATCHLIST called: %s", artist_name)
+    result = await _api_call(
+        "POST",
+        "/api/watchlist",
+        json={
+            "artist_name": artist_name,
+            "monitor_albums": monitor_albums,
+            "monitor_eps": monitor_eps,
+            "monitor_singles": monitor_singles,
+        },
+        retryable=False,
+    )
+    if isinstance(result, str):
+        return result
+    return f"✅ Added **{artist_name}** to watchlist."
+
+
+@mcp.tool()
+async def scan_watchlist() -> str:
+    """Trigger an immediate scan of all watched artists for new Qobuz releases.
+
+    This queries Qobuz for each watched artist and compares the results against
+    the previously cached releases.  Any releases not seen before are recorded
+    and returned.  The scan respects per-artist monitor flags (albums/EPs/singles).
+
+    Returns a summary of all new releases found, or a message if nothing is new.
+    May take up to a minute for large watchlists due to Qobuz rate limiting.
+    """
+    logger.info("SCAN_WATCHLIST called")
+    result = await _api_call(
+        "POST",
+        "/api/watchlist/scan",
+        retryable=False,
+        timeout=120.0,
+    )
+    if isinstance(result, str):
+        return result
+    releases = result.get("releases", [])
+    found = result.get("new_releases_found", 0)
+    if not releases:
+        return "Scan complete. No new releases found."
+
+    lines = [f"## 🆕 {found} New Release(s) Found\n"]
+    for r in releases:
+        date_str = f" ({r['release_date']})" if r.get("release_date") else ""
+        lines.append(
+            f"- **{r['artist_name']}** — {r['album_title']}{date_str} [{r.get('release_type', 'album')}]"
+        )
+    lines.append(
+        "\nUse `play_new_release` to start playback of any of these, "
+        "or `get_watchlist` to see the full list."
+    )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def play_new_release(
+    artist_name: str,
+    album_title: str,
+    zone_id: Optional[str] = None,
+) -> str:
+    """Play a new release found by the watchlist scanner.
+
+    This searches Qobuz for the specific album and starts playback in the
+    given zone (or the first active zone if none is specified).
+
+    Args:
+        artist_name:  Artist name exactly as shown in the watchlist.
+        album_title:  Album title exactly as shown in the new-releases list.
+        zone_id:      Optional Roon zone ID or name. Uses first active zone if omitted.
+    """
+    logger.info("PLAY_NEW_RELEASE called: %s — %s", artist_name, album_title)
+
+    # Look up the item_key from the releases cache
+    releases_resp = await _api_call("GET", "/api/watchlist/new-releases?include_dismissed=true")
+    if isinstance(releases_resp, str):
+        return releases_resp
+
+    releases = releases_resp if isinstance(releases_resp, list) else []
+    match = next(
+        (
+            r for r in releases
+            if r.get("artist_name", "").lower() == artist_name.lower()
+            and r.get("album_title", "").lower() == album_title.lower()
+        ),
+        None,
+    )
+
+    if not match:
+        return (
+            f"Release '{album_title}' by {artist_name} not found in the watchlist cache. "
+            "Run scan_watchlist first, or use search_qobuz to find and play it manually."
+        )
+
+    item_key = match.get("item_key")
+    if not item_key:
+        # Fallback: search Qobuz live
+        qobuz_resp = await _api_call(
+            "POST",
+            "/api/roon/qobuz-search",
+            json={"query": f"{artist_name} {album_title}", "limit": 5},
+            retryable=False,
+        )
+        if isinstance(qobuz_resp, str):
+            return qobuz_resp
+        tracks = qobuz_resp.get("tracks", []) if isinstance(qobuz_resp, dict) else []
+        if not tracks:
+            return (
+                f"Could not find '{album_title}' by {artist_name} on Qobuz. "
+                "It may not be available in your region."
+            )
+        item_key = tracks[0].get("item_key")
+
+    if not item_key:
+        return f"No playable item key found for '{album_title}' by {artist_name}."
+
+    # Resolve zone_id if a name was given
+    if not zone_id:
+        zones_resp = await _api_call("GET", "/api/roon/zones")
+        if isinstance(zones_resp, list) and zones_resp:
+            zone_id = zones_resp[0].get("zone_id", "")
+
+    play_resp = await _api_call(
+        "POST",
+        "/api/queue",
+        json={"item_keys": [item_key], "zone_id": zone_id or ""},
+        retryable=False,
+    )
+    if isinstance(play_resp, str):
+        return f"Playback failed: {play_resp}"
+
+    # Mark as dismissed/notified
+    release_id = match.get("id")
+    if release_id:
+        await _api_call(
+            "POST",
+            f"/api/watchlist/new-releases/{release_id}/dismiss",
+            retryable=False,
+        )
+
+    return f"▶ Now playing: **{album_title}** by {artist_name}"
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
