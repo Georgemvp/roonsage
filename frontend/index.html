@@ -260,6 +260,19 @@
                     <div id="step-input-prompt" class="step-panel active">
                         <h2>Describe your playlist</h2>
                         <p class="step-description">Tell us what kind of music you're in the mood for.</p>
+
+                        <!-- Template Picker -->
+                        <div class="template-section">
+                            <div class="template-section-header">
+                                <p class="template-section-label">One-click templates</p>
+                            </div>
+                            <div id="template-grid" class="template-grid" role="group" aria-label="Playlist templates"></div>
+                        </div>
+
+                        <div class="template-divider">
+                            <span>or describe your own</span>
+                        </div>
+
                         <textarea
                             id="prompt-input"
                             class="prompt-textarea"
@@ -1101,6 +1114,55 @@
                 <span class="cost-display footer-results-only" id="cost-display"></span>
             </div>
         </footer>
+    </div>
+
+    <!-- Custom Template Modal -->
+    <div id="template-modal" class="template-modal-overlay hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="tm-modal-title">
+        <div class="template-modal">
+            <h3 id="tm-modal-title" class="template-modal-title">Create Custom Template</h3>
+
+            <div class="form-group">
+                <label for="tm-id" class="form-label">ID <span class="form-hint">(lowercase, hyphens only)</span></label>
+                <input type="text" id="tm-id" class="form-input" placeholder="my-chill-playlist" pattern="^[a-z0-9][a-z0-9\-]{1,62}$">
+            </div>
+
+            <div class="tm-row">
+                <div class="form-group" style="flex:1">
+                    <label for="tm-name" class="form-label">Name</label>
+                    <input type="text" id="tm-name" class="form-input" placeholder="My Chill Playlist" maxlength="80">
+                </div>
+                <div class="form-group" style="width:80px">
+                    <label for="tm-icon" class="form-label">Icon</label>
+                    <input type="text" id="tm-icon" class="form-input" value="🎵" maxlength="8">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="tm-description" class="form-label">Description</label>
+                <input type="text" id="tm-description" class="form-input" placeholder="A short description…" maxlength="200">
+            </div>
+
+            <div class="form-group">
+                <label for="tm-prompt" class="form-label">Prompt</label>
+                <textarea id="tm-prompt" class="form-input prompt-textarea" rows="4" placeholder="Describe the playlist in detail…"></textarea>
+            </div>
+
+            <div class="tm-row">
+                <div class="form-group" style="flex:1">
+                    <label for="tm-track-count" class="form-label">Track count</label>
+                    <input type="number" id="tm-track-count" class="form-input" value="25" min="5" max="200">
+                </div>
+                <div class="form-group" style="flex:1; display:flex; align-items:center; gap:8px; padding-top:22px">
+                    <input type="checkbox" id="tm-exclude-live" checked>
+                    <label for="tm-exclude-live" class="form-label" style="margin:0">Exclude live tracks</label>
+                </div>
+            </div>
+
+            <div class="template-modal-actions">
+                <button id="tm-cancel" class="btn btn-secondary" type="button">Cancel</button>
+                <button id="tm-save" class="btn btn-primary" type="button">Save Template</button>
+            </div>
+        </div>
     </div>
 
     <script type="module" src="/static/app.js"></script>

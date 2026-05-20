@@ -28,6 +28,7 @@ import { enterSetupWizard }               from './modules/setup-wizard.js';
 import { startNowPlaying }                from './modules/nowplaying.js';
 import { initPlaylistsView }              from './modules/playlists.js';
 import { initTasteView }                  from './modules/taste.js';
+import { initTemplates }                  from './modules/templates.js';
 
 // =============================================================================
 // Initialization
@@ -59,6 +60,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
     setupRecEventListeners();
     setupHistoryEventListeners();
+    initTemplates();
     state.view = viewFromHash();
     state.mode = modeFromHash();
     if (!location.hash) {

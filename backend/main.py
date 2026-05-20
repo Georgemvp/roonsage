@@ -21,6 +21,7 @@ from backend.routes import setup, library, generate, recommend, roon, config_rou
 from backend.routes.qobuz_playlist import router as qobuz_playlist_router
 from backend.routes.intelligence import router as intelligence_router
 from backend.routes.discovery import router as discovery_router
+from backend.routes.templates import router as templates_router
 from backend.dependencies import ROONSAGE_PASSWORD
 import backend.routes.recommend as _recommend_module
 
@@ -196,6 +197,7 @@ app.include_router(results.router)
 app.include_router(qobuz_playlist_router)
 app.include_router(intelligence_router)
 app.include_router(discovery_router)
+app.include_router(templates_router)
 
 
 # =============================================================================

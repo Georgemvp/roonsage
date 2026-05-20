@@ -2507,6 +2507,161 @@ async def sync_listenbrainz() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Playlist Templates
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_playlist_templates() -> str:
+    """List all available playlist templates (built-in and user-created).
+
+    Returns each template's id, name, description, icon, track count, filter
+    presets, and whether it is built-in or user-created.
+
+    Use this to show the user which one-click templates are available before
+    calling generate_from_template.  No parameters required.
+    """
+    logger.info("LIST_PLAYLIST_TEMPLATES called")
+    result = await _api_call("GET", "/api/templates")
+    if isinstance(result, str):
+        return result
+
+    lines = ["Available playlist templates:\n"]
+    for t in result:
+        builtin_tag = "(built-in)" if t.get("is_builtin") else "(custom)"
+        filters = t.get("filters", {})
+        genres_hint = ", ".join(filters.get("genres", [])) or "any genre"
+        decades_hint = ", ".join(filters.get("decades", [])) or "any decade"
+        lines.append(
+            f"{t.get('icon', '🎵')} [{t['id']}] {t['name']} {builtin_tag}\n"
+            f"   {t.get('description', '')}\n"
+            f"   Tracks: {t.get('track_count', 25)} | "
+            f"Genres: {genres_hint} | Decades: {decades_hint}"
+        )
+    return "\n\n".join(lines)
+
+
+@mcp.tool()
+async def generate_from_template(
+    template_id: str,
+    zone_id: str,
+    genres: Optional[list[str]] = None,
+    decades: Optional[list[str]] = None,
+    track_count: Optional[int] = None,
+    exclude_live: Optional[bool] = None,
+) -> str:
+    """Generate a playlist from a pre-defined template and start playback.
+
+    Loads the template by ID (use list_playlist_templates to browse available
+    templates), generates a playlist using the template's prompt and filter
+    presets, then immediately plays it in the specified zone.
+
+    Optional parameters override the template's defaults — for example, you
+    can restrict to a specific decade or adjust the track count.
+
+    Args:
+        template_id:  Template slug, e.g. "friday-night-chill", "late-night-jazz".
+                      Call list_playlist_templates first to get the full list.
+        zone_id:      Roon zone ID (or zone name substring) to play in.
+                      Call list_zones to find available zones.
+        genres:       Optional genre override, e.g. ["Jazz", "Blues"].
+                      Pass None to use the template's genre presets.
+        decades:      Optional decade override, e.g. ["1980s", "1990s"].
+                      Pass None to use the template's decade presets.
+        track_count:  Override the number of tracks (default: template's value).
+        exclude_live: Override live-track exclusion (default: template's setting).
+    """
+    logger.info(
+        "GENERATE_FROM_TEMPLATE: id=%s zone=%s", template_id, zone_id
+    )
+
+    # Build override body (only include fields that are explicitly overridden)
+    override_body: dict = {}
+    if genres is not None:
+        override_body["genres"] = genres
+    if decades is not None:
+        override_body["decades"] = decades
+    if track_count is not None:
+        override_body["track_count"] = track_count
+    if exclude_live is not None:
+        override_body["exclude_live"] = exclude_live
+
+    # Stream the template generate endpoint
+    tracks_batches: list[list[dict]] = []
+    complete_data: dict = {}
+    errors: list[str] = []
+
+    try:
+        async with _get_stream_client().stream(
+            "POST",
+            f"{ROONSAGE_URL}/api/templates/{template_id}/generate",
+            json=override_body if override_body else None,
+        ) as response:
+            if response.status_code == 404:
+                await response.aread()
+                return f"Template '{template_id}' not found. Use list_playlist_templates to see available templates."
+            if response.status_code != 200:
+                await response.aread()
+                return f"RoonSage API error: {response.status_code} — {response.text}"
+
+            async for event_type, payload in _parse_sse_events(response):
+                if event_type == "tracks":
+                    batch = payload.get("batch", [])
+                    if batch:
+                        tracks_batches.append(batch)
+                elif event_type == "complete":
+                    complete_data = payload
+                elif event_type == "error":
+                    errors.append(payload.get("message", "Unknown error"))
+
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.ReadTimeout:
+        return "Template generation timed out. Try again."
+    except httpx.HTTPStatusError as exc:
+        return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    if errors:
+        return f"Template generation failed: {'; '.join(errors)}"
+
+    all_tracks = [t for batch in tracks_batches for t in batch]
+    if not all_tracks and not complete_data:
+        return "Template generation produced no results. Check that the library is synced."
+
+    # Build result
+    requested_count = track_count or complete_data.get("track_count", 25)
+    result = _build_playlist_result(all_tracks, complete_data, requested_count, exclude_live or True)
+
+    # Start playback
+    item_keys = [t.get("item_key", "") for t in all_tracks[:requested_count] if t.get("item_key")]
+    if not item_keys:
+        return f"Playlist generated but no playable tracks found.\n{json.dumps(result, ensure_ascii=False, indent=2)}"
+
+    play_resp = await _api_call(
+        "POST", "/api/queue",
+        json={"item_keys": item_keys, "zone_id": zone_id},
+        retryable=False,
+    )
+    if isinstance(play_resp, str):
+        # Playback failed — still return the playlist
+        return (
+            f"Playlist generated but playback failed: {play_resp}\n\n"
+            f"Tracks:\n{json.dumps(result, ensure_ascii=False, indent=2)}"
+        )
+
+    playlist_title = result.get("playlist_title") or f"Template: {template_id}"
+    track_list = "\n".join(
+        f"  {i+1}. {t.get('artist', '?')} — {t.get('title', '?')}"
+        for i, t in enumerate(result.get("tracks", []))
+    )
+    return (
+        f"▶ Now playing: {playlist_title}\n\n"
+        f"{track_list}\n\n"
+        f"Genre breakdown: {result.get('genre_breakdown', 'N/A')}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

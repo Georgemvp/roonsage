@@ -1,0 +1,153 @@
+templates:
+  - id: friday-night-chill
+    name: Friday Night Chill
+    description: Melancholic but warm, perfect for winding down the week
+    icon: "🌙"
+    prompt: >
+      A melancholic but warm playlist for a Friday evening. Mix of electronic,
+      ambient, and jazz with introspective lyrics. Think late-night city vibes,
+      soft synths, muted horns. Emotional but not heavy. 25 tracks that feel
+      like the end of a long week turning into something peaceful.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: sunday-morning
+    name: Sunday Morning
+    description: Calm acoustic folk and singer-songwriter for an easy morning
+    icon: "☀️"
+    prompt: >
+      A calm, unhurried Sunday morning playlist. Acoustic guitar, gentle vocals,
+      folk and singer-songwriter tracks that feel like sunlight through curtains.
+      Warm, intimate recordings — think coffee, quiet, no rush. 20 tracks with
+      a soft, reflective mood.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 20
+
+  - id: deep-focus
+    name: Deep Focus
+    description: Minimal electronic and ambient for concentration and flow state
+    icon: "🎯"
+    prompt: >
+      A deep focus playlist for concentration and flow state. Minimal electronic,
+      ambient, and post-rock. Prefer instrumental tracks or tracks with minimal
+      vocals that don't distract. Consistent tempo and texture, no sudden changes.
+      30 tracks that help the brain lock in for hours of focused work.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: workout-energy
+    name: Workout Energy
+    description: High-energy rock, electronic, and hip-hop to power your training
+    icon: "💪"
+    prompt: >
+      A high-energy workout playlist. Hard-hitting rock, driving electronic, and
+      energetic hip-hop. Fast tempo, aggressive beats, anthemic hooks. No slow
+      intros — every track should make you want to push harder. 35 tracks that
+      maintain peak energy from start to finish.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 35
+
+  - id: late-night-jazz
+    name: Late Night Jazz
+    description: Classic jazz from the golden era, perfect after midnight
+    icon: "🎷"
+    prompt: >
+      A late-night jazz playlist drawing from the golden era of jazz. Cool jazz,
+      hard bop, modal jazz from the 1950s and 1970s. Think Blue Note Records,
+      smoky clubs, late-night conversations. Mix of piano trios, quartets, and
+      solo instruments. 20 tracks with deep groove and sophisticated improvisation.
+    filters:
+      genres: []
+      decades: ["1950s", "1960s", "1970s"]
+      exclude_live: true
+    track_count: 20
+
+  - id: 90s-nostalgia
+    name: 90s Nostalgia
+    description: Alternative rock, grunge, and britpop from the nineties
+    icon: "📼"
+    prompt: >
+      A 90s nostalgia playlist full of alternative rock, grunge, and britpop from
+      the 1990s. Guitar-driven, angsty but catchy, with that distinct lo-fi warmth
+      of the decade. Mix of big hits and underrated deep cuts. 30 tracks that take
+      you straight back to the era of flannel shirts and mixtapes.
+    filters:
+      genres: []
+      decades: ["1990s"]
+      exclude_live: true
+    track_count: 30
+
+  - id: dinner-party
+    name: Dinner Party
+    description: Sophisticated soul, jazz, and bossa nova for elegant gatherings
+    icon: "🍷"
+    prompt: >
+      A sophisticated dinner party playlist. Smooth jazz, soul, bossa nova, and
+      world music with elegant sensibility. Music that enhances conversation without
+      dominating it — warm, unhurried, refined. Mix of classics and modern takes.
+      25 tracks that make any gathering feel more special.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: road-trip
+    name: Road Trip
+    description: Classic rock, indie, and upbeat tracks for the open road
+    icon: "🚗"
+    prompt: >
+      The perfect road trip playlist. Classic rock anthems, indie gems, and upbeat
+      tracks that celebrate open roads and freedom. Mix of decades — timeless songs
+      that sound great with the windows down. Fast enough to keep energy up, melodic
+      enough to sing along. 40 tracks for a long drive with no skip button needed.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 40
+
+  - id: rainy-day
+    name: Rainy Day
+    description: Atmospheric shoegaze, dream pop, and post-rock for grey skies
+    icon: "🌧️"
+    prompt: >
+      A rainy day playlist steeped in atmosphere. Shoegaze, dream pop, and post-rock
+      with lush reverb and introspective mood. Guitars that wash like waves, vocals
+      that blur into the texture. Music that makes rain feel cinematic. 20 deeply
+      immersive tracks to get lost in on a grey afternoon.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 20
+
+  - id: new-discoveries
+    name: New Discoveries
+    description: Mix your library with fresh Qobuz finds for a hybrid adventure
+    icon: "🔭"
+    prompt: >
+      A playlist that blends your library favorites with fresh discoveries from
+      Qobuz. Mix of familiar tracks and new music you haven't heard yet.
+      Prioritize musical coherence — the new tracks should feel like natural
+      companions to your existing collection. 25 tracks, approximately half from
+      your library and half new discoveries worth exploring.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    source_mode: hybrid
+    qobuz_percentage: 50
+    track_count: 25
