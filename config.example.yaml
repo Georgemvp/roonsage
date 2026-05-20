@@ -48,6 +48,17 @@ notifications:
   # (override with WEBHOOK_URL env var)
   webhook_url: ""
 
+acoustid:
+  # AcoustID API key — free, register at https://acoustid.org/api-key
+  # Used to verify that Qobuz search results match the intended track
+  # (catches wrong versions: live vs. studio, remix vs. original, etc.)
+  # Override with ACOUSTID_API_KEY env var
+  api_key: ""
+  # Enable AcoustID verification (requires api_key)
+  enabled: false
+  # Automatically verify every Qobuz search result (adds minor latency)
+  auto_verify_qobuz: false
+
 lastfm:
   # Last.fm API key and shared secret (from https://www.last.fm/api/account/create)
   # Override with LASTFM_API_KEY / LASTFM_API_SECRET env vars

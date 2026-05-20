@@ -297,6 +297,42 @@ def get_qobuz_config() -> dict[str, str]:
     }
 
 
+def get_acoustid_config() -> dict:
+    """Return AcoustID settings from environment variables or config.user.yaml.
+
+    Priority: environment variables > config.user.yaml > defaults.
+    Returns a dict with keys: api_key (str), enabled (bool), auto_verify_qobuz (bool).
+    """
+    user_config = load_user_yaml_config()
+    # Also check base config.yaml for acoustid section
+    base_config = load_yaml_config()
+    # Merge: user overrides base
+    acoustid_yaml: dict = {}
+    acoustid_yaml.update(base_config.get("acoustid", {}))
+    acoustid_yaml.update(user_config.get("acoustid", {}))
+
+    api_key = get_env_or_yaml("ACOUSTID_API_KEY", acoustid_yaml.get("api_key"), "")
+    enabled_raw = get_env_or_yaml(
+        "ACOUSTID_ENABLED", acoustid_yaml.get("enabled"), False
+    )
+    auto_verify_raw = get_env_or_yaml(
+        "ACOUSTID_AUTO_VERIFY_QOBUZ", acoustid_yaml.get("auto_verify_qobuz"), False
+    )
+
+    def _to_bool(val) -> bool:
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            return val.lower() in ("1", "true", "yes")
+        return bool(val)
+
+    return {
+        "api_key": api_key,
+        "enabled": _to_bool(enabled_raw) and bool(api_key),
+        "auto_verify_qobuz": _to_bool(auto_verify_raw),
+    }
+
+
 def get_listenbrainz_config() -> dict[str, str]:
     """Return ListenBrainz credentials from environment variables or config.user.yaml.
 

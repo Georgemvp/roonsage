@@ -479,7 +479,19 @@ async def qobuz_search(request: QobuzSearchRequest) -> QobuzSearchResponse:
         )
 
     try:
-        tracks = await search_qobuz_tracks(request.query, request.limit)
+        from backend.config import get_acoustid_config  # noqa: PLC0415
+        acoustid_cfg = get_acoustid_config()
+        should_verify = request.verify or (
+            acoustid_cfg["enabled"] and acoustid_cfg["auto_verify_qobuz"]
+        )
+        tracks = await search_qobuz_tracks(
+            request.query,
+            request.limit,
+            verify=should_verify,
+            expected_artist=request.expected_artist,
+            expected_title=request.expected_title,
+            expected_duration=request.expected_duration,
+        )
         # Reflect true Qobuz availability (cached; does not add an extra Browse API call
         # on every search). Returns False when Qobuz is not configured in Roon or the
         # user is not logged in — even if the search call returned an empty list for an

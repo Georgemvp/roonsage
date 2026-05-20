@@ -3172,6 +3172,91 @@ async def toggle_automation(automation_id: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# AcoustID verification tool
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def verify_track_match(
+    expected_artist: str,
+    expected_title: str,
+    candidate_artist: str,
+    candidate_title: str,
+    candidate_duration: int = 0,
+    expected_duration: int = 0,
+) -> str:
+    """Verify whether a Qobuz search result actually matches the intended track.
+
+    Catches wrong versions — live recordings mistaken for studio, remixes
+    instead of originals, acoustic versions, demos, radio edits, etc.  Uses
+    fuzzy string matching plus version-marker detection.  No audio fingerprint
+    is required; the check runs server-side in milliseconds.
+
+    When AcoustID is disabled or unavailable the verification still runs using
+    the local heuristics (fuzzy match + version markers) — it just won't
+    include AcoustID fingerprint data.
+
+    **When to use:**
+    - After search_qobuz when the user asked for a specific version
+      (e.g. "the original, not the live version")
+    - Before curate_and_play when track accuracy is important
+    - When the user reports that the wrong version is playing
+
+    **Interpreting results:**
+    - confidence > 0.85 → safe to play
+    - confidence 0.60–0.85 → possible match; show the result to the user for confirmation
+    - confidence < 0.60 → likely wrong track; search for a better match
+    - version_flags → specific markers found (e.g. ["live", "remix"])
+
+    Args:
+        expected_artist:    The artist you were searching for.
+        expected_title:     The exact title you were searching for.
+        candidate_artist:   Artist name returned by Qobuz / search_qobuz.
+        candidate_title:    Title returned by Qobuz / search_qobuz.
+        candidate_duration: Duration of the Qobuz result in seconds (0 = unknown).
+        expected_duration:  Duration of the original track in seconds (0 = unknown).
+    """
+    logger.info(
+        "VERIFY_TRACK_MATCH: expected='%s — %s' candidate='%s — %s'",
+        expected_artist, expected_title, candidate_artist, candidate_title,
+    )
+    result = await _api_call(
+        "POST",
+        "/api/verify/track",
+        json={
+            "expected_artist": expected_artist,
+            "expected_title": expected_title,
+            "candidate_artist": candidate_artist,
+            "candidate_title": candidate_title,
+            "candidate_duration": candidate_duration,
+            "expected_duration": expected_duration,
+        },
+    )
+    if isinstance(result, str):
+        return result
+
+    match = result.get("match", True)
+    confidence = result.get("confidence", 0.5)
+    reason = result.get("reason", "")
+    flags = result.get("version_flags", [])
+    acoustid_on = result.get("acoustid_enabled", False)
+
+    status = "✅ MATCH" if match else "⚠️  MISMATCH"
+    confidence_pct = f"{confidence:.0%}"
+    flags_str = f"  Version flags: {', '.join(flags)}" if flags else ""
+    acoustid_str = " (AcoustID enabled)" if acoustid_on else " (heuristic only)"
+
+    return (
+        f"{status}  confidence={confidence_pct}{acoustid_str}\n"
+        f"  {reason}{flags_str}\n\n"
+        f"  Expected:  {expected_artist} — {expected_title}"
+        + (f" (~{expected_duration}s)" if expected_duration else "") + "\n"
+        f"  Candidate: {candidate_artist} — {candidate_title}"
+        + (f" (~{candidate_duration}s)" if candidate_duration else "")
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

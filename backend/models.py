@@ -558,6 +558,11 @@ class QobuzSearchRequest(BaseModel):
 
     query: str = Field(..., min_length=1, max_length=500)
     limit: int = 10
+    # Optional AcoustID verification fields
+    verify: bool = False
+    expected_artist: str = ""
+    expected_title: str = ""
+    expected_duration: int = 0
 
 
 class QobuzSearchResponse(BaseModel):

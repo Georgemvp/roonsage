@@ -682,6 +682,33 @@ export function closeBottomSheet() {
     focusManager.closeModal(sheet);
 }
 
+/**
+ * Render an AcoustID verification badge for a track, if verification data is present.
+ *
+ * Badge types:
+ *   ✓  (green)  — verified match, confidence > 0.85
+ *   ⚠  (amber)  — possible mismatch, confidence 0.60–0.85 or version flags present
+ *   (none)      — not verified (verified === null / undefined) or confidence below 0.60
+ *                  but we don't block display
+ */
+function renderVerificationBadge(track) {
+    // Only show badge when track has been through verification
+    if (track.verified === undefined || track.verified === null) return '';
+    if (track.match_confidence === undefined || track.match_confidence === null) return '';
+
+    const confidence = track.match_confidence;
+    const flags = track.version_flags || [];
+    const reason = track.match_reason || '';
+
+    if (track.verified && confidence >= 0.85 && flags.length === 0) {
+        return `<span class="verify-badge verify-badge--match" title="Verified match (${Math.round(confidence * 100)}%): ${reason}">✓</span>`;
+    }
+
+    // Possible mismatch: version flags present, or confidence 0.60–0.85
+    const flagText = flags.length ? `Version: ${flags.join(', ')}. ` : '';
+    return `<span class="verify-badge verify-badge--warn" title="${flagText}Confidence ${Math.round(confidence * 100)}%: ${reason}">⚠</span>`;
+}
+
 export function updatePlaylist() {
     // Render narrative box
     renderNarrativeBox();
@@ -698,6 +725,7 @@ export function updatePlaylist() {
                 <div class="track-title">
                     ${escapeHtml(track.title)}
                     ${track.source === 'qobuz' ? '<span class="qobuz-badge" title="Via Qobuz">Qobuz</span>' : ''}
+                    ${renderVerificationBadge(track)}
                 </div>
                 <div class="track-artist">${escapeHtml(track.artist)} - ${escapeHtml(track.album)}</div>
             </div>

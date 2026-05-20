@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from backend.config import get_config, get_qobuz_config, get_listenbrainz_config, get_lastfm_config, get_notifications_config
+from backend.config import get_config, get_qobuz_config, get_listenbrainz_config, get_lastfm_config, get_notifications_config, get_acoustid_config
 from backend.version import get_version
 from backend.roon_client import get_roon_client, init_roon_client
 from backend.qobuz_api import init_qobuz_api_client
@@ -27,6 +27,7 @@ from backend.routes.watchlist import router as watchlist_router
 from backend.routes.scheduler import router as scheduler_router
 from backend.routes.enrichment import router as enrichment_router
 from backend.routes.automations import router as automations_router
+from backend.routes.verify import router as verify_router
 from backend.dependencies import ROONSAGE_PASSWORD
 import backend.routes.recommend as _recommend_module
 
@@ -97,6 +98,13 @@ async def lifespan(app: FastAPI):
         init_lf_sync_instance(lf_client)
     else:
         app.state.lf_client = None
+
+    # Initialize AcoustID verifier if configured
+    acoustid_cfg = get_acoustid_config()
+    if acoustid_cfg["enabled"]:
+        from backend.acoustid_client import init_verifier  # noqa: PLC0415
+        init_verifier(acoustid_cfg["api_key"])
+        logger.info("AcoustID verifier initialised (auto_verify_qobuz=%s)", acoustid_cfg["auto_verify_qobuz"])
 
     # Initialize DB schema early so migration flag is set
     library_cache.ensure_db_initialized().close()
@@ -297,6 +305,7 @@ app.include_router(watchlist_router)
 app.include_router(scheduler_router)
 app.include_router(enrichment_router)
 app.include_router(automations_router)
+app.include_router(verify_router)
 
 
 # =============================================================================

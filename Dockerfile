@@ -13,6 +13,11 @@ RUN groupadd -r -g 1000 roonsageappuser && useradd -r -u 1000 -g roonsageappuser
 # Create data directory with correct ownership (for volume mounts)
 RUN mkdir -p /app/data && chown roonsageappuser:roonsageappuser /app/data
 
+# Install system dependencies (chromaprint for AcoustID fingerprinting)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libchromaprint-tools \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

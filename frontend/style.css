@@ -730,6 +730,31 @@ textarea {
     letter-spacing: 0.02em;
 }
 
+/* AcoustID verification badges */
+.verify-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 99px;
+    padding: 1px 5px;
+    margin-left: 5px;
+    vertical-align: middle;
+    cursor: default;
+    user-select: none;
+}
+
+.verify-badge--match {
+    background: rgba(34, 197, 94, 0.18);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.verify-badge--warn {
+    background: rgba(234, 179, 8, 0.18);
+    color: #eab308;
+    border: 1px solid rgba(234, 179, 8, 0.35);
+}
+
 /* Chip Container */
 .chip-container {
     display: flex;

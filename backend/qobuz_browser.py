@@ -325,17 +325,33 @@ def search_qobuz_tracks_sync(roon, query: str, limit: int = 10) -> list[dict[str
         return []
 
 
-async def search_qobuz_tracks(query: str, limit: int = 10) -> list[dict[str, Any]]:
+async def search_qobuz_tracks(
+    query: str,
+    limit: int = 10,
+    verify: bool = False,
+    expected_artist: str = "",
+    expected_title: str = "",
+    expected_duration: int = 0,
+) -> list[dict[str, Any]]:
     """Search Qobuz for tracks via Roon's Browse API.
 
     Navigates: Root → My Qobuz / Qobuz → Search → query
 
     Args:
-        query: Search string (e.g. "Miles Davis So What")
-        limit: Max results to return
+        query:             Search string (e.g. "Miles Davis So What")
+        limit:             Max results to return
+        verify:            When True, run AcoustID verification on each result and
+                           add ``match_confidence`` / ``version_flags`` fields.
+                           Requires AcoustID to be configured; silently skipped when
+                           it is not.  Errors never block results.
+        expected_artist:   Original artist name (used for verification).
+        expected_title:    Original track title (used for verification).
+        expected_duration: Expected track duration in seconds (0 = unknown).
 
     Returns:
         List of dicts with item_key, title, artist, album, source="qobuz".
+        When verify=True each dict also contains match_confidence (float 0-1),
+        version_flags (list[str]), and match_reason (str).
         Empty list if Qobuz is not configured or search fails.
     """
     from backend.roon_client import get_roon_client
@@ -344,7 +360,46 @@ async def search_qobuz_tracks(query: str, limit: int = 10) -> list[dict[str, Any
     if not roon or not roon.is_connected():
         return []
 
-    return await asyncio.to_thread(search_qobuz_tracks_sync, roon, query, limit)
+    results = await asyncio.to_thread(search_qobuz_tracks_sync, roon, query, limit)
+
+    if not verify or not results:
+        return results
+
+    # Optional verification pass — fail-open
+    try:
+        from backend.acoustid_client import verify_match_sync  # noqa: PLC0415
+        from backend.config import get_acoustid_config  # noqa: PLC0415
+
+        acoustid_cfg = get_acoustid_config()
+        if not acoustid_cfg["enabled"]:
+            return results
+
+        ea = expected_artist or query
+        et = expected_title or query
+
+        for track in results:
+            try:
+                verdict = verify_match_sync(
+                    expected_artist=ea,
+                    expected_title=et,
+                    candidate_artist=track.get("artist", ""),
+                    candidate_title=track.get("title", ""),
+                    expected_duration=expected_duration,
+                )
+                track["match_confidence"] = verdict["confidence"]
+                track["version_flags"] = verdict["version_flags"]
+                track["match_reason"] = verdict["reason"]
+                track["verified"] = verdict["match"]
+            except Exception as exc:
+                logger.debug("AcoustID per-track verify failed for '%s': %s", track.get("title"), exc)
+                track["match_confidence"] = None
+                track["version_flags"] = []
+                track["match_reason"] = "Verification skipped"
+                track["verified"] = None
+    except Exception as exc:
+        logger.warning("AcoustID verification pass failed: %s", exc)
+
+    return results
 
 
 def check_qobuz_available_sync(roon) -> bool:
