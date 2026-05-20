@@ -78,6 +78,8 @@ async def get_taste_profile() -> dict:
     profile["artists"] = dict(sorted(profile.get("artists", {}).items(), key=lambda x: -x[1])[:30])
     profile["decades"] = dict(sorted(profile.get("decades", {}).items(), key=lambda x: -x[1])[:10])
     profile["moods"]   = dict(sorted(profile.get("moods", {}).items(),   key=lambda x: -x[1])[:10])
+    # New keys pass through as-is (already compact from compute)
+    # recently_active, listening_patterns, skip_signals, artist_streaks, top_albums
     return profile
 
 
@@ -130,8 +132,18 @@ async def get_listening_history(
         params.append(limit)
 
         rows = conn.execute(sql, params).fetchall()
-        return [
-            {
+        result = []
+        for r in rows:
+            # Try to find art key from library cache
+            art_key = None
+            if r[3] and r[4]:  # title and artist
+                art_row = conn.execute(
+                    "SELECT item_key FROM tracks WHERE title = ? AND artist = ? LIMIT 1",
+                    (r[3], r[4]),
+                ).fetchone()
+                if art_row:
+                    art_key = art_row[0]
+            result.append({
                 "id":               r[0],
                 "timestamp":        r[1],
                 "zone_name":        r[2],
@@ -142,9 +154,9 @@ async def get_listening_history(
                 "duration_seconds": r[7],
                 "played_seconds":   r[8],
                 "skipped":          bool(r[9]),
-            }
-            for r in rows
-        ]
+                "image_key":        art_key,
+            })
+        return result
     finally:
         conn.close()
 

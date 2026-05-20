@@ -1899,14 +1899,19 @@ async def prepare_for_arc(
 
 @mcp.tool()
 async def get_taste_profile() -> str:
-    """Get the user's musical taste profile built from listening history and feedback.
+    """Full taste profile including:
+    - genres, decades, artists, moods (0-1 scores, time-weighted)
+    - recently_active (top genres/artists from last 7 days)
+    - artist_streaks (artists with ≥5 plays this week)
+    - listening_patterns (genre preferences by time of day and weekday/weekend)
+    - skip_signals (genres/artists with >50% skip rate — avoid these)
+    - top_albums (most-played albums)
+    - dislikes, notes (explicit user preferences)
+    - lb_* keys (ListenBrainz data, if configured)
 
-    Call this at the START of every session to understand the user's preferences.
-    The profile contains genre preferences, favorite artists, preferred decades,
-    mood patterns, and explicit dislikes. Use this to inform all curation decisions:
-    - Boost genres/artists with high scores in filter_tracks calls
-    - Avoid anything in the dislikes list
-    - Take notes into account when selecting tracks
+    Call this at the START of every session. Use recently_active.top_genres as the
+    primary filter signal (current taste). Use skip_signals to avoid disliked content.
+    Use listening_patterns for time-aware curation without ListenBrainz.
 
     No parameters required.
     """
@@ -1923,6 +1928,11 @@ async def get_taste_profile() -> str:
                 compact[key] = dict(sorted(val.items(), key=lambda x: -x[1])[:20]) if val else {}
             else:
                 compact[key] = val
+    # New enriched keys — pass through as-is (already compact from compute)
+    for key in ("recently_active", "listening_patterns", "skip_signals", "artist_streaks", "top_albums"):
+        val = result.get(key)
+        if val:
+            compact[key] = val
     # Include LB summary
     lb_keys = [k for k in result if k.startswith("lb_") and result[k]]
     if lb_keys:

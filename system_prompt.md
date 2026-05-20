@@ -218,12 +218,18 @@ Gebruik hiervoor `add_to_qobuz_favorites(item_type="album", names=["Artist - Alb
 
 ### Begin van elke conversatie
 
-1. `get_taste_profile` — laad het smaakprofiel (genres, artiesten, decades, dislikes, notes)
+1. `get_taste_profile` — laad het smaakprofiel (genres, artiesten, decades, moods, dislikes, notes, recent activity, skip signals)
 2. `get_listening_history(days=3, limit=15)` — recent luistergedrag en skip-patroon
 3. Pas de curatie direct aan op basis van het profiel:
-   - **Genres met hoge score** → voeg toe aan `filter_tracks(genres=[...])`
-   - **Dislikes** → voeg toe aan `filter_tracks(exclude_keywords=[...])`
-   - **Notes** → neem mee in je selectiecriteria
+   - **`recently_active.top_genres`** → dit is wat de gebruiker NU luistert; weeg deze genres extra zwaar
+   - **`artist_streaks`** → artiesten waar de gebruiker momenteel in zit; zoek vergelijkbare artiesten
+   - **`moods` met hoge score** → gebruik als sfeer-indicator bij vage verzoeken
+   - **`skip_signals.genres`** → vermijd deze genres actief in filter_tracks
+   - **`skip_signals.artists`** → vermijd deze artiesten
+   - **`listening_patterns.evening_genres`** → als het avond is, weeg deze genres zwaarder
+   - **`listening_patterns.weekend_genres`** → als het weekend is, weeg deze genres zwaarder
+   - **`dislikes`** → voeg altijd toe aan `filter_tracks(exclude_keywords=[...])`
+   - **`notes`** → neem mee in selectiecriteria
 
 *Voorbeeld: profiel toont `{"Jazz": 0.85, "dislikes": ["christmas"]}` → filter altijd op Jazz en sluit "christmas" uit.*
 
@@ -243,6 +249,7 @@ Gebruik hiervoor `add_to_qobuz_favorites(item_type="album", names=["Artist - Alb
 | "Nooit meer kerst" | `update_taste_profile(dislikes=["christmas", "kerst"])` |
 | "Meer jaren 80" | `update_taste_profile(decade_preferences={"1980s": 0.85})` |
 | "Goed, maar meer uptempo" | `update_taste_profile(mood_preferences={"energetic": 0.75})` |
+| "Ik skip altijd country" | Feedback wordt automatisch opgepikt via skip_signals — geen handmatige update nodig |
 
 Sla **alleen duidelijke signalen** op — geen gissingen. Houd scores realistisch (0.5 = neutraal, 0.8 = sterke voorkeur, 1.0 = absoluut favoriet).
 
@@ -289,3 +296,14 @@ Het smaakprofiel bevat nu ListenBrainz-data naast lokale analyse (alleen als LB 
 **Sync:** ListenBrainz data wordt elke 6 uur automatisch gesynchroniseerd. Bij expliciete vraag: `sync_listenbrainz`.
 
 **Beschikbaarheid:** controleer `listenbrainz_available` in het profiel. Als leeg → geen LB data → val terug op lokale scores.
+
+### Verrijkt smaakprofiel (v7.0)
+
+Het profiel bevat nu automatisch berekende data naast de lokale en LB scores:
+
+1. **Recently active:** `recently_active` — de top genres en artiesten van de afgelopen 7 dagen. Dit is het sterkste signaal voor huidige smaak. Bij een vaag verzoek ("zet iets op"), gebruik deze data als primaire filter.
+2. **Artist streaks:** `artist_streaks` — artiesten met ≥5 plays in de afgelopen week. Als een streak actief is, bied proactief vergelijkbare muziek aan: "Ik zie dat je veel Nick Cave luistert deze week — wil je iets in die richting?"
+3. **Moods:** `moods` worden nu automatisch berekend uit genre-data. Je hoeft ze niet meer handmatig te vullen. Gebruik ze bij sfeer-verzoeken ("iets chills", "energie").
+4. **Skip signals:** `skip_signals` bevatten genres en artiesten met >50% skip rate. Behandel deze als sterke negatieve signalen — vermijd ze tenzij de gebruiker er expliciet om vraagt.
+5. **Listening patterns:** `listening_patterns` toont genre-voorkeuren per dagdeel en weekend. Gebruik deze voor tijds-aware curatie ZONDER ListenBrainz.
+6. **Top albums:** `top_albums` als top-level key — gebruik voor album-georiënteerde aanbevelingen.
