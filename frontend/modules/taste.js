@@ -92,6 +92,7 @@ export async function initTasteView() {
         }
 
         _renderIntelBanner(profile, stats, lbStatus);
+        _renderTasteStats(profile);
         _renderTimelineChart(stats);
         _renderGenreDistChart(profile);
         _renderProfile(profile);         // radar chart
@@ -99,6 +100,7 @@ export async function initTasteView() {
         _renderArtistChart(stats, null);  // will be overwritten by LB data if available
         _renderHistory(history);
         _renderTasteNotes(profile);
+        _renderMoodTags(profile);
 
         if (lbStatus?.configured) {
             _renderLbStatus(lbStatus);
@@ -158,7 +160,7 @@ function _renderIntelBanner(profile, stats, lbStatus) {
     const subtitleEl = document.getElementById('taste-intel-subtitle');
     if (subtitleEl) {
         if (totalPlays === '—' || totalPlays === 0) {
-            subtitleEl.textContent = 'Listening monitor actief — data verschijnt na een paar nummers';
+            subtitleEl.textContent = 'Listening monitor active — data will appear after a few tracks';
         } else {
             const parts = [`Based on ${totalPlays} listened tracks`];
             if (scrobbles != null) parts.push(`${scrobbles} scrobbles`);
@@ -172,6 +174,98 @@ function _renderIntelBanner(profile, stats, lbStatus) {
     if (peakEl) peakEl.textContent = peakLabel;
     const skipEl = document.getElementById('intel-chip-skip');
     if (skipEl) skipEl.textContent = `Skip: ${skipRate}`;
+}
+
+// ── Taste Stats Grid ──────────────────────────────────────────────────────────
+function _renderTasteStats(profile) {
+    // Find or create the stats grid, inserted after the intel banner
+    let statsGrid = document.querySelector('.taste-stats-grid');
+    if (!statsGrid) {
+        statsGrid = document.createElement('div');
+        statsGrid.className = 'taste-stats-grid';
+        const banner = document.querySelector('.taste-intel-banner');
+        if (banner) {
+            banner.after(statsGrid);
+        } else {
+            const view = document.getElementById('taste-view');
+            if (view) view.prepend(statsGrid);
+        }
+    }
+
+    const peakHour = profile?.listening_patterns?.peak_hour ?? profile?.peak_hour ?? null;
+    const peakDay  = profile?.listening_patterns?.peak_day  ?? profile?.peak_day  ?? null;
+    const totalHours = profile?.total_hours ?? profile?.listening_patterns?.total_hours ?? null;
+
+    const stats = [
+        {
+            value: totalHours != null ? Math.round(totalHours) : '—',
+            label: 'Hours Listened',
+            color: 'teal',
+        },
+        {
+            value: Object.keys(profile?.genre_scores || {}).length || (profile?.top_genres?.length ?? '—'),
+            label: 'Genres',
+            color: '',
+        },
+        {
+            value: (profile?.top_artists?.length) || '—',
+            label: 'Artists Tracked',
+            color: '',
+        },
+        {
+            value: peakHour != null ? `${peakHour}:00` : '—',
+            label: 'Peak Hour',
+            color: 'amber',
+        },
+        {
+            value: peakDay
+                ? peakDay.charAt(0).toUpperCase() + peakDay.slice(1)
+                : '—',
+            label: 'Peak Day',
+            color: 'amber',
+        },
+    ];
+
+    statsGrid.innerHTML = stats.map(s => `
+        <div class="taste-stat-card">
+            <div class="taste-stat-value${s.color ? ' taste-stat-value--' + s.color : ''}">${s.value}</div>
+            <div class="taste-stat-label">${s.label}</div>
+        </div>
+    `).join('');
+}
+
+// ── Mood Tags ─────────────────────────────────────────────────────────────────
+function _renderMoodTags(profile) {
+    // Only add mood/skip tags if the profile has them — don't overwrite the
+    // existing Likes/Dislikes notes that _renderTasteNotes already renders.
+    const moods = profile?.moods || [];
+    const skips = profile?.skip_signals || [];
+    if (!moods.length && !skips.length) return;
+
+    const notesSection = document.getElementById('taste-notes-section');
+    if (!notesSection) return;
+
+    let moodHtml = '';
+    if (moods.length) {
+        moodHtml += `
+            <div class="taste-notes-block">
+                <h3>Your Moods</h3>
+                <div class="taste-mood-tags">${moods.map(m =>
+                    `<span class="taste-mood-tag">${escapeHtml(m)}</span>`
+                ).join('')}</div>
+            </div>`;
+    }
+    if (skips.length) {
+        moodHtml += `
+            <div class="taste-notes-block">
+                <h3>Usually Skip</h3>
+                <div class="taste-mood-tags">${skips.map(s =>
+                    `<span class="taste-mood-tag taste-mood-tag--skip">${escapeHtml(s)}</span>`
+                ).join('')}</div>
+            </div>`;
+    }
+
+    if (moodHtml) notesSection.insertAdjacentHTML('beforeend', moodHtml);
 }
 
 // ── Chart 1: Listening Activity Timeline ─────────────────────────────────────
@@ -682,15 +776,15 @@ function _setupLbButtons() {
             try {
                 const res = await apiCall('/intelligence/listenbrainz/sync', { method: 'POST' });
                 if (res?.status === 'ok') {
-                    syncBtn.textContent = '✓ Gesynchroniseerd';
+                    syncBtn.textContent = '✓ Synced';
                     setTimeout(() => initTasteView(), 500);
                 } else {
-                    syncBtn.textContent = '✗ Fout bij sync';
+                    syncBtn.textContent = '✗ Sync failed';
                 }
             } catch {
-                syncBtn.textContent = '✗ Fout bij sync';
+                syncBtn.textContent = '✗ Sync failed';
             }
-            setTimeout(() => { syncBtn.textContent = 'Sync nu'; syncBtn.disabled = false; }, 3000);
+            setTimeout(() => { syncBtn.textContent = 'Sync Now'; syncBtn.disabled = false; }, 3000);
         });
     }
 
@@ -698,14 +792,14 @@ function _setupLbButtons() {
     if (enrichBtn) {
         enrichBtn.addEventListener('click', async () => {
             enrichBtn.disabled = true;
-            enrichBtn.textContent = 'Verrijken…';
+            enrichBtn.textContent = 'Enriching…';
             try {
                 const res = await apiCall('/intelligence/listening-history/enrich', { method: 'POST' });
-                enrichBtn.textContent = `✓ ${res?.rows_updated || 0} rijen bijgewerkt`;
+                enrichBtn.textContent = `✓ ${res?.rows_updated || 0} rows updated`;
             } catch {
-                enrichBtn.textContent = '✗ Fout';
+                enrichBtn.textContent = '✗ Error';
             }
-            setTimeout(() => { enrichBtn.textContent = 'Verrijk history'; enrichBtn.disabled = false; }, 3000);
+            setTimeout(() => { enrichBtn.textContent = 'Enrich History'; enrichBtn.disabled = false; }, 3000);
         });
     }
 
@@ -713,15 +807,15 @@ function _setupLbButtons() {
     if (recomputeBtn) {
         recomputeBtn.addEventListener('click', async () => {
             recomputeBtn.disabled = true;
-            recomputeBtn.textContent = 'Herberekenen…';
+            recomputeBtn.textContent = 'Recomputing…';
             try {
                 await apiCall('/intelligence/taste-profile/detailed');
-                recomputeBtn.textContent = '✓ Profiel bijgewerkt';
+                recomputeBtn.textContent = '✓ Profile updated';
                 setTimeout(() => initTasteView(), 500);
             } catch {
-                recomputeBtn.textContent = '✗ Fout';
+                recomputeBtn.textContent = '✗ Error';
             }
-            setTimeout(() => { recomputeBtn.textContent = 'Herbereken profiel'; recomputeBtn.disabled = false; }, 3000);
+            setTimeout(() => { recomputeBtn.textContent = 'Recompute Profile'; recomputeBtn.disabled = false; }, 3000);
         });
     }
 }
@@ -739,11 +833,11 @@ function _renderLbStatus(status) {
     const profileLink = document.getElementById('lb-profile-link');
 
     if (dot) dot.classList.add('status-dot--ok');
-    if (text) text.textContent = `Verbonden als ${status.username || 'onbekend'}`;
+    if (text) text.textContent = `Connected as ${status.username || 'unknown'}`;
     if (details) details.classList.remove('hidden');
     if (countChip) countChip.textContent = `${status.scrobble_count || 0} scrobbles`;
     if (syncChip && status.last_synced) {
-        syncChip.textContent = `Sync: ${new Date(status.last_synced).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' })}`;
+        syncChip.textContent = `Sync: ${new Date(status.last_synced).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}`;
     }
     if (profileLink && status.profile_url) {
         profileLink.href = status.profile_url;
@@ -779,7 +873,7 @@ function _renderBarChart(containerId, items) {
     const container = document.getElementById(containerId);
     if (!container) return;
     if (!items?.length) {
-        container.innerHTML = '<p class="lb-no-data">Geen data beschikbaar.</p>';
+        container.innerHTML = '<p class="lb-no-data">No data available.</p>';
         return;
     }
     const max = Math.max(...items.map(i => i.value), 1);
@@ -799,7 +893,7 @@ function _renderLbList(containerId, items) {
     const container = document.getElementById(containerId);
     if (!container) return;
     if (!items?.length) {
-        container.innerHTML = '<p class="lb-no-data">Geen data beschikbaar.</p>';
+        container.innerHTML = '<p class="lb-no-data">No data available.</p>';
         return;
     }
     container.innerHTML = items.map((item, i) => `
@@ -896,10 +990,10 @@ function _renderHistory(history) {
 
     for (const ev of limited) {
         const dateKey = ev.timestamp
-            ? new Date(ev.timestamp).toLocaleDateString('nl-NL', {
+            ? new Date(ev.timestamp).toLocaleDateString('en-GB', {
                 weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
             })
-            : 'Onbekende datum';
+            : 'Unknown date';
         if (!groups.has(dateKey)) groups.set(dateKey, []);
         groups.get(dateKey).push(ev);
     }
@@ -915,7 +1009,7 @@ function _renderHistory(history) {
                 ? `<img src="/api/art/${artKey}?width=40&height=40" class="taste-hist-art" alt="" onerror="this.style.display='none'">`
                 : `<div class="taste-hist-art taste-hist-art--placeholder">♪</div>`;
             const ts = ev.timestamp
-                ? new Date(ev.timestamp).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+                ? new Date(ev.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
                 : '';
             const skippedClass = ev.skipped ? ' taste-hist-event--skipped' : '';
             html += `

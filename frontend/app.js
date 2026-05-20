@@ -30,6 +30,7 @@ import { initPlaylistsView }              from './modules/playlists.js';
 import { initTasteView }                  from './modules/taste.js';
 import { initTemplates }                  from './modules/templates.js';
 import { initSchedulerSection }           from './modules/scheduler.js';
+import { startActivityMonitor }           from './modules/activity.js';
 
 // =============================================================================
 // Theme Toggle
@@ -256,6 +257,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Start Now Playing polling (persistent — runs on all views)
     startNowPlaying();
 
+    // Start background activity monitor (enrichment, library sync indicator)
+    startActivityMonitor();
+
     // Wire "Save for Arc" button in results view
     _wireArcButton();
 
@@ -297,14 +301,14 @@ function _wireArcButton() {
         // Pre-fill with playlist title
         if (nameInput) nameInput.value = state.playlistTitle || state.playlistName || 'My Playlist';
         if (resultEl)  { resultEl.textContent = ''; resultEl.className = 'arc-modal-result hidden'; }
-        if (saveBtn)   { saveBtn.disabled = false; saveBtn.textContent = 'Opslaan'; }
+        if (saveBtn)   { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
         modal.classList.remove('hidden');
 
         saveBtn?.addEventListener('click', async function _save() {
             const name = nameInput?.value.trim() || 'My Playlist';
             const addFav = document.getElementById('arc-global-favorites')?.checked ?? true;
             saveBtn.disabled = true;
-            saveBtn.textContent = 'Opslaan…';
+            saveBtn.textContent = 'Saving…';
             resultEl.className = 'arc-modal-result';
             resultEl.textContent = '';
             try {
@@ -318,13 +322,13 @@ function _wireArcButton() {
                     }),
                 });
                 resultEl.className = 'arc-modal-result arc-modal-result--success';
-                resultEl.textContent = `✓ Opgeslagen als Qobuz-playlist — beschikbaar in Roon Arc (${resp.saved || 0} tracks, ${resp.skipped || 0} geskipt)`;
-                saveBtn.textContent = 'Opgeslagen';
+                resultEl.textContent = `✓ Saved as Qobuz playlist — available in Roon Arc (${resp.saved || 0} tracks, ${resp.skipped || 0} skipped)`;
+                saveBtn.textContent = 'Saved';
             } catch (e) {
                 resultEl.className = 'arc-modal-result arc-modal-result--error';
-                resultEl.textContent = 'Fout: ' + e.message;
+                resultEl.textContent = 'Error: ' + e.message;
                 saveBtn.disabled = false;
-                saveBtn.textContent = 'Opslaan';
+                saveBtn.textContent = 'Save';
             }
             // Remove one-time listener after first save attempt
             saveBtn.removeEventListener('click', _save);

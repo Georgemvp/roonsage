@@ -337,7 +337,7 @@ export function setupEventListeners() {
             if (resultEl) resultEl.textContent = 'Voer een token in.';
             return;
         }
-        if (btn) { btn.disabled = true; btn.textContent = 'Valideren...'; }
+        if (btn) { btn.disabled = true; btn.textContent = 'Validating...'; }
         try {
             const res = await fetch('/api/setup/validate-listenbrainz', {
                 method: 'POST',
@@ -346,18 +346,18 @@ export function setupEventListeners() {
             });
             const data = await res.json();
             if (data.valid) {
-                if (resultEl) resultEl.innerHTML = `<span style="color:#4caf50">✓ Verbonden als <strong>${data.user_name || username}</strong></span>`;
+                if (resultEl) resultEl.innerHTML = `<span style="color:#4caf50">✓ Connected as <strong>${data.user_name || username}</strong></span>`;
                 const dot = document.querySelector('#lb-settings-status .status-dot');
                 const txt = document.querySelector('#lb-settings-status .status-text');
                 if (dot) { dot.style.background = '#4caf50'; }
-                if (txt) txt.textContent = `Verbonden als ${data.user_name || username}`;
+                if (txt) txt.textContent = `Connected as ${data.user_name || username}`;
             } else {
-                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.message || 'Ongeldig token'}</span>`;
+                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.message || 'Invalid token'}</span>`;
             }
         } catch (e) {
-            if (resultEl) resultEl.textContent = 'Fout: ' + e.message;
+            if (resultEl) resultEl.textContent = 'Error: ' + e.message;
         }
-        if (btn) { btn.disabled = false; btn.textContent = 'Valideren'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Validate'; }
     });
 
     // ── Last.fm: Validate credentials ──────────────────────────────────────
@@ -369,10 +369,10 @@ export function setupEventListeners() {
         const username = document.getElementById('lastfm-username')?.value?.trim();
 
         if (!apiKey || !apiSecret || !username) {
-            if (resultEl) resultEl.textContent = 'Vul API key, API secret en gebruikersnaam in.';
+            if (resultEl) resultEl.textContent = 'Please fill in API key, API secret, and username.';
             return;
         }
-        if (btn) { btn.disabled = true; btn.textContent = 'Valideren...'; }
+        if (btn) { btn.disabled = true; btn.textContent = 'Validating...'; }
         try {
             const res = await fetch('/api/setup/validate-lastfm', {
                 method: 'POST',
@@ -381,18 +381,18 @@ export function setupEventListeners() {
             });
             const data = await res.json();
             if (data.valid) {
-                if (resultEl) resultEl.innerHTML = `<span style="color:#4caf50">✓ Verbonden als <strong>${data.username || username}</strong>. Klik nu op Autoriseren voor scrobbling.</span>`;
+                if (resultEl) resultEl.innerHTML = `<span style="color:#4caf50">✓ Connected as <strong>${data.username || username}</strong>. Now click Authorize to enable scrobbling.</span>`;
                 const dot = document.querySelector('#lastfm-settings-status .status-dot');
                 const txt = document.querySelector('#lastfm-settings-status .status-text');
                 if (dot) dot.style.background = '#4caf50';
-                if (txt) txt.textContent = `Verbonden als ${data.username || username}`;
+                if (txt) txt.textContent = `Connected as ${data.username || username}`;
             } else {
-                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.message || data.error || 'Ongeldige gegevens'}</span>`;
+                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.message || data.error || 'Invalid credentials'}</span>`;
             }
         } catch (e) {
-            if (resultEl) resultEl.textContent = 'Fout: ' + e.message;
+            if (resultEl) resultEl.textContent = 'Error: ' + e.message;
         }
-        if (btn) { btn.disabled = false; btn.textContent = 'Valideren'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Validate'; }
     });
 
     // ── Last.fm: Authorise (get token + open auth URL) ──────────────────────
@@ -403,12 +403,12 @@ export function setupEventListeners() {
         const step2    = document.getElementById('lastfm-auth-step2');
         const authLink = document.getElementById('lastfm-auth-link');
 
-        if (btn) { btn.disabled = true; btn.textContent = 'Token ophalen...'; }
+        if (btn) { btn.disabled = true; btn.textContent = 'Fetching token...'; }
         try {
             const res  = await fetch('/api/intelligence/lastfm/auth/token', { method: 'POST' });
             const data = await res.json();
             if (!res.ok) {
-                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.detail || 'Kon geen token ophalen'}</span>`;
+                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.detail || 'Could not fetch token'}</span>`;
                 return;
             }
             _lastfmPendingToken = data.token;
@@ -416,11 +416,11 @@ export function setupEventListeners() {
             if (step2) step2.style.display = '';
             // Open the auth URL automatically
             window.open(data.auth_url, '_blank');
-            if (resultEl) resultEl.innerHTML = `<span style="color:#e5a00d">🔗 Autorisatiepagina geopend. Keer terug en klik op "Sessie voltooien".</span>`;
+            if (resultEl) resultEl.innerHTML = `<span style="color:#e5a00d">🔗 Authorization page opened. Come back and click "Complete Session".</span>`;
         } catch (e) {
-            if (resultEl) resultEl.textContent = 'Fout: ' + e.message;
+            if (resultEl) resultEl.textContent = 'Error: ' + e.message;
         }
-        if (btn) { btn.disabled = false; btn.textContent = 'Autoriseren'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Authorize'; }
     });
 
     // ── Last.fm: Complete auth (exchange token for session key) ────────────
@@ -430,10 +430,10 @@ export function setupEventListeners() {
         const step2    = document.getElementById('lastfm-auth-step2');
 
         if (!_lastfmPendingToken) {
-            if (resultEl) resultEl.textContent = 'Geen token beschikbaar. Klik eerst op Autoriseren.';
+            if (resultEl) resultEl.textContent = 'No token available. Click Authorize first.';
             return;
         }
-        if (btn) { btn.disabled = true; btn.textContent = 'Sessie ophalen...'; }
+        if (btn) { btn.disabled = true; btn.textContent = 'Completing session...'; }
         try {
             const res  = await fetch('/api/intelligence/lastfm/auth/session', {
                 method: 'POST',
@@ -442,7 +442,7 @@ export function setupEventListeners() {
             });
             const data = await res.json();
             if (!res.ok) {
-                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.detail || 'Sessie ophalen mislukt'}</span>`;
+                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.detail || 'Session completion failed'}</span>`;
                 return;
             }
             _lastfmPendingToken = null;
@@ -450,13 +450,13 @@ export function setupEventListeners() {
             const dot = document.querySelector('#lastfm-settings-status .status-dot');
             const txt = document.querySelector('#lastfm-settings-status .status-text');
             if (dot) dot.style.background = '#4caf50';
-            if (txt) txt.textContent = `Verbonden als ${data.username}`;
+            if (txt) txt.textContent = `Connected as ${data.username}`;
             const validateResult = document.getElementById('lastfm-validate-result');
-            if (validateResult) validateResult.innerHTML = `<span style="color:#4caf50">✓ Last.fm sessie actief voor <strong>${data.username}</strong>. Scrobbling ingeschakeld!</span>`;
+            if (validateResult) validateResult.innerHTML = `<span style="color:#4caf50">✓ Last.fm session active for <strong>${data.username}</strong>. Scrobbling enabled!</span>`;
         } catch (e) {
-            if (resultEl) resultEl.textContent = 'Fout: ' + e.message;
+            if (resultEl) resultEl.textContent = 'Error: ' + e.message;
         }
-        if (btn) { btn.disabled = false; btn.textContent = 'Sessie voltooien'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Complete Session'; }
     });
 
     // Success modal - Start New Playlist

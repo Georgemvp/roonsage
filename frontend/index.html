@@ -116,6 +116,13 @@
             </nav>
         </header>
 
+        <!-- Background Activity Bar -->
+        <div id="bg-activity-bar" class="bg-activity-bar hidden" role="status" aria-live="polite">
+            <div class="bg-activity-inner">
+                <div class="bg-activity-items" id="bg-activity-items"></div>
+            </div>
+        </div>
+
         <!-- Main Content -->
         <main class="main" id="main-content">
             <!-- Home View -->
@@ -632,7 +639,7 @@
                                         <button id="refine-submit-btn" class="btn btn-primary">Regenerate</button>
                                     </div>
                                     <button id="save-to-qobuz-btn" class="btn btn-outline hidden">
-                                        &#9654; Opslaan in Qobuz
+                                        &#9654; Save to Qobuz
                                     </button>
                                     <button id="save-for-arc-btn" class="btn btn-outline hidden">
                                         📱 Save for Arc
@@ -801,10 +808,10 @@
 
             <!-- Playlists Library View -->
             <div id="playlists-view" class="view">
-                <h2 class="view-title">Mijn Playlists</h2>
+                <h2 class="view-title">My Playlists</h2>
                 <div class="playlists-toolbar">
-                    <input type="search" id="playlists-search" class="playlists-search-input" placeholder="Zoek op naam of prompt…" aria-label="Search playlists">
-                    <button id="playlists-refresh-btn" class="btn btn-secondary btn-sm">↺ Vernieuwen</button>
+                    <input type="search" id="playlists-search" class="playlists-search-input" placeholder="Search by name or prompt…" aria-label="Search playlists">
+                    <button id="playlists-refresh-btn" class="btn btn-secondary btn-sm">↺ Refresh</button>
                 </div>
                 <div id="playlists-filter-bar" class="playlists-filter-bar"></div>
                 <div id="playlists-tag-row" class="playlists-tag-row"></div>
@@ -880,7 +887,7 @@
                         </div>
                     </section>
                     <section class="taste-section">
-                        <h2 class="taste-section-title">Top Artiesten</h2>
+                        <h2 class="taste-section-title">Top Artists</h2>
                         <div class="taste-chart-wrap taste-chart-wrap--hbar">
                             <canvas id="taste-artists-chart" aria-label="Top artists chart" role="img"></canvas>
                         </div>
@@ -893,25 +900,25 @@
 
                 <!-- Listening Heatmap (full width, canvas) -->
                 <section class="taste-section taste-section--full">
-                    <h2 class="taste-section-title">Luisterpatronen</h2>
+                    <h2 class="taste-section-title">Listening Patterns</h2>
                     <div id="lb-heatmap-section" class="lb-heatmap-container">
                         <canvas id="taste-heatmap-canvas" aria-label="Listening heatmap" role="img"></canvas>
-                        <p class="lb-no-data" id="heatmap-no-data">Geen heatmap data. Sync ListenBrainz om data op te halen.</p>
+                        <p class="lb-no-data" id="heatmap-no-data">No heatmap data. Sync ListenBrainz to load data.</p>
                     </div>
                 </section>
 
                 <!-- Below: Countries + Loved Tracks -->
                 <div class="taste-grid taste-grid--below">
                     <section class="taste-section">
-                        <h2 class="taste-section-title">Artiesten per Land</h2>
+                        <h2 class="taste-section-title">Artists by Country</h2>
                         <div id="lb-countries-section" class="lb-bar-chart">
-                            <p class="lb-no-data">Geen data. Sync ListenBrainz om landendata op te halen.</p>
+                            <p class="lb-no-data">No data. Sync ListenBrainz to load country data.</p>
                         </div>
                     </section>
                     <section class="taste-section">
-                        <h2 class="taste-section-title">Favorieten</h2>
+                        <h2 class="taste-section-title">Favorites</h2>
                         <div id="lb-loved-section" class="lb-list">
-                            <p class="lb-no-data">Geen loved tracks. Markeer nummers op ListenBrainz.</p>
+                            <p class="lb-no-data">No loved tracks. Mark tracks on ListenBrainz.</p>
                         </div>
                     </section>
                 </div>
@@ -919,15 +926,15 @@
                 <!-- Legacy era section (hidden, kept for existing code compatibility) -->
                 <div id="lb-era-section" style="display:none"></div>
 
-                <!-- Voorkeuren: Likes + Dislikes compact row -->
+                <!-- Preferences: Likes + Dislikes compact row -->
                 <section class="taste-section">
-                    <h2 class="taste-section-title">Voorkeuren</h2>
+                    <h2 class="taste-section-title">Preferences</h2>
                     <div id="taste-notes-section" class="taste-prefs-row"></div>
                 </section>
 
-                <!-- Luistergeschiedenis grouped by day -->
+                <!-- Listening History grouped by day -->
                 <section class="taste-section">
-                    <h2 class="taste-section-title">Luistergeschiedenis</h2>
+                    <h2 class="taste-section-title">Listening History</h2>
                     <div id="taste-history-section" class="taste-history-list"></div>
                 </section>
 
@@ -937,17 +944,17 @@
                     <div class="lb-status-card" id="lb-status-section" style="margin-top:0.75rem">
                         <div class="lb-status-row">
                             <span class="status-dot" id="lb-status-dot"></span>
-                            <span id="lb-status-text">Niet verbonden</span>
+                            <span id="lb-status-text">Not connected</span>
                         </div>
                         <div id="lb-status-details" class="lb-status-details hidden">
                             <span id="lb-scrobble-count" class="lb-stat-chip"></span>
                             <span id="lb-last-sync" class="lb-stat-chip"></span>
-                            <a id="lb-profile-link" href="#" target="_blank" class="lb-profile-link hidden">Bekijk LB profiel ↗</a>
+                            <a id="lb-profile-link" href="#" target="_blank" class="lb-profile-link hidden">View LB Profile ↗</a>
                         </div>
                         <div class="lb-actions">
-                            <button id="lb-sync-btn" class="btn btn-outline btn-sm">Sync nu</button>
-                            <button id="lb-enrich-btn" class="btn btn-outline btn-sm">Verrijk history</button>
-                            <button id="lb-recompute-btn" class="btn btn-outline btn-sm">Herbereken profiel</button>
+                            <button id="lb-sync-btn" class="btn btn-outline btn-sm">Sync Now</button>
+                            <button id="lb-enrich-btn" class="btn btn-outline btn-sm">Enrich History</button>
+                            <button id="lb-recompute-btn" class="btn btn-outline btn-sm">Recompute Profile</button>
                         </div>
                     </div>
                 </details>
@@ -1227,24 +1234,22 @@
                 </section>
 
                 <section class="settings-section">
-                    <h3>Qobuz Playlist Opslag</h3>
+                    <h3>Qobuz Playlist Storage</h3>
                     <div class="status-indicator" id="qobuz-settings-status">
                         <span class="status-dot"></span>
-                        <span class="status-text">Niet geconfigureerd</span>
+                        <span class="status-text">Not configured</span>
                     </div>
-                    <p style="font-size:0.85rem;opacity:0.7;margin:0.25rem 0 0.75rem">App ID wordt automatisch opgehaald — alleen e-mail en wachtwoord zijn nodig.</p>
+                    <p class="settings-section-desc">App ID is auto-detected — only email and password are needed.</p>
                     <div class="form-group">
-                        <label for="qobuz-email">Qobuz E-mailadres</label>
-                        <input type="text" id="qobuz-email" placeholder="jouw@email.com">
+                        <label for="qobuz-email">Qobuz Email</label>
+                        <input type="text" id="qobuz-email" placeholder="your@email.com">
                     </div>
                     <div class="form-group">
-                        <label for="qobuz-password">Qobuz Wachtwoord</label>
-                        <input type="password" id="qobuz-password" placeholder="Wachtwoord">
+                        <label for="qobuz-password">Qobuz Password</label>
+                        <input type="password" id="qobuz-password" placeholder="Password">
                     </div>
                     <div class="settings-actions" style="margin-top: 0.5rem; margin-bottom: 0;">
-                        <button id="validate-qobuz-btn" class="btn btn-outline">
-                            Valideren
-                        </button>
+                        <button id="validate-qobuz-btn" class="btn btn-outline">Validate</button>
                     </div>
                 </section>
 
@@ -1252,21 +1257,19 @@
                     <h3>ListenBrainz</h3>
                     <div class="status-indicator" id="lb-settings-status">
                         <span class="status-dot"></span>
-                        <span class="status-text">Niet geconfigureerd</span>
+                        <span class="status-text">Not configured</span>
                     </div>
-                    <p style="font-size:0.85rem;opacity:0.7;margin:0.25rem 0 0.75rem">Verbind met ListenBrainz voor scrobbling en uitgebreide muziekstatistieken. Token op <a href="https://listenbrainz.org/profile/" target="_blank" style="color:#e5a00d">listenbrainz.org/profile</a>.</p>
+                    <p class="settings-section-desc">Connect to ListenBrainz for scrobbling and extended music statistics. Token at <a href="https://listenbrainz.org/profile/" target="_blank">listenbrainz.org/profile</a>.</p>
                     <div class="form-group">
                         <label for="lb-token">ListenBrainz Token</label>
-                        <input type="password" id="lb-token" placeholder="Jouw LB user token">
+                        <input type="password" id="lb-token" placeholder="Your LB user token">
                     </div>
                     <div class="form-group">
-                        <label for="lb-username">ListenBrainz Gebruikersnaam</label>
-                        <input type="text" id="lb-username" placeholder="jouw-gebruikersnaam">
+                        <label for="lb-username">Username</label>
+                        <input type="text" id="lb-username" placeholder="your-username">
                     </div>
                     <div class="settings-actions" style="margin-top: 0.5rem; margin-bottom: 0;">
-                        <button id="validate-lb-btn" class="btn btn-outline">
-                            Valideren
-                        </button>
+                        <button id="validate-lb-btn" class="btn btn-outline">Validate</button>
                     </div>
                     <div id="lb-validate-result" style="margin-top:0.5rem;font-size:0.85rem;"></div>
                 </section>
@@ -1275,45 +1278,41 @@
                     <h3>Last.fm</h3>
                     <div class="status-indicator" id="lastfm-settings-status">
                         <span class="status-dot"></span>
-                        <span class="status-text">Niet geconfigureerd</span>
+                        <span class="status-text">Not configured</span>
                     </div>
-                    <p style="font-size:0.85rem;opacity:0.7;margin:0.25rem 0 0.75rem">Verbind met Last.fm voor dual-scrobbling en rijke artiest-aanbevelingen. API-sleutel op <a href="https://www.last.fm/api/account/create" target="_blank" style="color:#e5a00d">last.fm/api/account/create</a>.</p>
+                    <p class="settings-section-desc">Connect to Last.fm for dual-scrobbling and rich artist recommendations. API key at <a href="https://www.last.fm/api/account/create" target="_blank">last.fm/api/account/create</a>.</p>
                     <div class="form-group">
                         <label for="lastfm-api-key">Last.fm API Key</label>
-                        <input type="password" id="lastfm-api-key" placeholder="Jouw Last.fm API key">
+                        <input type="password" id="lastfm-api-key" placeholder="Your Last.fm API key">
                     </div>
                     <div class="form-group">
                         <label for="lastfm-api-secret">Last.fm API Secret</label>
-                        <input type="password" id="lastfm-api-secret" placeholder="Jouw Last.fm API secret">
+                        <input type="password" id="lastfm-api-secret" placeholder="Your Last.fm API secret">
                     </div>
                     <div class="form-group">
-                        <label for="lastfm-username">Last.fm Gebruikersnaam</label>
-                        <input type="text" id="lastfm-username" placeholder="jouw-gebruikersnaam">
+                        <label for="lastfm-username">Username</label>
+                        <input type="text" id="lastfm-username" placeholder="your-username">
                     </div>
                     <div class="settings-actions" style="margin-top: 0.5rem; margin-bottom: 0;">
-                        <button id="validate-lastfm-btn" class="btn btn-outline">
-                            Valideren
-                        </button>
-                        <button id="lastfm-auth-btn" class="btn btn-outline" style="margin-left:0.5rem" title="Open Last.fm autorisatiepagina">
-                            Autoriseren
+                        <button id="validate-lastfm-btn" class="btn btn-outline">Validate</button>
+                        <button id="lastfm-auth-btn" class="btn btn-outline" style="margin-left:0.5rem" title="Open Last.fm authorization page">
+                            Authorize
                         </button>
                     </div>
                     <div id="lastfm-validate-result" style="margin-top:0.5rem;font-size:0.85rem;"></div>
-                    <!-- Auth step 2: shown after clicking Autoriseren -->
-                    <div id="lastfm-auth-step2" style="display:none;margin-top:0.75rem;padding:0.75rem;background:rgba(255,255,255,0.04);border-radius:6px;">
-                        <p style="font-size:0.85rem;margin:0 0 0.5rem">Stap 1: Autoriseer RoonSage op <a id="lastfm-auth-link" href="#" target="_blank" style="color:#e5a00d">last.fm</a> (wordt geopend in nieuw tabblad).<br>Stap 2: Klik daarna op <strong>Sessie voltooien</strong>.</p>
+                    <!-- Auth step 2: shown after clicking Authorize -->
+                    <div id="lastfm-auth-step2" class="settings-auth-step" style="display:none;">
+                        <p>Step 1: Authorize RoonSage on <a id="lastfm-auth-link" href="#" target="_blank">last.fm</a> (opens in new tab).<br>Step 2: Then click <strong>Complete Session</strong>.</p>
                         <div class="settings-actions" style="margin:0">
-                            <button id="lastfm-complete-auth-btn" class="btn btn-outline">
-                                Sessie voltooien
-                            </button>
+                            <button id="lastfm-complete-auth-btn" class="btn btn-outline">Complete Session</button>
                         </div>
                         <div id="lastfm-auth-result" style="margin-top:0.5rem;font-size:0.85rem;"></div>
                     </div>
                 </section>
 
                 <section class="settings-section" id="notifications-settings-section">
-                    <h3>Notificaties</h3>
-                    <p style="font-size:0.85rem;opacity:0.7;margin:0.25rem 0 0.75rem">Ontvang meldingen via Discord, Telegram of een eigen webhook wanneer er iets gebeurt in RoonSage.</p>
+                    <h3>Notifications</h3>
+                    <p class="settings-section-desc">Receive notifications via Discord, Telegram, or a custom webhook when events occur in RoonSage.</p>
 
                     <!-- Discord -->
                     <div class="form-group">
@@ -1322,7 +1321,7 @@
                     </div>
                     <div class="settings-actions" style="margin-top:0.25rem;margin-bottom:0.75rem;">
                         <button id="test-discord-btn" class="btn btn-outline btn-sm">Test Discord</button>
-                        <span id="test-discord-result" style="font-size:0.82rem;margin-left:0.5rem;"></span>
+                        <span id="test-discord-result" class="settings-test-result"></span>
                     </div>
 
                     <!-- Telegram -->
@@ -1332,38 +1331,38 @@
                     </div>
                     <div class="form-group">
                         <label for="notif-tg-chat">Telegram Chat ID</label>
-                        <input type="text" id="notif-tg-chat" placeholder="Bijv. -1001234567890">
+                        <input type="text" id="notif-tg-chat" placeholder="e.g. -1001234567890">
                     </div>
                     <div class="settings-actions" style="margin-top:0.25rem;margin-bottom:0.75rem;">
                         <button id="test-telegram-btn" class="btn btn-outline btn-sm">Test Telegram</button>
-                        <span id="test-telegram-result" style="font-size:0.82rem;margin-left:0.5rem;"></span>
+                        <span id="test-telegram-result" class="settings-test-result"></span>
                     </div>
 
                     <!-- Generic webhook -->
                     <div class="form-group">
-                        <label for="notif-webhook-url">Webhook URL <span class="optional-label">(generiek)</span></label>
-                        <input type="text" id="notif-webhook-url" placeholder="https://jouw-server.nl/hook">
+                        <label for="notif-webhook-url">Webhook URL <span class="optional-label">(generic)</span></label>
+                        <input type="text" id="notif-webhook-url" placeholder="https://your-server.com/hook">
                     </div>
                     <div class="settings-actions" style="margin-top:0.25rem;margin-bottom:0.75rem;">
                         <button id="test-webhook-btn" class="btn btn-outline btn-sm">Test Webhook</button>
-                        <span id="test-webhook-result" style="font-size:0.82rem;margin-left:0.5rem;"></span>
+                        <span id="test-webhook-result" class="settings-test-result"></span>
                     </div>
 
                     <!-- Events to notify on -->
                     <div class="form-group">
-                        <label>Meldingen voor</label>
+                        <label>Notify on</label>
                         <div id="notif-events-list" style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.35rem;">
                             <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
-                                <input type="checkbox" id="notif-evt-playlist_generated" value="playlist_generated"> Playlist gegenereerd
+                                <input type="checkbox" id="notif-evt-playlist_generated" value="playlist_generated"> Playlist generated
                             </label>
                             <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
-                                <input type="checkbox" id="notif-evt-library_sync_complete" value="library_sync_complete"> Library gesynchroniseerd
+                                <input type="checkbox" id="notif-evt-library_sync_complete" value="library_sync_complete"> Library synced
                             </label>
                             <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
-                                <input type="checkbox" id="notif-evt-library_sync_failed" value="library_sync_failed"> Library sync mislukt
+                                <input type="checkbox" id="notif-evt-library_sync_failed" value="library_sync_failed"> Library sync failed
                             </label>
                             <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
-                                <input type="checkbox" id="notif-evt-lb_sync_complete" value="lb_sync_complete"> ListenBrainz sync klaar
+                                <input type="checkbox" id="notif-evt-lb_sync_complete" value="lb_sync_complete"> ListenBrainz sync complete
                             </label>
                         </div>
                     </div>
@@ -1444,34 +1443,50 @@
                     </div>
                 </section>
 
-                <!-- Metadata Enrichment Section (v10.0) -->
+                <!-- Metadata Enrichment Section -->
                 <section class="settings-section" id="enrichment-settings-section">
-                    <h3>Metadata Verrijking</h3>
-                    <p style="font-size:0.85rem;opacity:0.7;margin:0.25rem 0 0.75rem">Verrijkt je bibliotheek met MusicBrainz- en Last.fm-tags (bijv. "melancholic", "late night"). Verbetert afstemming bij sfeergebaseerde afspeellijsten. Verwerkt ~1 track/seconde op de achtergrond.</p>
+                    <h3>Metadata Enrichment</h3>
+                    <p class="settings-section-desc">Enriches your library with MusicBrainz and Last.fm tags (e.g., "melancholic", "late night"). Improves mood-based playlist matching. Processes ~1 track/second in the background.</p>
 
-                    <!-- Stats row -->
-                    <div id="enrichment-stats" style="display:flex;flex-wrap:wrap;gap:0.5rem 1.2rem;margin-bottom:0.75rem;font-size:0.85rem;">
-                        <span>Verrijkt: <strong id="enrich-total">–</strong></span>
-                        <span>MusicBrainz: <strong id="enrich-mb">–</strong></span>
-                        <span>Last.fm: <strong id="enrich-lf">–</strong></span>
-                        <span>In wachtrij: <strong id="enrich-pending">–</strong></span>
-                        <span>Mislukt: <strong id="enrich-failed">–</strong></span>
-                        <span id="enrich-worker-state" style="opacity:0.7;margin-left:auto;"></span>
+                    <div class="enrich-stats-grid" id="enrichment-stats">
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value" id="enrich-total">–</span>
+                            <span class="enrich-stat-label">Enriched</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value" id="enrich-mb">–</span>
+                            <span class="enrich-stat-label">MusicBrainz</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value" id="enrich-lf">–</span>
+                            <span class="enrich-stat-label">Last.fm</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value enrich-stat-value--pending" id="enrich-pending">–</span>
+                            <span class="enrich-stat-label">Pending</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value enrich-stat-value--failed" id="enrich-failed">–</span>
+                            <span class="enrich-stat-label">Failed</span>
+                        </div>
                     </div>
 
-                    <!-- Progress bar -->
-                    <div style="background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;height:8px;margin-bottom:0.75rem;" aria-hidden="true">
-                        <div id="enrich-progress-bar" style="height:100%;background:#e5a00d;width:0%;transition:width 0.5s;"></div>
+                    <div class="enrich-progress-wrap">
+                        <div class="enrich-progress-bar" aria-hidden="true">
+                            <div id="enrich-progress-bar" class="enrich-progress-fill"></div>
+                        </div>
+                        <div class="enrich-progress-meta">
+                            <span id="enrich-progress-text"></span>
+                            <span id="enrich-worker-state" class="enrich-worker-badge"></span>
+                        </div>
                     </div>
-                    <p id="enrich-progress-text" style="font-size:0.8rem;opacity:0.6;margin:0 0 0.75rem;"></p>
 
-                    <!-- Action buttons -->
-                    <div class="settings-actions" style="margin-top:0;margin-bottom:0;gap:0.5rem;display:flex;flex-wrap:wrap;">
-                        <button id="enrich-all-btn" class="btn btn-primary btn-sm">Alles verrijken</button>
-                        <button id="enrich-pause-btn" class="btn btn-outline btn-sm" disabled>Pauzeren</button>
-                        <button id="enrich-resume-btn" class="btn btn-outline btn-sm" style="display:none;">Hervatten</button>
+                    <div class="enrich-actions">
+                        <button id="enrich-all-btn" class="btn btn-primary btn-sm">Enrich All</button>
+                        <button id="enrich-pause-btn" class="btn btn-outline btn-sm" disabled>Pause</button>
+                        <button id="enrich-resume-btn" class="btn btn-outline btn-sm" style="display:none;">Resume</button>
                     </div>
-                    <div id="enrich-action-result" style="margin-top:0.5rem;font-size:0.83rem;"></div>
+                    <div id="enrich-action-result" class="enrich-result"></div>
                 </section>
 
                 <section class="settings-section library-stats" id="library-stats-section" style="display: none;">
@@ -1600,17 +1615,17 @@
                 <button class="modal-close" id="arc-global-close" aria-label="Close">&times;</button>
                 <h2 id="arc-modal-title">Save for Roon Arc</h2>
                 <div class="form-group">
-                    <label for="arc-global-name">Playlist naam</label>
-                    <input type="text" id="arc-global-name" class="form-input" placeholder="Mijn playlist">
+                    <label for="arc-global-name">Playlist name</label>
+                    <input type="text" id="arc-global-name" class="form-input" placeholder="My playlist">
                 </div>
                 <label class="checkbox-label">
                     <input type="checkbox" id="arc-global-favorites" checked>
-                    <span>Voeg albums toe aan favorites</span>
+                    <span>Add albums to favorites</span>
                 </label>
                 <div id="arc-global-result" class="arc-modal-result hidden"></div>
                 <div class="modal-actions" style="margin-top:1rem;display:flex;gap:.5rem;">
-                    <button id="arc-global-save" class="btn btn-primary">Opslaan</button>
-                    <button id="arc-global-cancel" class="btn btn-secondary">Annuleren</button>
+                    <button id="arc-global-save" class="btn btn-primary">Save</button>
+                    <button id="arc-global-cancel" class="btn btn-secondary">Cancel</button>
                 </div>
             </div>
         </div>

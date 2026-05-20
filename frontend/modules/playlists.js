@@ -244,7 +244,7 @@ function playlistCardHtml(p) {
     const tags = (p.tags || []).map(t =>
         `<span class="pl-tag${_filter.tag === t ? ' pl-tag--active' : ''}" data-tag="${escapeHtml(t)}">#${escapeHtml(t)}</span>`
     ).join('');
-    const date = p.created_at ? new Date(p.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    const date = p.created_at ? new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
     const sourceBadge = `<span class="pl-source-badge pl-source-badge--${p.source_mode || 'library'}">${p.source_mode || 'library'}</span>`;
     const trackList = tracks.map((t, i) =>
         `<div class="pl-track-row"><span class="pl-track-num">${i+1}</span><span class="pl-track-title">${escapeHtml(t.artist || '')} — ${escapeHtml(t.title || '')}</span></div>`
@@ -349,8 +349,8 @@ function showArcModal(playlist) {
             </label>
             <div id="arc-modal-result" class="arc-modal-result hidden"></div>
             <div class="modal-actions">
-                <button id="arc-modal-save" class="btn btn-primary">Opslaan</button>
-                <button id="arc-modal-cancel" class="btn btn-secondary">Annuleren</button>
+                <button id="arc-modal-save" class="btn btn-primary">Save</button>
+                <button id="arc-modal-cancel" class="btn btn-secondary">Cancel</button>
             </div>
         </div>
     `;
@@ -366,7 +366,7 @@ function showArcModal(playlist) {
         const resultEl = modal.querySelector('#arc-modal-result');
         const saveBtn = modal.querySelector('#arc-modal-save');
         saveBtn.disabled = true;
-        saveBtn.textContent = 'Opslaan…';
+        saveBtn.textContent = 'Saving…';
         resultEl.className = 'arc-modal-result';
         resultEl.textContent = '';
         try {
@@ -379,13 +379,13 @@ function showArcModal(playlist) {
                 }),
             });
             resultEl.className = 'arc-modal-result arc-modal-result--success';
-            resultEl.textContent = `✓ Opgeslagen als Qobuz-playlist — beschikbaar in Roon Arc (${resp.saved || 0} tracks, ${resp.skipped || 0} geskipt)`;
-            saveBtn.textContent = 'Opgeslagen';
+            resultEl.textContent = `✓ Saved as Qobuz playlist — available in Roon Arc (${resp.saved || 0} tracks, ${resp.skipped || 0} skipped)`;
+            saveBtn.textContent = 'Saved';
         } catch (e) {
             resultEl.className = 'arc-modal-result arc-modal-result--error';
-            resultEl.textContent = 'Fout: ' + e.message;
+            resultEl.textContent = 'Error: ' + e.message;
             saveBtn.disabled = false;
-            saveBtn.textContent = 'Opslaan';
+            saveBtn.textContent = 'Save';
         }
     });
 }

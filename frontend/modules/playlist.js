@@ -39,7 +39,7 @@ export async function handleSaveToQobuz() {
 
     // Disable button during save
     btn.disabled = true;
-    btn.textContent = 'Opslaan...';
+    btn.textContent = 'Saving...';
     resultEl.classList.add('hidden');
     resultEl.className = 'qobuz-save-result hidden';
 
@@ -67,28 +67,28 @@ export async function handleSaveToQobuz() {
         if (result.success) {
             const unmatchedCount = result.tracks_unmatched || 0;
             const savedCount = result.tracks_saved || 0;
-            let html = `<strong>${savedCount} van ${savedCount + unmatchedCount} tracks opgeslagen in Qobuz</strong> als "${escapeHtml(result.playlist_name || playlistName)}"`;
+            let html = `<strong>${savedCount} of ${savedCount + unmatchedCount} tracks saved to Qobuz</strong> as "${escapeHtml(result.playlist_name || playlistName)}"`;
 
             if (unmatchedCount > 0 && result.unmatched_details?.length > 0) {
                 const items = result.unmatched_details
                     .map(u => `<li>${escapeHtml(u.artist)} — ${escapeHtml(u.title)}</li>`)
                     .join('');
-                html += `<details><summary>${unmatchedCount} track${unmatchedCount !== 1 ? 's' : ''} niet gevonden op Qobuz</summary><ul>${items}</ul></details>`;
+                html += `<details><summary>${unmatchedCount} track${unmatchedCount !== 1 ? 's' : ''} not found on Qobuz</summary><ul>${items}</ul></details>`;
             }
 
             resultEl.innerHTML = html;
             resultEl.classList.add('success');
         } else {
-            resultEl.textContent = result.error || 'Opslaan mislukt';
+            resultEl.textContent = result.error || 'Save failed';
             resultEl.classList.add('error');
         }
     } catch (err) {
         resultEl.classList.remove('hidden');
-        resultEl.textContent = err.message || 'Opslaan in Qobuz mislukt';
+        resultEl.textContent = err.message || 'Save to Qobuz failed';
         resultEl.classList.add('error');
     } finally {
         btn.disabled = false;
-        btn.textContent = '▶ Opslaan in Qobuz';
+        btn.textContent = '▶ Save to Qobuz';
     }
 }
 
@@ -207,10 +207,10 @@ export async function loadSettings() {
                 const txt = document.querySelector('#lastfm-settings-status .status-text');
                 if (lf.can_scrobble) {
                     if (dot) dot.style.background = '#4caf50';
-                    if (txt) txt.textContent = `Verbonden als ${lf.username}`;
+                    if (txt) txt.textContent = `Connected as ${lf.username}`;
                 } else if (lf.configured) {
                     if (dot) dot.style.background = '#e5a00d';
-                    if (txt) txt.textContent = `API geconfigureerd — niet geautoriseerd`;
+                    if (txt) txt.textContent = `API configured — not authorized`;
                 }
             })
             .catch(() => {});
@@ -349,7 +349,7 @@ export async function handleValidateQobuz() {
 
     if (btn) {
         btn.disabled = true;
-        btn.textContent = 'Valideren...';
+        btn.textContent = 'Validating...';
     }
     try {
         const res = await fetch('/api/qobuz/validate', {
@@ -361,8 +361,8 @@ export async function handleValidateQobuz() {
         if (statusEl) {
             statusEl.classList.toggle('connected', !!data.available);
             statusEl.querySelector('.status-text').textContent = data.available
-                ? `Verbonden met Qobuz als ${data.user_display || email}${data.subscription ? ' (' + data.subscription + ')' : ''} ✓`
-                : (data.error || 'Verbinding mislukt');
+                ? `Connected to Qobuz as ${data.user_display || email}${data.subscription ? ' (' + data.subscription + ')' : ''} ✓`
+                : (data.error || 'Connection failed');
         }
 
         // On success, persist the credentials
@@ -378,7 +378,7 @@ export async function handleValidateQobuz() {
                     const qobuzPwField = document.getElementById('qobuz-password');
                     if (qobuzPwField) {
                         qobuzPwField.value = '';
-                        qobuzPwField.placeholder = '••••••••••••  (opgeslagen)';
+                        qobuzPwField.placeholder = '••••••••••••  (saved)';
                     }
                 } catch (saveErr) {
                     console.warn('Qobuz credentials validated but could not be saved:', saveErr);
@@ -388,12 +388,12 @@ export async function handleValidateQobuz() {
     } catch (err) {
         if (statusEl) {
             statusEl.classList.remove('connected');
-            statusEl.querySelector('.status-text').textContent = 'Validatie mislukt: ' + err.message;
+            statusEl.querySelector('.status-text').textContent = 'Validation failed: ' + err.message;
         }
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.textContent = 'Valideren';
+            btn.textContent = 'Validate';
         }
     }
 }

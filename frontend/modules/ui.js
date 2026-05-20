@@ -890,7 +890,7 @@ export function updateSettings() {
     if (qobuzStatus) {
         const configured = state.config.qobuz_password_set && state.config.qobuz_email;
         qobuzStatus.classList.toggle('connected', !!configured);
-        qobuzStatus.querySelector('.status-text').textContent = configured ? 'Geconfigureerd' : 'Niet geconfigureerd';
+        qobuzStatus.querySelector('.status-text').textContent = configured ? 'Configured' : 'Not configured';
     }
 
     // ListenBrainz settings — mask the token, pre-fill the username
