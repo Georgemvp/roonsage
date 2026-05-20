@@ -2,18 +2,19 @@
 
 # 🎵 RoonSage
 
-**AI-powered playlist curation and music intelligence for Roon**
+**AI-powered playlist curation, music intelligence, automated discovery, and smart library management for Roon**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com)
-[![Version](https://img.shields.io/badge/Version-6.0-e5a00d.svg)](#changelog)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.128+-009688.svg)](https://fastapi.tiangolo.com)
+[![Version](https://img.shields.io/badge/Version-12.0-e5a00d.svg)](#changelog)
 [![ListenBrainz](https://img.shields.io/badge/ListenBrainz-integrated-eb743b.svg)](https://listenbrainz.org)
+[![Last.fm](https://img.shields.io/badge/Last.fm-integrated-d51007.svg)](https://www.last.fm)
 
-_Curate playlists from your own library, discover new music on Qobuz,_
-_and let Claude Desktop control every aspect of Roon — all in natural language._
+_Curate playlists from your library, discover hidden gems, monitor artist releases on Qobuz,_
+_automate your listening, and let Claude Desktop control every aspect of Roon — all in natural language._
 
-[Features](#features) · [Claude Desktop](#claude-desktop-integration) · [ListenBrainz](#listenbrainz-integration-v60) · [Setup](#deployment) · [API](#api-reference) · [Changelog](#changelog)
+[Features](#features) · [Claude Desktop](#claude-desktop-integration) · [Discovery](#discovery-engine) · [Automation](#automation-engine) · [ListenBrainz](#listenbrainz-integration) · [Last.fm](#lastfm-integration) · [Setup](#deployment) · [API](#api-reference) · [Changelog](#changelog)
 
 </div>
 
@@ -29,14 +30,16 @@ _and let Claude Desktop control every aspect of Roon — all in natural language
 
 ## What is RoonSage?
 
-RoonSage is a **self-hosted web app** that connects to your Roon Core as an Extension. It syncs your library to a local SQLite cache and wraps everything in a full **MCP server** so Claude Desktop can search, curate, and control Roon through natural conversation.
+RoonSage is a **self-hosted web app** that connects to your Roon Core as an Extension. It syncs your library into a local SQLite cache and wraps everything in a full **MCP server** (62 tools) so Claude Desktop can search, curate, discover, and control Roon through natural conversation.
 
 Key design principles:
 
 - **Library-first** — 100% of suggested tracks exist in your library or on Qobuz; nothing is hallucinated
 - **Claude curates** — Claude Desktop does the musical thinking; the backend provides data and Roon connectivity
+- **Smart discovery** — cache-powered discovery surfaces hidden gems with zero LLM calls and zero external API requests
+- **Automation-ready** — trigger-action workflows run on schedule, zone events, library syncs, and more
 - **No build step** — vanilla HTML/CSS/JS frontend, single Docker container
-- **Optional everything** — Qobuz, ListenBrainz, and password auth are all optional add-ons
+- **Optional everything** — Qobuz, ListenBrainz, Last.fm, AcoustID, notifications, and password auth are all optional add-ons
 
 ---
 
@@ -46,26 +49,40 @@ Key design principles:
 graph TB
     subgraph home["🏠 Your Home Network"]
         RC("🎵 Roon Core")
-        RS("⚙️ RoonSage Backend<br/>FastAPI · Python 3.11")
-        DB[("🗄️ SQLite<br/>library_cache.db")]
-        FE("🖥️ Web UI")
+        RS("⚙️ RoonSage Backend\nFastAPI · Python 3.11")
+        DB[("🗄️ SQLite\nlibrary_cache.db")]
+        FE("🖥️ Web UI\nPWA · Chart.js")
+        AE("🤖 Automation Engine\ntrigger-action workflows")
+        DE("🔍 Discovery Engine\ncache-powered SQL")
+        EW("🏷️ Enrichment Worker\nMusicBrainz · Last.fm")
     end
 
     subgraph cloud["☁️ External Services"]
-        LB("🎧 ListenBrainz")
-        QB("🎶 Qobuz")
-        AI("🤖 LLM Provider<br/>Gemini · Anthropic · OpenAI · Ollama")
+        LB("🎧 ListenBrainz\nscrobbling · stats")
+        LF("🎵 Last.fm\nscrobbling · tags · similar")
+        QB("🎶 Qobuz\ncatalog · playlists")
+        MB("🗃️ MusicBrainz\ntrack metadata")
+        AI("🤖 LLM Provider\nGemini · Anthropic · OpenAI · Ollama")
+        AID("🔊 AcoustID\nfingerprint verification")
+        NOTIF("📣 Notifications\nDiscord · Telegram · Webhook")
     end
 
-    CD("💬 Claude Desktop<br/>31 MCP tools")
+    CD("💬 Claude Desktop\n62 MCP tools")
 
-    RC  <-->|"WebSocket<br/>Extension API"| RS
-    RS  <-->|"Browse API<br/>sync + playback"| RC
+    RC  <-->|"WebSocket\nExtension API"| RS
+    RS  <-->|"Browse API\nsync + playback"| RC
     RS  <-->|read / write| DB
     RS  -->|serve| FE
-    RS  <-->|"scrobble + stats<br/>v6.0"| LB
+    RS  <-->|"scrobble + stats"| LB
+    RS  <-->|"scrobble + tags"| LF
     RS  <-->|"catalog · playlist save"| QB
-    RS  <-->|"prompt analysis<br/>track selection"| AI
+    RS  <-->|"track metadata"| MB
+    RS  <-->|"prompt analysis\ntrack selection"| AI
+    RS  <-->|"fingerprint verify"| AID
+    RS  -->|"events"| NOTIF
+    AE  -->|triggers| RS
+    DE  -->|SQL queries| DB
+    EW  -->|enriches| DB
     CD  <-->|"MCP stdio"| RS
 ```
 
@@ -77,20 +94,20 @@ graph TB
 flowchart LR
     subgraph sync["🔄 Library Sync (one-time + on demand)"]
         direction TB
-        A("Roon Core<br/>Browse API")
+        A("Roon Core\nBrowse API")
         B("roon_browse.py")
-        C[("tracks<br/>track_genres")]
-        A -->|"Root → Library<br/>→ Albums → Tracks"| B
-        B -->|"INSERT artist, title,<br/>genre, year"| C
+        C[("tracks\ntrack_genres")]
+        A -->|"Root → Library\n→ Albums → Tracks"| B
+        B -->|"INSERT artist, title,\ngenre, year"| C
     end
 
     subgraph query["⚡ Query (from SQLite — instant)"]
         direction TB
         D("filter_tracks")
         E[("SQLite cache")]
-        F("Claude Desktop<br/>or Web UI")
-        D -->|"SQL: genre IN (...)<br/>decade = '1990s'"| E
-        E -->|"numbered list<br/>+ session_id"| F
+        F("Claude Desktop\nor Web UI")
+        D -->|"SQL: genre IN (...)\ndecade = '1990s'"| E
+        E -->|"numbered list\n+ session_id"| F
     end
 
     subgraph play["▶️ Playback"]
@@ -98,369 +115,549 @@ flowchart LR
         G("curate_and_play")
         H("roon_playback.py")
         I("Roon Zone")
-        G -->|"item_keys"| H
-        H -->|"Browse API<br/>play now"| I
+        G -->|"session_id +\ntrack numbers"| H
+        H -->|"Browse API\nPlay Now"| I
     end
 
-    C --> E
-    F --> G
+    sync --> query --> play
 ```
 
 ---
 
 ## Claude Desktop Integration
 
-> This is the **primary** way to use RoonSage. Claude curates everything — no extra API key, no per-token cost for curation.
+Add the MCP server to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "roonsage": {
+      "command": "python3",
+      "args": ["/FULL/PATH/TO/roonsage/mcp_server.py"],
+      "env": {
+        "ROONSAGE_URL": "http://localhost:5765"
+      }
+    }
+  }
+}
+```
+
+### Example prompts
 
 ```
-"Maak een playlist voor een late vrijdagavond, iets melancholisch maar niet depressief."
-"More like what's playing now, but a bit more energetic."
-"Find a jazz album I don't know yet and play it."
-"Give me everything by Nick Cave that I own."
-"Set volume to 40% and turn on shuffle."
-"Group the living room and kitchen zones."
-"Save this playlist to Qobuz so I can listen on the go in Arc."
-"What does my taste profile say about my listening habits?"
-"Sync my ListenBrainz stats and show me my genre heatmap."
+"Play some melancholic post-rock for a rainy Sunday afternoon."
+"Give me 30 tracks of 90s underground hip-hop, focus on obscure stuff."
+"What's currently playing and what zone is it in?"
+"Show me albums I own by my favorite artists that I've never played."
+"Add Radiohead to my watchlist and scan for new Qobuz releases."
+"Create an automation that generates a chill playlist every Friday at 6pm."
+"What's my enrichment progress?"
+"Play something I haven't heard in over two months."
+"Set up a scheduled playlist — jazz every weekday morning at 8am."
+"Give me an album recommendation for a dinner party with guests who like Nils Frahm."
+"More like this track, but from my library only."
+"Search Qobuz for the new Thom Yorke album and play it."
+"Transfer playback from the living room to the office and lower the volume."
+"Show me the deep cuts from my top 20 artists."
+"Save this playlist to Qobuz."
+"What genres do I have in my library and how many tracks each?"
 ```
 
 ### Three curation flows
 
 ```mermaid
 flowchart TD
-    U(["User request"])
+    U("User request") --> A{Source mode?}
 
-    U --> PL["🎵 Prompt playlist<br/><i>'mellow 90s electronic'</i>"]
-    U --> SE["🌱 Seed playlist<br/><i>'more like Portishead'</i>"]
-    U --> AL["💿 Album recommendation<br/><i>'something for Sunday morning'</i>"]
+    A -->|library| B["filter_tracks(compact)\n→ session_id"]
+    B --> C["Claude curates\n(15–50 tracks)"]
+    C --> D["validate_playlist\n(optional check)"]
+    D --> E["curate_and_play\n→ Roon zone"]
 
-    PL --> S1["get_library_stats"]
-    S1 --> S2["filter_tracks<br/>output_format=compact"]
-    S2 --> S3["Claude curates<br/>15-50 tracks"]
-    S3 --> S4["validate_playlist"]
-    S4 --> S5["curate_and_play ▶"]
+    A -->|hybrid| F["filter_tracks\n+ search_qobuz"]
+    F --> G["Claude mixes\nlibrary + Qobuz"]
+    G --> H["play_tracks\n(combined keys)"]
 
-    SE --> E1["search_library"]
-    E1 --> E2["filter_tracks<br/>output_format=compact"]
-    E2 --> S3
-
-    AL --> A1["filter_tracks or<br/>get_artist_albums"]
-    A1 --> A2["Claude picks + pitches"]
-    A2 --> A3["play_album ▶"]
+    A -->|qobuz only| I["search_qobuz\n(multiple queries)"]
+    I --> J["Claude selects\nfrom Qobuz results"]
+    J --> K["play_tracks\n(Qobuz keys)"]
 ```
 
-### Three source modes
+### Source modes
 
-| Mode | When to use | Claude's approach |
-|---|---|---|
-| **Library** | "from my collection" | `filter_tracks` → curate → `curate_and_play` |
-| **Hybrid** | "mix mine with discoveries" | `filter_tracks` + `search_qobuz` → blend → `play_tracks` |
-| **Qobuz** | "something new", "surprise me" | multiple `search_qobuz` → curate → `play_tracks` |
+| Mode | Source | Use when |
+|------|--------|----------|
+| `library` | Your Roon library only | Best quality control, everything you own |
+| `hybrid` | Library + Qobuz catalog | Mix familiar and new discoveries |
+| `qobuz` | Qobuz catalog only | Pure discovery, nothing in library needed |
 
-### Full MCP tool list
+---
 
-<details>
-<summary><strong>Library & search</strong></summary>
+## Full MCP Tool List
 
-| Tool | Description |
-|---|---|
-| `get_library_stats` | Genre / decade / total counts from SQLite |
-| `get_library_status` | Cache freshness, needs_resync flag |
-| `search_library` | Search by track / artist / album |
-| `search_qobuz` | Search Qobuz catalogue via Roon |
-| `filter_tracks` | Filter by genre, decade, live exclusion; `output_format` = json / compact / ultra |
-| `get_artist_albums` | All albums by an artist from cache |
-| `sync_library` | Trigger background library sync |
+RoonSage exposes **62 tools** to Claude Desktop, grouped by function.
 
-</details>
-
-<details>
-<summary><strong>Playlist generation (web UI / fallback)</strong></summary>
+### Library & Search
 
 | Tool | Description |
-|---|---|
-| `generate_playlist` | AI playlist from natural language (SSE stream) |
+|------|-------------|
+| `get_library_stats` | Genre/decade/total track counts from cache |
+| `get_library_status` | Cache freshness, track count, needs-resync flag |
+| `search_library` | Full-text search by track, artist, or album name |
+| `filter_tracks` | Filter by genre, decade, keywords; output as `json`/`compact`/`ultra` |
+| `get_artist_albums` | All albums by an artist from the SQLite cache |
+| `sync_library` | Trigger a background library re-sync from Roon |
+| `browse_tags` | List all Roon tags available in the library |
+
+### Discovery
+
+| Tool | Description |
+|------|-------------|
+| `get_discovery_sections` | All 4 cache-powered sections: undiscovered albums, deep cuts, forgotten favorites, genre explorer |
+
+### Playlist Generation
+
+| Tool | Description |
+|------|-------------|
+| `generate_playlist` | Backend LLM playlist from natural language (web UI flow; fallback for MCP) |
 | `seed_track_playlist` | "More like this" playlist from a seed track |
-| `analyze_prompt` | Preview prompt → filter mapping |
+| `analyze_prompt` | Preview how a prompt maps to genre/decade filters |
+| `list_playlist_templates` | List all built-in and user-created playlist templates |
+| `generate_from_template` | Generate a playlist from a named template |
 
-</details>
-
-<details>
-<summary><strong>Claude-native curation</strong></summary>
-
-| Tool | Description |
-|---|---|
-| `curate_and_play` | Translate session track numbers → item_keys → start playback |
-| `validate_playlist` | Check for duplicates, clustering, artist overrepresentation |
-| `save_to_qobuz` | Save curated playlist to your Qobuz account |
-
-</details>
-
-<details>
-<summary><strong>Album recommendations</strong></summary>
+### Claude-Native Curation
 
 | Tool | Description |
-|---|---|
-| `recommend_album` | One-shot album recommendation |
-| `recommend_album_interactive` | 2-step Q&A recommendation |
-| `play_album` | Search + play an album in one step |
+|------|-------------|
+| `curate_and_play` | Translate track numbers from `filter_tracks` compact list to Roon item keys and start playback |
+| `validate_playlist` | Check a curated selection for duplicates, artist clustering, and overrepresentation |
 
-</details>
-
-<details>
-<summary><strong>Roon playback & control</strong></summary>
+### Album Recommendations
 
 | Tool | Description |
-|---|---|
-| `list_zones` | Active zones + current state |
-| `get_now_playing` | Current track per zone |
-| `play_tracks` | Replace zone queue |
-| `queue_tracks` | Append to zone queue |
-| `transport_control` | play / pause / stop / next / prev / shuffle / repeat / seek |
-| `volume_control` | Set / adjust / mute / query volume |
-| `transfer_zone` | Move playback to another zone |
-| `zone_grouping` | Group or ungroup zones |
-| `play_radio` | Play internet radio (fuzzy match) |
-| `browse_playlists` | List or play Roon playlists |
+|------|-------------|
+| `recommend_album` | Quick single-step album recommendation |
+| `recommend_album_interactive` | 2-step Q&A recommendation with `session_id` handoff |
+| `play_album` | Search library + play album in one step |
 
-</details>
-
-<details>
-<summary><strong>Intelligence & ListenBrainz (v6.0)</strong></summary>
+### Roon Playback & Control
 
 | Tool | Description |
-|---|---|
-| `get_taste_profile` | Full taste profile incl. all `lb_*` keys |
-| `get_listening_stats` | Combined local + ListenBrainz statistics |
-| `get_listenbrainz_recommendations` | LB "created for you" playlists |
-| `submit_listen_feedback` | Send love / hate feedback to ListenBrainz |
-| `sync_listenbrainz` | Manually trigger ListenBrainz stats sync |
+|------|-------------|
+| `list_zones` | List all active Roon playback zones |
+| `get_now_playing` | Current track, zone, and playback state |
+| `play_tracks` | Send item keys to a zone (replaces queue) |
+| `queue_tracks` | Append tracks to a zone's queue |
+| `transport_control` | play/pause/stop/next/prev/shuffle/repeat/seek |
+| `volume_control` | Set, adjust, get, or mute volume by zone name |
+| `transfer_zone` | Move playback from one zone to another |
+| `zone_grouping` | Group or ungroup Roon zones |
+| `play_radio` | Play an internet radio station by name (fuzzy match) |
+| `browse_playlists` | List and play Roon playlists |
 
-</details>
+### Intelligence & Taste
 
-### MCP setup
+| Tool | Description |
+|------|-------------|
+| `get_taste_profile` | Detailed taste profile with genre scores, era data, LB + Last.fm stats |
+| `update_taste_profile` | Manually adjust genre/era weights |
+| `rate_playlist` | Rate a generated playlist (thumbs up/down) |
+| `get_listening_history` | Recent listening history from the local database |
+| `get_listening_stats` | Play counts, genre breakdown, listening patterns |
+| `save_playlist` | Save a curated playlist to the local database |
+| `list_saved_playlists` | List previously saved playlists with optional tag filter |
+| `replay_saved_playlist` | Re-send a saved playlist to a Roon zone |
+| `modify_playlist` | Add, remove, or reorder tracks in a saved playlist |
+| `get_result_history` | Previously generated playlists and recommendations |
 
-```bash
-# 1 — install dependency (once per machine)
-pip3 install "mcp[cli]"
+### ListenBrainz
 
-# 2 — auto-configure Claude Desktop
-python3 scripts/install_mcp.py
+| Tool | Description |
+|------|-------------|
+| `get_listenbrainz_recommendations` | Personal recommendations from ListenBrainz |
+| `submit_listen_feedback` | Submit love/hate feedback for a track to ListenBrainz |
+| `sync_listenbrainz` | Force an immediate ListenBrainz stats sync (bypasses 6h TTL) |
 
-# 3 — restart Claude Desktop
-```
+### Qobuz
 
-Verify under **Claude Desktop → Settings → Developer → MCP Servers** — `roonsage` should be listed as active.
+| Tool | Description |
+|------|-------------|
+| `search_qobuz` | Search Qobuz catalog via Roon Browse API |
+| `save_to_qobuz` | Save a curated playlist to your Qobuz account |
+| `add_to_qobuz_favorites` | Add a track or album to Qobuz favorites |
+| `list_qobuz_playlists` | List your Qobuz playlists |
+| `update_qobuz_playlist` | Rename or update a Qobuz playlist |
+| `delete_qobuz_playlist` | Delete a Qobuz playlist |
+| `browse_qobuz_new_releases` | Browse Qobuz new releases by genre |
+| `prepare_for_arc` | Prepare a playlist for Roon ARC offline listening |
 
----
+### Watchlist
 
-## Intelligence Layer — Taste Profile & Listening History
+| Tool | Description |
+|------|-------------|
+| `get_watchlist` | List all watched artists and their latest release status |
+| `add_to_watchlist` | Add an artist to the release watchlist |
+| `scan_watchlist` | Immediately scan all watched artists for new Qobuz releases |
+| `play_new_release` | Play a newly detected release from the watchlist |
 
-```mermaid
-flowchart LR
-    subgraph monitor["👂 Listening Monitor (background thread)"]
-        direction TB
-        E1("Roon zone event")
-        E2{"New track?"}
-        E3("submit_now_playing<br/>→ ListenBrainz")
-        E4{"Played ≥ 30 s<br/>or ≥ 50%?"}
-        E5("Fuzzy-match genre + year<br/>from library cache")
-        E6[("INSERT listening_history<br/>genre · year · decade<br/>hour_of_day · day_of_week")]
-        E7("Scrobble → ListenBrainz<br/>fire-and-forget")
+### Scheduled Playlists
 
-        E1 --> E2
-        E2 -->|yes| E3
-        E2 -->|no| E4
-        E4 -->|yes| E5
-        E5 --> E6
-        E6 --> E7
-    end
+| Tool | Description |
+|------|-------------|
+| `list_scheduled_playlists` | List all configured scheduled playlists |
+| `create_scheduled_playlist` | Create a cron-based auto-regenerating playlist |
+| `run_scheduled_playlist` | Manually trigger a scheduled playlist immediately |
 
-    subgraph lbsync["🔄 ListenBrainz Sync (every 6 h)"]
-        direction TB
-        S1("listenbrainz_sync.py")
-        S2("genre_activity<br/>daily_activity<br/>era_distribution")
-        S3("top_artists<br/>top_recordings<br/>top_releases")
-        S4("artist_map<br/>similar_users<br/>user_feedback")
-        S5[("lb_stats_cache<br/>SQLite · TTL 6 h")]
+### Metadata Enrichment
 
-        S1 --> S2 & S3 & S4
-        S2 & S3 & S4 --> S5
-    end
+| Tool | Description |
+|------|-------------|
+| `get_enrichment_status` | Enrichment queue progress, completion %, source breakdown |
+| `start_enrichment` | Start or resume background MusicBrainz + Last.fm enrichment |
 
-    subgraph profile["🧠 Taste Profile"]
-        direction TB
-        P1("compute_profile_from_history")
-        P2("Local keys<br/>genres · decades<br/>artists · moods")
-        P3("lb_ keys<br/>lb_genre_by_hour<br/>lb_era_distribution<br/>lb_top_artists …")
-        P4[("taste_profile.json")]
+### Automation
 
-        P1 --> P2 & P3
-        P2 & P3 --> P4
-    end
+| Tool | Description |
+|------|-------------|
+| `list_automations` | List all automations with status and run history |
+| `create_automation` | Create a new trigger-action automation |
+| `toggle_automation` | Enable or disable an automation by ID |
 
-    E6 --> P1
-    S5 --> P1
-```
+### AcoustID Verification
 
-### Taste profile structure
-
-```jsonc
-{
-  // ── Local keys (computed from listening history) ──────────────────
-  "genres":   { "Jazz": 0.8, "Electronic": 0.6 },
-  "decades":  { "1990s": 0.7, "2000s": 0.5 },
-  "artists":  { "Radiohead": 0.9, "Miles Davis": 0.85 },
-  "moods":    { "melancholic": 0.7, "energetic": 0.4 },
-  "dislikes": ["christmas", "karaoke"],
-  "notes":    ["prefers album-oriented listening", "no live versions"],
-  "stats":    { "total_playlists": 42, "avg_rating": 4.2,
-                "peak_hour": 21, "peak_day": "Friday" },
-
-  // ── lb_ keys (refreshed from ListenBrainz every 6 h) ─────────────
-  "lb_genre_by_hour":    { "Jazz": [0,0,0,0,0,0,2,5,8,12,8,6,4,3,5,7,9,11,8,5,3,2,1,0] },
-  "lb_era_distribution": { "1960s": 12, "1990s": 87, "2010s": 44 },
-  "lb_daily_heatmap":    { "Monday": [0,0,0,0,0,1,3,8,12,10,7,5,4,6,8,9,11,8,5,3,2,1,0,0] },
-  "lb_top_artists":      [{ "artist_name": "Miles Davis", "listen_count": 312 }],
-  "lb_top_recordings":   [{ "track_name": "So What",     "listen_count": 47  }],
-  "lb_artist_countries": [{ "country": "US",             "listen_count": 2100 }],
-  "lb_loved_recordings": ["msid-abc123", "msid-def456"],
-  "lb_hated_recordings": [],
-  "lb_similar_users":    [{ "user_name": "jazzfan99", "similarity": 0.87 }]
-}
-```
-
-> `lb_` keys always overwrite on sync (fresh API data). Local keys use a weighted merge with 30% recency bias.
-
----
-
-## ListenBrainz Integration (v6.0)
-
-```mermaid
-sequenceDiagram
-    participant R  as 🎵 Roon Core
-    participant M  as roon_intelligence.py
-    participant DB as 🗄️ SQLite
-    participant LB as 🎧 ListenBrainz API
-    participant S  as listenbrainz_sync.py
-
-    Note over R,S: Track starts playing
-    R  ->> M:  zone_changed event
-    M  ->> LB: POST /1/submit-listens (playing_now)
-
-    Note over R,S: Track finishes (≥ 30 s or ≥ 50%)
-    M  ->> DB: fuzzy-match genre + year from tracks table
-    M  ->> DB: INSERT listening_history
-    M -->> LB: POST /1/submit-listens (single) — fire & forget
-
-    Note over R,S: Every 6 hours (background asyncio task)
-    S  ->> LB: GET /1/stats/user/{u}/artists
-    S  ->> LB: GET /1/stats/user/{u}/recordings
-    S  ->> LB: GET /1/stats/user/{u}/genre-activity
-    S  ->> LB: GET /1/stats/user/{u}/daily-activity
-    S  ->> LB: GET /1/stats/user/{u}/artist-map
-    S  ->> LB: GET /1/feedback/user/{u}/get-feedback
-    S  ->> LB: GET /1/user/{u}/similar-users
-    S  ->> DB: UPDATE lb_stats_cache (JSON · TTL 6 h)
-```
-
-### Setup
-
-1. Get your token at **[listenbrainz.org/profile/](https://listenbrainz.org/profile/)** → User token
-2. Add to your environment — or enter via **Settings → ListenBrainz** in the web UI:
-
-```env
-LISTENBRAINZ_TOKEN=your-token-here
-LISTENBRAINZ_USERNAME=your-username
-```
-
-3. Restart RoonSage. The status chip in **Settings → ListenBrainz** confirms the connection.
-
-> **Fully optional.** If no token is set, scrobbling and stats sync are silently skipped. Everything works as before.
+| Tool | Description |
+|------|-------------|
+| `verify_track_match` | Fingerprint-verify that a Qobuz search result matches the intended track |
 
 ---
 
 ## Features
 
-### Web UI
+### Web UI Views
 
-A dark-themed single-page app (amber `#e5a00d` accent, no build step).
+| View | Description |
+|------|-------------|
+| **Generate** | Natural language playlist generation with genre/decade filters, track count, source mode (library/hybrid/qobuz), and one-click playlist templates |
+| **Filter** | Direct library filtering by genre, decade, and keywords with live track count preview |
+| **Discover** | Cache-powered discovery: Undiscovered Albums, Deep Cuts, Forgotten Favorites, Genre Explorer |
+| **My Taste** | Chart.js visualizations of genre scores, era distribution, listening heatmap, ListenBrainz + Last.fm stats with time range filters |
+| **Watchlist** | Artist monitoring with Qobuz new-release detection and dismiss/play controls |
+| **Automations** | Trigger-action workflow builder with presets, activity log, and enable/disable toggles |
+| **Settings** | Roon, LLM, Qobuz, ListenBrainz, Last.fm, Notifications, Scheduled Playlists, Enrichment status, AcoustID |
 
-| View | What you get |
-|---|---|
-| **Generate** | Describe a playlist; the LLM selects from your library using genre/decade filters |
-| **Filter** | Manual genre, decade, and live-track toggles before generation |
-| **My Taste** | Genre breakdown, era chart, 7×24 listening heatmap, LB top artists, loved tracks |
-| **Settings** | Roon · LLM · Qobuz · ListenBrainz — all configurable without touching files |
+### Discovery Engine
 
-### Qobuz
+Four sections powered entirely by SQL queries against the local SQLite cache — zero LLM calls, zero external API calls, instant response:
 
-| Capability | Description |
-|---|---|
-| Hybrid playlists | Mix your library with Qobuz discoveries in one playlist |
-| Discovery mode | Recommend and play albums you don't own via Qobuz |
-| Playlist save | Save curated playlists to your Qobuz account (play via ARC on the go) |
-| New releases | Browse featured Qobuz albums, filtered by genre |
-| Favorites | Add/remove tracks, albums, artists from Claude Desktop |
+- **Undiscovered Albums** — Albums by the user's most-played artists with zero play count. Great for "what else do they have?"
+- **Deep Cuts** — Under-played tracks from the top-20 most-listened artists. Side-B tracks you keep skipping.
+- **Forgotten Favorites** — Tracks with 5+ total plays but no play in the last 60 days. Perfect for "Rediscover" playlists.
+- **Genre Explorer** — All library genres with artist count and track count, sorted by artist diversity.
+
+### Playlist Templates
+
+One-click playlist presets eliminate the need to type prompts for common listening occasions:
+
+- **Built-in templates** stored in `data/playlist_templates.yaml` — Morning commute, Late-night focus, Weekend dinner, etc.
+- **User templates** stored in `data/user_templates.yaml` — create your own via the Settings UI or `create_automation`
+- Templates support genre/decade filters, track count, source mode, and a free-text prompt
+- The `generate_from_template` MCP tool and the web UI Generate view both support one-click generation
+
+### Artist Watchlist
+
+Monitor artists for new releases on Qobuz without leaving Roon:
+
+- Add artists manually or auto-populate from your top ListenBrainz/Last.fm artists
+- Background scan every 12 hours (configurable via `WATCHLIST_SCAN_INTERVAL_HOURS`)
+- Detects albums, EPs, and optionally singles per artist
+- Sends a notification (Discord/Telegram/webhook) when a new release is found
+- Play a new release directly with `play_new_release` or from the Watchlist view
+
+### Scheduled Playlists
+
+Cron-based automatic playlist regeneration that keeps your Roon queue fresh:
+
+- Define a prompt + filters + cron expression (e.g. `0 8 * * 1-5` for weekday mornings)
+- Generated playlists are sent directly to a Roon zone and/or saved to Qobuz
+- Double-run protection: a schedule is skipped if it ran within the last 55 seconds
+- Manually trigger any schedule immediately via `run_scheduled_playlist` or the Settings UI
+
+### Automation Engine
+
+A trigger-action workflow system that connects Roon events to RoonSage actions:
+
+**Triggers:**
+
+| Trigger | Fires when… |
+|---------|-------------|
+| `schedule` | A cron expression matches |
+| `track_played` | A track completes in a Roon zone |
+| `zone_started` | A Roon zone begins playback |
+| `library_synced` | A library sync completes |
+| `lb_synced` | A ListenBrainz sync completes |
+| `watchlist_match` | A new release is detected on the watchlist |
+
+**Actions:**
+
+| Action | Does… |
+|--------|-------|
+| `generate_playlist` | Generate and queue a playlist |
+| `play_template` | Trigger a named playlist template |
+| `sync_library` | Run a library sync |
+| `sync_listenbrainz` | Run a ListenBrainz sync |
+| `scan_watchlist` | Scan watchlist for new releases |
+| `send_notification` | Send a message via Discord/Telegram/webhook |
+| `run_maintenance` | Run enrichment or other maintenance tasks |
+| `volume_set` | Set zone volume |
+
+Automations have a configurable cooldown (default 5 minutes) to prevent double-firing. Activity is logged to `automation_log` for auditing.
+
+### Metadata Enrichment
+
+Background pipeline that enriches every track in the library with additional metadata from MusicBrainz and Last.fm:
+
+- **MusicBrainz**: MBID, release date, country of origin, genre tags
+- **Last.fm**: listener count, global play count, community tags (e.g. "late night", "atmospheric")
+- Enrichment data is stored in `track_metadata_ext` and can inform playlist generation prompts
+- Worker runs automatically at startup and can be paused/resumed
+- Progress tracked per-track: `pending → processing → complete / failed`
+- Check status with `get_enrichment_status` or the Settings UI
+
+### AcoustID Verification
+
+Audio fingerprint verification for Qobuz search results using the free [AcoustID](https://acoustid.org) service:
+
+- Detects wrong versions before playback: live vs. studio, remix vs. original, wrong decade remaster
+- `verify_track_match` fingerprints the local library file and compares against the Qobuz result's MBID
+- Optional `auto_verify_qobuz` mode verifies every Qobuz search result automatically (adds minor latency)
+- Requires `libchromaprint-tools` (included in the Docker image) and a free AcoustID API key
+
+### Notifications
+
+Event-driven notifications sent to Discord, Telegram, and/or a custom webhook:
+
+- **Discord** — POST to a webhook URL (Server Settings → Integrations → Webhooks)
+- **Telegram** — Bot token + chat ID via @BotFather
+- **Generic webhook** — any HTTP endpoint accepting POST JSON
+
+Configurable `enabled_events`:
+
+| Event | Fires when… |
+|-------|-------------|
+| `playlist_generated` | A playlist is generated via the web UI or scheduler |
+| `library_sync_complete` | Library sync finishes |
+| `library_sync_failed` | Library sync fails |
+| `lb_sync_complete` | ListenBrainz sync completes |
+| `new_release_found` | Watchlist scan finds a new release |
+| `listening_milestone` | Listening milestone reached |
+
+### Mobile & PWA
+
+- Fully responsive layout for phones and tablets
+- `frontend/manifest.json` enables "Add to Home Screen" on iOS and Android
+- SVG app icons at 192 × 192 and 512 × 512
+
+### Qobuz Integration
+
+Two independent Qobuz connection methods — no manual app_id configuration required:
+
+1. **Qobuz via Roon Browse API** — Used for search and playback. RoonSage navigates Roon's Browse hierarchy (Root → Qobuz → Search) to find and play Qobuz tracks. Requires Qobuz subscription in Roon. Detected automatically at startup.
+
+2. **Qobuz direct API** — Used for playlist save and management. Connects directly to `https://www.qobuz.com/api.json/0.2/`. The `app_id` is auto-detected by trying known working IDs (LMS plugin, QobuzDL, streamrip) with a fallback to web player extraction. Requires `QOBUZ_EMAIL` + `QOBUZ_PASSWORD`.
+
+**Synthetic key fix (v4.9):** Qobuz global-search item keys are ephemeral session keys that expire after any subsequent browse call. RoonSage generates a stable synthetic key `qobuz_search::{artist}::{title}` for global-search results, then re-issues a fresh search at playback time — ensuring Qobuz tracks always play correctly regardless of time elapsed.
 
 ### LLM Providers
 
-| Provider | Analysis model | Generation model | Max tracks sent to AI |
-|---|---|---|---|
-| **Gemini** *(recommended)* | `gemini-2.5-flash` | `gemini-2.5-flash` | ~18,000 |
-| **Anthropic** | `claude-sonnet-4-5` | `claude-haiku-4-5` | ~3,500 |
-| **OpenAI** | `gpt-4.1` | `gpt-4.1-mini` | ~2,300 |
-| **Ollama** *(local)* | any installed | any installed | depends on model |
-| **Custom** *(OpenAI-compatible)* | configured | configured | configured |
+| Provider | Analysis model | Generation model | Context |
+|----------|---------------|-----------------|---------|
+| **Gemini** | `gemini-2.5-flash` | `gemini-2.5-flash-lite` | 1M tokens (~18k tracks) |
+| **Anthropic** | `claude-sonnet-4-5` | `claude-haiku-4-5` | 200K tokens (~3.5k tracks) |
+| **OpenAI** | `gpt-4.1` | `gpt-4.1-mini` | 128K tokens (~2.3k tracks) |
+| **Ollama** | auto-detected | auto-detected | auto-detected |
+| **Custom** | user-specified | user-specified | user-specified |
 
-Gemini's 1 M token context window allows sending your entire library to the model — significantly improving variety on large collections.
+Gemini's 1M context allows sending ~18,000 filtered tracks to the AI in a single call — the largest supported context window. `smart_generation: true` uses the analysis model for both steps (higher quality, ~3–5× cost).
+
+---
+
+## Intelligence Layer
+
+RoonSage builds a detailed taste profile from multiple data sources:
+
+```mermaid
+graph LR
+    subgraph local["Local (Roon)"]
+        L1("Listening history\nzone callbacks")
+        L2("Genre junction table\nSQL-native")
+        L3("Track metadata\nMusicBrainz / Last.fm")
+    end
+
+    subgraph lb["ListenBrainz"]
+        B1("Top artists/recordings")
+        B2("Genre heatmap by hour")
+        B3("Era distribution")
+        B4("Artist countries")
+        B5("Similar users")
+        B6("Loved / hated tracks")
+    end
+
+    subgraph lf["Last.fm"]
+        F1("Top artists / tracks")
+        F2("Community tags")
+        F3("Similar artists")
+        F4("Scrobble history")
+    end
+
+    TP[("Taste Profile\ntaste_profile.py")]
+
+    local --> TP
+    lb    --> TP
+    lf    --> TP
+```
+
+### Taste profile structure (selected keys)
+
+```python
+{
+  # Local Roon listening
+  "genre_scores":         {"Jazz": 0.82, "Post-Rock": 0.71, ...},
+  "decade_scores":        {"1990s": 0.68, "2000s": 0.55, ...},
+  "top_artists":          ["Radiohead", "Miles Davis", ...],
+  "top_albums":           [{"title": "...", "artist": "...", "plays": 12}, ...],
+  "total_hours":          142.5,
+  "peak_hour":            22,           # 10pm is peak listening hour
+  "peak_day":             "friday",
+  "recently_active":      ["Portishead", "Floating Points"],
+  "artist_streaks":       {"Nick Cave": 7},
+  "moods":                ["melancholic", "instrumental", "late-night"],
+  "skip_signals":         ["upbeat pop", "christmas"],
+
+  # ListenBrainz (lb_ prefix)
+  "lb_genre_by_hour":     {"22": {"Jazz": 12, "Ambient": 8}},
+  "lb_era_distribution":  {"1990s": 0.35, "2000s": 0.28},
+  "lb_daily_heatmap":     {"mon": [0,0,2,...], "fri": [0,0,0,...,8,12]},
+  "lb_artist_countries":  {"UK": 0.42, "US": 0.31},
+  "lb_loved_recordings":  [{"artist": "...", "title": "..."}],
+  "lb_similar_users":     ["user1", "user2"],
+  "lb_top_artists":       [{"name": "Radiohead", "listen_count": 312}],
+
+  # Last.fm (lf_ prefix)
+  "lf_top_artists":       [{"name": "Portishead", "playcount": 187}],
+  "lf_top_tracks":        [{"artist": "...", "title": "...", "playcount": 44}],
+  "lf_tags":              ["trip-hop", "alternative", "post-rock"],
+  "lf_similar_artists":   ["Massive Attack", "Tricky"],
+}
+```
+
+Scrobbling is **dual** — every completed track is sent to both ListenBrainz and Last.fm simultaneously (when both are configured).
+
+---
+
+## ListenBrainz Integration
+
+ListenBrainz provides community-sourced music intelligence that enriches the taste profile with listening patterns, track feedback, and similar-user discovery.
+
+### Setup
+
+1. Create a free account at [listenbrainz.org](https://listenbrainz.org)
+2. Get your user token from [listenbrainz.org/profile](https://listenbrainz.org/profile)
+3. Add to your config (or via the Settings UI):
+
+```yaml
+listenbrainz:
+  token: "your-token-here"
+  username: "your-username"
+```
+
+### What it provides
+
+- **Scrobbling** — every completed Roon track is scrobbled in real time
+- **Now playing** — current track sent on zone start
+- **Stats sync** (every 6h) — genre heatmap, era distribution, daily listening patterns, artist countries, loved/hated tracks, similar users, top artists/recordings/releases
+- **Recommendations** — `get_listenbrainz_recommendations` returns personalized suggestions from the LB recommendation engine
+- **Feedback** — `submit_listen_feedback` lets Claude mark tracks as loved or hated
+
+---
+
+## Last.fm Integration
+
+Last.fm adds a second scrobbling channel and provides community tags, similar artists, and listening stats that complement ListenBrainz.
+
+### Setup
+
+1. Create an API application at [last.fm/api/account/create](https://www.last.fm/api/account/create)
+2. Add the API key and secret to your config (or via the Settings UI):
+
+```yaml
+lastfm:
+  api_key: "your-api-key"
+  api_secret: "your-api-secret"
+  username: "your-username"
+  # session_key is auto-saved after you complete auth in the Settings UI
+  session_key: ""
+```
+
+3. Complete the OAuth flow in **Settings → Last.fm → Authenticate** — this generates and saves the session key.
+
+### Auth flow
+
+Last.fm uses a token-based OAuth-like flow:
+
+1. `POST /api/intelligence/lastfm/auth/token` — requests an auth token and returns a Last.fm authorization URL
+2. User opens the URL and grants access in their browser
+3. `POST /api/intelligence/lastfm/auth/session` — exchanges the token for a persistent session key, saved to `config.user.yaml`
+
+### What it provides
+
+- **Scrobbling** — dual-scrobbles every completed Roon track alongside ListenBrainz
+- **Now playing** — current track sent at zone start
+- **Stats sync** (every 6h) — top artists, top tracks, community tags per artist/track, similar artists
+- **Taste profile keys** — `lf_top_artists`, `lf_top_tracks`, `lf_tags`, `lf_similar_artists`
 
 ---
 
 ## Deployment
 
-### Docker *(recommended)*
+### Docker (recommended)
 
 ```bash
-git clone https://github.com/Georgemvp/roonsage.git
+git clone https://github.com/yourusername/roonsage.git
 cd roonsage
-cp config.example.yaml config.yaml   # edit: Roon host + API key
+cp config.example.yaml config.yaml
+# Edit config.yaml with your Roon host, LLM API key, etc.
 docker-compose up -d
 ```
 
-Open **http://localhost:5765** — the onboarding wizard walks you through the first-run setup.
+`docker-compose.yml` mounts `./data` for the SQLite database and user config so they persist across container restarts.
+
+> **Note:** The Docker image includes `libchromaprint-tools` for AcoustID fingerprint verification. No extra install needed.
 
 ### Bare metal
 
 ```bash
-python -m venv venv && source venv/bin/activate
+git clone https://github.com/yourusername/roonsage.git
+cd roonsage
 pip install -r requirements.txt
-export ROON_HOST=192.168.1.x ROON_PORT=9330 GEMINI_API_KEY=your-key
+cp config.example.yaml config.yaml
 uvicorn backend.main:app --reload --port 5765
 ```
 
-<details>
-<summary><strong>systemd service</strong></summary>
-
-```ini
-[Unit]
-Description=RoonSage
-After=network.target
-
-[Service]
-WorkingDirectory=/opt/roonsage
-EnvironmentFile=/opt/roonsage/.env
-ExecStart=/opt/roonsage/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 5765
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
+### MCP server (local — not in Docker)
 
 ```bash
-sudo systemctl enable roonsage && sudo systemctl start roonsage
+pip install "mcp[cli]" httpx
+python3 scripts/install_mcp.py   # writes claude_desktop_config.json entry
 ```
-</details>
+
+The MCP server runs locally on your machine and connects to the RoonSage API over HTTP. Set `ROONSAGE_URL` if RoonSage is running on a different host (e.g. Synology NAS).
+
+### First run
+
+1. Open `http://localhost:5765` and follow the setup wizard
+2. In Roon: **Settings → Extensions → Enable RoonSage**
+3. Trigger **Library Sync** (takes 2–10 min for large libraries)
+4. Start generating playlists
 
 ---
 
@@ -468,48 +665,84 @@ sudo systemctl enable roonsage && sudo systemctl start roonsage
 
 ### Environment variables
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `ROON_HOST` | ✅ | — | IP or hostname of your Roon Core |
-| `ROON_PORT` | | `9330` | Roon Core port |
-| `ROON_CORE_ID` | | auto-saved | Saved after first authorisation |
-| `ROON_TOKEN` | | auto-saved | Saved after first authorisation |
-| `GEMINI_API_KEY` | one of three | — | Google Gemini (has free tier) |
-| `ANTHROPIC_API_KEY` | one of three | — | Anthropic Claude |
-| `OPENAI_API_KEY` | one of three | — | OpenAI GPT |
-| `LLM_PROVIDER` | | auto-detect | `gemini` · `anthropic` · `openai` · `ollama` · `custom` |
-| `OLLAMA_URL` | | `http://localhost:11434` | Ollama server URL |
-| `CUSTOM_LLM_URL` | | — | Any OpenAI-compatible API base URL |
-| `CUSTOM_CONTEXT_WINDOW` | | `32768` | Context window for custom provider |
-| `ROONSAGE_PASSWORD` | | — | Enable HTTP Basic Auth on all endpoints |
-| `ROONSAGE_URL` | | `http://localhost:5765` | URL the MCP server uses to reach RoonSage |
-| `QOBUZ_EMAIL` | | — | Qobuz account email (for playlist save) |
-| `QOBUZ_PASSWORD` | | — | Qobuz account password (for playlist save) |
-| `LISTENBRAINZ_TOKEN` | | — | ListenBrainz user token *(v6.0)* |
-| `LISTENBRAINZ_USERNAME` | | — | ListenBrainz username *(v6.0)* |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ROON_HOST` | IP address of your Roon Core | _(required)_ |
+| `ROON_PORT` | Roon Extension port | `9330` |
+| `ROON_CORE_ID` | Roon Core unique ID (auto-saved after first auth) | — |
+| `ROON_TOKEN` | Roon Extension token (auto-saved after auth) | — |
+| `LLM_PROVIDER` | `anthropic`, `openai`, `gemini`, `ollama`, or `custom` | `gemini` |
+| `ANTHROPIC_API_KEY` | Anthropic API key | — |
+| `OPENAI_API_KEY` | OpenAI API key | — |
+| `GEMINI_API_KEY` | Google Gemini API key | — |
+| `OLLAMA_URL` | Ollama base URL | `http://localhost:11434` |
+| `CUSTOM_LLM_URL` | Custom OpenAI-compatible endpoint URL | — |
+| `CUSTOM_CONTEXT_WINDOW` | Context window size for custom provider | `32768` |
+| `ROONSAGE_PASSWORD` | Optional HTTP Basic Auth password | _(disabled)_ |
+| `QOBUZ_EMAIL` | Qobuz account email (for playlist save) | — |
+| `QOBUZ_PASSWORD` | Qobuz account password (for playlist save) | — |
+| `LISTENBRAINZ_TOKEN` | ListenBrainz user token | — |
+| `LISTENBRAINZ_USERNAME` | ListenBrainz username | — |
+| `LASTFM_API_KEY` | Last.fm API key | — |
+| `LASTFM_API_SECRET` | Last.fm API secret | — |
+| `LASTFM_SESSION_KEY` | Last.fm session key (auto-saved after OAuth) | — |
+| `LASTFM_USERNAME` | Last.fm username | — |
+| `DISCORD_WEBHOOK_URL` | Discord notification webhook URL | — |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token | — |
+| `TELEGRAM_CHAT_ID` | Telegram chat ID | — |
+| `WEBHOOK_URL` | Generic webhook URL (POST JSON) | — |
+| `ACOUSTID_API_KEY` | AcoustID API key (free at acoustid.org) | — |
+| `ACOUSTID_ENABLED` | Enable AcoustID verification | `false` |
+| `ACOUSTID_AUTO_VERIFY_QOBUZ` | Auto-verify every Qobuz search result | `false` |
+| `WATCHLIST_SCAN_INTERVAL_HOURS` | Watchlist background scan interval | `12` |
 
-All settings can also be changed in the **Settings** page of the web UI. UI-saved values go to `data/config.user.yaml`. Environment variables always take precedence.
-
-### config.yaml
+### config.yaml example
 
 ```yaml
 roon:
   host: "192.168.1.x"
   port: 9330
+  # core_id and token are auto-saved after first Roon authorization
+  core_id: ""
+  token: ""
+  extension_id: "com.roonsage.roon"
+  display_name: "RoonSage"
 
 llm:
   provider: "gemini"
+  # api_key can also be set via GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY env var
+  api_key: ""
   model_analysis: "gemini-2.5-flash"
-  model_generation: "gemini-2.5-flash"
-  smart_generation: false       # true = use analysis model for both (~3–5× cost, higher quality)
+  model_generation: "gemini-2.5-flash-lite"
+  smart_generation: false
 
 defaults:
   track_count: 25
 
-# Optional — can also be set in the Settings UI
 listenbrainz:
   token: ""
   username: ""
+
+lastfm:
+  api_key: ""
+  api_secret: ""
+  session_key: ""       # auto-saved after OAuth — do not set manually
+  username: ""
+
+notifications:
+  discord_webhook_url: ""
+  telegram_bot_token: ""
+  telegram_chat_id: ""
+  webhook_url: ""
+  enabled_events:
+    - playlist_generated
+    - library_sync_complete
+    - new_release_found
+
+acoustid:
+  api_key: ""           # free key at https://acoustid.org/api-key
+  enabled: false
+  auto_verify_qobuz: false
 ```
 
 ---
@@ -518,163 +751,368 @@ listenbrainz:
 
 ```
 roonsage/
-│
 ├── backend/
-│   ├── main.py                 # FastAPI app, lifespan, router registration
-│   ├── config.py               # Config loading (env → YAML → defaults)
-│   ├── db.py                   # SQLite schema init + idempotent migrations
-│   ├── models.py               # Pydantic request/response models
-│   │
-│   ├── roon_client.py          # Roon Extension connection manager
-│   ├── roon_browse.py          # Browse API traversal (library sync)
-│   ├── roon_playback.py        # Track playback via Browse API
-│   ├── roon_intelligence.py    # Listening monitor · scrobbling · enrichment
-│   │
-│   ├── listenbrainz_client.py  # ★ v6.0  Async ListenBrainz API client
-│   ├── listenbrainz_sync.py    # ★ v6.0  Stats sync service (6 h TTL cache)
-│   │
-│   ├── library_cache.py        # Library reads/writes against SQLite
-│   ├── taste_profile.py        # Profile compute + weighted merge
-│   ├── analyzer.py             # Prompt → filter dimensions
-│   ├── generator.py            # Track list → LLM selection
-│   ├── recommender.py          # Album recommendation pipeline
-│   ├── llm_client.py           # LLM provider abstraction
-│   │
-│   ├── qobuz_browser.py        # Qobuz search via Roon Browse API
-│   ├── qobuz_api.py            # Direct Qobuz API (playlist save)
-│   │
+│   ├── main.py                  # FastAPI app, lifespan, router registration
+│   ├── config.py                # Config loading (env > user YAML > base YAML)
+│   ├── db.py                    # SQLite schema, migrations, connection helpers
+│   ├── models.py                # Pydantic models for all API contracts
+│   ├── dependencies.py          # Auth, rate limiting shared helpers
+│   ├── version.py               # Git-tag based version detection
+│   ├── roon_client.py           # Roon Extension client (roonapi wrapper)
+│   ├── roon_connection.py       # WebSocket connection management
+│   ├── roon_browse.py           # Browse API — sync, search, navigate hierarchy
+│   ├── roon_playback.py         # Play Now / queue logic, synthetic key handling
+│   ├── roon_intelligence.py     # Zone monitor, listening history, scrobble dispatch
+│   ├── roon_search.py           # Library search helpers
+│   ├── roon_utils.py            # Shared Roon Browse utilities
+│   ├── library_cache.py         # SQLite cache queries and sync orchestration
+│   ├── sync.py                  # Library sync worker
+│   ├── tracks.py                # Track model helpers
+│   ├── filter_sessions.py       # Server-side key_map session storage
+│   ├── taste_profile.py         # Taste profile computation (local + LB + LF)
+│   ├── analyzer.py              # Prompt → genre/decade filter analysis
+│   ├── generator.py             # Track list → LLM → playlist generation
+│   ├── recommender.py           # Album recommendation pipeline
+│   ├── llm_client.py            # Multi-provider LLM client
+│   ├── music_research.py        # Web research for album recommendations
+│   ├── results.py               # Result history persistence
+│   ├── qobuz_browser.py         # Qobuz search + playback via Roon Browse API
+│   ├── qobuz_api.py             # Direct Qobuz API client (playlist save)
+│   ├── discovery.py             # ★ Cache-powered discovery (zero LLM / API)
+│   ├── templates.py             # ★ Playlist template engine
+│   ├── watchlist.py             # ★ Artist watchlist + Qobuz release detection
+│   ├── scheduler.py             # ★ Cron-based scheduled playlist runner
+│   ├── automation_engine.py     # ★ Trigger-action workflow engine
+│   ├── enrichment_worker.py     # ★ Background MusicBrainz + Last.fm enrichment
+│   ├── musicbrainz_client.py    # ★ MusicBrainz API client
+│   ├── acoustid_client.py       # ★ AcoustID fingerprint verification
+│   ├── notifications.py         # ★ Event bus + Discord/Telegram/webhook dispatch
+│   ├── listenbrainz_client.py   # ListenBrainz API client
+│   ├── listenbrainz_sync.py     # ListenBrainz stats sync service
+│   ├── lastfm_client.py         # ★ Last.fm API client
+│   ├── lastfm_sync.py           # ★ Last.fm stats sync service
 │   └── routes/
-│       ├── library.py          # /api/library/*
-│       ├── generate.py         # /api/generate/*, /api/analyze/*
-│       ├── recommend.py        # /api/recommend/*
-│       ├── intelligence.py     # /api/intelligence/*  (taste, history, LB)
-│       ├── roon.py             # /api/roon/*
-│       ├── config_routes.py    # /api/config, /api/health, /api/ollama/*
-│       ├── results.py          # /api/results
-│       ├── qobuz_playlist.py   # /api/qobuz/*
-│       └── setup.py            # /api/setup/*
-│
+│       ├── library.py           # Library cache, sync, search, filter endpoints
+│       ├── generate.py          # Playlist generation + analysis endpoints
+│       ├── recommend.py         # Album recommendation pipeline endpoints
+│       ├── roon.py              # Zones, queue, transport, art proxy, Qobuz search
+│       ├── intelligence.py      # Taste profile, listening history, LB/LF endpoints
+│       ├── setup.py             # Setup wizard + provider validation endpoints
+│       ├── config_routes.py     # Config, health, Ollama endpoints
+│       ├── results.py           # Result history endpoints
+│       ├── qobuz_playlist.py    # Qobuz playlist save + favorites endpoints
+│       ├── discovery.py         # ★ Discovery sections endpoints
+│       ├── templates.py         # ★ Playlist template CRUD + generate endpoints
+│       ├── watchlist.py         # ★ Artist watchlist endpoints
+│       ├── scheduler.py         # ★ Scheduled playlist endpoints
+│       ├── automations.py       # ★ Automation CRUD + run endpoints
+│       ├── enrichment.py        # ★ Enrichment status + control endpoints
+│       ├── verify.py            # ★ AcoustID verification endpoints
+│       └── notifications.py     # ★ Notification config + history endpoints
 ├── frontend/
-│   ├── index.html              # Single-page app
-│   ├── style.css               # Dark theme · amber #e5a00d accent
+│   ├── index.html               # Single-page app shell
+│   ├── style.css                # Dark theme (background #1a1a1a, amber #e5a00d)
+│   ├── app.js                   # App bootstrap
+│   ├── manifest.json            # ★ PWA manifest
+│   ├── icon-192.svg             # ★ PWA icon 192×192
+│   ├── icon-512.svg             # ★ PWA icon 512×512
 │   └── modules/
-│       ├── app.js              # Bootstrap + routing
-│       ├── playlist.js         # Generation + settings handlers
-│       ├── taste.js            # My Taste view + LB charts + heatmap
-│       └── events.js           # Global event handlers
-│
-├── mcp_server.py               # MCP server (FastMCP · stdio transport)
-├── scripts/install_mcp.py      # One-click Claude Desktop MCP config
+│       ├── api.js               # HTTP client helpers
+│       ├── state.js             # Global app state
+│       ├── router.js            # Hash-based client routing
+│       ├── ui.js                # Shared UI primitives
+│       ├── utils.js             # Utility functions
+│       ├── playlist.js          # Generate view
+│       ├── templates.js         # Template picker
+│       ├── recommend.js         # Album recommendation view
+│       ├── library.js           # Filter view
+│       ├── discovery.js         # ★ Discover view
+│       ├── taste.js             # My Taste view (Chart.js)
+│       ├── history.js           # Listening history view
+│       ├── playlists.js         # Saved playlists view
+│       ├── watchlist.js         # ★ Watchlist view
+│       ├── automations.js       # ★ Automations view
+│       ├── scheduler.js         # ★ Scheduled playlists view
+│       ├── nowplaying.js        # Now Playing view
+│       ├── instant-queue.js     # Instant queue controls
+│       ├── focus.js             # Focus mode
+│       ├── events.js            # Event bus (frontend)
+│       ├── loading.js           # Loading states
+│       └── setup-wizard.js      # Setup wizard
+├── data/
+│   ├── library_cache.db         # SQLite database (runtime — not in git)
+│   ├── playlist_templates.yaml  # ★ Built-in playlist templates
+│   └── user_templates.yaml      # ★ User-created templates
+├── docs/
+│   └── images/                  # Screenshots for README
+├── tests/
+│   └── test_*.py                # pytest tests
+├── scripts/
+│   └── install_mcp.py           # One-time MCP server setup script
+├── mcp_server.py                # MCP server (62 tools, runs locally)
+├── config.example.yaml          # Config template — copy to config.yaml
 ├── docker-compose.yml
-├── config.example.yaml
-└── data/
-    └── library_cache.db        # SQLite — tracks, listening_history, lb_stats_cache, …
+├── Dockerfile
+├── requirements.txt
+└── system_prompt.md             # MCP system prompt (Claude Desktop context)
 ```
+
+★ = Added in v7.0 or later
 
 ---
 
 ## API Reference
 
-> Interactive Swagger docs at **`/docs`** while the server is running.
-
 <details>
 <summary><strong>Library</strong></summary>
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/library/stats/cached` | GET | Genre / decade / total counts from SQLite |
-| `/api/library/status` | GET | Cache status, track count, needs_resync flag |
-| `/api/library/sync` | POST | Trigger background library sync |
-| `/api/library/search` | GET | Search by track / artist / album |
-| `/api/library/artist-albums` | GET | All albums by an artist |
-| `/api/library/filter` | POST | Filter by genre, decade, live exclusion |
-| `/api/library/filter/curate` | POST | Track numbers → item_keys → play |
-| `/api/library/filter/validate` | POST | Check for duplicates + clustering |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/library/status` | Cache freshness, track count, needs-resync flag |
+| `POST` | `/api/library/sync` | Trigger background library sync |
+| `GET` | `/api/library/stats` | Live genre/decade stats |
+| `GET` | `/api/library/stats/cached` | Cached genre/decade stats (instant) |
+| `GET` | `/api/library/artist-albums` | Albums by artist from SQLite |
+| `GET` | `/api/library/search` | Search tracks by name/artist/album |
+| `POST` | `/api/library/filter` | Filter tracks by genre/decade/keywords |
+| `POST` | `/api/filter/preview` | Preview filter results without returning tracks |
+| `POST` | `/api/library/filter/session` | Store a key_map server-side, get session_id |
+| `POST` | `/api/library/filter/curate` | Translate track numbers → item keys → play |
+| `POST` | `/api/library/filter/validate` | Validate curated selection for quality |
+
+</details>
+
+<details>
+<summary><strong>Discovery</strong></summary>
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/discovery/sections` | All 4 discovery sections |
+| `GET` | `/api/discovery/undiscovered-albums` | Albums by top artists with zero plays |
+| `GET` | `/api/discovery/genre-explorer` | Genre breakdown with counts |
+
+</details>
+
+<details>
+<summary><strong>Templates</strong></summary>
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/templates` | List all templates |
+| `GET` | `/api/templates/{template_id}` | Get a single template |
+| `POST` | `/api/templates` | Create a user template |
+| `DELETE` | `/api/templates/{template_id}` | Delete a user template |
+| `POST` | `/api/templates/{template_id}/generate` | Generate playlist from template (SSE) |
 
 </details>
 
 <details>
 <summary><strong>Generation & Recommendations</strong></summary>
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/analyze/prompt` | POST | Prompt → filter mapping preview |
-| `/api/generate/stream` | POST | Stream playlist generation (SSE) |
-| `/api/recommend/questions` | POST | Clarifying questions for album recommendation |
-| `/api/recommend/generate` | POST | Generate album recommendations |
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/generate/stream` | AI playlist generation (SSE stream) |
+| `POST` | `/api/analyze/prompt` | Prompt → filter mapping preview |
+| `POST` | `/api/analyze/track` | Analyze a track for seed playlist |
+| `GET` | `/api/albums/preview` | Preview album candidates for recommendation |
+| `POST` | `/api/recommend/questions` | Recommendation Q&A — generate questions |
+| `POST` | `/api/recommend/switch-mode` | Switch recommendation mode |
+| `POST` | `/api/recommend/generate` | Generate recommendation answer |
 
 </details>
 
 <details>
 <summary><strong>Roon Playback & Control</strong></summary>
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/roon/zones` | GET | Active zones + playback state |
-| `/api/queue` | POST | Replace zone queue |
-| `/api/queue/append` | POST | Append to zone queue |
-| `/api/roon/transport` | POST | play / pause / stop / next / prev / shuffle / repeat / seek |
-| `/api/roon/volume` | POST | Set / adjust / mute / query volume |
-| `/api/roon/transfer` | POST | Move playback to another zone |
-| `/api/roon/group` | POST | Group or ungroup zones |
-| `/api/roon/radio` | POST | Play internet radio station |
-| `/api/roon/playlists` | POST | List or play Roon playlists |
-| `/api/roon/qobuz-search` | POST | Search Qobuz catalogue via Roon |
-| `/api/art/{item_key}` | GET | Proxy album art from Roon |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/roon/zones` | List active Roon zones |
+| `POST` | `/api/queue` | Play tracks (replaces queue) |
+| `POST` | `/api/queue/append` | Append tracks to queue |
+| `GET` | `/api/art/{item_key}` | Proxied album art from Roon |
+| `GET` | `/api/external-art` | Proxied external cover art |
+| `POST` | `/api/roon/transport` | Transport control (play/pause/next/etc.) |
+| `POST` | `/api/roon/volume` | Volume control |
+| `POST` | `/api/roon/transfer` | Transfer zone |
+| `POST` | `/api/roon/group` | Zone grouping |
+| `POST` | `/api/roon/radio` | Play radio station |
+| `POST` | `/api/roon/playlists` | Browse and play Roon playlists |
+| `POST` | `/api/roon/qobuz-search` | Qobuz catalog search via Roon Browse |
+| `GET` | `/api/roon/tags` | List Roon library tags |
+| `GET` | `/api/roon/browse-root` | Browse Roon root hierarchy |
+| `GET` | `/api/roon/qobuz-browse-test` | Debug endpoint for Qobuz Browse path |
 
 </details>
 
 <details>
-<summary><strong>Intelligence & Taste (v6.0)</strong></summary>
+<summary><strong>Intelligence & Taste</strong></summary>
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/intelligence/taste-profile` | GET | Retrieve taste profile |
-| `/api/intelligence/taste-profile` | PUT | Merge updates into taste profile |
-| `/api/intelligence/taste-profile/detailed` | GET | Full profile incl. all `lb_*` keys *(v6.0)* |
-| `/api/intelligence/listening-history` | GET | Paginated listening history |
-| `/api/intelligence/listening-history/recompute` | POST | Recompute taste profile from history |
-| `/api/intelligence/listening-history/enrich` | POST | Backfill genre/year/decade *(v6.0)* |
-| `/api/intelligence/listening-stats` | GET | Combined local + ListenBrainz stats *(v6.0)* |
-| `/api/intelligence/listenbrainz/sync` | POST | Manual LB stats sync *(v6.0)* |
-| `/api/intelligence/listenbrainz/status` | GET | LB config status + last sync *(v6.0)* |
-| `/api/intelligence/listenbrainz/recommendations` | GET | LB "created for you" playlists *(v6.0)* |
-| `/api/intelligence/taste-events` | GET | Recent taste events |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/taste/profile` | Taste profile |
+| `POST` | `/api/taste/profile` | Update taste profile weights |
+| `POST` | `/api/taste/event` | Record a taste event |
+| `GET` | `/api/taste/events` | List taste events |
+| `GET` | `/api/listening/history` | Recent listening history |
+| `GET` | `/api/listening/stats` | Listening stats (play counts, genres) |
+| `GET` | `/api/playlists/saved` | List saved playlists |
+| `POST` | `/api/playlists/saved` | Save a playlist |
+| `POST` | `/api/playlists/saved/from-session` | Save from a filter session |
+| `PUT` | `/api/playlists/saved/{id}` | Update a saved playlist |
+| `DELETE` | `/api/playlists/saved/{id}` | Delete a saved playlist |
+| `GET` | `/api/playlists/saved/{id}/tracks` | Get tracks of a saved playlist |
+| `POST` | `/api/playlists/modify` | Modify a saved playlist (add/remove/reorder) |
+| `GET` | `/api/intelligence/listening-stats` | Extended listening stats |
+| `GET` | `/api/intelligence/taste-profile/detailed` | Full taste profile incl. LB + LF data |
+| `POST` | `/api/intelligence/listening-history/enrich` | Enrich history with genre/year data |
+
+</details>
+
+<details>
+<summary><strong>ListenBrainz</strong></summary>
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/intelligence/listenbrainz/sync` | Force LB stats sync |
+| `GET` | `/api/intelligence/listenbrainz/status` | LB connection + last sync status |
+| `GET` | `/api/intelligence/listenbrainz/recommendations` | LB personalized recommendations |
+
+</details>
+
+<details>
+<summary><strong>Last.fm</strong></summary>
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/intelligence/lastfm/status` | Last.fm connection + sync status |
+| `POST` | `/api/intelligence/lastfm/auth/token` | Request auth token, returns authorization URL |
+| `POST` | `/api/intelligence/lastfm/auth/session` | Exchange token for persistent session key |
+| `POST` | `/api/intelligence/lastfm/sync` | Force Last.fm stats sync |
+
+</details>
+
+<details>
+<summary><strong>Watchlist</strong></summary>
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/watchlist` | List watched artists |
+| `POST` | `/api/watchlist` | Add artist to watchlist |
+| `PATCH` | `/api/watchlist/{artist_name}` | Update watchlist settings for an artist |
+| `DELETE` | `/api/watchlist/{artist_name}` | Remove artist from watchlist |
+| `POST` | `/api/watchlist/auto-populate` | Auto-populate from top LB/LF artists |
+| `POST` | `/api/watchlist/scan` | Trigger immediate watchlist scan |
+| `GET` | `/api/watchlist/new-releases` | List detected new releases |
+| `POST` | `/api/watchlist/new-releases/{release_id}/dismiss` | Dismiss a new release |
+
+</details>
+
+<details>
+<summary><strong>Scheduled Playlists</strong></summary>
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/schedules` | List all scheduled playlists |
+| `POST` | `/api/schedules` | Create a scheduled playlist |
+| `GET` | `/api/schedules/{id}` | Get a single schedule |
+| `PUT` | `/api/schedules/{id}` | Update a schedule |
+| `DELETE` | `/api/schedules/{id}` | Delete a schedule |
+| `POST` | `/api/schedules/{id}/run` | Run a schedule immediately |
+| `PATCH` | `/api/schedules/{id}/toggle` | Enable or disable a schedule |
+
+</details>
+
+<details>
+<summary><strong>Automations</strong></summary>
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/automations/presets` | List automation presets |
+| `GET` | `/api/automations/log` | Automation activity log |
+| `GET` | `/api/automations` | List all automations |
+| `POST` | `/api/automations` | Create an automation |
+| `PUT` | `/api/automations/{id}` | Update an automation |
+| `DELETE` | `/api/automations/{id}` | Delete an automation |
+| `PATCH` | `/api/automations/{id}/toggle` | Enable or disable an automation |
+| `POST` | `/api/automations/{id}/run` | Run an automation immediately |
+
+</details>
+
+<details>
+<summary><strong>Metadata Enrichment</strong></summary>
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/enrichment/status` | Queue size, completion %, source breakdown |
+| `POST` | `/api/enrichment/start` | Start or resume enrichment worker |
+| `POST` | `/api/enrichment/pause` | Pause the enrichment worker |
+| `POST` | `/api/enrichment/resume` | Resume a paused worker |
+| `GET` | `/api/enrichment/queue` | Show enrichment queue entries |
+
+</details>
+
+<details>
+<summary><strong>AcoustID Verification</strong></summary>
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/verify/track` | Fingerprint-verify a Qobuz track match |
+| `GET` | `/api/verify/status` | AcoustID configuration status |
+
+</details>
+
+<details>
+<summary><strong>Notifications</strong></summary>
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/notifications/config` | Get notification channel config |
+| `POST` | `/api/notifications/config` | Update notification config |
+| `POST` | `/api/notifications/test` | Send a test notification |
+| `GET` | `/api/notifications/history` | Notification delivery log |
 
 </details>
 
 <details>
 <summary><strong>Qobuz</strong></summary>
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/qobuz/playlist/save` | POST | Save playlist to Qobuz account |
-| `/api/qobuz/save-status` | GET | Check whether Qobuz save is configured |
-| `/api/qobuz/validate` | POST | Validate Qobuz credentials |
-| `/api/qobuz/favorite/add` | POST | Add to Qobuz favorites |
-| `/api/qobuz/favorite/remove` | POST | Remove from Qobuz favorites |
-| `/api/qobuz/favorites` | GET | List Qobuz favorites |
-| `/api/qobuz/playlists` | GET | List Qobuz playlists |
-| `/api/qobuz/playlist/{id}` | GET / PUT / DELETE | Get, update, or delete playlist |
-| `/api/qobuz/new-releases` | GET | Browse new / featured Qobuz albums |
-| `/api/qobuz/prepare-for-arc` | POST | Playlist → Qobuz favorites (ARC workflow) |
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/qobuz/playlist/save` | Save playlist to Qobuz account |
+| `GET` | `/api/qobuz/save-status` | Check if Qobuz save is configured |
+| `POST` | `/api/qobuz/validate` | Test Qobuz credentials |
+| `POST` | `/api/qobuz/favorite/add` | Add track/album to Qobuz favorites |
+| `POST` | `/api/qobuz/favorite/remove` | Remove from Qobuz favorites |
+| `GET` | `/api/qobuz/favorites` | List Qobuz favorites |
+| `GET` | `/api/qobuz/playlists` | List Qobuz playlists |
+| `GET` | `/api/qobuz/playlist/{id}` | Get a Qobuz playlist |
+| `PUT` | `/api/qobuz/playlist/{id}` | Update a Qobuz playlist |
+| `DELETE` | `/api/qobuz/playlist/{id}` | Delete a Qobuz playlist |
+| `GET` | `/api/qobuz/new-releases` | Browse Qobuz new releases |
+| `POST` | `/api/qobuz/prepare-for-arc` | Prepare playlist for Roon ARC |
 
 </details>
 
 <details>
 <summary><strong>Saved Playlists, Config & Health</strong></summary>
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/playlists/saved` | GET / POST | List or save playlists |
-| `/api/playlists/saved/{id}` | GET / PUT / DELETE | Retrieve, update, or delete |
-| `/api/playlists/saved/{id}/play` | POST | Play a saved playlist in a zone |
-| `/api/health` | GET | Health check (Roon · LLM · DB) |
-| `/api/config` | GET / POST | Retrieve or update configuration |
-| `/api/setup/status` | GET | Onboarding checklist |
-| `/api/setup/validate-roon` | POST | Validate Roon Core connection |
-| `/api/setup/validate-ai` | POST | Validate AI provider credentials |
-| `/api/setup/validate-listenbrainz` | POST | Validate ListenBrainz token *(v6.0)* |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/results` | Previously generated playlists/recs |
+| `GET` | `/api/results/{id}` | Single result detail |
+| `DELETE` | `/api/results/{id}` | Delete a result |
+| `GET` | `/api/health` | Health check (used by Docker) |
+| `GET` | `/api/config` | Current configuration |
+| `POST` | `/api/config` | Update configuration |
+| `GET` | `/api/ollama/status` | Ollama connection status |
+| `GET` | `/api/ollama/models` | Available Ollama models |
+| `GET` | `/api/ollama/model-info` | Current Ollama model context size |
+| `GET` | `/api/setup/status` | Setup completion status |
+| `POST` | `/api/setup/validate-roon` | Test Roon connection |
+| `POST` | `/api/setup/validate-ai` | Test LLM API key |
+| `POST` | `/api/setup/validate-listenbrainz` | Test ListenBrainz token |
+| `POST` | `/api/setup/validate-lastfm` | Test Last.fm credentials |
+| `POST` | `/api/setup/complete` | Mark setup as complete |
 
 </details>
 
@@ -682,75 +1120,160 @@ roonsage/
 
 ## Security
 
-RoonSage is designed for home network use. Without `ROONSAGE_PASSWORD`, anyone on the network can access the web UI.
-
-`ROONSAGE_PASSWORD` enables HTTP Basic Auth on all endpoints. The health check (`/api/health`) and the art proxy are exempt so Docker health checks and album art continue to work.
-
-LLM endpoints are rate-limited to **30 requests / hour / IP**. API keys are stored in `data/config.user.yaml` (mode 600) and never exposed via the API.
+- **Optional HTTP Basic Auth** — set `ROONSAGE_PASSWORD` to enable. Exempt paths: `/api/health`, `/api/art/*`, `/api/external-art`.
+- **Rate limiting** — LLM endpoints are limited to 30 requests/hour/IP to prevent abuse.
+- **Local-only by default** — the backend binds to `0.0.0.0:5765`. Place behind a reverse proxy (nginx, Traefik) with TLS for remote access.
+- **Non-root Docker user** — the container runs as UID 1000 (`roonsageappuser`).
+- **Notification webhook URLs** are stored in `data/config.user.yaml` with `chmod 600` permissions.
+- **Qobuz credentials** are stored in `config.user.yaml` (chmod 600), not in the Roon Extension token.
 
 ---
 
 ## Development
 
+### Stack
+
+- **Backend**: Python 3.11+, FastAPI, roonapi, anthropic, openai, google-genai, httpx, pydantic, uvicorn, rapidfuzz, unidecode, pyacoustid
+- **Frontend**: Vanilla HTML/CSS/JS (no build step), Chart.js (CDN)
+- **Config**: YAML + environment variables
+- **Database**: SQLite (WAL mode) at `data/library_cache.db`
+
+### Commands
+
 ```bash
-git clone https://github.com/Georgemvp/roonsage.git
-cd roonsage
-python -m venv venv && source venv/bin/activate
+# Install
 pip install -r requirements.txt
-export ROON_HOST=192.168.1.x ROON_PORT=9330 GEMINI_API_KEY=your-key
+
+# Development server
 uvicorn backend.main:app --reload --port 5765
+
+# Tests
+pytest
+
+# Lint
+ruff check .
+
+# Docker build
+docker-compose up -d --build
 ```
 
-```bash
-pytest tests/ -v    # tests
-ruff check .        # linting
-```
+### Code style
 
-**Stack:** Python 3.11 · FastAPI · python-roonapi · anthropic / openai / google-genai SDKs · httpx · rapidfuzz · SQLite · vanilla HTML/CSS/JS · FastMCP
+- **Python**: PEP 8, type hints throughout, Pydantic models for all API contracts
+- **JavaScript**: ES6+, no framework, simple module pattern with a shared `state` object
+- **CSS**: BEM-style naming, CSS custom properties for theming (`--color-bg`, `--color-accent`)
 
 ---
 
 ## Changelog
 
-### v6.0 — ListenBrain + ListenBrainz *(2026-05-19)*
+### v12.0 — AcoustID Verification (2026-05-20)
 
-> Full two-way ListenBrainz integration — scrobbling, stats sync, enriched history, and an expanded taste profile.
+- New module `backend/acoustid_client.py`: audio fingerprinting via the free AcoustID service and `pyacoustid`/`libchromaprint`.
+- New endpoint `POST /api/verify/track`: fingerprint a local library track, resolve its MusicBrainz recording ID, and compare against a Qobuz search result's MBID — catches wrong versions (live vs. studio, remix vs. original, wrong-decade remaster) before playback.
+- New endpoint `GET /api/verify/status`: check AcoustID configuration.
+- Optional `auto_verify_qobuz` mode automatically verifies every Qobuz search result.
+- New MCP tool `verify_track_match`.
+- Docker image now includes `libchromaprint-tools`.
+- Config: `ACOUSTID_API_KEY`, `ACOUSTID_ENABLED`, `ACOUSTID_AUTO_VERIFY_QOBUZ`.
 
-- **Scrobbling** — every completed listen (≥ 30 s or ≥ 50%) is submitted to ListenBrainz automatically
-- **Now Playing** — "playing now" notification sent on every track start
-- **Stats sync** — genre heatmap, era distribution, daily activity, artist map, top artists / recordings / releases, similar users, and loved / hated recordings — pulled every 6 hours, cached in SQLite with 6 h TTL
-- **Enriched listening history** — genre, year, decade, hour of day, day of week — stored per listen, fuzzy-matched from library cache
-- **Enriched taste profile** — all LB data exposed as `lb_*` keys alongside local profile keys
-- **4 new MCP tools** — `get_listening_stats`, `get_listenbrainz_recommendations`, `submit_listen_feedback`, `sync_listenbrainz`
-- **6 new API endpoints** — detailed taste profile, LB status, manual sync, recommendations, history enrichment, token validation
-- **My Taste view** — LB status card, genre and era bar charts, 7×24 listening heatmap, LB top artists, loved tracks
-- **Settings** — ListenBrainz token + username fields with validate button
+### v11.0 — Automation Engine (2026-05-20)
 
-### v4.9 — Qobuz global-search fix *(2026-05-19)*
-Synthetic `qobuz_search::artist::title` keys for tracks found via Roon's global search fallback — fixes playback after session state changes.
+- New module `backend/automation_engine.py`: trigger-action workflow system with `TriggerType` and `ActionType` enums.
+- **Triggers**: `schedule`, `track_played`, `zone_started`, `library_synced`, `lb_synced`, `watchlist_match`.
+- **Actions**: `generate_playlist`, `play_template`, `sync_library`, `sync_listenbrainz`, `scan_watchlist`, `send_notification`, `run_maintenance`, `volume_set`.
+- New SQLite tables: `automations`, `automation_log`.
+- New routes `backend/routes/automations.py`: full CRUD + toggle + manual run + presets + activity log.
+- Frontend Automations view with preset picker and live activity log.
+- New MCP tools: `list_automations`, `create_automation`, `toggle_automation`.
+- Cooldown protection (configurable, default 300s) prevents double-firing.
 
-### v4.4–v4.8 — Qobuz & reliability *(2026-05-15–16)*
-Qobuz playlist save, auto-detected app_id, ARC workflow, global-search fallback, 180 s curate_and_play timeout, classical track search improvements.
+### v10.0 — Metadata Enrichment Pipeline (2026-05-20)
 
-### v4.2–v4.3 — Claude-native curation *(2026-05-15)*
-`filter_tracks` compact/ultra formats, server-side session key storage, `curate_and_play`, `validate_playlist` — Claude curates natively, no backend LLM calls needed.
+- New modules: `backend/enrichment_worker.py`, `backend/musicbrainz_client.py`.
+- Background worker enriches every library track with MusicBrainz (MBID, release date, country, genre tags) and Last.fm (listener count, play count, community tags).
+- New SQLite tables: `track_metadata_ext`, `enrichment_queue`.
+- New routes `backend/routes/enrichment.py`: status, start, pause, resume, queue.
+- Worker auto-starts at startup, processes pending tracks from the enrichment queue.
+- New MCP tools: `get_enrichment_status`, `start_enrichment`.
 
-### v4.0 — Qobuz + time-aware context *(2026-05-15)*
-Qobuz integration via Roon Browse API, hybrid/qobuz source modes, day/time mood hints in prompts, MCP server refactor.
+### v9.0 — Scheduled Playlist Regeneration (2026-05-20)
 
-### v3.0 — MCP server *(2026-05-15)*
-Initial 27-tool MCP server for Claude Desktop: playlist generation, album recommendation, transport control, zone grouping, volume control.
+- New module `backend/scheduler.py`: cron-expression-based playlist scheduler (checks every 60 seconds, double-run protection within 55s).
+- Scheduled playlists can queue directly to a Roon zone and/or save to a Qobuz playlist.
+- New SQLite table: `scheduled_playlists`.
+- New routes `backend/routes/scheduler.py`: full CRUD + manual run + toggle.
+- New MCP tools: `list_scheduled_playlists`, `create_scheduled_playlist`, `run_scheduled_playlist`.
+- Frontend Settings view extended with Scheduled Playlists management.
+
+### v8.0 — Artist Watchlist + Qobuz Release Detection (2026-05-19)
+
+- New module `backend/watchlist.py`: monitors watched artists for new Qobuz releases via the Roon Browse API.
+- New SQLite tables: `artist_watchlist`, `artist_releases_cache`.
+- Background scan every 12 hours (configurable via `WATCHLIST_SCAN_INTERVAL_HOURS`).
+- Auto-populate watchlist from top ListenBrainz/Last.fm artists.
+- Notifications fired on `watchlist_match` events (Discord/Telegram/webhook).
+- New routes `backend/routes/watchlist.py`: list, add, update, delete, auto-populate, scan, new-releases, dismiss.
+- New MCP tools: `get_watchlist`, `add_to_watchlist`, `scan_watchlist`, `play_new_release`.
+- Frontend Watchlist view.
+
+### v7.0 — Discovery · Last.fm · Notifications · Templates · PWA · Chart.js (2026-05-19/20)
+
+**Cache-Powered Discovery:**
+- New module `backend/discovery.py`: four SQL-only discovery sections (undiscovered albums, deep cuts, forgotten favorites, genre explorer).
+- New MCP tool `get_discovery_sections`. Frontend Discover view.
+
+**Last.fm Integration:**
+- New modules: `backend/lastfm_client.py`, `backend/lastfm_sync.py`.
+- Dual-scrobbling: every completed Roon track sent to both ListenBrainz and Last.fm simultaneously.
+- OAuth token-based auth flow with auto-saved session key.
+- Stats sync every 6h: top artists, top tracks, community tags, similar artists.
+- Taste profile extended with `lf_` keys.
+- New endpoints: Last.fm auth token, auth session, sync, status.
+- Config: `LASTFM_API_KEY`, `LASTFM_API_SECRET`, `LASTFM_SESSION_KEY`, `LASTFM_USERNAME`.
+
+**Notifications:**
+- New module `backend/notifications.py`: event bus dispatching to Discord webhook, Telegram bot, and generic webhook.
+- New routes `backend/routes/notifications.py`: config, test, history.
+- Config: `DISCORD_WEBHOOK_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `WEBHOOK_URL`.
+
+**Playlist Templates:**
+- New module `backend/templates.py`: template engine with built-in (`data/playlist_templates.yaml`) and user templates (`data/user_templates.yaml`).
+- New routes `backend/routes/templates.py`.
+- New MCP tools: `list_playlist_templates`, `generate_from_template`.
+- Frontend Generate view extended with one-click template picker.
+
+**Chart.js My Taste + Mobile PWA:**
+- My Taste view rebuilt with Chart.js bar charts, era charts, and 7×24 listening heatmap; time range filters.
+- `frontend/manifest.json` + SVG icons — installable PWA on iOS and Android.
+- Fully responsive layout for mobile browsers.
+
+### v6.0 — ListenBrainz Integration (2026-05-19)
+
+- New modules: `backend/listenbrainz_client.py`, `backend/listenbrainz_sync.py`.
+- Real-time scrobbling and now-playing notifications.
+- Stats sync every 6h: genre heatmap, era distribution, daily heatmap, artist countries, loved/hated tracks, similar users, top artists/recordings/releases.
+- New SQLite table: `lb_stats_cache`.
+- `taste_profile.py` extended with decade scores, listening patterns, full LB data integration.
+- New endpoints: `/api/intelligence/listening-stats`, `/api/intelligence/taste-profile/detailed`, `/api/intelligence/listenbrainz/*`.
+- New MCP tools: `get_listening_stats`, `get_listenbrainz_recommendations`, `submit_listen_feedback`, `sync_listenbrainz`.
+- Frontend My Taste view: LB status card, bar charts, heatmap, loved tracks.
+- Config: `LISTENBRAINZ_TOKEN`, `LISTENBRAINZ_USERNAME`.
+
+### Earlier versions
+
+For changes prior to v6.0 (Qobuz integration, Claude-native curation, filter-first approach, track-number matching, genre junction table, MCP server, Docker support), see the [git log](https://github.com/yourusername/roonsage/commits/main).
 
 ---
 
 ## Credits
 
-Based on [MediaSage](https://github.com/ecwilsonaz/mediasage) by Eric Wilson, originally built for Plex. RoonSage has been independently rewritten for Roon with MCP integration, Qobuz support, zone management, ListenBrainz sync, and a full library cache layer.
-
----
-
-<div align="center">
-
-MIT License · Made for Roon users who want a smarter queue
-
-</div>
+- [Roon Labs](https://roon.app) for the Extension API and Browse API
+- [roonapi](https://github.com/pavoni/pyroon) Python binding by pavoni
+- [ListenBrainz](https://listenbrainz.org) for open music listening data
+- [Last.fm](https://www.last.fm) for music intelligence and community tags
+- [MusicBrainz](https://musicbrainz.org) for open music metadata
+- [AcoustID](https://acoustid.org) for audio fingerprinting
+- [Qobuz](https://www.qobuz.com) for lossless streaming catalog
+- [FastAPI](https://fastapi.tiangolo.com), [Pydantic](https://pydantic.dev), [httpx](https://www.python-httpx.org)
+- [Chart.js](https://www.chartjs.org) for My Taste visualizations
