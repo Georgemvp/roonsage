@@ -1199,6 +1199,36 @@
                     </div>
                 </section>
 
+                <!-- Metadata Enrichment Section (v10.0) -->
+                <section class="settings-section" id="enrichment-settings-section">
+                    <h3>Metadata Verrijking</h3>
+                    <p style="font-size:0.85rem;opacity:0.7;margin:0.25rem 0 0.75rem">Verrijkt je bibliotheek met MusicBrainz- en Last.fm-tags (bijv. "melancholic", "late night"). Verbetert afstemming bij sfeergebaseerde afspeellijsten. Verwerkt ~1 track/seconde op de achtergrond.</p>
+
+                    <!-- Stats row -->
+                    <div id="enrichment-stats" style="display:flex;flex-wrap:wrap;gap:0.5rem 1.2rem;margin-bottom:0.75rem;font-size:0.85rem;">
+                        <span>Verrijkt: <strong id="enrich-total">–</strong></span>
+                        <span>MusicBrainz: <strong id="enrich-mb">–</strong></span>
+                        <span>Last.fm: <strong id="enrich-lf">–</strong></span>
+                        <span>In wachtrij: <strong id="enrich-pending">–</strong></span>
+                        <span>Mislukt: <strong id="enrich-failed">–</strong></span>
+                        <span id="enrich-worker-state" style="opacity:0.7;margin-left:auto;"></span>
+                    </div>
+
+                    <!-- Progress bar -->
+                    <div style="background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;height:8px;margin-bottom:0.75rem;" aria-hidden="true">
+                        <div id="enrich-progress-bar" style="height:100%;background:#e5a00d;width:0%;transition:width 0.5s;"></div>
+                    </div>
+                    <p id="enrich-progress-text" style="font-size:0.8rem;opacity:0.6;margin:0 0 0.75rem;"></p>
+
+                    <!-- Action buttons -->
+                    <div class="settings-actions" style="margin-top:0;margin-bottom:0;gap:0.5rem;display:flex;flex-wrap:wrap;">
+                        <button id="enrich-all-btn" class="btn btn-primary btn-sm">Alles verrijken</button>
+                        <button id="enrich-pause-btn" class="btn btn-outline btn-sm" disabled>Pauzeren</button>
+                        <button id="enrich-resume-btn" class="btn btn-outline btn-sm" style="display:none;">Hervatten</button>
+                    </div>
+                    <div id="enrich-action-result" style="margin-top:0.5rem;font-size:0.83rem;"></div>
+                </section>
+
                 <section class="settings-section library-stats" id="library-stats-section" style="display: none;">
                     <h3>Library Statistics</h3>
                     <div id="library-stats"></div>

@@ -25,6 +25,7 @@ from backend.routes.templates import router as templates_router
 from backend.routes.notifications import router as notifications_router
 from backend.routes.watchlist import router as watchlist_router
 from backend.routes.scheduler import router as scheduler_router
+from backend.routes.enrichment import router as enrichment_router
 from backend.dependencies import ROONSAGE_PASSWORD
 import backend.routes.recommend as _recommend_module
 
@@ -184,6 +185,20 @@ async def lifespan(app: FastAPI):
     from backend.scheduler import init_scheduler  # noqa: PLC0415
     init_scheduler()
 
+    # Start metadata enrichment worker (auto-starts if queue has pending items)
+    from backend.enrichment_worker import get_worker, populate_enrichment_queue  # noqa: PLC0415
+    from backend.db import get_db_connection  # noqa: PLC0415
+    try:
+        _enrich_conn = get_db_connection()
+        _pending = populate_enrichment_queue(_enrich_conn)
+        _enrich_conn.close()
+        logger.info("Enrichment queue: %d new items queued", _pending)
+    except Exception as _enrich_err:
+        logger.warning("Could not populate enrichment queue at startup: %s", _enrich_err)
+
+    get_worker().start()
+    logger.info("Metadata enrichment worker started")
+
     yield
 
     # Shutdown: stop playlist scheduler
@@ -271,6 +286,7 @@ app.include_router(templates_router)
 app.include_router(notifications_router)
 app.include_router(watchlist_router)
 app.include_router(scheduler_router)
+app.include_router(enrichment_router)
 
 
 # =============================================================================

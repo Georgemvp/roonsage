@@ -41,6 +41,7 @@ from backend.tracks import (  # noqa: F401
     get_albums_by_artist,
     get_cached_genre_decade_stats,
     get_cached_tracks,
+    get_enriched_tags_for_keys,
     get_tracks_by_filters,
     get_tracks_by_item_keys,
     has_cached_tracks,

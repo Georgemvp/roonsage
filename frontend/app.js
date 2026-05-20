@@ -18,7 +18,7 @@ import {
 } from './modules/ui.js';
 import { checkLibraryStatus }             from './modules/library.js';
 import { setupEventListeners }            from './modules/events.js';
-import { loadSettings, loadNotificationSettings, initNotificationButtons } from './modules/playlist.js';
+import { loadSettings, loadNotificationSettings, initNotificationButtons, initEnrichmentButtons } from './modules/playlist.js';
 import {
     dismissClientPicker, dismissPlayChoice, dismissPlaySuccess, setSaveMode
 } from './modules/instant-queue.js';
@@ -63,6 +63,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupHistoryEventListeners();
     initTemplates();
     initNotificationButtons();
+    initEnrichmentButtons();
     state.view = viewFromHash();
     state.mode = modeFromHash();
     if (!location.hash) {

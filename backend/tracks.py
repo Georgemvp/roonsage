@@ -641,3 +641,53 @@ def get_album_familiarity(
             }
 
         return result
+
+
+# ---------------------------------------------------------------------------
+# Enrichment helpers
+# ---------------------------------------------------------------------------
+
+
+def get_enriched_tags_for_keys(item_keys: list[str]) -> dict[str, list[str]]:
+    """Return a mapping of item_key → combined enriched tags (MB + Last.fm).
+
+    Only item_keys that have a row in ``track_metadata_ext`` are returned.
+    Tags are de-duplicated and capped at 8 per track to stay token-efficient.
+
+    Args:
+        item_keys: Roon item_keys to look up.
+
+    Returns:
+        Dict mapping item_key → list of tag strings (may be empty list).
+    """
+    if not item_keys:
+        return {}
+
+    with get_connection() as conn:
+        placeholders = ",".join("?" for _ in item_keys)
+        rows = conn.execute(
+            f"SELECT item_key, mb_tags, lastfm_tags "
+            f"FROM track_metadata_ext WHERE item_key IN ({placeholders})",
+            item_keys,
+        ).fetchall()
+
+    result: dict[str, list[str]] = {}
+    for row in rows:
+        tags: list[str] = []
+        seen: set[str] = set()
+
+        for col in ("mb_tags", "lastfm_tags"):
+            raw = row[col]
+            if raw:
+                try:
+                    for t in json.loads(raw):
+                        t_lower = t.lower().strip()
+                        if t_lower and t_lower not in seen:
+                            tags.append(t)
+                            seen.add(t_lower)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+        result[row["item_key"]] = tags[:8]  # Cap per track
+
+    return result

@@ -518,3 +518,158 @@ export function initNotificationButtons() {
     document.getElementById('test-webhook-btn')
         ?.addEventListener('click', () => _testNotification('webhook', 'test-webhook-result'));
 }
+
+// =============================================================================
+// Metadata Enrichment UI (v10.0)
+// =============================================================================
+
+let _enrichmentPollTimer = null;
+
+/**
+ * Fetch enrichment status and update the UI.
+ * Returns the status object (or null on error).
+ */
+export async function loadEnrichmentStatus() {
+    try {
+        const res = await fetch('/api/enrichment/status');
+        if (!res.ok) return null;
+        const data = await res.json();
+        _updateEnrichmentUI(data);
+        return data;
+    } catch (err) {
+        console.warn('Could not load enrichment status:', err);
+        return null;
+    }
+}
+
+function _updateEnrichmentUI(data) {
+    const total    = data.enriched_total ?? 0;
+    const mb       = data.mb_matches    ?? 0;
+    const lf       = data.lastfm_matches ?? 0;
+    const pending  = data.pending       ?? 0;
+    const complete = data.complete      ?? 0;
+    const failed   = data.failed        ?? 0;
+    const running  = data.worker_running ?? false;
+    const paused   = data.worker_paused  ?? false;
+
+    // Stats
+    _setText('enrich-total',   total);
+    _setText('enrich-mb',      mb);
+    _setText('enrich-lf',      lf);
+    _setText('enrich-pending', pending);
+    _setText('enrich-failed',  failed);
+
+    // Worker state label
+    const stateLabel = paused ? '⏸ Gepauzeerd' : (running ? '▶ Actief' : '⏹ Gestopt');
+    _setText('enrich-worker-state', stateLabel);
+
+    // Progress bar
+    const queued = complete + pending + failed;
+    const pct = queued > 0 ? Math.round(complete / queued * 100) : (total > 0 ? 100 : 0);
+    const bar = document.getElementById('enrich-progress-bar');
+    if (bar) bar.style.width = pct + '%';
+
+    // Progress text
+    const progressText = queued > 0
+        ? `${complete} van ${queued} tracks verrijkt (${pct}%)`
+        : (total > 0 ? `${total} tracks verrijkt` : 'Nog niet gestart');
+    _setText('enrich-progress-text', progressText);
+
+    // Buttons
+    const allBtn    = document.getElementById('enrich-all-btn');
+    const pauseBtn  = document.getElementById('enrich-pause-btn');
+    const resumeBtn = document.getElementById('enrich-resume-btn');
+
+    if (allBtn)    allBtn.disabled  = running && !paused;
+    if (pauseBtn) {
+        pauseBtn.disabled = !running || paused;
+        pauseBtn.style.display = '';
+    }
+    if (resumeBtn) {
+        resumeBtn.style.display = paused ? 'inline-block' : 'none';
+    }
+}
+
+function _setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+}
+
+/** Start (or resume) enrichment and begin polling for progress. */
+async function _startEnrichment() {
+    const resultEl = document.getElementById('enrich-action-result');
+    if (resultEl) { resultEl.textContent = 'Bezig met starten…'; resultEl.style.color = ''; }
+
+    try {
+        const res = await fetch('/api/enrichment/start', { method: 'POST' });
+        const data = await res.json();
+        if (resultEl) {
+            resultEl.textContent = data.message || 'Gestart.';
+            resultEl.style.color = '#4caf50';
+        }
+        await loadEnrichmentStatus();
+        _startEnrichmentPolling();
+    } catch (err) {
+        if (resultEl) { resultEl.textContent = '✗ ' + err.message; resultEl.style.color = '#f44336'; }
+    }
+}
+
+async function _pauseEnrichment() {
+    const resultEl = document.getElementById('enrich-action-result');
+    try {
+        await fetch('/api/enrichment/pause', { method: 'POST' });
+        if (resultEl) { resultEl.textContent = 'Worker gepauzeerd.'; resultEl.style.color = ''; }
+        await loadEnrichmentStatus();
+        _stopEnrichmentPolling();
+    } catch (err) {
+        if (resultEl) { resultEl.textContent = '✗ ' + err.message; resultEl.style.color = '#f44336'; }
+    }
+}
+
+async function _resumeEnrichment() {
+    const resultEl = document.getElementById('enrich-action-result');
+    try {
+        await fetch('/api/enrichment/resume', { method: 'POST' });
+        if (resultEl) { resultEl.textContent = 'Worker hervat.'; resultEl.style.color = '#4caf50'; }
+        await loadEnrichmentStatus();
+        _startEnrichmentPolling();
+    } catch (err) {
+        if (resultEl) { resultEl.textContent = '✗ ' + err.message; resultEl.style.color = '#f44336'; }
+    }
+}
+
+function _startEnrichmentPolling(intervalMs = 5000) {
+    _stopEnrichmentPolling();
+    _enrichmentPollTimer = setInterval(async () => {
+        const data = await loadEnrichmentStatus();
+        // Stop polling when worker is idle (not running or paused)
+        if (!data || (!data.worker_running && !data.worker_paused)) {
+            _stopEnrichmentPolling();
+        }
+    }, intervalMs);
+}
+
+function _stopEnrichmentPolling() {
+    if (_enrichmentPollTimer !== null) {
+        clearInterval(_enrichmentPollTimer);
+        _enrichmentPollTimer = null;
+    }
+}
+
+/** Wire up enrichment buttons (call once after DOM is ready). */
+export function initEnrichmentButtons() {
+    document.getElementById('enrich-all-btn')
+        ?.addEventListener('click', _startEnrichment);
+    document.getElementById('enrich-pause-btn')
+        ?.addEventListener('click', _pauseEnrichment);
+    document.getElementById('enrich-resume-btn')
+        ?.addEventListener('click', _resumeEnrichment);
+
+    // Load current status immediately
+    loadEnrichmentStatus().then(data => {
+        // If worker is already running, start polling
+        if (data?.worker_running && !data?.worker_paused) {
+            _startEnrichmentPolling();
+        }
+    });
+}

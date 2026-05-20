@@ -426,6 +426,42 @@ def init_schema(conn: sqlite3.Connection) -> bool:
             ON scheduled_playlists(enabled);
     """)
 
+    # -----------------------------------------------------------------------
+    # Metadata Enrichment Pipeline (v10.0)
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        -- Enriched metadata from MusicBrainz and Last.fm per track
+        CREATE TABLE IF NOT EXISTS track_metadata_ext (
+            item_key TEXT PRIMARY KEY,
+            musicbrainz_id TEXT,
+            mb_tags TEXT,          -- JSON array: ["jazz", "cool jazz", "modal jazz"]
+            mb_release_date TEXT,
+            mb_country TEXT,
+            lastfm_tags TEXT,      -- JSON array: ["melancholic", "atmospheric", "late night"]
+            lastfm_listeners INTEGER,
+            lastfm_playcount INTEGER,
+            enriched_at TEXT NOT NULL DEFAULT (datetime('now')),
+            enrichment_source TEXT -- "musicbrainz", "lastfm", "both"
+        );
+        CREATE INDEX IF NOT EXISTS idx_track_metadata_ext_key
+            ON track_metadata_ext(item_key);
+
+        -- Queue of tracks pending enrichment
+        CREATE TABLE IF NOT EXISTS enrichment_queue (
+            item_key TEXT PRIMARY KEY,
+            artist TEXT NOT NULL,
+            title TEXT NOT NULL,
+            album TEXT,
+            status TEXT DEFAULT 'pending',  -- pending, processing, complete, failed
+            error_message TEXT,
+            attempts INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            processed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_enrichment_queue_status
+            ON enrichment_queue(status);
+    """)
+
     conn.commit()
     return migrated
 

@@ -337,10 +337,27 @@ def generate_playlist_stream(
             # Step 3: Build track list
             yield emit("progress", {"step": "preparing", "message": f"Preparing {len(filtered_tracks)} tracks for AI..."})
 
-            track_list = "\n".join(
-                f"{i+1}. {t.artist} - {t.title} ({t.album}, {t.year or 'Unknown year'})"
-                for i, t in enumerate(filtered_tracks)
-            )
+            # Fetch enriched tags (MB + Last.fm) for better mood/style curation
+            _keys = [t.item_key for t in filtered_tracks]
+            try:
+                _enriched_tags = library_cache.get_enriched_tags_for_keys(_keys)
+            except Exception:
+                _enriched_tags = {}
+            _enrichment_coverage = len(_enriched_tags) / max(len(_keys), 1)
+            if _enriched_tags:
+                logger.info(
+                    "Enriched tag coverage: %d/%d tracks (%.0f%%)",
+                    len(_enriched_tags), len(_keys), _enrichment_coverage * 100,
+                )
+
+            def _fmt_track(i: int, t) -> str:  # type: ignore[no-untyped-def]
+                base = f"{i+1}. {t.artist} - {t.title} ({t.album}, {t.year or 'Unknown year'})"
+                tags = _enriched_tags.get(t.item_key, [])
+                if tags:
+                    return f"{base} [{', '.join(tags)}]"
+                return base
+
+            track_list = "\n".join(_fmt_track(i, t) for i, t in enumerate(filtered_tracks))
 
             # Build the generation prompt
             generation_parts = []
@@ -651,10 +668,15 @@ You will be given:
 1. A description of what the user wants (prompt, seed track dimensions, or both)
 2. A numbered list of tracks that are available in their library
 
+Some tracks include enriched tags in square brackets (e.g. [jazz, melancholic, late night]).
+These tags come from MusicBrainz and Last.fm and describe the mood, style, and feel of the track.
+Use them to make better mood-based selections — especially for vague or emotional prompts.
+
 Your task is to select tracks that best match the user's request. For each track, include a brief reason (1 sentence) explaining why it fits.
 
 Guidelines:
 - Select tracks that fit the mood, era, style, and other aspects of the request
+- When enriched tags are present, use them to find hidden gems that match the mood even if the genre label alone wouldn't suggest it
 - STRICT: Pick at most 1 track per artist. Only pick a 2nd track from the same artist when fewer unique artists are available than the requested track count
 - STRICT: Do not pick more than 1 track from the same album
 - Shuffle your output order — never group consecutive tracks by the same artist, decade, or genre. Alternate between different artists, eras, and energy levels for a varied listening flow

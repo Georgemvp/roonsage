@@ -424,6 +424,31 @@ class LastFmClient:
             if t.get("name")
         ]
 
+    async def get_track_info(
+        self,
+        artist: str,
+        title: str,
+        username: str | None = None,
+    ) -> dict | None:
+        """Fetch track metadata from Last.fm (track.getInfo).
+
+        Returns the raw "track" dict from Last.fm, or None on failure.
+        Includes listeners, playcount, and top tags.
+        """
+        params: dict[str, str] = {
+            **self._base_params(),
+            "method": "track.getInfo",
+            "artist": artist,
+            "track": title,
+            "autocorrect": "1",
+        }
+        if username or self._username:
+            params["username"] = username or self._username
+        data = await self._get(params)
+        if data is None:
+            return None
+        return data.get("track")
+
     async def validate(self) -> dict:
         """Check that the credentials are valid.
 

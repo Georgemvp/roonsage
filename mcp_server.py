@@ -2968,6 +2968,81 @@ async def run_scheduled_playlist(schedule_id: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Metadata Enrichment tools (v10.0)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_enrichment_status() -> str:
+    """Show the status of the background metadata enrichment pipeline.
+
+    The enrichment pipeline fetches MusicBrainz tags (e.g. "cool jazz",
+    "modal") and Last.fm tags (e.g. "melancholic", "late night") for every
+    track in the library.  These enriched tags improve mood-based playlist
+    curation — the LLM sees far more context than just the Roon genre.
+
+    Returns:
+      - Counts: pending / processing / complete / failed items in the queue
+      - enriched_total: how many tracks have been enriched so far
+      - mb_matches: MusicBrainz hits
+      - lastfm_matches: Last.fm hits
+      - Worker state: running / paused
+
+    No parameters required.
+    """
+    logger.info("GET_ENRICHMENT_STATUS called")
+    result = await _api_call("GET", "/api/enrichment/status")
+    if isinstance(result, str):
+        return result
+
+    pending = result.get("pending", 0)
+    complete = result.get("complete", 0)
+    failed = result.get("failed", 0)
+    total = result.get("enriched_total", 0)
+    mb = result.get("mb_matches", 0)
+    lf = result.get("lastfm_matches", 0)
+    running = result.get("worker_running", False)
+    paused = result.get("worker_paused", False)
+
+    state = "paused" if paused else ("running" if running else "stopped")
+    lines = [
+        f"Metadata Enrichment Pipeline — worker: {state}",
+        f"  Enriched: {total} tracks  (MusicBrainz: {mb}, Last.fm: {lf})",
+        f"  Queue:    pending={pending}  complete={complete}  failed={failed}",
+    ]
+    if pending > 0:
+        lines.append(f"  → {pending} tracks still to enrich. Call start_enrichment to process them.")
+    elif pending == 0 and running:
+        lines.append("  ✓ All tracks enriched. Worker is idle.")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def start_enrichment() -> str:
+    """Start (or resume) the background metadata enrichment pipeline.
+
+    Scans the library for un-enriched tracks, adds them to the queue, and
+    starts the background worker.  The worker fetches MusicBrainz and Last.fm
+    tags for each track at ~1 track/second (MusicBrainz rate limit).
+
+    This is a background process — you don't need to wait for it to finish.
+    A library of 10,000 tracks takes ~3 hours to fully enrich.
+
+    Use get_enrichment_status to monitor progress.
+
+    No parameters required.
+    """
+    logger.info("START_ENRICHMENT called")
+    result = await _api_call("POST", "/api/enrichment/start", retryable=False)
+    if isinstance(result, str):
+        return result
+
+    queued = result.get("queued", 0)
+    message = result.get("message", "")
+    return f"✓ {message}\n{queued} new tracks added to enrichment queue."
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
