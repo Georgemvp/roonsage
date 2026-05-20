@@ -8,7 +8,7 @@
 import { state }                          from './modules/state.js';
 import { focusManager }                   from './modules/focus.js';
 import { artPlaceholderHtml }             from './modules/utils.js';
-import { fetchSetupStatus }               from './modules/api.js';
+import { fetchSetupStatus, apiCall }      from './modules/api.js';
 import { viewFromHash, modeFromHash, loadSavedResult } from './modules/router.js';
 import { renderHistoryFeed }              from './modules/history.js';
 import {
@@ -30,6 +30,120 @@ import { initPlaylistsView }              from './modules/playlists.js';
 import { initTasteView }                  from './modules/taste.js';
 import { initTemplates }                  from './modules/templates.js';
 import { initSchedulerSection }           from './modules/scheduler.js';
+
+// =============================================================================
+// Theme Toggle
+// =============================================================================
+
+function initThemeToggle() {
+    let saved = 'dark';
+    try { saved = localStorage.getItem('roonsage-theme') || 'dark'; } catch (e) {}
+    document.documentElement.setAttribute('data-theme', saved);
+    _updateThemeIcon(saved);
+
+    document.getElementById('theme-toggle-btn')?.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme') || 'dark';
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        try { localStorage.setItem('roonsage-theme', next); } catch (e) {}
+        _updateThemeIcon(next);
+    });
+}
+
+function _updateThemeIcon(theme) {
+    const dark  = document.getElementById('theme-icon-dark');
+    const light = document.getElementById('theme-icon-light');
+    if (dark)  dark.style.display  = theme === 'dark'  ? 'block' : 'none';
+    if (light) light.style.display = theme === 'light' ? 'block' : 'none';
+}
+
+// =============================================================================
+// Home Preview — live data for feature cards and taste snapshot
+// =============================================================================
+
+async function loadHomePreview() {
+    try {
+        // Taste preview + snapshot
+        const taste = await apiCall('/taste/profile').catch(() => null);
+        if (taste?.genre_scores) {
+            const sorted = Object.entries(taste.genre_scores).sort((a, b) => b[1] - a[1]);
+
+            // Feature card preview (top 2 genres)
+            const top2 = sorted.slice(0, 2);
+            const preview = top2.map(([g, s]) => `${g} ${Math.round(s * 100)}%`).join(' · ');
+            const previewEl = document.getElementById('home-taste-preview');
+            if (previewEl) previewEl.textContent = preview || '—';
+
+            // Taste snapshot genre bars (top 3)
+            const top3 = sorted.slice(0, 3);
+            const genresEl = document.getElementById('home-taste-genres');
+            if (genresEl) {
+                genresEl.innerHTML = top3.map(([name, score], i) => `
+                    <div class="taste-snap-genre-row">
+                        <span class="taste-snap-genre-name">${name}</span>
+                        <div class="taste-snap-genre-bar"><div class="taste-snap-genre-fill" style="width:${Math.round(score * 100)}%;opacity:${1 - i * 0.2}"></div></div>
+                        <span class="taste-snap-genre-pct">${Math.round(score * 100)}%</span>
+                    </div>`).join('');
+            }
+
+            // Hours ring + meta
+            if (taste.total_hours != null) {
+                const h = Math.round(taste.total_hours);
+                const hoursEl = document.getElementById('home-total-hours');
+                if (hoursEl) hoursEl.textContent = h;
+                // Ring: stroke-dasharray=226, offset=226-226*(hours/maxHours)
+                const ringEl = document.getElementById('home-hours-ring');
+                if (ringEl) {
+                    const maxHours = Math.max(h, 100);
+                    const pct = Math.min(h / maxHours, 1);
+                    ringEl.style.strokeDashoffset = String(226 - 226 * pct);
+                }
+            }
+            if (taste.peak_hour != null) {
+                const h = taste.peak_hour;
+                const ampm = h >= 12 ? `${h > 12 ? h - 12 : h} PM` : `${h} AM`;
+                const peakEl = document.getElementById('home-peak-hour');
+                if (peakEl) peakEl.textContent = ampm;
+            }
+            if (taste.peak_day) {
+                const dayEl = document.getElementById('home-peak-day');
+                if (dayEl) dayEl.textContent = taste.peak_day.charAt(0).toUpperCase() + taste.peak_day.slice(1) + 's';
+            }
+        }
+
+        // Template count
+        const templates = await apiCall('/templates').catch(() => null);
+        if (Array.isArray(templates) && templates.length) {
+            const el = document.getElementById('home-template-count');
+            if (el) el.textContent = `${templates.length} templates`;
+        }
+
+        // Watchlist count
+        const watchlist = await apiCall('/watchlist').catch(() => null);
+        if (watchlist?.artists) {
+            const newReleases = watchlist.new_releases?.length || 0;
+            const el = document.getElementById('home-watchlist-count');
+            if (el) el.textContent = `${watchlist.artists.length} artists${newReleases ? ` · ${newReleases} new` : ''}`;
+        }
+
+        // Automations count
+        const autos = await apiCall('/automations').catch(() => null);
+        if (Array.isArray(autos)) {
+            const active = autos.filter(a => a.enabled).length;
+            const el = document.getElementById('home-auto-count');
+            if (el) el.textContent = `${active} active`;
+        }
+
+        // Discovery preview
+        const discovery = await apiCall('/discovery/sections').catch(() => null);
+        if (discovery?.undiscovered_albums) {
+            const el = document.getElementById('home-discovery-count');
+            if (el) el.textContent = `${discovery.undiscovered_albums.length} undiscovered albums`;
+        }
+    } catch (e) {
+        console.warn('Home preview load failed:', e);
+    }
+}
 
 // =============================================================================
 // Initialization
@@ -57,6 +171,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
     }).observe(document.body, { childList: true, subtree: true });
+
+    // Initialize theme toggle first (before any rendering)
+    initThemeToggle();
 
     setupEventListeners();
     setupRecEventListeners();
@@ -124,6 +241,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         initRecommendView();
     } else if (state.view === 'home') {
         renderHistoryFeed();
+        loadHomePreview(); // fire-and-forget; populates feature card previews
     } else if (state.view === 'playlists') {
         initPlaylistsView();
     } else if (state.view === 'taste') {

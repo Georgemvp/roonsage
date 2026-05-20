@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -27,25 +27,91 @@
         <header class="header">
             <h1 class="logo"><a href="#home" class="logo-link">RoonSage</a></h1>
             <nav class="nav" role="navigation" aria-label="Main navigation">
+                <!-- Group 1: Create -->
                 <div class="nav-dropdown">
                     <button class="nav-dropdown-trigger" aria-expanded="false" aria-haspopup="true">
-                        Make Playlist <span class="nav-chevron" aria-hidden="true">&#9662;</span>
+                        <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V4"/><path d="M10 9a3 3 0 0 1-2-3 3 3 0 0 1-2 3"/><path d="M12 5a2 2 0 1 0-4-1 2 2 0 1 0-4 1"/><path d="M12.5 12a3 3 0 0 0 1.5-5"/><path d="M3.5 12a3 3 0 0 1-1.5-5"/></svg>
+                        <span class="nav-label">Create</span>
+                        <span class="nav-chevron" aria-hidden="true">&#9662;</span>
                     </button>
                     <div class="nav-dropdown-menu" role="menu">
                         <button class="nav-dropdown-item" role="menuitem" data-nav="playlist-prompt">
-                            <span class="nav-check" aria-hidden="true"></span> From Prompt
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V4"/><path d="M10 9a3 3 0 0 1-2-3 3 3 0 0 1-2 3"/></svg>
+                            <span class="nav-check" aria-hidden="true"></span>
+                            Playlist from Prompt
                         </button>
                         <button class="nav-dropdown-item" role="menuitem" data-nav="playlist-seed">
-                            <span class="nav-check" aria-hidden="true"></span> From Seed Song
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6V4a3 3 0 0 1 3-3h1a.4.4 0 0 1 .4.4V3a3 3 0 0 1-3 3 3 3 0 0 0-3 3c0 1.5.8 2.2.8 3.8a4 4 0 0 1-.8 2.2"/><path d="M3 6a3.5 3.5 0 0 1 6 2.8 3.5 3.5 0 0 1-6-2.8"/></svg>
+                            <span class="nav-check" aria-hidden="true"></span>
+                            From Seed Song
+                        </button>
+                        <button class="nav-dropdown-item" role="menuitem" data-nav="recommend-album">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="7"/><circle cx="8" cy="8" r="2"/></svg>
+                            <span class="nav-check" aria-hidden="true"></span>
+                            Recommend Album
                         </button>
                     </div>
                 </div>
-                <button class="nav-btn" data-nav="recommend-album" aria-current="false">Recommend Album</button>
-                <button class="nav-btn" data-nav="playlists" aria-current="false">Playlists</button>
-                <button class="nav-btn" data-nav="taste" aria-current="false">My Taste</button>
-                <button class="nav-btn" data-nav="discovery" aria-current="false">Discover</button>
-                <button class="nav-btn" data-nav="watchlist" aria-current="false">Watchlist</button>
-                <button class="nav-btn" data-nav="automations" aria-current="false">Automations</button>
+
+                <!-- Group 2: Library -->
+                <div class="nav-dropdown">
+                    <button class="nav-dropdown-trigger" aria-expanded="false" aria-haspopup="true">
+                        <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12V4l5-2 5 2v8"/><path d="M7 14V6"/><path d="M3 6h4M3 9h4"/></svg>
+                        <span class="nav-label">Library</span>
+                        <span class="nav-chevron" aria-hidden="true">&#9662;</span>
+                    </button>
+                    <div class="nav-dropdown-menu" role="menu">
+                        <button class="nav-dropdown-item" role="menuitem" data-nav="playlists">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12M2 8h8M2 12h5"/></svg>
+                            <span class="nav-check" aria-hidden="true"></span>
+                            Playlists
+                        </button>
+                        <button class="nav-dropdown-item" role="menuitem" data-nav="discovery">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="7"/><polygon points="10.5 5 9 9 5 10.5 6.5 6.5"/></svg>
+                            <span class="nav-check" aria-hidden="true"></span>
+                            Discover
+                        </button>
+                        <button class="nav-dropdown-item" role="menuitem" data-nav="watchlist">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5Z"/><circle cx="8" cy="8" r="2"/></svg>
+                            <span class="nav-check" aria-hidden="true"></span>
+                            Watchlist
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Group 3: Intelligence -->
+                <div class="nav-dropdown">
+                    <button class="nav-dropdown-trigger" aria-expanded="false" aria-haspopup="true">
+                        <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2a5 5 0 0 1 5 5c0 3-5 8-5 8S3 10 3 7a5 5 0 0 1 5-5z"/><circle cx="8" cy="7" r="1.5"/></svg>
+                        <span class="nav-label">Intelligence</span>
+                        <span class="nav-chevron" aria-hidden="true">&#9662;</span>
+                    </button>
+                    <div class="nav-dropdown-menu" role="menu">
+                        <button class="nav-dropdown-item" role="menuitem" data-nav="taste">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2a5 5 0 0 1 5 5c0 3-5 8-5 8S3 10 3 7a5 5 0 0 1 5-5z"/><circle cx="8" cy="7" r="1.5"/></svg>
+                            <span class="nav-check" aria-hidden="true"></span>
+                            My Taste
+                        </button>
+                        <button class="nav-dropdown-item" role="menuitem" data-nav="automations">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.8 4.2a1 1 0 0 0 0 1l1 1a1 1 0 0 0 1 0l2.5-2.5a4 4 0 0 1-5.3 5.3l-4.5 4.5a1.4 1.4 0 0 1-2-2l4.5-4.5a4 4 0 0 1 5.3-5.3L9.8 4.2z"/></svg>
+                            <span class="nav-check" aria-hidden="true"></span>
+                            Automations
+                        </button>
+                        <button class="nav-dropdown-item" role="menuitem" data-nav="settings">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8.15 1.33h-.3a1.33 1.33 0 0 0-1.33 1.33v.12a1.33 1.33 0 0 1-.67 1.15l-.28.17a1.33 1.33 0 0 1-1.33 0l-.1-.06a1.33 1.33 0 0 0-1.82.49l-.15.25a1.33 1.33 0 0 0 .49 1.82l.1.07a1.33 1.33 0 0 1 .67 1.15v.34a1.33 1.33 0 0 1-.67 1.15l-.1.06a1.33 1.33 0 0 0-.49 1.82l.15.26a1.33 1.33 0 0 0 1.82.49l.1-.06a1.33 1.33 0 0 1 1.33 0l.29.17a1.33 1.33 0 0 1 .66 1.15v.12a1.33 1.33 0 0 0 1.34 1.33h.29a1.33 1.33 0 0 0 1.34-1.33v-.12a1.33 1.33 0 0 1 .66-1.15l.29-.17a1.33 1.33 0 0 1 1.33 0l.1.06a1.33 1.33 0 0 0 1.82-.49l.15-.26a1.33 1.33 0 0 0-.49-1.82l-.1-.06a1.33 1.33 0 0 1-.67-1.15V7.85a1.33 1.33 0 0 1 .67-1.15l.1-.07a1.33 1.33 0 0 0 .49-1.82l-.15-.25a1.33 1.33 0 0 0-1.82-.49l-.1.06a1.33 1.33 0 0 1-1.33 0l-.29-.17a1.33 1.33 0 0 1-.66-1.15v-.12A1.33 1.33 0 0 0 8.15 1.33z"/><circle cx="8" cy="8" r="2"/></svg>
+                            <span class="nav-check" aria-hidden="true"></span>
+                            Enrichment
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Theme toggle -->
+                <button class="nav-item nav-item--icon" id="theme-toggle-btn" title="Toggle theme" aria-label="Toggle dark/light theme">
+                    <svg id="theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    <svg id="theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                </button>
+
+                <!-- Settings icon -->
                 <button class="nav-btn nav-btn--icon" data-nav="settings" aria-current="false" aria-label="Settings"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
             </nav>
         </header>
@@ -197,31 +263,100 @@
                 </div>
 
                 <div class="home-content home-content--loading">
-                    <h2 class="home-greeting">What do you want to listen to?</h2>
-                    <p class="home-subtitle">Create playlists and discover albums from your library.</p>
-                    <div class="home-cards">
-                        <button class="home-card" data-nav="playlist-prompt">
-                            <div class="home-card-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/></svg></div>
-                            <div class="home-card-text">
-                                <div class="home-card-title">Playlist from Prompt</div>
-                                <div class="home-card-desc">Describe a vibe and let AI curate tracks</div>
+                    <!-- Hero -->
+                    <section class="hero">
+                        <h2 class="hero-title">What do you want to listen to?</h2>
+                        <p class="hero-subtitle">AI-powered playlists, discovery, and intelligence for your Roon library</p>
+                    </section>
+
+                    <!-- 6-card Feature Grid -->
+                    <div class="feature-grid">
+                        <!-- Card 1: Generate Playlist (amber) -->
+                        <button class="feature-card feature-card--amber" data-nav="playlist-prompt">
+                            <div class="card-icon card-icon--amber">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.6 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.6 1.5"/><path d="M18 18a4 4 0 0 0 2-7.5"/><path d="M6 18a4 4 0 0 1-2-7.5"/></svg>
                             </div>
+                            <div class="card-title">Generate Playlist</div>
+                            <div class="card-desc">Describe a vibe and let AI curate tracks from your library</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span><span id="home-template-count">— templates</span></div>
                         </button>
-                        <button class="home-card" data-nav="playlist-seed">
-                            <div class="home-card-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3"/><path d="M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4"/><path d="M5 21h14"/></svg></div>
-                            <div class="home-card-text">
-                                <div class="home-card-title">Playlist from Seed</div>
-                                <div class="home-card-desc">Start from a song you love</div>
+
+                        <!-- Card 2: Discover (teal) -->
+                        <button class="feature-card feature-card--teal" data-nav="discovery">
+                            <div class="card-icon card-icon--teal">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
                             </div>
+                            <div class="card-title">Discover</div>
+                            <div class="card-desc">Hidden gems, deep cuts, and forgotten favorites in your library</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-discovery-count">4 discovery sections</span></div>
                         </button>
-                        <button class="home-card" data-nav="recommend-album">
-                            <div class="home-card-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2"/></svg></div>
-                            <div class="home-card-text">
-                                <div class="home-card-title">Recommend Album</div>
-                                <div class="home-card-desc">Find the perfect album for the moment</div>
+
+                        <!-- Card 3: My Taste (teal) -->
+                        <button class="feature-card feature-card--teal" data-nav="taste">
+                            <div class="card-icon card-icon--teal">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 4.5-7 13-7 13S5 13.5 5 9a7 7 0 0 1 7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
                             </div>
+                            <div class="card-title">My Taste</div>
+                            <div class="card-desc">Genre radar, listening patterns, and your full taste profile</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-taste-preview">—</span></div>
+                        </button>
+
+                        <!-- Card 4: Recommend Album (amber) -->
+                        <button class="feature-card feature-card--amber" data-nav="recommend-album">
+                            <div class="card-icon card-icon--amber">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2"/></svg>
+                            </div>
+                            <div class="card-title">Recommend Album</div>
+                            <div class="card-desc">Find the perfect album for any moment or mood</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span>Library + Discovery modes</div>
+                        </button>
+
+                        <!-- Card 5: Watchlist (amber) -->
+                        <button class="feature-card feature-card--amber" data-nav="watchlist">
+                            <div class="card-icon card-icon--amber">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                            </div>
+                            <div class="card-title">Watchlist</div>
+                            <div class="card-desc">Monitor your favorite artists for new Qobuz releases</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span><span id="home-watchlist-count">—</span></div>
+                        </button>
+
+                        <!-- Card 6: Automations (teal) -->
+                        <button class="feature-card feature-card--teal" data-nav="automations">
+                            <div class="card-icon card-icon--teal">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                            </div>
+                            <div class="card-title">Automations</div>
+                            <div class="card-desc">Trigger-action workflows that run on schedule or events</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-auto-count">—</span></div>
                         </button>
                     </div>
+
+                    <!-- Taste Snapshot -->
+                    <section class="taste-snapshot" id="home-taste-snapshot">
+                        <div class="taste-snap-left">
+                            <div class="taste-snap-label">
+                                <span class="taste-snap-dot"></span> Taste Profile
+                            </div>
+                            <div class="taste-snap-genres" id="home-taste-genres"></div>
+                        </div>
+                        <div class="taste-snap-right">
+                            <div class="taste-snap-ring">
+                                <svg viewBox="0 0 80 80">
+                                    <circle class="ring-bg" cx="40" cy="40" r="36"/>
+                                    <circle class="ring-fill" cx="40" cy="40" r="36" id="home-hours-ring"/>
+                                </svg>
+                                <div class="taste-snap-value">
+                                    <span class="taste-snap-number" id="home-total-hours">—</span>
+                                    <span class="taste-snap-unit">hours</span>
+                                </div>
+                            </div>
+                            <div class="taste-snap-meta">Peak at <strong id="home-peak-hour">—</strong> · <span id="home-peak-day">—</span></div>
+                            <button class="taste-snap-link" data-nav="taste">View full profile →</button>
+                        </div>
+                    </section>
+
+                    <!-- Recent Activity -->
                     <div class="home-history">
                         <h3 class="home-history-header">Recent activity</h3>
                         <div id="history-feed" class="history-feed"></div>
