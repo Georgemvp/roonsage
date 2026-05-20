@@ -29,6 +29,7 @@ import { startNowPlaying }                from './modules/nowplaying.js';
 import { initPlaylistsView }              from './modules/playlists.js';
 import { initTasteView }                  from './modules/taste.js';
 import { initTemplates }                  from './modules/templates.js';
+import { initSchedulerSection }           from './modules/scheduler.js';
 
 // =============================================================================
 // Initialization

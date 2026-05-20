@@ -1130,6 +1130,75 @@
                     </button>
                 </div>
 
+                <!-- Scheduled Playlists -->
+                <section class="settings-section" id="schedules-settings-section">
+                    <h3>Scheduled Playlists</h3>
+                    <p style="font-size:0.85rem;opacity:0.7;margin:0.25rem 0 0.75rem">Auto-regenerate playlists on a schedule and optionally save them to Qobuz.</p>
+
+                    <!-- Schedule list -->
+                    <div id="schedules-list" style="margin-bottom:1rem;">
+                        <p class="schedules-loading" style="font-size:0.85rem;opacity:0.6;">Loading schedules…</p>
+                    </div>
+
+                    <!-- New schedule form (collapsed by default) -->
+                    <button id="schedules-add-btn" class="btn btn-outline btn-sm" style="margin-bottom:1rem;">+ New Schedule</button>
+
+                    <div id="schedules-form" class="schedules-form hidden">
+                        <h4 style="margin:0 0 0.75rem;font-size:0.95rem;">New Scheduled Playlist</h4>
+
+                        <div class="form-group">
+                            <label for="sched-name">Name</label>
+                            <input type="text" id="sched-name" placeholder="e.g. Morning Commute">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sched-prompt">Prompt</label>
+                            <textarea id="sched-prompt" rows="2" placeholder="e.g. Energetic indie rock for the morning commute" style="width:100%;resize:vertical;background:var(--bg-elevated,#2a2a2a);color:inherit;border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:0.5rem;font-family:inherit;font-size:0.9rem;"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sched-track-count">Track count</label>
+                            <input type="number" id="sched-track-count" value="25" min="5" max="100">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sched-preset">Timing</label>
+                            <select id="sched-preset" style="width:100%;background:var(--bg-elevated,#2a2a2a);color:inherit;border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:0.5rem;">
+                                <option value="0 7 * * *">Every morning at 7:00</option>
+                                <option value="0 7 * * 1-5">Weekdays at 7:00</option>
+                                <option value="0 18 * * 5">Friday evening at 18:00</option>
+                                <option value="0 10 * * 0">Every Sunday at 10:00</option>
+                                <option value="0 12 * * *">Every day at noon</option>
+                                <option value="custom">Custom cron…</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group hidden" id="sched-cron-group">
+                            <label for="sched-cron">Cron expression <span style="opacity:0.6;font-weight:normal;">(min hr dom month dow)</span></label>
+                            <input type="text" id="sched-cron" placeholder="0 7 * * 1-5">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sched-zone">Roon zone <span class="optional-label">(optional — auto-play after generation)</span></label>
+                            <input type="text" id="sched-zone" placeholder="e.g. Living Room">
+                        </div>
+
+                        <div class="form-group">
+                            <label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal;cursor:pointer;">
+                                <input type="checkbox" id="sched-save-qobuz" checked>
+                                Save to Qobuz after generation
+                            </label>
+                        </div>
+
+                        <div id="sched-error" class="setup-inline-error hidden" role="alert" style="margin-bottom:0.5rem;"></div>
+
+                        <div class="settings-actions" style="margin-top:0.5rem;">
+                            <button id="sched-save-btn" class="btn btn-primary btn-sm">Create Schedule</button>
+                            <button id="sched-cancel-btn" class="btn btn-outline btn-sm">Cancel</button>
+                        </div>
+                    </div>
+                </section>
+
                 <section class="settings-section library-stats" id="library-stats-section" style="display: none;">
                     <h3>Library Statistics</h3>
                     <div id="library-stats"></div>

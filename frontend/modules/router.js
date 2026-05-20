@@ -12,6 +12,7 @@ import { initPlaylistsView } from './playlists.js';
 import { initTasteView } from './taste.js';
 import { initDiscoveryView } from './discovery.js';
 import { initWatchlistView } from './watchlist.js';
+import { initSchedulerSection } from './scheduler.js';
 
 export const HASH_TO_VIEW = {
     'home': 'home',
@@ -90,6 +91,7 @@ export function navigateTo(view, mode) {
     }
     if (view === 'settings') {
         loadSettings();
+        initSchedulerSection();
     } else if (view === 'recommend') {
         initRecommendView();
     } else if (view === 'home') {

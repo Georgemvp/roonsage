@@ -24,6 +24,7 @@ from backend.routes.discovery import router as discovery_router
 from backend.routes.templates import router as templates_router
 from backend.routes.notifications import router as notifications_router
 from backend.routes.watchlist import router as watchlist_router
+from backend.routes.scheduler import router as scheduler_router
 from backend.dependencies import ROONSAGE_PASSWORD
 import backend.routes.recommend as _recommend_module
 
@@ -179,7 +180,15 @@ async def lifespan(app: FastAPI):
         _watchlist_interval // 3600,
     )
 
+    # Start playlist scheduler
+    from backend.scheduler import init_scheduler  # noqa: PLC0415
+    init_scheduler()
+
     yield
+
+    # Shutdown: stop playlist scheduler
+    from backend.scheduler import stop_scheduler  # noqa: PLC0415
+    stop_scheduler()
 
     # Shutdown: clean up resources (read from module to get current values, not import-time snapshot)
     if _recommend_module._music_research_client is not None:
@@ -261,6 +270,7 @@ app.include_router(discovery_router)
 app.include_router(templates_router)
 app.include_router(notifications_router)
 app.include_router(watchlist_router)
+app.include_router(scheduler_router)
 
 
 # =============================================================================

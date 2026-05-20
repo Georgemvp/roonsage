@@ -2860,6 +2860,114 @@ async def play_new_release(
 
 
 # ---------------------------------------------------------------------------
+# Scheduled Playlist tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_scheduled_playlists() -> str:
+    """List all scheduled playlists with their current status.
+
+    Returns every schedule with name, prompt, cron expression, last run time,
+    last status (success/failed), enabled state, and optional Qobuz playlist ID.
+
+    Use this to review what is configured and check whether recent runs succeeded.
+    No parameters required.
+    """
+    logger.info("LIST_SCHEDULED_PLAYLISTS called")
+    result = await _api_call("GET", "/api/schedules")
+    if isinstance(result, str):
+        return result
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def create_scheduled_playlist(
+    name: str,
+    prompt: str,
+    schedule: str,
+    track_count: int = 25,
+    genres: Optional[list[str]] = None,
+    decades: Optional[list[str]] = None,
+    exclude_live: bool = True,
+    zone_name: Optional[str] = None,
+    save_to_qobuz: bool = True,
+) -> str:
+    """Create a new scheduled playlist that auto-regenerates on a cron schedule.
+
+    Translate the user's natural-language timing into a cron expression:
+      - "every morning at 7"        → "0 7 * * *"
+      - "weekdays at 7am"           → "0 7 * * 1-5"
+      - "every Friday evening at 6" → "0 18 * * 5"
+      - "every Sunday at 10"        → "0 10 * * 0"
+      - "every day at noon"         → "0 12 * * *"
+
+    Cron format: "minute hour day-of-month month day-of-week"
+      - day-of-week: 0=Sunday, 1=Monday, …, 6=Saturday
+
+    When save_to_qobuz=True the playlist is saved (or refreshed) in the user's
+    Qobuz account automatically after each generation. Requires Qobuz credentials
+    to be configured in RoonSage.
+
+    When zone_name is set the freshly generated playlist is queued into that Roon
+    zone immediately after generation.
+
+    Args:
+        name:         Short display name for the schedule (e.g. "Morning Commute").
+        prompt:       Natural-language description of the desired playlist.
+        schedule:     Cron expression (5 fields).
+        track_count:  Number of tracks to generate (default 25).
+        genres:       Optional genre filter list.
+        decades:      Optional decade filter list (e.g. ["1970s", "1980s"]).
+        exclude_live: Exclude live recordings (default True).
+        zone_name:    Optional Roon zone name to auto-play in after generation.
+        save_to_qobuz: Save/refresh the playlist in Qobuz after each run (default True).
+    """
+    logger.info(
+        "CREATE_SCHEDULED_PLAYLIST: name=%r schedule=%r prompt=%r", name, schedule, prompt
+    )
+    filters = {
+        "genres": genres or [],
+        "decades": decades or [],
+        "exclude_live": exclude_live,
+    }
+    payload = {
+        "name": name,
+        "prompt": prompt,
+        "schedule": schedule,
+        "track_count": track_count,
+        "filters": filters,
+        "zone_name": zone_name,
+        "save_to_qobuz": save_to_qobuz,
+        "enabled": True,
+    }
+    result = await _api_call("POST", "/api/schedules", json=payload, retryable=False)
+    if isinstance(result, str):
+        return result
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def run_scheduled_playlist(schedule_id: int) -> str:
+    """Trigger an immediate run of a scheduled playlist, ignoring its cron timing.
+
+    Useful for testing a new schedule or regenerating a playlist on demand.
+    The run happens in the background; check list_scheduled_playlists afterwards
+    to see the last_status and last_run fields.
+
+    Args:
+        schedule_id: Numeric ID from list_scheduled_playlists.
+    """
+    logger.info("RUN_SCHEDULED_PLAYLIST: id=%d", schedule_id)
+    result = await _api_call(
+        "POST", f"/api/schedules/{schedule_id}/run", retryable=False
+    )
+    if isinstance(result, str):
+        return result
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

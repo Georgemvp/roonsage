@@ -402,6 +402,30 @@ def init_schema(conn: sqlite3.Connection) -> bool:
             ON artist_releases_cache(notified);
     """)
 
+    # -----------------------------------------------------------------------
+    # Scheduled Playlists (v9.0)
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS scheduled_playlists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            filters TEXT,
+            track_count INTEGER DEFAULT 25,
+            schedule TEXT NOT NULL,
+            zone_name TEXT,
+            save_to_qobuz INTEGER DEFAULT 1,
+            qobuz_playlist_id TEXT,
+            enabled INTEGER DEFAULT 1,
+            last_run TEXT,
+            last_status TEXT,
+            last_error TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_scheduled_playlists_enabled
+            ON scheduled_playlists(enabled);
+    """)
+
     conn.commit()
     return migrated
 
