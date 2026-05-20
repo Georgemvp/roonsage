@@ -4599,6 +4599,258 @@ body.no-scroll {
 }
 
 /* =============================================================================
+   DISCOVERY VIEW
+   ============================================================================= */
+
+.discovery-subtitle {
+    color: var(--text-muted);
+    margin-bottom: var(--spacing-xl);
+    font-size: var(--font-size-sm);
+}
+
+.discovery-empty,
+.discovery-error {
+    color: var(--text-muted);
+    text-align: center;
+    padding: var(--spacing-xl) 0;
+}
+
+/* Section */
+.discovery-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.discovery-section-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-xs);
+}
+
+.discovery-section-title {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.discovery-section-badge {
+    font-size: var(--font-size-xs);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+}
+
+.discovery-section-desc {
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+    margin: 0 0 var(--spacing-md);
+}
+
+/* Album grid */
+.discovery-album-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: var(--spacing-sm);
+}
+
+.discovery-album-card {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--spacing-sm) var(--spacing-md);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+    transition: border-color 0.15s;
+}
+
+.discovery-album-card:hover {
+    border-color: var(--accent);
+}
+
+.discovery-album-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.discovery-album-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.discovery-album-artist {
+    color: var(--accent);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.discovery-album-meta {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
+
+/* Track lists */
+.discovery-track-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.discovery-track-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    transition: background 0.1s;
+}
+
+.discovery-track-row:hover {
+    background: var(--surface-raised);
+}
+
+.discovery-track-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.discovery-track-title {
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.discovery-track-meta {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.discovery-track-right {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-shrink: 0;
+}
+
+.discovery-play-count {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+}
+
+.discovery-forgotten-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+}
+
+.discovery-last-played {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
+
+.discovery-play-btn {
+    padding: 3px 10px;
+    font-size: var(--font-size-xs);
+    flex-shrink: 0;
+}
+
+/* Genre cloud */
+.discovery-genre-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    align-items: baseline;
+}
+
+.discovery-genre-pill {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 14px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.discovery-genre-pill:hover {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.discovery-genre-count {
+    font-size: 0.75em;
+    color: var(--text-muted);
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 1px 6px;
+}
+
+.discovery-genre-pill:hover .discovery-genre-count {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--accent);
+}
+
+/* Skeleton */
+.discovery-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    padding: var(--spacing-lg) 0;
+}
+
+.skeleton-block {
+    background: var(--surface);
+    border-radius: var(--radius);
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-title {
+    height: 28px;
+    width: 200px;
+}
+
+.skeleton-row {
+    height: 80px;
+    width: 100%;
+}
+
+@keyframes skeleton-pulse {
+    0%, 100% { opacity: 0.6; }
+    50%       { opacity: 1; }
+}
+
+/* =============================================================================
    MOBILE RESPONSIVE
    ============================================================================= */
 @media (max-width: 768px) {

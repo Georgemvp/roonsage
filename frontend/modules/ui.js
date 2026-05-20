@@ -36,7 +36,8 @@ export function updateView() {
         const isActive = (hash === 'recommend-album' && state.view === 'recommend') ||
                          (hash === 'settings' && state.view === 'settings') ||
                          (hash === 'playlists' && state.view === 'playlists') ||
-                         (hash === 'taste' && state.view === 'taste');
+                         (hash === 'taste' && state.view === 'taste') ||
+                         (hash === 'discovery' && state.view === 'discovery');
         btn.classList.toggle('active', isActive);
         btn.setAttribute('aria-current', isActive ? 'true' : 'false');
     });

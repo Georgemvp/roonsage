@@ -307,3 +307,47 @@ Het profiel bevat nu automatisch berekende data naast de lokale en LB scores:
 4. **Skip signals:** `skip_signals` bevatten genres en artiesten met >50% skip rate. Behandel deze als sterke negatieve signalen — vermijd ze tenzij de gebruiker er expliciet om vraagt.
 5. **Listening patterns:** `listening_patterns` toont genre-voorkeuren per dagdeel en weekend. Gebruik deze voor tijds-aware curatie ZONDER ListenBrainz.
 6. **Top albums:** `top_albums` als top-level key — gebruik voor album-georiënteerde aanbevelingen.
+
+---
+
+## Cache-Powered Discovery (zero LLM, zero externe API)
+
+Gebruik `get_discovery_sections` voor intelligente suggesties direct uit de SQLite library cache.
+Geen backend LLM-call nodig — jij verwerkt de data en cureeert.
+
+### Vier secties
+
+| Sectie | Wat het is | Wanneer gebruiken |
+|---|---|---|
+| `undiscovered_albums` | Albums van de meest gespeelde artiesten van de gebruiker die nul plays hebben | "Wat heb ik nog niet gehoord van artiesten die ik ken?" |
+| `deep_cuts` | Tracks van de top-20 artiesten met <2 plays | "Ga dieper in een artiest" / Side B ontdekken |
+| `forgotten_favorites` | Tracks met 5+ plays maar niet gehoord in 60+ dagen | "Iets wat ik lang niet gespeeld heb" / Nostalgie-playlist |
+| `genre_explorer` | Alle genres met artist_count en track_count | "Wat voor genres heb ik?" / Niche genre ontdekken |
+
+### Flow: discovery-gebaseerde curatie
+
+1. `get_discovery_sections` — haal alle 4 secties op
+2. Analyseer op basis van het verzoek welke sectie(s) relevant zijn
+3. Selecteer tracks/albums uit de sectie
+4. `curate_and_play` (voor library tracks via item_key) of `play_album` (albums)
+
+**Voorbeeld — "Speel iets wat ik lang niet gespeeld heb":**
+1. `get_discovery_sections` → pak `forgotten_favorites`
+2. Kies 15–20 tracks met de hoogste `total_plays` en langste periode sinds `last_played_at`
+3. Zoek de item_keys op via `search_library` als nodig
+4. `play_tracks` met de gevonden item_keys
+
+**Voorbeeld — "Ik wil dieper gaan in Radiohead":**
+1. `get_discovery_sections` → filter `deep_cuts` op artist == "Radiohead"
+2. Presenteer de ongespeelde of zelden gespeelde tracks
+3. `curate_and_play` of `play_tracks`
+
+**Voorbeeld — "Verras me met iets nieuws uit mijn eigen collectie":**
+1. `get_discovery_sections` → pak `undiscovered_albums`
+2. Kies een album van een bekende artiest (hoge `artist_play_count`) met nul album-plays
+3. `play_album` of `play_tracks` met de album-tracks
+
+**Genre explorer als startpunt:**
+- "Wat voor genres heb ik?" → `genre_explorer` — sorteer op `artist_count` voor breedte, `track_count` voor diepte
+- Kleine genres (lage artist_count, hoge track_count per artiest) zijn vaak niche-collecties — ideaal voor diepgaande sessies
+- Klik op een genre in de web UI → vult automatisch het playlist-prompt-veld in

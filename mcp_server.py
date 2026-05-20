@@ -213,6 +213,36 @@ async def get_library_stats() -> str:
 
 
 @mcp.tool()
+async def get_discovery_sections() -> str:
+    """Return all 4 Cache-Powered Discovery sections for the user's library.
+
+    Zero LLM calls, zero external APIs — pure SQL queries against the local
+    SQLite library cache. Use this to surface hidden gems and forgotten music.
+
+    Sections returned:
+    - undiscovered_albums  Albums by the user's most-played artists with zero plays.
+                           Great for "I know this artist well — what else do they have?"
+    - deep_cuts            Under-played tracks from the top-20 most-listened artists.
+                           These are the tracks on side B the user keeps skipping.
+    - forgotten_favorites  Tracks with 5+ total plays but no play in the last 60 days.
+                           Use for "Rediscover" playlists or gentle nudges.
+    - genre_explorer       All library genres with artist_count and track_count,
+                           sorted by artist diversity. Use to surface niche genres
+                           or understand the depth of the collection.
+
+    Suggested uses:
+    - "What albums of mine haven't I played?" → undiscovered_albums
+    - "Play something I haven't heard in a while" → forgotten_favorites (pick 15–20 tracks)
+    - "I want to go deeper into [artist]" → deep_cuts filtered by artist
+    - "What genres do I have?" → genre_explorer
+    - "Surprise me" → combine all sections, pick diverse selection
+    """
+    logger.info("GET_DISCOVERY_SECTIONS called")
+    result = await _api_call("GET", "/api/discovery/sections")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+
+
+@mcp.tool()
 async def search_library(query: str) -> str:
     """Search the music library by track title, artist name, or album name.
 
