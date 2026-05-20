@@ -64,8 +64,13 @@ function _updateThemeIcon(theme) {
 async function loadHomePreview() {
     try {
         // Taste preview + snapshot
-        const taste = await apiCall('/taste/profile').catch(() => null);
-        if (taste?.genre_scores) {
+        let taste = await apiCall('/taste/profile').catch(() => null);
+        // If basic profile has no genre data, try the detailed endpoint
+        if (!taste?.genre_scores || Object.keys(taste.genre_scores).length === 0) {
+            const detailed = await apiCall('/intelligence/taste-profile/detailed').catch(() => null);
+            if (detailed) taste = detailed;
+        }
+        if (taste?.genre_scores && Object.keys(taste.genre_scores).length > 0) {
             const sorted = Object.entries(taste.genre_scores).sort((a, b) => b[1] - a[1]);
 
             // Feature card preview (top 2 genres)

@@ -48,12 +48,48 @@ export async function initTasteView() {
     try {
         const dayParam = _timeRange > 0 ? `?days=${_timeRange}` : '?days=3650';
 
-        const [profile, stats, history, lbStatus] = await Promise.all([
+        let [profile, stats, history, lbStatus] = await Promise.all([
             apiCall('/taste/profile').catch(() => null),
             apiCall(`/listening/stats${dayParam}`).catch(() => null),
             apiCall('/listening/history').catch(() => null),
             apiCall('/intelligence/listenbrainz/status').catch(() => null),
         ]);
+
+        // Fallback: if profile has no top_genres, populate from library stats
+        if (!profile?.top_genres?.length) {
+            try {
+                const libStats = await apiCall('/library/stats');
+                if (libStats?.genres?.length) {
+                    const maxCount = Math.max(...libStats.genres.map(g => g.count));
+                    if (!profile) profile = {};
+                    profile.top_genres = libStats.genres.map(g => ({
+                        name: g.name,
+                        count: g.count,
+                        score: g.count / maxCount,
+                    }));
+                }
+            } catch (e) {
+                console.warn('Library stats genre fallback failed:', e);
+            }
+        }
+
+        // Fallback: if profile has no decades, populate from cached library stats
+        if (!profile?.decades || !Object.keys(profile.decades || {}).length) {
+            try {
+                const libStats = await apiCall('/library/stats/cached');
+                if (libStats?.decades?.length) {
+                    const maxCount = Math.max(...libStats.decades.map(d => d.count));
+                    const decadeScores = {};
+                    libStats.decades.forEach(d => {
+                        decadeScores[d.name] = d.count / maxCount;
+                    });
+                    if (!profile) profile = {};
+                    profile.decades = decadeScores;
+                }
+            } catch (e) {
+                console.warn('Library stats decade fallback failed:', e);
+            }
+        }
 
         _renderIntelBanner(profile, stats, lbStatus);
         _renderTimelineChart(stats);
