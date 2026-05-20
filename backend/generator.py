@@ -10,6 +10,7 @@ from backend.llm_client import get_llm_client
 from backend.models import GenerateResponse, Track
 from backend.roon_client import RoonQueryError, get_roon_client
 from backend import library_cache
+from backend.taste_profile import TasteProfile
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +168,64 @@ def _get_tracks_from_cache_or_roon(
         )
 
 
+def _build_profile_context() -> str:
+    """Build a compact taste profile summary for the LLM prompt (~150-200 tokens)."""
+    try:
+        profile = TasteProfile.get()
+    except Exception:
+        return ""
+    parts = []
+    # Top genres (sorted by score, top 8)
+    genres = profile.get("genres", {})
+    if genres:
+        top = sorted(genres.items(), key=lambda x: -x[1])[:8]
+        parts.append("Top genres: " + ", ".join(f"{g} ({s:.0%})" for g, s in top))
+    # Recently active (last 7 days)
+    recent = profile.get("recently_active", {})
+    if recent.get("top_genres"):
+        parts.append("Currently active (7d): " + ", ".join(recent["top_genres"][:5]))
+    # Top artists (top 8)
+    artists = profile.get("artists", {})
+    if artists:
+        top_artists = sorted(artists.items(), key=lambda x: -x[1])[:8]
+        parts.append("Favorite artists: " + ", ".join(a for a, _ in top_artists))
+    # Artist streaks
+    streaks = profile.get("artist_streaks", [])
+    if streaks:
+        parts.append("Currently binging: " + ", ".join(
+            f"{s['artist']} ({s['plays_7d']} plays this week)" for s in streaks[:3]
+        ))
+    # Moods
+    moods = profile.get("moods", {})
+    if moods:
+        top_moods = sorted(moods.items(), key=lambda x: -x[1])[:4]
+        parts.append("Preferred moods: " + ", ".join(f"{m} ({s:.0%})" for m, s in top_moods))
+    # Listening patterns (time-based)
+    patterns = profile.get("listening_patterns", {})
+    if patterns.get("evening_genres"):
+        parts.append("Evening favorites: " + ", ".join(patterns["evening_genres"][:3]))
+    if patterns.get("weekend_genres"):
+        parts.append("Weekend favorites: " + ", ".join(patterns["weekend_genres"][:3]))
+    # Dislikes
+    dislikes = profile.get("dislikes", [])
+    if dislikes:
+        parts.append("Dislikes (avoid these): " + ", ".join(dislikes))
+    # Skip signals
+    skips = profile.get("skip_signals", {})
+    skip_genres = skips.get("genres", [])
+    if skip_genres:
+        parts.append("High skip-rate genres (avoid): " + ", ".join(
+            f"{s['genre']} ({s['skip_rate']:.0%} skipped)" for s in skip_genres[:5]
+        ))
+    # Notes
+    notes = profile.get("notes", [])
+    if notes:
+        parts.append("User preferences: " + "; ".join(notes[:5]))
+    if not parts:
+        return ""
+    return "User's listening profile:\n" + "\n".join(f"- {p}" for p in parts)
+
+
 def generate_playlist_stream(
     prompt: str | None = None,
     seed_track: Track | None = None,
@@ -306,6 +365,12 @@ def generate_playlist_stream(
             else:
                 time_context = f"Het is {day_name}nacht ({hour}:00)"
             generation_parts.append(f"Context: {time_context}. Houd hier subtiel rekening mee bij de sfeer van de selectie.")
+
+            # Inject taste profile context
+            profile_context = _build_profile_context()
+            if profile_context:
+                generation_parts.append(profile_context)
+                logger.info("Taste profile injected into generation prompt (%d chars)", len(profile_context))
 
             if prompt:
                 generation_parts.append(f"User's request: {prompt}")
@@ -581,7 +646,14 @@ Return ONLY a JSON array using the track NUMBER from the list, like:
   ...
 ]
 
-No markdown formatting, no explanations - just the JSON array."""
+No markdown formatting, no explanations - just the JSON array.
+
+If a listening profile is provided, use it to inform your selections:
+- Favor tracks from the user's top genres and favorite artists
+- For vague or mood-based requests, lean toward their currently active genres and preferred moods
+- Avoid genres and artists with high skip rates
+- Respect all entries in their dislikes list
+- The profile is a guide, not a constraint — the user's explicit request always takes priority"""
 
 
 NARRATIVE_SYSTEM = """You are a music connoisseur writing a brief liner note for a playlist.

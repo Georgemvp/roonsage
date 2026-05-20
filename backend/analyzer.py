@@ -1,6 +1,7 @@
 """Prompt analysis and seed track dimension extraction."""
 
 from backend.llm_client import get_llm_client
+from backend.taste_profile import TasteProfile
 from backend.models import (
     AnalyzePromptResponse,
     AnalyzeTrackResponse,
@@ -27,7 +28,9 @@ Be specific about genres and decades. Consider:
 - Genre keywords (alternative, jazz, electronic)
 - Artist style hints
 
-Return ONLY valid JSON, no markdown formatting."""
+Return ONLY valid JSON, no markdown formatting.
+
+If the user's listening preferences are provided, weight your genre suggestions toward their most-listened genres when the request is ambiguous. Always exclude genres they dislike."""
 
 
 TRACK_ANALYSIS_SYSTEM = """You are a music expert analyzing a song to identify its distinctive characteristics.
@@ -88,6 +91,24 @@ Available decades in their library:
 {', '.join(f"{d.name} ({d.count})" if d.count else d.name for d in available_decades)}
 
 Suggest genres and decades from the available options that best match the user's request."""
+
+    # Add taste profile context
+    try:
+        profile = TasteProfile.get()
+        preferred_genres = sorted(
+            profile.get("genres", {}).items(), key=lambda x: -x[1]
+        )[:10]
+        if preferred_genres:
+            analysis_prompt += f"\n\nUser's most-listened genres (prioritize these when the request is ambiguous):\n"
+            analysis_prompt += ", ".join(f"{g} ({s:.0%})" for g, s in preferred_genres)
+        recent = profile.get("recently_active", {})
+        if recent.get("top_genres"):
+            analysis_prompt += f"\n\nCurrently active genres (last 7 days): {', '.join(recent['top_genres'][:5])}"
+        dislikes = profile.get("dislikes", [])
+        if dislikes:
+            analysis_prompt += f"\n\nUser dislikes (never suggest these): {', '.join(dislikes)}"
+    except Exception:
+        pass  # Profile unavailable — continue without it
 
     # Call LLM
     response = llm_client.analyze(analysis_prompt, PROMPT_ANALYSIS_SYSTEM)
