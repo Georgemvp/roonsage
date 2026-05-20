@@ -620,6 +620,48 @@ class TasteProfile:
                 **listening_stats,
             }
 
+            # ── Last.fm data integration ───────────────────────────────────────
+            try:
+                from backend.lastfm_sync import get_lf_sync_instance  # noqa: PLC0415
+                lf_sync = get_lf_sync_instance()
+                if lf_sync:
+                    lf_top_artists = lf_sync.get_cached_stat("top_artists")
+                    if lf_top_artists:
+                        updates["lf_top_artists"] = lf_top_artists[:25]
+
+                    lf_similar = lf_sync.get_cached_stat("similar_artists")
+                    if lf_similar:
+                        updates["lf_similar_artists"] = lf_similar
+
+                    lf_tags = lf_sync.get_cached_stat("artist_tags")
+                    if lf_tags:
+                        updates["lf_artist_tags"] = lf_tags
+                        # Blend tag names into moods with lower weight (0.3)
+                        # Collect all tag names from all artists, normalise
+                        tag_counter: dict[str, int] = {}
+                        for artist_tags in lf_tags.values():
+                            for tag_entry in artist_tags:
+                                tag_name = tag_entry.get("name", "").lower().strip()
+                                if tag_name:
+                                    tag_counter[tag_name] = (
+                                        tag_counter.get(tag_name, 0)
+                                        + tag_entry.get("count", 1)
+                                    )
+                        if tag_counter:
+                            max_tag_count = max(tag_counter.values()) or 1
+                            for tag_name, count in tag_counter.items():
+                                normalised = round(min(1.0, count / max_tag_count), 4)
+                                existing = mood_scores.get(tag_name, 0.0)
+                                mood_scores[tag_name] = round(
+                                    existing * 0.7 + normalised * 0.3, 4
+                                )
+                            # Re-apply merged moods
+                            updates["moods"] = mood_scores
+
+                    updates["lf_last_synced"] = lf_sync.get_last_sync_time()
+            except Exception as lf_exc:
+                logger.debug("Last.fm data integration in profile failed: %s", lf_exc)
+
             # ── ListenBrainz data integration ──────────────────────────────────
             try:
                 from backend.listenbrainz_sync import get_sync_instance  # noqa: PLC0415
@@ -728,6 +770,11 @@ def _empty_profile() -> dict:
         "lb_top_releases": [],
         "lb_listening_activity": [],
         "lb_last_synced": None,
+        # Last.fm-enriched data (prefix lf_)
+        "lf_top_artists": [],
+        "lf_similar_artists": {},
+        "lf_artist_tags": {},
+        "lf_last_synced": None,
     }
 
 
@@ -806,6 +853,11 @@ def _merge_profiles(current: dict, updates: dict) -> dict:
         "lb_top_releases":       current.get("lb_top_releases", []),
         "lb_listening_activity": current.get("lb_listening_activity", []),
         "lb_last_synced":        current.get("lb_last_synced"),
+        # Last.fm keys: always overwrite (fresh from Last.fm API)
+        "lf_top_artists":     current.get("lf_top_artists", []),
+        "lf_similar_artists": current.get("lf_similar_artists", {}),
+        "lf_artist_tags":     current.get("lf_artist_tags", {}),
+        "lf_last_synced":     current.get("lf_last_synced"),
     }
 
     # Score maps: weighted merge
@@ -859,6 +911,11 @@ def _merge_profiles(current: dict, updates: dict) -> dict:
         "lb_top_releases",
         "lb_listening_activity",
         "lb_last_synced",
+        # Last.fm keys
+        "lf_top_artists",
+        "lf_similar_artists",
+        "lf_artist_tags",
+        "lf_last_synced",
     ]
     for key in _overwrite_keys:
         if key in updates:

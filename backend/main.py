@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from backend.config import get_config, get_qobuz_config, get_listenbrainz_config, get_notifications_config
+from backend.config import get_config, get_qobuz_config, get_listenbrainz_config, get_lastfm_config, get_notifications_config
 from backend.version import get_version
 from backend.roon_client import get_roon_client, init_roon_client
 from backend.qobuz_api import init_qobuz_api_client
@@ -78,6 +78,23 @@ async def lifespan(app: FastAPI):
     else:
         app.state.lb_client = None
 
+    # Initialize Last.fm client if configured
+    lf_cfg = get_lastfm_config()
+    if lf_cfg["api_key"] and lf_cfg["api_secret"]:
+        from backend.lastfm_client import init_lf_client  # noqa: PLC0415
+        lf_client = init_lf_client(
+            api_key=lf_cfg["api_key"],
+            api_secret=lf_cfg["api_secret"],
+            session_key=lf_cfg["session_key"],
+            username=lf_cfg["username"],
+        )
+        app.state.lf_client = lf_client
+        logger.info("Last.fm client initialized (user: %s)", lf_cfg["username"] or "not set")
+        from backend.lastfm_sync import init_lf_sync_instance  # noqa: PLC0415
+        init_lf_sync_instance(lf_client)
+    else:
+        app.state.lf_client = None
+
     # Initialize DB schema early so migration flag is set
     library_cache.ensure_db_initialized().close()
 
@@ -124,6 +141,23 @@ async def lifespan(app: FastAPI):
 
         asyncio.create_task(_lb_sync_loop())
         logger.info("ListenBrainz background sync scheduled (every 6 hours)")
+
+    # Start Last.fm background sync (every 6 hours)
+    if getattr(app.state, "lf_client", None) is not None:
+        async def _lf_sync_loop():
+            from backend.lastfm_sync import get_lf_sync_instance  # noqa: PLC0415
+            await asyncio.sleep(45)  # Small delay so app is fully started
+            while True:
+                try:
+                    sync = get_lf_sync_instance()
+                    if sync:
+                        await sync.sync_all()
+                except Exception as exc:
+                    logger.warning("Last.fm background sync error: %s", exc)
+                await asyncio.sleep(6 * 3600)  # every 6 hours
+
+        asyncio.create_task(_lf_sync_loop())
+        logger.info("Last.fm background sync scheduled (every 6 hours)")
 
     # Start Watchlist background scan (every 12 hours)
     import os  # noqa: PLC0415

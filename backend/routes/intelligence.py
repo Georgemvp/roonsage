@@ -777,6 +777,150 @@ async def get_listenbrainz_recommendations() -> list[dict]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+# ---------------------------------------------------------------------------
+# Last.fm endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/intelligence/lastfm/status")
+async def get_lastfm_status() -> dict:
+    """Return Last.fm configuration and sync status."""
+    from backend.config import get_lastfm_config  # noqa: PLC0415
+
+    lf_cfg = get_lastfm_config()
+    configured = bool(lf_cfg["api_key"] and lf_cfg["api_secret"])
+    can_scrobble = configured and bool(lf_cfg["session_key"])
+    username = lf_cfg["username"] or ""
+
+    last_synced = None
+    try:
+        from backend.lastfm_sync import get_lf_sync_instance  # noqa: PLC0415
+        lf_sync = get_lf_sync_instance()
+        if lf_sync:
+            last_synced = lf_sync.get_last_sync_time()
+    except Exception:
+        pass
+
+    return {
+        "configured":   configured,
+        "can_scrobble": can_scrobble,
+        "username":     username,
+        "last_synced":  last_synced,
+        "connected":    can_scrobble,
+        "profile_url":  f"https://www.last.fm/user/{username}" if username else None,
+    }
+
+
+class LastFmAuthTokenResponse(BaseModel):
+    token: str
+    auth_url: str
+
+
+@router.post("/intelligence/lastfm/auth/token")
+async def lastfm_get_auth_token() -> dict:
+    """Request a Last.fm auth token and return the auth URL to open in a browser.
+
+    The user must visit auth_url to grant permission, then call
+    POST /intelligence/lastfm/auth/session with the same token.
+    """
+    from backend.lastfm_client import get_lf_client, LastFmClient  # noqa: PLC0415
+    from backend.config import get_lastfm_config  # noqa: PLC0415
+
+    lf_cfg = get_lastfm_config()
+    if not lf_cfg["api_key"] or not lf_cfg["api_secret"]:
+        raise HTTPException(status_code=400, detail="Last.fm API key and secret must be configured first")
+
+    # Use a temporary client (the singleton may not exist yet)
+    client = get_lf_client() or LastFmClient(
+        api_key=lf_cfg["api_key"],
+        api_secret=lf_cfg["api_secret"],
+    )
+
+    token = await client.get_auth_token()
+    if not token:
+        raise HTTPException(status_code=502, detail="Failed to obtain auth token from Last.fm")
+
+    auth_url = client.get_auth_url(token)
+    return {"token": token, "auth_url": auth_url}
+
+
+class LastFmSessionRequest(BaseModel):
+    token: str
+
+
+@router.post("/intelligence/lastfm/auth/session")
+async def lastfm_get_session(request: LastFmSessionRequest) -> dict:
+    """Exchange an authorised Last.fm token for a permanent session key.
+
+    Saves the session key (and username if available) to config.user.yaml.
+    """
+    from backend.lastfm_client import get_lf_client, LastFmClient, init_lf_client  # noqa: PLC0415
+    from backend.lastfm_sync import init_lf_sync_instance  # noqa: PLC0415
+    from backend.config import get_lastfm_config, save_user_config  # noqa: PLC0415
+
+    lf_cfg = get_lastfm_config()
+    if not lf_cfg["api_key"] or not lf_cfg["api_secret"]:
+        raise HTTPException(status_code=400, detail="Last.fm API key and secret not configured")
+
+    client = get_lf_client() or LastFmClient(
+        api_key=lf_cfg["api_key"],
+        api_secret=lf_cfg["api_secret"],
+    )
+
+    session = await client.get_session(request.token)
+    if not session:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to get session — have you authorised the token at last.fm?",
+        )
+
+    session_key = session["key"]
+    username = session["name"]
+
+    # Persist to config
+    try:
+        save_user_config({"lastfm": {"session_key": session_key, "username": username}})
+    except Exception as save_exc:
+        logger.warning("Failed to save Last.fm session key: %s", save_exc)
+
+    # Re-init the singleton client with the new session key
+    try:
+        lf = init_lf_client(
+            api_key=lf_cfg["api_key"],
+            api_secret=lf_cfg["api_secret"],
+            session_key=session_key,
+            username=username,
+        )
+        init_lf_sync_instance(lf)
+    except Exception as init_exc:
+        logger.warning("Failed to re-init Last.fm client: %s", init_exc)
+
+    return {
+        "status":      "ok",
+        "username":    username,
+        "session_key": session_key,
+    }
+
+
+@router.post("/intelligence/lastfm/sync")
+async def trigger_lastfm_sync() -> dict:
+    """Manually trigger a Last.fm stats sync (force-re-fetch, ignores TTL)."""
+    try:
+        from backend.lastfm_sync import get_lf_sync_instance  # noqa: PLC0415
+
+        lf_sync = get_lf_sync_instance()
+        if not lf_sync:
+            raise HTTPException(status_code=503, detail="Last.fm not configured")
+
+        summary = await lf_sync.sync_all(force=True)
+        return {"status": "ok", "summary": summary}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("Last.fm sync failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 class ListenFeedbackRequest(BaseModel):
     artist: str
     title: str

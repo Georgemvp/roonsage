@@ -198,7 +198,7 @@ class RoonIntelligenceMixin:
                 "started_at": time.time(),
                 "start_seek": seek_pos,
             }
-            # Fire-and-forget: submit now_playing to ListenBrainz
+            # Fire-and-forget: submit now_playing to ListenBrainz + Last.fm
             if title and artist:
                 try:
                     from backend.listenbrainz_client import get_lb_client  # noqa: PLC0415
@@ -207,6 +207,15 @@ class RoonIntelligenceMixin:
                         _fire_and_forget(lb.submit_now_playing(artist, title, album))
                 except Exception as exc:
                     logger.debug("LB now_playing submit failed: %s", exc)
+                try:
+                    from backend.lastfm_client import get_lf_client  # noqa: PLC0415
+                    lf = get_lf_client()
+                    if lf and lf.can_scrobble():
+                        _fire_and_forget(
+                            lf.update_now_playing(artist, title, album)
+                        )
+                except Exception as exc:
+                    logger.debug("Last.fm now_playing submit failed: %s", exc)
 
     def _log_listen(
         self,
@@ -322,15 +331,16 @@ class RoonIntelligenceMixin:
                     genre or "?",
                 )
 
-                # ── ListenBrainz scrobble (fire-and-forget) ───────────────────
+                # ── Scrobble (ListenBrainz + Last.fm, fire-and-forget) ────────
                 # Scrobble when: not skipped AND (played >= 30s OR played >= duration/2)
                 duration_threshold = max(30, (duration // 2) if duration > 0 else 30)
                 if played_seconds >= duration_threshold and title and artist:
+                    listened_at = int(time.time())
+                    # ListenBrainz
                     try:
                         from backend.listenbrainz_client import get_lb_client  # noqa: PLC0415
                         lb = get_lb_client()
                         if lb:
-                            listened_at = int(time.time())
                             _fire_and_forget(
                                 lb.submit_listen(
                                     artist=artist,
@@ -342,6 +352,22 @@ class RoonIntelligenceMixin:
                             )
                     except Exception as lb_exc:
                         logger.debug("LB scrobble failed: %s", lb_exc)
+                    # Last.fm
+                    try:
+                        from backend.lastfm_client import get_lf_client  # noqa: PLC0415
+                        lf = get_lf_client()
+                        if lf and lf.can_scrobble():
+                            _fire_and_forget(
+                                lf.scrobble(
+                                    artist=artist,
+                                    track=title,
+                                    timestamp=listened_at,
+                                    album=album,
+                                    duration=duration,
+                                )
+                            )
+                    except Exception as lf_exc:
+                        logger.debug("Last.fm scrobble failed: %s", lf_exc)
 
                 # ── Auto-recompute taste profile every N listens ───────────────
                 _listen_count_since_recompute += 1

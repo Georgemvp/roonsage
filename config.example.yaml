@@ -48,6 +48,16 @@ notifications:
   # (override with WEBHOOK_URL env var)
   webhook_url: ""
 
+lastfm:
+  # Last.fm API key and shared secret (from https://www.last.fm/api/account/create)
+  # Override with LASTFM_API_KEY / LASTFM_API_SECRET env vars
+  api_key: ""
+  api_secret: ""
+  # Session key is auto-saved after authentication — do not set manually
+  session_key: ""
+  # Last.fm username (optional — used for top artists/tracks stats)
+  username: ""
+
   # Which events trigger notifications.
   # Available: playlist_generated, library_sync_complete, library_sync_failed,
   #            lb_sync_complete, new_release_found, listening_milestone

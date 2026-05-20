@@ -347,6 +347,105 @@ export function setupEventListeners() {
         if (btn) { btn.disabled = false; btn.textContent = 'Valideren'; }
     });
 
+    // ── Last.fm: Validate credentials ──────────────────────────────────────
+    document.getElementById('validate-lastfm-btn')?.addEventListener('click', async () => {
+        const btn      = document.getElementById('validate-lastfm-btn');
+        const resultEl = document.getElementById('lastfm-validate-result');
+        const apiKey   = document.getElementById('lastfm-api-key')?.value?.trim();
+        const apiSecret = document.getElementById('lastfm-api-secret')?.value?.trim();
+        const username = document.getElementById('lastfm-username')?.value?.trim();
+
+        if (!apiKey || !apiSecret || !username) {
+            if (resultEl) resultEl.textContent = 'Vul API key, API secret en gebruikersnaam in.';
+            return;
+        }
+        if (btn) { btn.disabled = true; btn.textContent = 'Valideren...'; }
+        try {
+            const res = await fetch('/api/setup/validate-lastfm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret, username }),
+            });
+            const data = await res.json();
+            if (data.valid) {
+                if (resultEl) resultEl.innerHTML = `<span style="color:#4caf50">✓ Verbonden als <strong>${data.username || username}</strong>. Klik nu op Autoriseren voor scrobbling.</span>`;
+                const dot = document.querySelector('#lastfm-settings-status .status-dot');
+                const txt = document.querySelector('#lastfm-settings-status .status-text');
+                if (dot) dot.style.background = '#4caf50';
+                if (txt) txt.textContent = `Verbonden als ${data.username || username}`;
+            } else {
+                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.message || data.error || 'Ongeldige gegevens'}</span>`;
+            }
+        } catch (e) {
+            if (resultEl) resultEl.textContent = 'Fout: ' + e.message;
+        }
+        if (btn) { btn.disabled = false; btn.textContent = 'Valideren'; }
+    });
+
+    // ── Last.fm: Authorise (get token + open auth URL) ──────────────────────
+    let _lastfmPendingToken = null;
+    document.getElementById('lastfm-auth-btn')?.addEventListener('click', async () => {
+        const btn      = document.getElementById('lastfm-auth-btn');
+        const resultEl = document.getElementById('lastfm-validate-result');
+        const step2    = document.getElementById('lastfm-auth-step2');
+        const authLink = document.getElementById('lastfm-auth-link');
+
+        if (btn) { btn.disabled = true; btn.textContent = 'Token ophalen...'; }
+        try {
+            const res  = await fetch('/api/intelligence/lastfm/auth/token', { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) {
+                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.detail || 'Kon geen token ophalen'}</span>`;
+                return;
+            }
+            _lastfmPendingToken = data.token;
+            if (authLink) { authLink.href = data.auth_url; }
+            if (step2) step2.style.display = '';
+            // Open the auth URL automatically
+            window.open(data.auth_url, '_blank');
+            if (resultEl) resultEl.innerHTML = `<span style="color:#e5a00d">🔗 Autorisatiepagina geopend. Keer terug en klik op "Sessie voltooien".</span>`;
+        } catch (e) {
+            if (resultEl) resultEl.textContent = 'Fout: ' + e.message;
+        }
+        if (btn) { btn.disabled = false; btn.textContent = 'Autoriseren'; }
+    });
+
+    // ── Last.fm: Complete auth (exchange token for session key) ────────────
+    document.getElementById('lastfm-complete-auth-btn')?.addEventListener('click', async () => {
+        const btn      = document.getElementById('lastfm-complete-auth-btn');
+        const resultEl = document.getElementById('lastfm-auth-result');
+        const step2    = document.getElementById('lastfm-auth-step2');
+
+        if (!_lastfmPendingToken) {
+            if (resultEl) resultEl.textContent = 'Geen token beschikbaar. Klik eerst op Autoriseren.';
+            return;
+        }
+        if (btn) { btn.disabled = true; btn.textContent = 'Sessie ophalen...'; }
+        try {
+            const res  = await fetch('/api/intelligence/lastfm/auth/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: _lastfmPendingToken }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.detail || 'Sessie ophalen mislukt'}</span>`;
+                return;
+            }
+            _lastfmPendingToken = null;
+            if (step2) step2.style.display = 'none';
+            const dot = document.querySelector('#lastfm-settings-status .status-dot');
+            const txt = document.querySelector('#lastfm-settings-status .status-text');
+            if (dot) dot.style.background = '#4caf50';
+            if (txt) txt.textContent = `Verbonden als ${data.username}`;
+            const validateResult = document.getElementById('lastfm-validate-result');
+            if (validateResult) validateResult.innerHTML = `<span style="color:#4caf50">✓ Last.fm sessie actief voor <strong>${data.username}</strong>. Scrobbling ingeschakeld!</span>`;
+        } catch (e) {
+            if (resultEl) resultEl.textContent = 'Fout: ' + e.message;
+        }
+        if (btn) { btn.disabled = false; btn.textContent = 'Sessie voltooien'; }
+    });
+
     // Success modal - Start New Playlist
     document.getElementById('new-playlist-btn').addEventListener('click', hideSuccessModal);
 

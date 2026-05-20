@@ -311,6 +311,22 @@ def get_listenbrainz_config() -> dict[str, str]:
     }
 
 
+def get_lastfm_config() -> dict[str, str]:
+    """Return Last.fm credentials from environment variables or config.user.yaml.
+
+    Priority: environment variables > config.user.yaml > empty string.
+    Returns a dict with keys: api_key, api_secret, session_key, username.
+    """
+    user_config = load_user_yaml_config()
+    lf_yaml = user_config.get("lastfm", {})
+    return {
+        "api_key":     get_env_or_yaml("LASTFM_API_KEY",     lf_yaml.get("api_key"), ""),
+        "api_secret":  get_env_or_yaml("LASTFM_API_SECRET",  lf_yaml.get("api_secret"), ""),
+        "session_key": get_env_or_yaml("LASTFM_SESSION_KEY", lf_yaml.get("session_key"), ""),
+        "username":    get_env_or_yaml("LASTFM_USERNAME",     lf_yaml.get("username"), ""),
+    }
+
+
 _DEFAULT_ENABLED_EVENTS = ["playlist_generated", "library_sync_complete"]
 
 

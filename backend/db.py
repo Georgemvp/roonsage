@@ -339,6 +339,15 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         );
     """)
 
+    # Last.fm stats cache table (single-row JSON cache per stat type)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS lastfm_stats_cache (
+            stat_type TEXT PRIMARY KEY,
+            data_json TEXT NOT NULL DEFAULT '{}',
+            synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+
     # -----------------------------------------------------------------------
     # Notification log table (v7.0)
     # -----------------------------------------------------------------------

@@ -198,6 +198,23 @@ export async function loadSettings() {
         updateFooter();
         updateConfigRequiredUI();
 
+        // Populate Last.fm settings status indicator (fire-and-forget)
+        fetch('/api/intelligence/lastfm/status')
+            .then(r => r.ok ? r.json() : null)
+            .then(lf => {
+                if (!lf) return;
+                const dot = document.querySelector('#lastfm-settings-status .status-dot');
+                const txt = document.querySelector('#lastfm-settings-status .status-text');
+                if (lf.can_scrobble) {
+                    if (dot) dot.style.background = '#4caf50';
+                    if (txt) txt.textContent = `Verbonden als ${lf.username}`;
+                } else if (lf.configured) {
+                    if (dot) dot.style.background = '#e5a00d';
+                    if (txt) txt.textContent = `API geconfigureerd — niet geautoriseerd`;
+                }
+            })
+            .catch(() => {});
+
         // Show library stats if connected — fire-and-forget so it never
         // blocks the loading spinner from being removed.
         if (state.config.roon_connected) {

@@ -321,3 +321,67 @@ async def validate_listenbrainz(request: dict) -> dict:
             logger.warning("Failed to re-init LB client: %s", init_exc)
 
     return result
+
+
+@router.post("/validate-lastfm")
+async def validate_lastfm(request: dict) -> dict:
+    """Validate Last.fm credentials and optionally save to config.
+
+    Request body: {"api_key": str, "api_secret": str, "username": str}
+
+    Tests that the API key is valid by fetching user info via user.getInfo.
+    Does NOT require a session key — validates read-only credentials only.
+    The session key is obtained via the auth flow endpoints.
+    """
+    from backend.lastfm_client import LastFmClient  # noqa: PLC0415
+
+    api_key    = request.get("api_key", "")
+    api_secret = request.get("api_secret", "")
+    username   = request.get("username", "")
+
+    if not api_key:
+        return {"valid": False, "error": "API key is required"}
+    if not api_secret:
+        return {"valid": False, "error": "API secret is required"}
+    if not username:
+        return {"valid": False, "error": "Username is required"}
+
+    client = LastFmClient(
+        api_key=api_key,
+        api_secret=api_secret,
+        username=username,
+    )
+    try:
+        result = await client.validate()
+    finally:
+        await client.close()
+
+    if result.get("valid"):
+        # Save credentials (but NOT session_key — that requires the auth flow)
+        try:
+            save_user_config({
+                "lastfm": {
+                    "api_key":    api_key,
+                    "api_secret": api_secret,
+                    "username":   username,
+                }
+            })
+        except Exception as save_exc:
+            logger.warning("Failed to save Last.fm config: %s", save_exc)
+        # Re-init the singleton client (session_key loaded from existing config)
+        try:
+            from backend.lastfm_client import init_lf_client  # noqa: PLC0415
+            from backend.lastfm_sync import init_lf_sync_instance  # noqa: PLC0415
+            from backend.config import get_lastfm_config  # noqa: PLC0415
+            existing_cfg = get_lastfm_config()
+            lf = init_lf_client(
+                api_key=api_key,
+                api_secret=api_secret,
+                session_key=existing_cfg.get("session_key", ""),
+                username=username,
+            )
+            init_lf_sync_instance(lf)
+        except Exception as init_exc:
+            logger.warning("Failed to re-init Last.fm client: %s", init_exc)
+
+    return result

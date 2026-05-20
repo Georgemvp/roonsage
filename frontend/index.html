@@ -1026,6 +1026,46 @@
                     <div id="lb-validate-result" style="margin-top:0.5rem;font-size:0.85rem;"></div>
                 </section>
 
+                <section class="settings-section" id="lastfm-settings-section">
+                    <h3>Last.fm</h3>
+                    <div class="status-indicator" id="lastfm-settings-status">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Niet geconfigureerd</span>
+                    </div>
+                    <p style="font-size:0.85rem;opacity:0.7;margin:0.25rem 0 0.75rem">Verbind met Last.fm voor dual-scrobbling en rijke artiest-aanbevelingen. API-sleutel op <a href="https://www.last.fm/api/account/create" target="_blank" style="color:#e5a00d">last.fm/api/account/create</a>.</p>
+                    <div class="form-group">
+                        <label for="lastfm-api-key">Last.fm API Key</label>
+                        <input type="password" id="lastfm-api-key" placeholder="Jouw Last.fm API key">
+                    </div>
+                    <div class="form-group">
+                        <label for="lastfm-api-secret">Last.fm API Secret</label>
+                        <input type="password" id="lastfm-api-secret" placeholder="Jouw Last.fm API secret">
+                    </div>
+                    <div class="form-group">
+                        <label for="lastfm-username">Last.fm Gebruikersnaam</label>
+                        <input type="text" id="lastfm-username" placeholder="jouw-gebruikersnaam">
+                    </div>
+                    <div class="settings-actions" style="margin-top: 0.5rem; margin-bottom: 0;">
+                        <button id="validate-lastfm-btn" class="btn btn-outline">
+                            Valideren
+                        </button>
+                        <button id="lastfm-auth-btn" class="btn btn-outline" style="margin-left:0.5rem" title="Open Last.fm autorisatiepagina">
+                            Autoriseren
+                        </button>
+                    </div>
+                    <div id="lastfm-validate-result" style="margin-top:0.5rem;font-size:0.85rem;"></div>
+                    <!-- Auth step 2: shown after clicking Autoriseren -->
+                    <div id="lastfm-auth-step2" style="display:none;margin-top:0.75rem;padding:0.75rem;background:rgba(255,255,255,0.04);border-radius:6px;">
+                        <p style="font-size:0.85rem;margin:0 0 0.5rem">Stap 1: Autoriseer RoonSage op <a id="lastfm-auth-link" href="#" target="_blank" style="color:#e5a00d">last.fm</a> (wordt geopend in nieuw tabblad).<br>Stap 2: Klik daarna op <strong>Sessie voltooien</strong>.</p>
+                        <div class="settings-actions" style="margin:0">
+                            <button id="lastfm-complete-auth-btn" class="btn btn-outline">
+                                Sessie voltooien
+                            </button>
+                        </div>
+                        <div id="lastfm-auth-result" style="margin-top:0.5rem;font-size:0.85rem;"></div>
+                    </div>
+                </section>
+
                 <section class="settings-section" id="notifications-settings-section">
                     <h3>Notificaties</h3>
                     <p style="font-size:0.85rem;opacity:0.7;margin:0.25rem 0 0.75rem">Ontvang meldingen via Discord, Telegram of een eigen webhook wanneer er iets gebeurt in RoonSage.</p>
