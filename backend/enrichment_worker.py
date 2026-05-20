@@ -134,6 +134,27 @@ async def _fetch_lastfm(artist: str, title: str) -> tuple[list[str], int | None,
     if lf_client is None or not lf_client.is_configured():
         return [], None, None
 
+    # Skip Last.fm lookup for classical/orchestral tracks — they almost never match
+    # because Last.fm indexes by composer, not performer
+    classical_indicators = [
+        'orchestra', 'philharmonic', 'quartet', 'symphony', 'chamber',
+        'ensemble', 'staatskapelle', 'philharmoniker',
+    ]
+    if any(indicator in artist.lower() for indicator in classical_indicators):
+        return [], None, None
+
+    # Clean Roon-specific title noise before querying Last.fm
+    clean_title = title
+    # Strip Roon's " : " work separator (e.g. "5 Minuets, D. 89 : Schubert: …" → "5 Minuets, D. 89")
+    if ' : ' in clean_title:
+        clean_title = clean_title.split(' : ')[0].strip()
+    # Strip leading track numbers (e.g. "04 Learning to Fly" → "Learning to Fly")
+    clean_title = re.sub(r'^(\d{1,3})\s+', '', clean_title)
+    # Strip leading Unicode/fullwidth characters before latin text
+    clean_title = re.sub(r'^[^\x00-\x7F]+\s*', '', clean_title).strip()
+    # Use cleaned title for lookups
+    title = clean_title if clean_title else title
+
     # Try full artist string first
     async with _lf_semaphore:
         track_info = await lf_client.get_track_info(artist, title)
@@ -148,14 +169,32 @@ async def _fetch_lastfm(artist: str, title: str) -> tuple[list[str], int | None,
 
     # Also try stripping parenthetical suffixes from title like "(Album Version)", "(Remastered 2011)", "(Live)"
     if not track_info:
-        clean_title = re.sub(r"\s*[\(\[].*?[\)\]]$", "", title).strip()
-        if clean_title != title:
+        paren_clean = re.sub(r"\s*[\(\[].*?[\)\]]$", "", title).strip()
+        if paren_clean != title:
             search_artist = artist.split(",")[0].strip() if "," in artist else artist
             async with _lf_semaphore:
-                track_info = await lf_client.get_track_info(search_artist, clean_title)
+                track_info = await lf_client.get_track_info(search_artist, paren_clean)
                 await asyncio.sleep(_LF_SLEEP)
 
+    # Last resort: get artist-level tags if track lookup failed entirely
     if not track_info:
+        search_artist = artist.split(",")[0].strip() if "," in artist else artist
+        try:
+            async with _lf_semaphore:
+                artist_tags_data = await lf_client._get({
+                    **lf_client._base_params(),
+                    "method": "artist.getTopTags",
+                    "artist": search_artist,
+                    "autocorrect": "1",
+                })
+                await asyncio.sleep(_LF_SLEEP)
+            if artist_tags_data:
+                tags = artist_tags_data.get("toptags", {}).get("tag", [])
+                if tags:
+                    raw_tags = [t.get("name", "").strip() for t in tags[:10] if t.get("name")]
+                    return raw_tags, None, None
+        except Exception:
+            pass
         return [], None, None
 
     raw_tags: list[str] = []
@@ -252,6 +291,20 @@ async def enrich_one(
             WHERE item_key = ?
         """, (now, item_key))
         conn.commit()
+
+        # Backfill year to tracks table from mb_release_date
+        if mb_release_date:
+            try:
+                year = int(mb_release_date[:4])
+                if 1900 <= year <= 2030:
+                    conn.execute(
+                        "UPDATE tracks SET year = ? WHERE item_key = ? AND (year IS NULL OR year = 0)",
+                        (year, item_key),
+                    )
+                    conn.commit()
+            except (ValueError, TypeError):
+                pass
+
         return True
     except Exception as exc:
         logger.error("DB write failed for enrichment of %s: %s", item_key, exc)
@@ -329,7 +382,11 @@ class EnrichmentWorker:
                     SELECT item_key, artist, title, album
                     FROM enrichment_queue
                     WHERE status = 'pending' AND attempts < ?
-                    ORDER BY created_at ASC
+                    ORDER BY CASE
+                        WHEN artist LIKE '%Orchestra%' OR artist LIKE '%Philharmonic%'
+                          OR artist LIKE '%Quartet%'   OR artist LIKE '%Symphony%'
+                        THEN 2 ELSE 1
+                    END, created_at ASC
                     LIMIT ?
                 """, (MAX_ATTEMPTS, BATCH_SIZE)).fetchall()
 
@@ -387,6 +444,50 @@ class EnrichmentWorker:
                         conn.commit()
 
                     await asyncio.sleep(ITEM_SLEEP_SECONDS)
+
+                # Auto-enrich listening_history after each batch
+                try:
+                    from rapidfuzz import fuzz as _fuzz  # noqa: PLC0415
+                    enrich_conn = get_db_connection()
+                    try:
+                        hist_rows = enrich_conn.execute("""
+                            SELECT lh.id, lh.track_title, lh.artist
+                            FROM listening_history lh
+                            WHERE (lh.genre IS NULL OR lh.genre = '')
+                            AND lh.track_title IS NOT NULL AND lh.track_title != ''
+                            AND lh.artist IS NOT NULL AND lh.artist != ''
+                            LIMIT 100
+                        """).fetchall()
+                        for hr in hist_rows:
+                            hist_id, h_title, h_artist = hr["id"], hr["track_title"], hr["artist"]
+                            candidates = enrich_conn.execute(
+                                "SELECT item_key, title, artist, year FROM tracks WHERE artist LIKE ? LIMIT 20",
+                                (f"%{h_artist[:20]}%",),
+                            ).fetchall()
+                            best_key, best_score, best_year = None, 0, None
+                            for c in candidates:
+                                score = _fuzz.token_sort_ratio(
+                                    f"{h_artist} {h_title}",
+                                    f"{c['artist']} {c['title']}",
+                                )
+                                if score > best_score:
+                                    best_score, best_key, best_year = score, c["item_key"], c["year"]
+                            if best_key and best_score >= 80:
+                                genre_rows2 = enrich_conn.execute(
+                                    "SELECT genre FROM track_genres WHERE track_key = ?",
+                                    (best_key,),
+                                ).fetchall()
+                                genre = ", ".join(r[0] for r in genre_rows2)
+                                decade = f"{(best_year // 10) * 10}s" if best_year else None
+                                enrich_conn.execute(
+                                    "UPDATE listening_history SET genre=?, year=?, decade=? WHERE id=?",
+                                    (genre, best_year, decade, hist_id),
+                                )
+                        enrich_conn.commit()
+                    finally:
+                        enrich_conn.close()
+                except Exception as enrich_exc:
+                    logger.debug("Auto listening_history enrichment: %s", enrich_exc)
 
             except asyncio.CancelledError:
                 logger.info("EnrichmentWorker task cancelled")

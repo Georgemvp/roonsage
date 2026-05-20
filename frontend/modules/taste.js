@@ -55,10 +55,10 @@ export async function initTasteView() {
             apiCall('/intelligence/listenbrainz/status').catch(() => null),
         ]);
 
-        // Fallback: if profile has no top_genres, populate from library stats
+        // Fallback: if profile has no top_genres, populate from cached library stats
         if (!profile?.top_genres?.length) {
             try {
-                const libStats = await apiCall('/library/stats');
+                const libStats = await apiCall('/library/stats/cached');
                 if (libStats?.genres?.length) {
                     const maxCount = Math.max(...libStats.genres.map(g => g.count));
                     if (!profile) profile = {};

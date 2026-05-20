@@ -293,6 +293,25 @@ class TasteProfile:
                         normalized = (w_plays / max_w) * 0.6 + completion_rate * 0.4
                         genre_scores[g] = round(min(1.0, normalized), 4)
 
+                # Fallback: als listening_history te weinig genre data heeft, gebruik library genre stats
+                if len(genre_scores) < 5:
+                    try:
+                        lib_genre_rows = conn.execute("""
+                            SELECT tg.genre, COUNT(*) as cnt
+                            FROM track_genres tg
+                            GROUP BY tg.genre
+                            ORDER BY cnt DESC
+                            LIMIT 20
+                        """).fetchall()
+                        if lib_genre_rows:
+                            max_lib = max(r[1] for r in lib_genre_rows) or 1
+                            for genre_name, cnt in lib_genre_rows:
+                                if genre_name not in genre_scores:
+                                    # Lagere weight dan luisterdata (0.5x multiplier)
+                                    genre_scores[genre_name] = round((cnt / max_lib) * 0.5, 4)
+                    except Exception:
+                        pass
+
                 # ── 1: Time-weighted artist scores ────────────────────────────
                 _weight_case = """
                     CASE
@@ -347,6 +366,27 @@ class TasteProfile:
                         completion_rate = w_full / max(w_plays, 1)
                         normalized = (w_plays / max_w) * 0.6 + completion_rate * 0.4
                         decade_scores[decade] = round(min(1.0, normalized), 4)
+
+                # Fallback: als listening_history geen decade data heeft, haal uit track_metadata_ext
+                if not decade_rows:
+                    mb_decade_rows = conn.execute("""
+                        SELECT
+                            CAST(SUBSTR(me.mb_release_date, 1, 3) || '0s' AS TEXT) as decade,
+                            COUNT(*) as weighted_plays,
+                            COUNT(*) as weighted_full_plays
+                        FROM track_metadata_ext me
+                        WHERE me.mb_release_date IS NOT NULL
+                        AND LENGTH(me.mb_release_date) >= 4
+                        AND CAST(SUBSTR(me.mb_release_date, 1, 4) AS INTEGER) >= 1900
+                        GROUP BY SUBSTR(me.mb_release_date, 1, 3)
+                        ORDER BY weighted_plays DESC
+                    """).fetchall()
+                    if mb_decade_rows:
+                        max_w = max((r[1] or 0) for r in mb_decade_rows) or 1.0
+                        for decade, w_plays, w_full in mb_decade_rows:
+                            w_plays = w_plays or 0
+                            normalized = round(min(1.0, (w_plays / max_w) * 0.6 + 0.4), 4)
+                            decade_scores[decade] = normalized
 
                 # ── 6: Mood scores derived from genre_scores ──────────────────
                 mood_totals: dict[str, list[float]] = {}

@@ -78,6 +78,16 @@ async def get_taste_profile() -> dict:
     profile["artists"] = dict(sorted(profile.get("artists", {}).items(), key=lambda x: -x[1])[:30])
     profile["decades"] = dict(sorted(profile.get("decades", {}).items(), key=lambda x: -x[1])[:10])
     profile["moods"]   = dict(sorted(profile.get("moods", {}).items(),   key=lambda x: -x[1])[:10])
+    # Build top_genres as array — frontend taste.js expects [{name, score}, ...]
+    profile["top_genres"] = [
+        {"name": name, "score": round(score, 4)}
+        for name, score in sorted(profile.get("genres", {}).items(), key=lambda x: -x[1])[:20]
+    ]
+    # Fallback decade data from lb_era_distribution when profile.decades is empty
+    if not profile.get("decades"):
+        lb_era = profile.get("lb_era_distribution", {})
+        if lb_era:
+            profile["decades"] = lb_era
     # New keys pass through as-is (already compact from compute)
     # recently_active, listening_patterns, skip_signals, artist_streaks, top_albums
     return profile

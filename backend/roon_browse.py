@@ -2,9 +2,14 @@
 
 import logging
 import re
+import time
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+# In-memory cache for get_all_albums_metadata — avoids repeated full-library scans
+_album_metadata_cache: dict = {"data": None, "timestamp": 0}
+_ALBUM_METADATA_CACHE_TTL = 300  # 5 minutes
 
 
 class RoonBrowseMixin:
@@ -423,9 +428,17 @@ class RoonBrowseMixin:
         """Browse albums and extract genres/year.
 
         Returns dict mapping album item_key → {genres, year, title, artist}.
+        Cached for 5 minutes to avoid repeated full-library scans.
         """
         if not self.is_connected():
             return {}
+
+        now = time.time()
+        if (
+            _album_metadata_cache["data"] is not None
+            and (now - _album_metadata_cache["timestamp"]) < _ALBUM_METADATA_CACHE_TTL
+        ):
+            return _album_metadata_cache["data"]
 
         metadata: dict[str, dict[str, Any]] = {}
         try:
@@ -500,6 +513,12 @@ class RoonBrowseMixin:
             )
         except Exception as e:
             logger.exception("Failed to get album metadata: %s", e)
+
+        # Store in cache (even partial results are worth caching)
+        if metadata:
+            _album_metadata_cache["data"] = metadata
+            _album_metadata_cache["timestamp"] = time.time()
+
         return metadata
 
     def get_library_stats(self) -> dict[str, Any]:
