@@ -322,6 +322,13 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+    # Migration: add played_pct column (skip detection v2 — proportional threshold)
+    try:
+        conn.execute("ALTER TABLE listening_history ADD COLUMN played_pct REAL")
+        logger.info("Migration applied: added played_pct column to listening_history")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     # ListenBrainz stats cache table (single-row JSON cache per stat type)
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS lb_stats_cache (

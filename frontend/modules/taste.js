@@ -76,9 +76,13 @@ function _renderIntelBanner(profile, stats, lbStatus) {
 
     const subtitleEl = document.getElementById('taste-intel-subtitle');
     if (subtitleEl) {
-        const parts = [`Based on ${totalPlays} listened tracks`];
-        if (scrobbles != null) parts.push(`${scrobbles} scrobbles`);
-        subtitleEl.textContent = parts.join(' and ');
+        if (totalPlays === '—' || totalPlays === 0) {
+            subtitleEl.textContent = 'Listening monitor actief — data verschijnt na een paar nummers';
+        } else {
+            const parts = [`Based on ${totalPlays} listened tracks`];
+            if (scrobbles != null) parts.push(`${scrobbles} scrobbles`);
+            subtitleEl.textContent = parts.join(' and ');
+        }
     }
 
     const playlistsEl = document.getElementById('intel-chip-playlists');

@@ -1,7 +1,7 @@
 """Listening history monitor and Roon Tags browser for RoonSage intelligence layer.
 
 This mixin is intentionally kept separate from roon_browse.py because:
-- It uses a background thread polling get_zones(), NOT the Browse API.
+- It uses zone-change callbacks and a background fallback thread, NOT the Browse API.
 - Mixing browse-lock usage with the monitor thread would cause deadlocks.
 """
 
@@ -35,9 +35,29 @@ def _fire_and_forget(coro) -> None:
     except Exception as exc:
         logger.debug("fire_and_forget failed: %s", exc)
 
+
+def _fire_and_forget_sync(fn) -> None:
+    """Run *fn* (a regular callable) in a daemon thread without blocking."""
+    threading.Thread(
+        target=fn,
+        daemon=True,
+        name="roonsage-profile-recompute",
+    ).start()
+
+
 # Minimum seconds a track must play before being logged (avoids noise from
-# brief previews or accidental presses).
-_MIN_PLAY_SECONDS = 5
+# brief previews or truly accidental presses).
+_MIN_PLAY_SECONDS = 2
+
+# ── Genre enrichment LRU cache ─────────────────────────────────────────────────
+# Maps "artist|title" → (genre, year) to avoid repeated SQLite fuzzy queries
+# for the same track within a session.
+_genre_cache: dict[str, tuple[str, int | None]] = {}
+_GENRE_CACHE_MAX = 500
+
+# ── Auto-recompute taste profile ───────────────────────────────────────────────
+_listen_count_since_recompute = 0
+_RECOMPUTE_EVERY = 15
 
 
 class RoonIntelligenceMixin:
@@ -48,44 +68,77 @@ class RoonIntelligenceMixin:
     # -------------------------------------------------------------------------
 
     def start_listening_monitor(self) -> None:
-        """Start the background thread that logs track changes to listening_history.
+        """Register zone-change callback and start a fallback polling thread.
 
-        Safe to call multiple times — only one thread will run at a time.
+        Safe to call multiple times — only one thread/callback will run at a time.
         Requires Roon to be connected; call this only after is_connected() is True.
         """
+        if not hasattr(self, "_last_zone_states"):
+            self._last_zone_states: dict[str, dict] = {}
+
+        # ── Real-time callback (primary) ───────────────────────────────────
+        api = getattr(self, "_api", None)
+        if api is not None:
+            try:
+                api.register_state_callback(
+                    self._on_zones_changed,
+                    event_filter=["zones_changed"],
+                )
+                logger.info("Listening monitor: registered zones_changed callback")
+            except Exception as exc:
+                logger.warning(
+                    "Could not register zone callback, falling back to polling only: %s", exc
+                )
+
+        # ── Fallback polling thread (30 s interval) ────────────────────────
         existing: threading.Thread | None = getattr(
             self, "_listening_monitor_thread", None
         )
         if existing is not None and existing.is_alive():
-            logger.debug("Listening monitor already running")
+            logger.debug("Fallback polling thread already running")
             return
 
-        self._last_zone_states: dict[str, dict] = getattr(
-            self, "_last_zone_states", {}
-        )
         t = threading.Thread(
-            target=self._monitor_zones,
+            target=self._monitor_zones_fallback,
             daemon=True,
             name="roonsage-listening-monitor",
         )
         self._listening_monitor_thread = t
         t.start()
-        logger.info("Listening monitor started")
+        logger.info("Listening monitor fallback polling thread started (30 s interval)")
 
-    def _monitor_zones(self) -> None:
-        """Background loop: poll zones every 10 s and log track changes."""
+    # ── Callback path (real-time) ──────────────────────────────────────────
+
+    def _on_zones_changed(self, event: str, changed_ids) -> None:
+        """Roon zone-change callback — fires instantly on any zone state change."""
+        try:
+            api = getattr(self, "_api", None)
+            if api is None:
+                return
+            zones_dict: dict = api.zones or {}
+            for zone_id, zone in zones_dict.items():
+                self._process_zone_change(zone_id, zone)
+        except Exception as exc:
+            logger.warning("Zone callback error: %s", exc)
+
+    # ── Fallback polling path (30 s) ───────────────────────────────────────
+
+    def _monitor_zones_fallback(self) -> None:
+        """Background loop: poll zones every 30 s to catch missed callback events."""
         while True:
             try:
                 if self.is_connected():
-                    zones_raw = getattr(self, "_api", None)
-                    if zones_raw is not None:
-                        zones_dict: dict = zones_raw.zones or {}
+                    api = getattr(self, "_api", None)
+                    if api is not None:
+                        zones_dict: dict = api.zones or {}
                         for zone_id, zone in zones_dict.items():
                             self._process_zone_change(zone_id, zone)
             except Exception as exc:
-                logger.warning("Listening monitor error: %s", exc)
+                logger.warning("Fallback monitor error: %s", exc)
 
-            time.sleep(10)
+            time.sleep(30)
+
+    # ── Core zone-change logic ─────────────────────────────────────────────
 
     def _process_zone_change(self, zone_id: str, zone: dict) -> None:
         """Detect track changes in a zone and log completed listens."""
@@ -99,10 +152,13 @@ class RoonIntelligenceMixin:
             # Zone stopped/paused — log whatever was playing
             prev = self._last_zone_states.pop(zone_id, None)
             if prev:
-                played = int(time.time() - prev["started_at"])
+                played = _calc_played(prev, now_playing)
                 if played >= _MIN_PLAY_SECONDS:
-                    skipped = 1 if played < 30 else 0
-                    self._log_listen(prev, played, skipped, zone.get("display_name", zone_id))
+                    duration = prev.get("duration", 0)
+                    skipped = _is_skipped(played, duration)
+                    self._log_listen(
+                        prev, played, skipped, zone.get("display_name", zone_id)
+                    )
             return
 
         track_key = (
@@ -117,10 +173,13 @@ class RoonIntelligenceMixin:
 
         if prev and prev.get("track_key") != track_key:
             # Track changed — log the previous one
-            played = int(time.time() - prev["started_at"])
+            played = _calc_played(prev, now_playing)
             if played >= _MIN_PLAY_SECONDS:
-                skipped = 1 if played < 30 else 0
-                self._log_listen(prev, played, skipped, zone.get("display_name", zone_id))
+                duration = prev.get("duration", 0)
+                skipped = _is_skipped(played, duration)
+                self._log_listen(
+                    prev, played, skipped, zone.get("display_name", zone_id)
+                )
 
         if not prev or prev.get("track_key") != track_key:
             # New track started — record start state
@@ -128,14 +187,16 @@ class RoonIntelligenceMixin:
             title = three.get("line1") or now_playing.get("one_line", {}).get("line1", "")
             artist = three.get("line2", "")
             album = three.get("line3", "")
+            seek_pos = now_playing.get("seek_position") or 0
             self._last_zone_states[zone_id] = {
-                "track_key": track_key,
-                "title":     title,
-                "artist":    artist,
-                "album":     album,
-                "genre":     "",  # Roon doesn't expose genre in now_playing
-                "duration":  now_playing.get("length", 0),
+                "track_key":  track_key,
+                "title":      title,
+                "artist":     artist,
+                "album":      album,
+                "genre":      "",  # Roon doesn't expose genre in now_playing
+                "duration":   now_playing.get("length", 0),
                 "started_at": time.time(),
+                "start_seek": seek_pos,
             }
             # Fire-and-forget: submit now_playing to ListenBrainz
             if title and artist:
@@ -155,6 +216,8 @@ class RoonIntelligenceMixin:
         zone_name: str,
     ) -> None:
         """Insert a completed listen into listening_history with enriched metadata."""
+        global _listen_count_since_recompute
+
         try:
             from backend.db import get_db_connection  # noqa: PLC0415
             conn = get_db_connection()
@@ -168,35 +231,45 @@ class RoonIntelligenceMixin:
                 genre = track_info.get("genre", "")
                 year: int | None = None
                 decade: str | None = None
-                try:
-                    if not genre and artist and title:
-                        from rapidfuzz import fuzz  # noqa: PLC0415
-                        # Search for matching track in library cache
-                        candidates = conn.execute(
-                            "SELECT item_key, title, artist, year FROM tracks "
-                            "WHERE artist LIKE ? LIMIT 20",
-                            (f"%{artist[:20]}%",),
-                        ).fetchall()
-                        best_key: str | None = None
-                        best_score = 0
-                        for row in candidates:
-                            score = fuzz.token_sort_ratio(
-                                f"{artist} {title}",
-                                f"{row['artist']} {row['title']}",
-                            )
-                            if score > best_score:
-                                best_score = score
-                                best_key = row["item_key"]
-                                if row["year"]:
-                                    year = row["year"]
-                        if best_key and best_score >= 80:
-                            genre_rows = conn.execute(
-                                "SELECT genre FROM track_genres WHERE track_key = ?",
-                                (best_key,),
+
+                # Check LRU cache first to avoid redundant fuzzy queries
+                cache_key = f"{artist}|{title}"
+                if cache_key in _genre_cache:
+                    genre, year = _genre_cache[cache_key]
+                else:
+                    try:
+                        if not genre and artist and title:
+                            from rapidfuzz import fuzz  # noqa: PLC0415
+                            candidates = conn.execute(
+                                "SELECT item_key, title, artist, year FROM tracks "
+                                "WHERE artist LIKE ? LIMIT 20",
+                                (f"%{artist[:20]}%",),
                             ).fetchall()
-                            genre = ", ".join(r["genre"] for r in genre_rows)
-                except Exception as enrich_exc:
-                    logger.debug("Genre enrichment failed: %s", enrich_exc)
+                            best_key: str | None = None
+                            best_score = 0
+                            for row in candidates:
+                                score = fuzz.token_sort_ratio(
+                                    f"{artist} {title}",
+                                    f"{row['artist']} {row['title']}",
+                                )
+                                if score > best_score:
+                                    best_score = score
+                                    best_key = row["item_key"]
+                                    if row["year"]:
+                                        year = row["year"]
+                            if best_key and best_score >= 80:
+                                genre_rows = conn.execute(
+                                    "SELECT genre FROM track_genres WHERE track_key = ?",
+                                    (best_key,),
+                                ).fetchall()
+                                genre = ", ".join(r["genre"] for r in genre_rows)
+
+                            # Store in cache (evict oldest when full)
+                            _genre_cache[cache_key] = (genre, year)
+                            if len(_genre_cache) > _GENRE_CACHE_MAX:
+                                _genre_cache.pop(next(iter(_genre_cache)))
+                    except Exception as enrich_exc:
+                        logger.warning("Genre enrichment failed: %s", enrich_exc)
 
                 # ── Decade ────────────────────────────────────────────────────
                 if year:
@@ -207,13 +280,19 @@ class RoonIntelligenceMixin:
                 hour_of_day = now.hour
                 day_of_week = now.weekday()  # 0 = Monday
 
+                # ── played_pct ────────────────────────────────────────────────
+                played_pct: float | None = (
+                    played_seconds / duration if duration > 0 else None
+                )
+
                 conn.execute(
                     """
                     INSERT INTO listening_history
                         (zone_name, track_title, artist, album, genre,
                          duration_seconds, played_seconds, skipped,
-                         year, decade, hour_of_day, day_of_week, source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         year, decade, hour_of_day, day_of_week, source,
+                         played_pct)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         zone_name,
@@ -229,15 +308,17 @@ class RoonIntelligenceMixin:
                         hour_of_day,
                         day_of_week,
                         "library",
+                        played_pct,
                     ),
                 )
                 conn.commit()
                 logger.debug(
-                    "Logged listen: '%s' by %s (%ds, skipped=%d, genre=%s)",
+                    "Logged listen: '%s' by %s (%ds, skipped=%d, pct=%.0f%%, genre=%s)",
                     title,
                     artist,
                     played_seconds,
                     skipped,
+                    (played_pct or 0) * 100,
                     genre or "?",
                 )
 
@@ -261,6 +342,16 @@ class RoonIntelligenceMixin:
                             )
                     except Exception as lb_exc:
                         logger.debug("LB scrobble failed: %s", lb_exc)
+
+                # ── Auto-recompute taste profile every N listens ───────────────
+                _listen_count_since_recompute += 1
+                if _listen_count_since_recompute >= _RECOMPUTE_EVERY:
+                    _listen_count_since_recompute = 0
+                    try:
+                        from backend.taste_profile import TasteProfile  # noqa: PLC0415
+                        _fire_and_forget_sync(TasteProfile.compute_profile_from_history)
+                    except Exception as exc:
+                        logger.debug("Auto-recompute failed: %s", exc)
 
             finally:
                 conn.close()
@@ -360,3 +451,35 @@ class RoonIntelligenceMixin:
         except Exception as exc:
             logger.warning("get_tag_tracks failed for key=%s: %s", tag_item_key, exc)
             return []
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers (pure functions, no self)
+# ---------------------------------------------------------------------------
+
+
+def _calc_played(prev: dict, now_playing: dict | None) -> int:
+    """Calculate played seconds using seek_position diff when available.
+
+    Falls back to wall-clock elapsed time when seek_position is unavailable.
+    """
+    start_seek = prev.get("start_seek")
+    if start_seek is not None and now_playing is not None:
+        current_seek = now_playing.get("seek_position")
+        if current_seek and current_seek > 0:
+            delta = current_seek - start_seek
+            if delta > 0:
+                return int(delta)
+    # Wall-clock fallback
+    return int(time.time() - prev["started_at"])
+
+
+def _is_skipped(played: int, duration: int) -> int:
+    """Return 1 if the listen counts as a skip, 0 otherwise.
+
+    Uses proportional threshold (< 25% of track played) when duration is known.
+    Falls back to absolute 30 s threshold for tracks with unknown duration.
+    """
+    if duration > 0:
+        return 1 if (played / duration) < 0.25 else 0
+    return 1 if played < 30 else 0
