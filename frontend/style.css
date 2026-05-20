@@ -5179,3 +5179,107 @@ body.no-scroll {
     color: var(--text-primary);
 }
 
+/* =============================================================================
+   MY TASTE — Chart.js enhanced additions (v2)
+   ============================================================================= */
+
+/* ── Section group headers (Activity / Taste Profile / Patterns) ── */
+.taste-group-header {
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin: var(--spacing-xl) 0 var(--spacing-md);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+.taste-group-header:first-of-type { margin-top: 0; }
+
+/* ── Time range filter row ── */
+.taste-filter-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: var(--spacing-lg);
+}
+.taste-filter-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    font-family: inherit;
+    padding: 5px 14px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.taste-filter-btn:hover {
+    border-color: rgba(229,160,13,0.5);
+    color: var(--text-primary);
+}
+.taste-filter-btn--active {
+    background: rgba(229,160,13,0.12);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+/* ── Full-width section variant ── */
+.taste-section--full {
+    grid-column: 1 / -1;
+}
+
+/* ── Canvas chart wrappers ── */
+.taste-chart-wrap {
+    position: relative;
+    width: 100%;
+}
+.taste-chart-wrap--timeline {
+    height: 180px;
+}
+.taste-chart-wrap--hbar {
+    height: 280px;
+}
+.taste-chart-wrap--doughnut {
+    height: 300px;
+}
+
+/* ── Era + Artists side-by-side grid ── */
+.taste-grid--era {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+/* ── Empty chart message ── */
+.chart-empty-msg {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    margin: 0;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* ── Heatmap canvas sizing ── */
+#taste-heatmap-canvas {
+    display: block;
+    max-width: 100%;
+    height: auto;
+}
+
+/* ── Responsive: single column on narrow screens ── */
+@media (max-width: 640px) {
+    .taste-grid,
+    .taste-grid--era,
+    .taste-grid--below {
+        grid-template-columns: 1fr;
+    }
+    .taste-chart-wrap--hbar { height: 220px; }
+    .taste-chart-wrap--doughnut { height: 260px; }
+    .taste-chart-wrap--timeline { height: 140px; }
+}
+

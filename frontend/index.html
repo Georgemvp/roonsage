@@ -686,40 +686,76 @@
                     </div>
                 </section>
 
-                <!-- 2-Column Grid -->
+                <!-- Time Range Filter -->
+                <div class="taste-filter-row" id="taste-filter-row">
+                    <button class="taste-filter-btn" data-range="7">7 days</button>
+                    <button class="taste-filter-btn taste-filter-btn--active" data-range="30">30 days</button>
+                    <button class="taste-filter-btn" data-range="365">12 months</button>
+                    <button class="taste-filter-btn" data-range="0">All time</button>
+                </div>
+
+                <!-- ── ACTIVITY ────────────────────────────────────────────── -->
+                <h3 class="taste-group-header">Activity</h3>
+
+                <!-- Listening Activity Timeline (full width) -->
+                <section class="taste-section taste-section--full">
+                    <h2 class="taste-section-title">Listening Activity</h2>
+                    <div class="taste-chart-wrap taste-chart-wrap--timeline">
+                        <canvas id="taste-timeline-chart" aria-label="Listening activity timeline" role="img"></canvas>
+                    </div>
+                </section>
+
+                <!-- ── TASTE PROFILE ──────────────────────────────────────── -->
+                <h3 class="taste-group-header">Taste Profile</h3>
+
+                <!-- 2-Column Grid: Genre Radar + Genre Distribution -->
                 <div class="taste-grid">
-                    <!-- Left Column: Genre Radar + Era Distribution -->
                     <div class="taste-grid-col">
                         <section class="taste-section">
                             <h2 class="taste-section-title">Genre Radar</h2>
                             <div id="taste-radar-section" class="taste-radar-wrap"></div>
                         </section>
-                        <section class="taste-section">
-                            <h2 class="taste-section-title">Era-verdeling</h2>
-                            <div id="lb-era-section" class="lb-bar-chart">
-                                <p class="lb-no-data">Geen data. Sync ListenBrainz om era-data op te halen.</p>
-                            </div>
-                        </section>
                     </div>
-
-                    <!-- Right Column: Heatmap + Top Artists -->
                     <div class="taste-grid-col">
                         <section class="taste-section">
-                            <h2 class="taste-section-title">Luisterpatronen</h2>
-                            <div id="lb-heatmap-section" class="lb-heatmap-container">
-                                <p class="lb-no-data">Geen heatmap data. Sync ListenBrainz om data op te halen.</p>
-                            </div>
-                        </section>
-                        <section class="taste-section">
-                            <h2 class="taste-section-title">Top Artiesten</h2>
-                            <div id="lb-artists-section" class="lb-list">
-                                <p class="lb-no-data">Nog geen luisterdata beschikbaar.</p>
+                            <h2 class="taste-section-title">Genre Distribution</h2>
+                            <div class="taste-chart-wrap taste-chart-wrap--hbar">
+                                <canvas id="taste-genre-dist-chart" aria-label="Genre distribution chart" role="img"></canvas>
                             </div>
                         </section>
                     </div>
                 </div>
 
-                <!-- Below Grid: Countries + Loved Tracks -->
+                <!-- Era Distribution (full width doughnut) -->
+                <div class="taste-grid taste-grid--era">
+                    <section class="taste-section">
+                        <h2 class="taste-section-title">Era Distribution</h2>
+                        <div class="taste-chart-wrap taste-chart-wrap--doughnut">
+                            <canvas id="taste-era-chart" aria-label="Era distribution chart" role="img"></canvas>
+                        </div>
+                    </section>
+                    <section class="taste-section">
+                        <h2 class="taste-section-title">Top Artiesten</h2>
+                        <div class="taste-chart-wrap taste-chart-wrap--hbar">
+                            <canvas id="taste-artists-chart" aria-label="Top artists chart" role="img"></canvas>
+                        </div>
+                        <div id="lb-artists-section" class="lb-list" style="display:none"></div>
+                    </section>
+                </div>
+
+                <!-- ── PATTERNS ───────────────────────────────────────────── -->
+                <h3 class="taste-group-header">Patterns</h3>
+
+                <!-- Listening Heatmap (full width, canvas) -->
+                <section class="taste-section taste-section--full">
+                    <h2 class="taste-section-title">Luisterpatronen</h2>
+                    <div id="lb-heatmap-section" class="lb-heatmap-container">
+                        <canvas id="taste-heatmap-canvas" aria-label="Listening heatmap" role="img"></canvas>
+                        <p class="lb-no-data" id="heatmap-no-data">Geen heatmap data. Sync ListenBrainz om data op te halen.</p>
+                    </div>
+                </section>
+
+                <!-- Below: Countries + Loved Tracks -->
                 <div class="taste-grid taste-grid--below">
                     <section class="taste-section">
                         <h2 class="taste-section-title">Artiesten per Land</h2>
@@ -734,6 +770,9 @@
                         </div>
                     </section>
                 </div>
+
+                <!-- Legacy era section (hidden, kept for existing code compatibility) -->
+                <div id="lb-era-section" style="display:none"></div>
 
                 <!-- Voorkeuren: Likes + Dislikes compact row -->
                 <section class="taste-section">
