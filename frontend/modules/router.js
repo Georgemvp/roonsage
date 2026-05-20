@@ -12,6 +12,8 @@ import { initPlaylistsView } from './playlists.js';
 import { initTasteView } from './taste.js';
 import { initDiscoveryView } from './discovery.js';
 import { initWatchlistView } from './watchlist.js';
+import { initSchedulerSection } from './scheduler.js';
+import { initAutomationsView } from './automations.js';
 
 export const HASH_TO_VIEW = {
     'home': 'home',
@@ -24,6 +26,7 @@ export const HASH_TO_VIEW = {
     'taste': 'taste',
     'discovery': 'discovery',
     'watchlist': 'watchlist',
+    'automations': 'automations',
     // Backward compat
     'make-playlist': 'create',
 };
@@ -41,6 +44,7 @@ export const VIEW_TO_HASH = {
     'taste': 'taste',
     'discovery': 'discovery',
     'watchlist': 'watchlist',
+    'automations': 'automations',
 };
 
 export function hashForCurrentState() {
@@ -90,6 +94,7 @@ export function navigateTo(view, mode) {
     }
     if (view === 'settings') {
         loadSettings();
+        initSchedulerSection();
     } else if (view === 'recommend') {
         initRecommendView();
     } else if (view === 'home') {
@@ -102,6 +107,8 @@ export function navigateTo(view, mode) {
         initDiscoveryView();
     } else if (view === 'watchlist') {
         initWatchlistView();
+    } else if (view === 'automations') {
+        initAutomationsView();
     }
 }
 

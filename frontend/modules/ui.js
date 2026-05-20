@@ -37,7 +37,9 @@ export function updateView() {
                          (hash === 'settings' && state.view === 'settings') ||
                          (hash === 'playlists' && state.view === 'playlists') ||
                          (hash === 'taste' && state.view === 'taste') ||
-                         (hash === 'discovery' && state.view === 'discovery');
+                         (hash === 'discovery' && state.view === 'discovery') ||
+                         (hash === 'watchlist' && state.view === 'watchlist') ||
+                         (hash === 'automations' && state.view === 'automations');
         btn.classList.toggle('active', isActive);
         btn.setAttribute('aria-current', isActive ? 'true' : 'false');
     });

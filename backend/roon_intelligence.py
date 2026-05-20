@@ -198,6 +198,18 @@ class RoonIntelligenceMixin:
                 "started_at": time.time(),
                 "start_seek": seek_pos,
             }
+            # Automation: fire ZONE_STARTED event when a new track begins
+            try:
+                from backend.automation_engine import TriggerType, get_engine  # noqa: PLC0415
+                _eng = get_engine()
+                if _eng and title:
+                    _eng.on_event(TriggerType.ZONE_STARTED, {
+                        "zone": zone.get("display_name", zone_id),
+                        "artist": artist, "title": title,
+                    })
+            except Exception as _ae:
+                logger.debug("AutomationEngine ZONE_STARTED event failed: %s", _ae)
+
             # Fire-and-forget: submit now_playing to ListenBrainz + Last.fm
             if title and artist:
                 try:
@@ -330,6 +342,18 @@ class RoonIntelligenceMixin:
                     (played_pct or 0) * 100,
                     genre or "?",
                 )
+
+                # Automation: fire TRACK_PLAYED event (fire-and-forget)
+                try:
+                    from backend.automation_engine import TriggerType, get_engine  # noqa: PLC0415
+                    _eng = get_engine()
+                    if _eng:
+                        _eng.on_event(TriggerType.TRACK_PLAYED, {
+                            "artist": artist, "title": title,
+                            "album": album, "zone": zone_name,
+                        })
+                except Exception as _ae:
+                    logger.debug("AutomationEngine TRACK_PLAYED event failed: %s", _ae)
 
                 # ── Scrobble (ListenBrainz + Last.fm, fire-and-forget) ────────
                 # Scrobble when: not skipped AND (played >= 30s OR played >= duration/2)

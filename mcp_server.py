@@ -3043,6 +3043,135 @@ async def start_enrichment() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Automation Engine tools (v11.0)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_automations() -> str:
+    """List all automations with their current status, last run time, and run count.
+
+    Automations are trigger-action pairs that run workflows automatically.
+    Triggers include: schedule (cron), track_played, zone_started, library_synced,
+    lb_synced, and watchlist_match.
+    Actions include: generate_playlist, play_template, sync_library,
+    sync_listenbrainz, scan_watchlist, send_notification, run_maintenance, volume_set.
+
+    No parameters required.
+    """
+    logger.info("LIST_AUTOMATIONS called")
+    result = await _api_call("GET", "/api/automations")
+    if isinstance(result, str):
+        return result
+
+    if not result:
+        return "No automations configured yet. Use create_automation to add one."
+
+    lines = [f"Automations ({len(result)} total):"]
+    for a in result:
+        status_icon = "✓" if a.get("last_status") == "success" else ("✗" if a.get("last_status") == "failed" else "—")
+        enabled_icon = "🟢" if a.get("enabled") else "⭕"
+        trigger = a.get("trigger_type", "?")
+        trigger_cfg = a.get("trigger_config") or {}
+        if trigger == "schedule":
+            trigger_desc = f"schedule({trigger_cfg.get('cron', '?')})"
+        else:
+            trigger_desc = trigger
+        lines.append(
+            f"  {enabled_icon} [{a['id']}] {a['name']}  "
+            f"trigger={trigger_desc}  action={a.get('action_type', '?')}  "
+            f"runs={a.get('run_count', 0)}  last={a.get('last_triggered', 'never')[:16] if a.get('last_triggered') else 'never'}  {status_icon}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def create_automation(
+    name: str,
+    trigger_type: str,
+    action_type: str,
+    trigger_config: str = "{}",
+    action_config: str = "{}",
+    cooldown_seconds: int = 300,
+) -> str:
+    """Create a new automation from a natural language description.
+
+    Claude picks the right trigger_type, action_type, and config values.
+
+    Valid trigger_type values:
+      - "schedule"        — cron expression in trigger_config: {"cron": "0 7 * * 1-5"}
+      - "track_played"    — fires when any track finishes in any zone (no config needed)
+      - "zone_started"    — fires when a zone starts playing (no config needed)
+      - "library_synced"  — fires after a library sync completes (no config needed)
+      - "lb_synced"       — fires after ListenBrainz sync completes (no config needed)
+      - "watchlist_match" — fires when a watched artist has a new release (no config needed)
+
+    Valid action_type values:
+      - "generate_playlist"  — config: {"prompt": "...", "track_count": 20, "zone_name": "Living Room"}
+      - "play_template"      — config: {"template_id": 1, "zone_name": "Kitchen"}
+      - "sync_library"       — no config needed
+      - "sync_listenbrainz"  — no config needed
+      - "scan_watchlist"     — no config needed
+      - "send_notification"  — config: {"message": "...", "event_type": "automation"}
+      - "run_maintenance"    — no config needed
+      - "volume_set"         — config: {"zone_name": "Living Room", "level": 40}
+
+    Args:
+        name:             Human-readable name for the automation.
+        trigger_type:     One of the valid trigger_type values above.
+        action_type:      One of the valid action_type values above.
+        trigger_config:   JSON string with trigger parameters (see above).
+        action_config:    JSON string with action parameters (see above).
+        cooldown_seconds: Minimum seconds between consecutive runs (default 300).
+    """
+    logger.info("CREATE_AUTOMATION: name=%r trigger=%s action=%s", name, trigger_type, action_type)
+    try:
+        tc = json.loads(trigger_config) if trigger_config else {}
+        ac = json.loads(action_config) if action_config else {}
+    except json.JSONDecodeError as exc:
+        return f"Error: invalid JSON in trigger_config or action_config: {exc}"
+
+    payload = {
+        "name": name,
+        "trigger_type": trigger_type,
+        "trigger_config": tc,
+        "action_type": action_type,
+        "action_config": ac,
+        "cooldown_seconds": cooldown_seconds,
+    }
+    result = await _api_call("POST", "/api/automations", json_body=payload, retryable=False)
+    if isinstance(result, str):
+        return result
+
+    return (
+        f"✓ Automation created: [{result['id']}] {result['name']}\n"
+        f"  Trigger: {result['trigger_type']}  Action: {result['action_type']}\n"
+        f"  Enabled: {result['enabled']}  Cooldown: {result.get('cooldown_seconds')}s"
+    )
+
+
+@mcp.tool()
+async def toggle_automation(automation_id: int) -> str:
+    """Enable or disable an automation by its numeric ID.
+
+    Toggles the current state — if enabled, it becomes disabled and vice versa.
+    Use list_automations first to find the ID you want.
+
+    Args:
+        automation_id: Numeric ID of the automation (from list_automations).
+    """
+    logger.info("TOGGLE_AUTOMATION: id=%d", automation_id)
+    result = await _api_call(
+        "PATCH", f"/api/automations/{automation_id}/toggle", retryable=False
+    )
+    if isinstance(result, str):
+        return result
+
+    state = "enabled" if result.get("enabled") else "disabled"
+    return f"✓ Automation [{automation_id}] {result.get('name', '')} is now {state}."
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

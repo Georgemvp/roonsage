@@ -546,6 +546,19 @@ async def scan_all_watched() -> list[dict]:
                 )
         except Exception as exc:
             logger.debug("scan_all_watched: notification emit failed: %s", exc)
+
+        # Automation: fire WATCHLIST_MATCH event per new release
+        try:
+            from backend.automation_engine import TriggerType, get_engine  # noqa: PLC0415
+            _eng = get_engine()
+            if _eng:
+                for release in all_new:
+                    await _eng.on_event_async(TriggerType.WATCHLIST_MATCH, {
+                        "artist": release["artist_name"],
+                        "album": release["album_title"],
+                    })
+        except Exception as exc:
+            logger.debug("scan_all_watched: automation event failed: %s", exc)
     else:
         logger.info("scan_all_watched: no new releases found")
 

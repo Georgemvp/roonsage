@@ -392,3 +392,113 @@ Elk artiest heeft drie vlaggen (standaard: albums=aan, EPs=aan, singles=uit):
 2. Als de data oud is: `scan_watchlist` — triggereer een verse scan
 3. `play_new_release(artist_name="...", album_title="...")` — speel direct af
 4. De release wordt automatisch als "gelezen" gemarkeerd na afspelen
+
+---
+
+## Scheduled Playlists — automatisch regenereren (v9.0)
+
+RoonSage kan playlists automatisch (her)genereren op een cron-schema en ze opslaan in Qobuz.
+De scheduler draait als asyncio-taak in de backend en checkt elke 60 seconden of een schema actief is.
+
+### Tools
+
+| Tool | Wat het doet |
+|---|---|
+| `list_scheduled_playlists` | Geeft alle schema's terug met naam, prompt, cron, laatste run en status |
+| `create_scheduled_playlist` | Maak een nieuw schema aan — vertaal "elke ochtend om 7" naar cron `"0 7 * * *"` |
+| `run_scheduled_playlist` | Trigger een directe run van een schema (negeert de crontiming) |
+
+### Cron-expressies vertalen
+
+Vertaal altijd de tijdsomschrijving van de gebruiker naar een 5-velden cron-string:
+
+| Omschrijving | Cron |
+|---|---|
+| Elke ochtend om 7:00 | `0 7 * * *` |
+| Doordeweeks om 7:00 | `0 7 * * 1-5` |
+| Vrijdagavond om 18:00 | `0 18 * * 5` |
+| Elke zondag om 10:00 | `0 10 * * 0` |
+| Elke dag om 12:00 | `0 12 * * *` |
+
+Veldvolgorde: `minute hour dag-van-de-maand maand dag-van-de-week` (0=zondag).
+
+### Wanneer gebruiken
+
+- **"Maak elke ochtend een nieuwe playlist"** → `create_scheduled_playlist` met `schedule="0 7 * * *"` en een passende prompt
+- **"Welke schema's heb ik?"** → `list_scheduled_playlists`
+- **"Genereer schema 3 nu"** → `run_scheduled_playlist(schedule_id=3)`
+- **"Sla elke week een nieuwe jazzplaylist op in Qobuz"** → `create_scheduled_playlist` met `save_to_qobuz=True`
+
+### Parameters `create_scheduled_playlist`
+
+- `name` — Korte weergavenaam (bijv. "Ochtend Commute")
+- `prompt` — Natuurlijke taal omschrijving van de gewenste playlist
+- `schedule` — Cron-expressie (5 velden)
+- `track_count` — Aantal tracks (standaard 25)
+- `genres` / `decades` — Optionele filters
+- `zone_name` — Optionele Roon-zone om direct in af te spelen na generatie
+- `save_to_qobuz` — Playlist opslaan/verversen in Qobuz na elke run (standaard True)
+
+### Hoe werkt het
+
+1. Backend genereert de playlist via de bestaande LLM-pipeline (zelfde als web UI)
+2. Als `save_to_qobuz=True`: bestaand Qobuz-playlist overschreven, of nieuw aangemaakt
+3. Als `zone_name` is ingesteld: tracks direct in die Roon-zone afspelen
+4. `last_run`, `last_status` en `last_error` worden opgeslagen in de database
+5. Schema's zijn te beheren via de Schedules-sectie in de RoonSage Settings-pagina
+
+---
+
+## Automation Engine — trigger-action workflows (v11.0)
+
+RoonSage heeft een lichtgewicht Automation Engine: trigger-actie-paren die automatisch draaien.
+Triggers kunnen op schema, op Roon-events (track afgespeeld, zone gestart) of na sync-events werken.
+
+### Tools
+
+| Tool | Wat het doet |
+|---|---|
+| `list_automations` | Geeft alle automations terug met naam, trigger, actie, laatste run en status |
+| `create_automation` | Maak een nieuwe automation aan op basis van een verzoek in gewone taal |
+| `toggle_automation` | Schakel een automation in of uit via ID |
+
+### Trigger types
+
+| Trigger | Wanneer actief |
+|---|---|
+| `schedule` | Cron-expressie — bijv. `"0 7 * * 1-5"` (ma–vr om 7:00) |
+| `track_played` | Elke keer dat een track klaar is met spelen |
+| `zone_started` | Elke keer dat een zone begint met spelen |
+| `library_synced` | Direct na een bibliotheeksync |
+| `lb_synced` | Direct na een ListenBrainz-sync |
+| `watchlist_match` | Zodra een gevolgde artiest een nieuwe release heeft |
+
+### Action types
+
+| Actie | Wat het doet | Configuratie |
+|---|---|---|
+| `generate_playlist` | Genereer een playlist en zet hem optioneel op een zone | `prompt`, `track_count`, `zone_name` |
+| `play_template` | Speel een opgeslagen template af | `template_id`, `zone_name` |
+| `sync_library` | Trigger een bibliotheeksync | geen |
+| `sync_listenbrainz` | Trigger een ListenBrainz-sync | geen |
+| `scan_watchlist` | Scan watched artists op nieuwe releases | geen |
+| `send_notification` | Stuur een notificatie via de EventBus | `message`, `event_type` |
+| `run_maintenance` | Verwijder oude log-entries en luistergeschiedenis | geen |
+| `volume_set` | Stel het volume in op een zone | `zone_name`, `level` (0–100) |
+
+### Typische workflows
+
+- **"Maak elke ochtend een playlist"** → `create_automation` met `trigger_type="schedule"`, `trigger_config={"cron":"0 7 * * 1-5"}`, `action_type="generate_playlist"`, `action_config={"prompt":"Calm morning music","track_count":20,"zone_name":"Keuken"}`
+- **"Informeer me bij een nieuwe release"** → `create_automation` met `trigger_type="watchlist_match"`, `action_type="send_notification"`, `action_config={"message":"Nieuwe release gevonden!"}`
+- **"Welke automations heb ik?"** → `list_automations`
+- **"Zet automation 3 uit"** → `toggle_automation(automation_id=3)`
+- **"Sync ListenBrainz na elke bibliotheeksync"** → `create_automation` met `trigger_type="library_synced"`, `action_type="sync_listenbrainz"`
+
+### Cooldown
+
+Elke automation heeft een `cooldown_seconds` (standaard 300 s) om snelle herhalingen te voorkomen.
+Voor schedule-triggers geldt ook een double-run guard van 55 seconden.
+
+### Presets
+
+De frontend heeft een "From Preset"-knop met 7 ingebouwde presets (inclusief ochtend-playlist, vrijdagavond-mix, nachtelijke sync, en watchlist-notificatie).

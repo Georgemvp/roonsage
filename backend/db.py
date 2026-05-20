@@ -427,6 +427,46 @@ def init_schema(conn: sqlite3.Connection) -> bool:
     """)
 
     # -----------------------------------------------------------------------
+    # Automation Engine (v11.0)
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS automations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            trigger_type TEXT NOT NULL,
+            trigger_config TEXT NOT NULL DEFAULT '{}',
+            action_type TEXT NOT NULL,
+            action_config TEXT NOT NULL DEFAULT '{}',
+            enabled INTEGER DEFAULT 1,
+            last_triggered TEXT,
+            last_status TEXT,
+            run_count INTEGER DEFAULT 0,
+            cooldown_seconds INTEGER DEFAULT 300,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_automations_enabled
+            ON automations(enabled);
+        CREATE INDEX IF NOT EXISTS idx_automations_trigger
+            ON automations(trigger_type);
+
+        CREATE TABLE IF NOT EXISTS automation_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            automation_id INTEGER,
+            triggered_at TEXT NOT NULL DEFAULT (datetime('now')),
+            trigger_type TEXT,
+            action_type TEXT,
+            status TEXT,
+            duration_ms INTEGER,
+            error_message TEXT,
+            FOREIGN KEY(automation_id) REFERENCES automations(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_automation_log_ts
+            ON automation_log(triggered_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_automation_log_automation
+            ON automation_log(automation_id);
+    """)
+
+    # -----------------------------------------------------------------------
     # Metadata Enrichment Pipeline (v10.0)
     # -----------------------------------------------------------------------
     conn.executescript("""

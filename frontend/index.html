@@ -45,6 +45,7 @@
                 <button class="nav-btn" data-nav="taste" aria-current="false">My Taste</button>
                 <button class="nav-btn" data-nav="discovery" aria-current="false">Discover</button>
                 <button class="nav-btn" data-nav="watchlist" aria-current="false">Watchlist</button>
+                <button class="nav-btn" data-nav="automations" aria-current="false">Automations</button>
                 <button class="nav-btn nav-btn--icon" data-nav="settings" aria-current="false" aria-label="Settings"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
             </nav>
         </header>
@@ -866,6 +867,115 @@
                         <p class="watchlist-empty">No artists watched yet. Add artists above or use Auto-populate.</p>
                     </div>
                 </section>
+            </div>
+
+            <!-- Automations View -->
+            <div id="automations-view" class="view">
+                <div class="auto-header">
+                    <div>
+                        <h2>Automations</h2>
+                        <p class="auto-subtitle">Trigger-action workflows that run automatically.</p>
+                    </div>
+                    <div class="auto-header-actions">
+                        <button id="auto-preset-btn" class="btn btn-primary btn-sm">From Preset</button>
+                        <button id="auto-export-btn" class="btn btn-secondary btn-sm">Export YAML</button>
+                    </div>
+                </div>
+
+                <!-- Active automations list -->
+                <section class="auto-section">
+                    <div id="automations-list" class="auto-list">
+                        <p class="auto-loading">Loading…</p>
+                    </div>
+                </section>
+
+                <!-- Create form -->
+                <section class="auto-section">
+                    <h3 class="auto-section-title">New Automation</h3>
+                    <form id="auto-create-form" class="auto-form" autocomplete="off">
+                        <div class="auto-form-row">
+                            <label for="auto-new-name">Name</label>
+                            <input id="auto-new-name" type="text" class="auto-form-input" placeholder="My Automation" required />
+                        </div>
+
+                        <div class="auto-form-grid">
+                            <div>
+                                <div class="auto-form-row">
+                                    <label for="auto-new-trigger">Trigger</label>
+                                    <select id="auto-new-trigger" class="auto-form-select">
+                                        <option value="schedule">Schedule (cron)</option>
+                                        <option value="track_played">Track finished playing</option>
+                                        <option value="zone_started">Zone started playing</option>
+                                        <option value="library_synced">Library sync complete</option>
+                                        <option value="lb_synced">ListenBrainz sync complete</option>
+                                        <option value="watchlist_match">New watchlist release</option>
+                                    </select>
+                                </div>
+                                <div id="auto-new-trigger-cfg" class="auto-form-subfields"></div>
+                            </div>
+
+                            <div>
+                                <div class="auto-form-row">
+                                    <label for="auto-new-action">Action</label>
+                                    <select id="auto-new-action" class="auto-form-select">
+                                        <option value="generate_playlist">Generate playlist</option>
+                                        <option value="sync_library">Sync library</option>
+                                        <option value="sync_listenbrainz">Sync ListenBrainz</option>
+                                        <option value="scan_watchlist">Scan watchlist</option>
+                                        <option value="send_notification">Send notification</option>
+                                        <option value="run_maintenance">Run maintenance</option>
+                                        <option value="volume_set">Set volume</option>
+                                        <option value="play_template">Play template</option>
+                                    </select>
+                                </div>
+                                <div id="auto-new-action-cfg" class="auto-form-subfields"></div>
+                            </div>
+                        </div>
+
+                        <div class="auto-form-row auto-form-row--inline">
+                            <label for="auto-new-cooldown">Cooldown (seconds)</label>
+                            <input id="auto-new-cooldown" type="number" class="auto-form-input auto-form-input--narrow" value="300" min="0" />
+                        </div>
+
+                        <button id="auto-create-submit" type="submit" class="btn btn-primary">Create Automation</button>
+                    </form>
+                </section>
+
+                <!-- Activity log -->
+                <section class="auto-section">
+                    <div class="auto-section-header">
+                        <h3 class="auto-section-title">Activity Log</h3>
+                        <button id="auto-log-refresh" class="btn btn-secondary btn-sm">Refresh</button>
+                    </div>
+                    <div class="auto-log-wrap">
+                        <table class="auto-log-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Automation</th>
+                                    <th>Trigger</th>
+                                    <th>Action</th>
+                                    <th>Status</th>
+                                    <th>Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody id="auto-log-body">
+                                <tr><td colspan="6" class="auto-log-empty">No runs yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Preset overlay -->
+            <div id="auto-preset-overlay" class="auto-preset-overlay hidden" role="dialog" aria-modal="true" aria-label="Automation Presets">
+                <div class="auto-preset-modal">
+                    <div class="auto-preset-modal-header">
+                        <h3>Built-in Presets</h3>
+                        <button id="auto-preset-close" class="auto-preset-close" aria-label="Close">✕</button>
+                    </div>
+                    <div id="auto-preset-grid" class="auto-preset-grid"></div>
+                </div>
             </div>
 
             <!-- Settings View -->

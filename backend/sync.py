@@ -435,6 +435,15 @@ def sync_library(
         except Exception:
             pass
 
+        # Automation: fire LIBRARY_SYNCED event
+        try:
+            from backend.automation_engine import TriggerType, get_engine  # noqa: PLC0415
+            _eng = get_engine()
+            if _eng:
+                _eng.on_event(TriggerType.LIBRARY_SYNCED, {"track_count": synced_count})
+        except Exception:
+            pass
+
         return {
             "success": True,
             "track_count": synced_count,

@@ -100,6 +100,15 @@ class ListenBrainzSync:
         except Exception:
             pass
 
+        # Automation: fire LB_SYNCED event
+        try:
+            from backend.automation_engine import TriggerType, get_engine  # noqa: PLC0415
+            _eng = get_engine()
+            if _eng:
+                await _eng.on_event_async(TriggerType.LB_SYNCED, {})
+        except Exception:
+            pass
+
         return summary
 
     async def sync_stat(

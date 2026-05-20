@@ -26,6 +26,7 @@ from backend.routes.notifications import router as notifications_router
 from backend.routes.watchlist import router as watchlist_router
 from backend.routes.scheduler import router as scheduler_router
 from backend.routes.enrichment import router as enrichment_router
+from backend.routes.automations import router as automations_router
 from backend.dependencies import ROONSAGE_PASSWORD
 import backend.routes.recommend as _recommend_module
 
@@ -199,11 +200,19 @@ async def lifespan(app: FastAPI):
     get_worker().start()
     logger.info("Metadata enrichment worker started")
 
+    # Start Automation Engine
+    from backend.automation_engine import init_engine  # noqa: PLC0415
+    init_engine()
+
     yield
 
     # Shutdown: stop playlist scheduler
     from backend.scheduler import stop_scheduler  # noqa: PLC0415
     stop_scheduler()
+
+    # Shutdown: stop automation engine
+    from backend.automation_engine import stop_engine  # noqa: PLC0415
+    stop_engine()
 
     # Shutdown: clean up resources (read from module to get current values, not import-time snapshot)
     if _recommend_module._music_research_client is not None:
@@ -287,6 +296,7 @@ app.include_router(notifications_router)
 app.include_router(watchlist_router)
 app.include_router(scheduler_router)
 app.include_router(enrichment_router)
+app.include_router(automations_router)
 
 
 # =============================================================================
