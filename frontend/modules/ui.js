@@ -892,6 +892,19 @@ export function updateSettings() {
         qobuzStatus.classList.toggle('connected', !!configured);
         qobuzStatus.querySelector('.status-text').textContent = configured ? 'Geconfigureerd' : 'Niet geconfigureerd';
     }
+
+    // ListenBrainz settings — mask the token, pre-fill the username
+    const lbToken = document.getElementById('lb-token');
+    const lbUsername = document.getElementById('lb-username');
+    if (lbToken) {
+        lbToken.value = '';
+        lbToken.placeholder = state.config.listenbrainz_token_set
+            ? '••••••••  (opgeslagen)'
+            : 'Jouw LB user token';
+    }
+    if (lbUsername) {
+        lbUsername.value = state.config.listenbrainz_username || '';
+    }
 }
 
 export function showProviderSettings(provider) {

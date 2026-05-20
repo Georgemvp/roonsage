@@ -159,11 +159,21 @@ class MusicBrainzClient:
     ) -> tuple[str | None, list[str], str | None, str | None]:
         """One-stop lookup: search + tag fetch in a single call.
 
+        Falls back to the primary artist (before the first comma) when the full
+        Roon performer string (e.g. "Eagles, Danny Kortchmar") yields no match,
+        since MusicBrainz only indexes the main credited artist.
+
         Returns:
             (mbid, tags, release_date, country)
             All fields may be None / [] on failure.
         """
         recording = await self.search_recording(artist, title)
+
+        # Fallback: try primary artist only (before first comma)
+        if recording is None and "," in artist:
+            primary_artist = artist.split(",")[0].strip()
+            recording = await self.search_recording(primary_artist, title)
+
         if recording is None:
             return None, [], None, None
 

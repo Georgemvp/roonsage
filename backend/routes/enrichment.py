@@ -36,6 +36,7 @@ class EnrichmentStatusResponse(BaseModel):
     lastfm_matches: int = 0
     worker_running: bool = False
     worker_paused: bool = False
+    lastfm_active: bool = False  # True when Last.fm is configured and active in enrichment
 
 
 class EnrichmentQueueItem(BaseModel):
@@ -79,7 +80,11 @@ async def get_enrichment_status() -> EnrichmentStatusResponse:
     finally:
         conn.close()
 
+    from backend.lastfm_client import get_lf_client  # noqa: PLC0415
+
     worker = get_worker()
+    lf_client = get_lf_client()
+    lastfm_active = lf_client is not None and lf_client.is_configured()
     return EnrichmentStatusResponse(
         pending=stats.get("pending", 0),
         processing=stats.get("processing", 0),
@@ -90,6 +95,7 @@ async def get_enrichment_status() -> EnrichmentStatusResponse:
         lastfm_matches=stats.get("lastfm_matches", 0),
         worker_running=worker.is_running(),
         worker_paused=worker.is_paused(),
+        lastfm_active=lastfm_active,
     )
 
 
@@ -100,9 +106,31 @@ async def start_enrichment() -> StartEnrichmentResponse:
         get_worker,
         populate_enrichment_queue,
     )
+    from backend.lastfm_client import get_lf_client  # noqa: PLC0415
 
     conn = get_db_connection()
     try:
+        # Re-queue tracks enriched without Last.fm when Last.fm is now configured
+        lf_client = get_lf_client()
+        lastfm_available = lf_client is not None and lf_client.is_configured()
+        if lastfm_available:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM track_metadata_ext WHERE enrichment_source IN ('musicbrainz', 'none')"
+            ).fetchone()
+            without_lastfm = row[0] if row else 0
+            if without_lastfm > 0:
+                logger.info("Re-queuing %d tracks for Last.fm enrichment", without_lastfm)
+                conn.execute(
+                    "DELETE FROM track_metadata_ext WHERE enrichment_source IN ('musicbrainz', 'none')"
+                )
+                conn.execute("""
+                    UPDATE enrichment_queue
+                    SET status = 'pending', attempts = 0
+                    WHERE status = 'complete'
+                      AND item_key NOT IN (SELECT item_key FROM track_metadata_ext)
+                """)
+                conn.commit()
+
         queued = populate_enrichment_queue(conn)
     finally:
         conn.close()

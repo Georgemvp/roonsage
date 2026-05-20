@@ -299,7 +299,8 @@ export async function handleSaveSettings() {
     // ListenBrainz settings (saved via validate endpoint — store in user config if filled)
     const lbToken = document.getElementById('lb-token')?.value.trim();
     const lbUsername = document.getElementById('lb-username')?.value.trim();
-    if (lbToken) updates.listenbrainz_token = lbToken;
+    // Only send token if user actually typed something (not the masked placeholder dots)
+    if (lbToken && !/^•+/.test(lbToken)) updates.listenbrainz_token = lbToken;
     if (lbUsername) updates.listenbrainz_username = lbUsername;
 
     // Notifications — saved via dedicated endpoint, not the main config endpoint

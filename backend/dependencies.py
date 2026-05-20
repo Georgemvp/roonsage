@@ -6,7 +6,7 @@ from collections import defaultdict
 
 from fastapi import HTTPException, Request
 from backend.models import ConfigResponse
-from backend.config import get_qobuz_config
+from backend.config import get_qobuz_config, get_listenbrainz_config
 from backend.llm_client import (
     get_max_tracks_for_model,
     get_max_albums_for_model,
@@ -66,6 +66,7 @@ def _build_config_response(config, roon_client) -> ConfigResponse:
     analysis_costs = get_model_cost(analysis_model, config.llm)
 
     qobuz_cfg = get_qobuz_config()
+    lb_cfg = get_listenbrainz_config()
     return ConfigResponse(
         version=get_version(),
         roon_host=config.roon.host,
@@ -93,4 +94,6 @@ def _build_config_response(config, roon_client) -> ConfigResponse:
         qobuz_app_id=qobuz_cfg.get("app_id", ""),
         qobuz_email=qobuz_cfg.get("email", ""),
         qobuz_password_set=bool(qobuz_cfg.get("password", "")),
+        listenbrainz_token_set=bool(lb_cfg.get("token", "")),
+        listenbrainz_username=lb_cfg.get("username", ""),
     )

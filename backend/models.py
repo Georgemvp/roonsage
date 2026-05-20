@@ -623,6 +623,9 @@ class ConfigResponse(BaseModel):
     qobuz_app_id: str = ""
     qobuz_email: str = ""
     qobuz_password_set: bool = False  # True if password is configured (never returned)
+    # ListenBrainz fields
+    listenbrainz_token_set: bool = False  # True if token is configured (never returned)
+    listenbrainz_username: str = ""
 
 
 class UpdateConfigRequest(BaseModel):

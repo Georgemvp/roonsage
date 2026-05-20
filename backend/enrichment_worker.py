@@ -118,17 +118,42 @@ def get_queue_stats(conn: sqlite3.Connection) -> dict:
 async def _fetch_lastfm(artist: str, title: str) -> tuple[list[str], int | None, int | None]:
     """Fetch Last.fm track info: (tags, listeners, playcount).
 
+    Tries the full artist string first, then falls back to the primary artist
+    (text before the first comma) since Roon includes all performers in the
+    artist field but Last.fm only indexes the main artist.
+    Also retries with parenthetical suffixes stripped from the title
+    (e.g. "(Album Version)", "(Remastered 2011)", "(Live)").
+
     Returns ([], None, None) when Last.fm is not configured or the call fails.
     """
+    import re  # noqa: PLC0415
+
     from backend.lastfm_client import get_lf_client  # noqa: PLC0415
 
     lf_client = get_lf_client()
     if lf_client is None or not lf_client.is_configured():
         return [], None, None
 
+    # Try full artist string first
     async with _lf_semaphore:
         track_info = await lf_client.get_track_info(artist, title)
         await asyncio.sleep(_LF_SLEEP)
+
+    # Fallback: try primary artist only (before first comma)
+    if not track_info and "," in artist:
+        primary_artist = artist.split(",")[0].strip()
+        async with _lf_semaphore:
+            track_info = await lf_client.get_track_info(primary_artist, title)
+            await asyncio.sleep(_LF_SLEEP)
+
+    # Also try stripping parenthetical suffixes from title like "(Album Version)", "(Remastered 2011)", "(Live)"
+    if not track_info:
+        clean_title = re.sub(r"\s*[\(\[].*?[\)\]]$", "", title).strip()
+        if clean_title != title:
+            search_artist = artist.split(",")[0].strip() if "," in artist else artist
+            async with _lf_semaphore:
+                track_info = await lf_client.get_track_info(search_artist, clean_title)
+                await asyncio.sleep(_LF_SLEEP)
 
     if not track_info:
         return [], None, None
