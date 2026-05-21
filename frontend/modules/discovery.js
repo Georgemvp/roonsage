@@ -91,7 +91,7 @@ function _renderUndiscoveredAlbums(albums) {
             <div class="discovery-album-info">
                 <span class="discovery-album-title">${escapeHtml(a.album)}</span>
                 <span class="discovery-album-artist">${escapeHtml(a.artist)}</span>
-                <span class="discovery-album-meta">${a.artist_play_count} artist plays — 0 album plays</span>
+                <span class="discovery-album-meta">${a.artist_play_count} plays van deze artiest</span>
             </div>
             ${a.parent_item_key ? `
             <button
@@ -108,12 +108,12 @@ function _renderUndiscoveredAlbums(albums) {
         <section class="discovery-section" aria-labelledby="discovery-undiscovered-heading">
             <div class="discovery-section-header">
                 <h3 class="discovery-section-title" id="discovery-undiscovered-heading">
-                    Undiscovered Albums
+                    Meer van je favorieten
                 </h3>
                 <span class="discovery-section-badge">${albums.length}</span>
             </div>
             <p class="discovery-section-desc">
-                Albums by your favourite artists you've never played.
+                Albums van je meest beluisterde artiesten in je library.
             </p>
             <div class="discovery-album-grid">
                 ${cards}

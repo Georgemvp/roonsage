@@ -20,20 +20,18 @@ logger = logging.getLogger(__name__)
 
 
 def get_undiscovered_albums() -> list[dict]:
-    """Albums by the user's most-played artists that have zero plays.
+    """Library albums by the user's most-played artists, shuffled per artist.
 
-    Strategy:
-      1. Rank artists by total play count in listening_history.
-      2. For each top artist, find albums in the tracks table.
-      3. Keep only albums with no matching rows in listening_history.
-      4. Order by artist play rank so the most familiar artists come first.
+    Album name matching between Last.fm and Roon is unreliable (different
+    capitalization, "(Remastered)", "(Deluxe)" suffixes, etc.), so we don't
+    filter by "unplayed". Instead we surface albums from familiar artists
+    in a varied order so each page load shows different suggestions.
 
     Returns:
         Up to 20 dicts with keys: artist, album, parent_item_key, artist_play_count.
     """
     sql = """
         WITH artist_plays AS (
-            -- Total plays per artist (non-skipped)
             SELECT
                 artist,
                 COUNT(*) AS play_count
@@ -42,41 +40,22 @@ def get_undiscovered_albums() -> list[dict]:
               AND artist != ''
               AND (skipped IS NULL OR skipped = 0)
             GROUP BY artist
+            ORDER BY play_count DESC
+            LIMIT 40
         ),
         artist_albums AS (
-            -- All albums in the library, joined to artist play counts.
-            -- Uses the albums table so real album names are available
-            -- (tracks.album is unreliable for flat-browse syncs).
             SELECT DISTINCT
                 a.artist,
-                a.title   AS album,
+                a.title    AS album,
                 a.item_key AS parent_item_key,
                 ap.play_count AS artist_play_count
             FROM albums a
             JOIN artist_plays ap ON LOWER(a.artist) = LOWER(ap.artist)
-            WHERE a.title IS NOT NULL
-              AND a.title != ''
-              AND a.title != 'Unknown Album'
-        ),
-        album_plays AS (
-            -- Distinct albums that have at least one play in listening_history
-            SELECT DISTINCT
-                LOWER(artist) AS artist_lower,
-                LOWER(album)  AS album_lower
-            FROM listening_history
-            WHERE artist IS NOT NULL AND album IS NOT NULL
+            WHERE a.title IS NOT NULL AND a.title != ''
         )
-        SELECT
-            aa.artist,
-            aa.album,
-            aa.parent_item_key,
-            aa.artist_play_count
-        FROM artist_albums aa
-        LEFT JOIN album_plays ap
-            ON LOWER(aa.artist) = ap.artist_lower
-           AND LOWER(aa.album)  = ap.album_lower
-        WHERE ap.artist_lower IS NULL   -- no play recorded for this album
-        ORDER BY aa.artist_play_count DESC, aa.artist, aa.album
+        SELECT artist, album, parent_item_key, artist_play_count
+        FROM artist_albums
+        ORDER BY artist_play_count DESC, RANDOM()
         LIMIT 20
     """
     try:
