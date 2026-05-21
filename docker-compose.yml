@@ -48,6 +48,8 @@ services:
       # Ensure directory is writable: either set 'user' above, or run:
       #   mkdir -p ./data && chmod 777 ./data
       - ./data:/app/data
+      # Live-reload frontend without rebuilding the container
+      - ./frontend:/app/frontend
       # Optional: persist UI settings
       # - ./config.user.yaml:/app/config.user.yaml
     restart: unless-stopped
