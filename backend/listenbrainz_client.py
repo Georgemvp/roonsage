@@ -215,7 +215,7 @@ class ListenBrainzClient:
         """
         if not self._username:
             return []
-        params: dict[str, Any] = {"count": 200}
+        params: dict[str, Any] = {"count": 200, "metadata": "true"}
         if score is not None:
             params["score"] = score
         result = await self._get(

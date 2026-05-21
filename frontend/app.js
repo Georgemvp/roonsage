@@ -66,13 +66,14 @@ async function loadHomePreview() {
     try {
         // Taste preview + snapshot
         let taste = await apiCall('/taste/profile').catch(() => null);
-        // If basic profile has no genre data, try the detailed endpoint
-        if (!taste?.genre_scores || Object.keys(taste.genre_scores).length === 0) {
+        const _genreMap = (t) => t?.genre_scores || t?.genres || {};
+        if (Object.keys(_genreMap(taste)).length === 0) {
             const detailed = await apiCall('/intelligence/taste-profile/detailed').catch(() => null);
             if (detailed) taste = detailed;
         }
-        if (taste?.genre_scores && Object.keys(taste.genre_scores).length > 0) {
-            const sorted = Object.entries(taste.genre_scores).sort((a, b) => b[1] - a[1]);
+        const genreMap = _genreMap(taste);
+        if (Object.keys(genreMap).length > 0) {
+            const sorted = Object.entries(genreMap).sort((a, b) => b[1] - a[1]);
 
             // Feature card preview (top 2 genres)
             const top2 = sorted.slice(0, 2);
@@ -93,8 +94,9 @@ async function loadHomePreview() {
             }
 
             // Hours ring + meta
-            if (taste.total_hours != null) {
-                const h = Math.round(taste.total_hours);
+            const totalHours = taste.total_hours ?? taste.stats?.total_hours ?? null;
+            if (totalHours != null) {
+                const h = Math.round(totalHours);
                 const hoursEl = document.getElementById('home-total-hours');
                 if (hoursEl) hoursEl.textContent = h;
                 // Ring: stroke-dasharray=226, offset=226-226*(hours/maxHours)
@@ -105,15 +107,17 @@ async function loadHomePreview() {
                     ringEl.style.strokeDashoffset = String(226 - 226 * pct);
                 }
             }
-            if (taste.peak_hour != null) {
-                const h = taste.peak_hour;
+            const peakHour = taste.peak_hour ?? taste.listening_patterns?.peak_hour ?? null;
+            if (peakHour != null) {
+                const h = peakHour;
                 const ampm = h >= 12 ? `${h > 12 ? h - 12 : h} PM` : `${h} AM`;
                 const peakEl = document.getElementById('home-peak-hour');
                 if (peakEl) peakEl.textContent = ampm;
             }
-            if (taste.peak_day) {
+            const peakDay = taste.peak_day ?? taste.listening_patterns?.peak_day ?? null;
+            if (peakDay) {
                 const dayEl = document.getElementById('home-peak-day');
-                if (dayEl) dayEl.textContent = taste.peak_day.charAt(0).toUpperCase() + taste.peak_day.slice(1) + 's';
+                if (dayEl) dayEl.textContent = peakDay.charAt(0).toUpperCase() + peakDay.slice(1) + 's';
             }
         }
 
