@@ -8,7 +8,7 @@ from fastapi import HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from backend.models import ConfigResponse
-from backend.config import get_qobuz_config, get_listenbrainz_config
+from backend.config import get_qobuz_config, get_listenbrainz_config, get_lastfm_config
 from backend.llm_client import (
     get_max_tracks_for_model,
     get_max_albums_for_model,
@@ -75,6 +75,7 @@ def _build_config_response(config, roon_client) -> ConfigResponse:
 
     qobuz_cfg = get_qobuz_config()
     lb_cfg = get_listenbrainz_config()
+    lf_cfg = get_lastfm_config()
     return ConfigResponse(
         version=get_version(),
         roon_host=config.roon.host,
@@ -104,4 +105,6 @@ def _build_config_response(config, roon_client) -> ConfigResponse:
         qobuz_password_set=bool(qobuz_cfg.get("password", "")),
         listenbrainz_token_set=bool(lb_cfg.get("token", "")),
         listenbrainz_username=lb_cfg.get("username", ""),
+        lastfm_api_key_set=bool(lf_cfg.get("api_key", "")),
+        lastfm_username=lf_cfg.get("username", ""),
     )

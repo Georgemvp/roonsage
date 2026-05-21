@@ -905,6 +905,26 @@ export function updateSettings() {
     if (lbUsername) {
         lbUsername.value = state.config.listenbrainz_username || '';
     }
+    // Last.fm settings — mask API key/secret, pre-fill username
+    const lfApiKey = document.getElementById('lastfm-api-key');
+    const lfApiSecret = document.getElementById('lastfm-api-secret');
+    const lfUsername = document.getElementById('lastfm-username');
+    if (lfApiKey) {
+        lfApiKey.value = '';
+        lfApiKey.placeholder = state.config.lastfm_api_key_set
+            ? '••••••••  (opgeslagen)'
+            : 'Your Last.fm API key';
+    }
+    if (lfApiSecret) {
+        lfApiSecret.value = '';
+        lfApiSecret.placeholder = state.config.lastfm_api_key_set
+            ? '••••••••  (opgeslagen)'
+            : 'Your Last.fm API secret';
+    }
+    if (lfUsername) {
+        lfUsername.value = state.config.lastfm_username || '';
+    }
+
     const lbStatus = document.getElementById('lb-settings-status');
     if (lbStatus) {
         const configured = !!state.config.listenbrainz_token_set;

@@ -626,6 +626,9 @@ class ConfigResponse(BaseModel):
     # ListenBrainz fields
     listenbrainz_token_set: bool = False  # True if token is configured (never returned)
     listenbrainz_username: str = ""
+    # Last.fm fields
+    lastfm_api_key_set: bool = False  # True if API key is configured (never returned)
+    lastfm_username: str = ""
 
 
 class UpdateConfigRequest(BaseModel):
