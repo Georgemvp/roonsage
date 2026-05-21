@@ -40,7 +40,7 @@ async function loadPlaylists() {
             name: r.title,
             prompt: r.prompt || '',
             created_at: r.created_at,
-            source_mode: null,        // unknown at list level; fetched lazily
+            source_mode: r.source_mode || null,
             track_count: r.track_count || 0,
             tags: [],
             rating: null,
@@ -174,9 +174,7 @@ function bindSearch() {
 function filteredPlaylists() {
     let list = [..._playlists];
     if (_filter.source !== 'all') {
-        // History items (results) don't have a known source_mode at list level —
-        // only show them under "All"
-        list = list.filter(p => !p._is_result && (p.source_mode || 'library') === _filter.source);
+        list = list.filter(p => (p.source_mode || 'library') === _filter.source);
     }
     if (_filter.tag) {
         list = list.filter(p => (p.tags || []).includes(_filter.tag));
@@ -221,10 +219,37 @@ function renderPlaylists() {
         const playlist = _playlists.find(p => String(p.id) === id);
         if (!playlist) return;
 
-        // Expand / collapse
-        card.querySelector('.pl-card-header')?.addEventListener('click', e => {
+        // Expand / collapse (with lazy track loading)
+        card.querySelector('.pl-card-header')?.addEventListener('click', async e => {
             if (e.target.closest('button')) return; // don't expand on action clicks
+            const isExpanding = !card.classList.contains('pl-card--expanded');
             card.classList.toggle('pl-card--expanded');
+            if (isExpanding && !playlist._tracksLoaded) {
+                const tracklistEl = card.querySelector('.pl-tracklist-inner');
+                if (!tracklistEl) return;
+                tracklistEl.innerHTML = '<div class="playlists-loading"><div class="spinner"></div></div>';
+                try {
+                    let tracks = [];
+                    if (playlist._is_result) {
+                        const detail = await apiCall(`/results/${playlist.id}`);
+                        tracks = detail.snapshot?.tracks || [];
+                    } else {
+                        const data = await apiCall(`/playlists/saved/${playlist.id}/tracks`);
+                        tracks = data.tracks || [];
+                    }
+                    playlist.tracks = tracks;
+                    playlist._tracksLoaded = true;
+                    if (tracks.length) {
+                        tracklistEl.innerHTML = tracks.map((t, i) =>
+                            `<div class="pl-track-row"><span class="pl-track-num">${i+1}</span><span class="pl-track-title">${escapeHtml(t.artist || '')} — ${escapeHtml(t.title || '')}</span></div>`
+                        ).join('');
+                    } else {
+                        tracklistEl.innerHTML = '<p class="playlists-empty">No tracks found.</p>';
+                    }
+                } catch (err) {
+                    tracklistEl.innerHTML = `<p class="playlists-empty">Could not load tracks: ${escapeHtml(err.message)}</p>`;
+                }
+            }
         });
 
         // Play button
@@ -337,10 +362,9 @@ function playlistCardHtml(p) {
             ${!isResult ? `<button class="btn btn-outline pl-action-arc">📱 Save for Arc</button>` : ''}
             <button class="btn-ghost pl-action-delete" title="Delete">🗑</button>
         </div>
-        ${tracks.length ? `
         <div class="pl-tracklist">
-            <div class="pl-tracklist-inner">${trackList}</div>
-        </div>` : ''}
+            <div class="pl-tracklist-inner">${tracks.length ? trackList : ''}</div>
+        </div>
     </div>`;
 }
 

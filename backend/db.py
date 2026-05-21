@@ -203,6 +203,13 @@ def init_schema(conn: sqlite3.Connection) -> bool:
     except sqlite3.OperationalError:
         pass
 
+    # Migration: add source_mode column to results table
+    try:
+        conn.execute("ALTER TABLE results ADD COLUMN source_mode TEXT")
+        logger.info("Migration applied: added source_mode column to results")
+    except sqlite3.OperationalError:
+        pass
+
     # Migration: create track_genres table if it was added after the DB was created
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS track_genres (

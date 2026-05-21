@@ -976,6 +976,7 @@ class ResultListItem(BaseModel):
     artist: str | None = None
     art_item_key: str | None = None
     subtitle: str | None = None
+    source_mode: str | None = None
     created_at: str
 
 
@@ -997,6 +998,7 @@ class ResultDetail(BaseModel):
     artist: str | None = None
     art_item_key: str | None = None
     subtitle: str | None = None
+    source_mode: str | None = None
     created_at: str
     snapshot: dict
 

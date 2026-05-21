@@ -613,6 +613,7 @@ async def generate_playlist_stream(
                 track_count=len(matched_tracks),
                 art_item_key=first_art_key,
                 subtitle=result_subtitle,
+                source_mode=source_mode,
             )
         except Exception as e:
             logger.warning("Failed to save result: %s", e)

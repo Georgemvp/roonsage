@@ -23,6 +23,7 @@ def save_result(
     artist: str | None = None,
     art_item_key: str | None = None,
     subtitle: str | None = None,
+    source_mode: str | None = None,
 ) -> str:
     """Persist a generated result and return its unique ID.
 
@@ -37,6 +38,7 @@ def save_result(
         artist:       Primary artist name (for album recommendations).
         art_item_key: Item key used to fetch thumbnail art.
         subtitle:     Pre-computed subtitle shown in the history feed.
+        source_mode:  Source mode used for generation (library/hybrid/qobuz).
 
     Returns:
         16-character hex ID for the saved result.
@@ -49,8 +51,8 @@ def save_result(
             cursor = conn.execute(
                 """INSERT OR IGNORE INTO results
                        (id, type, title, prompt, snapshot, track_count,
-                        artist, art_item_key, subtitle)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        artist, art_item_key, subtitle, source_mode)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     result_id,
                     result_type,
@@ -61,6 +63,7 @@ def save_result(
                     artist,
                     art_item_key,
                     subtitle,
+                    source_mode,
                 ),
             )
             if cursor.rowcount > 0:
@@ -86,7 +89,7 @@ def get_result(result_id: str) -> dict[str, Any] | None:
     with get_connection() as conn:
         row = conn.execute(
             "SELECT id, type, title, prompt, snapshot, track_count, "
-            "artist, art_item_key, subtitle, created_at "
+            "artist, art_item_key, subtitle, source_mode, created_at "
             "FROM results WHERE id = ?",
             (result_id,),
         ).fetchone()
@@ -104,6 +107,7 @@ def get_result(result_id: str) -> dict[str, Any] | None:
             "artist": row["artist"],
             "art_item_key": row["art_item_key"],
             "subtitle": row["subtitle"],
+            "source_mode": row["source_mode"],
             "created_at": row["created_at"],
         }
 
@@ -140,7 +144,7 @@ def list_results(
 
         rows = conn.execute(
             f"""SELECT id, type, title, prompt, track_count, artist,
-                       art_item_key, subtitle, created_at
+                       art_item_key, subtitle, source_mode, created_at
                 FROM results {where_clause}
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?""",
@@ -157,6 +161,7 @@ def list_results(
                 "artist": row["artist"],
                 "art_item_key": row["art_item_key"],
                 "subtitle": row["subtitle"],
+                "source_mode": row["source_mode"],
                 "created_at": row["created_at"],
             }
             for row in rows
