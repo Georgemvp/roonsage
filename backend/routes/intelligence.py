@@ -282,6 +282,16 @@ async def get_listening_stats(
             base_params,
         ).fetchone()
 
+        daily_rows = conn.execute(
+            f"""
+            SELECT date(timestamp) as day, COUNT(*) as plays
+            FROM listening_history
+            WHERE timestamp >= ? {zone_clause}
+            GROUP BY day ORDER BY day
+            """,
+            base_params,
+        ).fetchall()
+
         total = totals[0] or 0
         skipped = totals[1] or 0
         total_minutes = round((totals[2] or 0) / 60)
@@ -293,6 +303,7 @@ async def get_listening_stats(
             "total_tracks":  total,
             "total_minutes": total_minutes,
             "skip_rate_pct": skip_rate,
+            "daily_plays":   [{"date": r[0], "count": r[1]} for r in daily_rows],
             "top_artists": [
                 {
                     "artist":     r[0],

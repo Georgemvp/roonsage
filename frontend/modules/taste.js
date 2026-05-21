@@ -20,6 +20,9 @@ const _charts = {};
 // Current time range in days (0 = all time)
 let _timeRange = parseInt(localStorage.getItem('taste_time_range') || '30', 10);
 
+// Current zone filter (null = all zones)
+let _zoneFilter = null;
+
 // Amber palette helpers
 const AMBER       = '#e5a00d';
 const AMBER_70    = 'rgba(229,160,13,0.7)';
@@ -43,15 +46,18 @@ export async function initTasteView() {
 
     _showSkeleton();
     _setupFilterButtons();
+    await _setupZoneFilter();
     _setupLbButtons();
 
     try {
-        const dayParam = _timeRange > 0 ? `?days=${_timeRange}` : '?days=3650';
+        const days = _timeRange > 0 ? _timeRange : 3650;
+        const dayParam = `?days=${days}`;
+        const zoneParam = _zoneFilter ? `&zone=${encodeURIComponent(_zoneFilter)}` : '';
 
         let [profile, stats, history, lbStatus] = await Promise.all([
             apiCall('/taste/profile').catch(() => null),
-            apiCall(`/listening/stats${dayParam}`).catch(() => null),
-            apiCall('/listening/history').catch(() => null),
+            apiCall(`/listening/stats${dayParam}${zoneParam}`).catch(() => null),
+            apiCall(`/listening/history${dayParam}${zoneParam}&limit=100`).catch(() => null),
             apiCall('/intelligence/listenbrainz/status').catch(() => null),
         ]);
 
@@ -148,13 +154,58 @@ function _setupFilterButtons() {
     });
 }
 
+// ── Zone Filter ───────────────────────────────────────────────────────────────
+async function _setupZoneFilter() {
+    const row = document.getElementById('taste-zone-row');
+    if (!row) return;
+
+    let zones = [];
+    try {
+        const data = await apiCall('/listening/stats/zones?days=3650');
+        zones = (data || []).map(z => z.zone_name).filter(Boolean);
+    } catch (_) { /* no zone data yet */ }
+
+    // Remove any previously added buttons (avoid duplicates on re-render)
+    row.innerHTML = '';
+
+    if (!zones.length) {
+        row.style.display = 'none';
+        return;
+    }
+    row.style.display = '';
+
+    const allBtn = document.createElement('button');
+    allBtn.className = 'taste-filter-btn' + (_zoneFilter === null ? ' taste-filter-btn--active' : '');
+    allBtn.textContent = 'All zones';
+    allBtn.addEventListener('click', () => {
+        if (_zoneFilter === null) return;
+        _zoneFilter = null;
+        Object.keys(_charts).forEach(_destroyChart);
+        initTasteView();
+    });
+    row.appendChild(allBtn);
+
+    zones.forEach(zone => {
+        const btn = document.createElement('button');
+        btn.className = 'taste-filter-btn' + (_zoneFilter === zone ? ' taste-filter-btn--active' : '');
+        btn.textContent = zone;
+        btn.addEventListener('click', () => {
+            if (_zoneFilter === zone) return;
+            _zoneFilter = zone;
+            Object.keys(_charts).forEach(_destroyChart);
+            initTasteView();
+        });
+        row.appendChild(btn);
+    });
+}
+
 // ── Intelligence Banner ───────────────────────────────────────────────────────
 function _renderIntelBanner(profile, stats, lbStatus) {
     const totalPlaylists = profile?.stats?.total_playlists ?? '—';
     const peakHour = profile?.listening_patterns?.peak_hour ?? profile?.peak_hour ?? null;
     const peakLabel = peakHour != null ? `Peak: ${String(peakHour).padStart(2, '0')}:00` : 'Peak: —';
-    const skipRate  = stats?.skip_rate != null ? `${Math.round(stats.skip_rate * 100)}%` : '—';
-    const totalPlays = stats?.total_plays ?? profile?.stats?.total_tracks ?? '—';
+    const skipRate  = stats?.skip_rate_pct != null ? `${stats.skip_rate_pct}%` : '—';
+    const totalPlays = stats?.total_tracks ?? '—';
     const scrobbles  = lbStatus?.scrobble_count ?? null;
 
     const subtitleEl = document.getElementById('taste-intel-subtitle');
