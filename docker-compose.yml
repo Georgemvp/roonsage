@@ -50,6 +50,8 @@ services:
       - ./data:/app/data
       # Live-reload frontend without rebuilding the container
       - ./frontend:/app/frontend
+      # Live-reload backend without rebuilding the container
+      - ./backend:/app/backend
       # Optional: persist UI settings
       # - ./config.user.yaml:/app/config.user.yaml
     restart: unless-stopped
