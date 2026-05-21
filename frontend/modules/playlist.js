@@ -215,6 +215,27 @@ export async function loadSettings() {
             })
             .catch(() => {});
 
+        // Restore import status labels on page load (fire-and-forget)
+        for (const source of ['lastfm', 'listenbrainz']) {
+            const elId = source === 'lastfm' ? 'lastfm-import-status' : 'lb-import-status';
+            fetch(`/api/intelligence/${source}/import-status`)
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (!data) return;
+                    const el = document.getElementById(elId);
+                    if (!el) return;
+                    const count = (data.total_imported || 0).toLocaleString();
+                    if (data.status === 'complete' && data.total_imported > 0) {
+                        el.textContent = `✓ Klaar — ${count} tracks geïmporteerd`;
+                    } else if (data.status === 'running' || data.is_running) {
+                        el.textContent = `Bezig… ${count} tracks geïmporteerd`;
+                    } else if (data.status === 'error') {
+                        el.textContent = `✗ Fout: ${data.error_message || 'onbekend'}`;
+                    }
+                })
+                .catch(() => {});
+        }
+
         // Show library stats if connected — fire-and-forget so it never
         // blocks the loading spinner from being removed.
         if (state.config.roon_connected) {

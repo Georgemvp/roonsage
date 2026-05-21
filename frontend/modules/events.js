@@ -61,6 +61,11 @@ function _pollImportStatus(source, btn, statusEl, originalText) {
                 btn.disabled = false;
                 btn.textContent = originalText;
                 statusEl.textContent = `✗ Fout: ${data.error_message || 'onbekend'}`;
+            } else {
+                // idle or unknown — import ended without setting status correctly
+                clearInterval(poll);
+                btn.disabled = false;
+                btn.textContent = originalText;
             }
         } catch (_) { /* ignore poll errors */ }
     }, 3000);
