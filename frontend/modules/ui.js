@@ -905,6 +905,19 @@ export function updateSettings() {
     if (lbUsername) {
         lbUsername.value = state.config.listenbrainz_username || '';
     }
+    const lbStatus = document.getElementById('lb-settings-status');
+    if (lbStatus) {
+        const configured = !!state.config.listenbrainz_token_set;
+        lbStatus.classList.toggle('connected', configured);
+        const txt = lbStatus.querySelector('.status-text');
+        if (txt) {
+            txt.textContent = configured
+                ? (state.config.listenbrainz_username
+                    ? `Connected as ${state.config.listenbrainz_username}`
+                    : 'Connected')
+                : 'Not configured';
+        }
+    }
 }
 
 export function showProviderSettings(provider) {
