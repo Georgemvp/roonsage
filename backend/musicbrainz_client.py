@@ -20,9 +20,10 @@ MB_BASE = "https://musicbrainz.org/ws/2"
 MB_USER_AGENT = "RoonSage/10.0 (https://github.com/Georgemvp/roonsage)"
 
 # MusicBrainz requires max 1 request/second per their rate-limit policy.
-# We use a semaphore (1 slot) combined with a post-request sleep of 1.1 s
-# to stay well within the limit even when multiple workers run concurrently.
+# Semaphore (1 slot) + timestamp-based sleep ensures exactly 1.0 s between
+# consecutive requests, even when multiple coroutines share this client.
 _mb_semaphore = asyncio.Semaphore(1)
+_last_mb_request_time: float = 0.0
 
 # Minimum fuzzy score (0–100) to consider a MusicBrainz match valid.
 MB_MATCH_THRESHOLD = 85
@@ -202,7 +203,12 @@ class MusicBrainzClient:
 
         Returns the parsed JSON dict, or None on network / parse error.
         """
+        global _last_mb_request_time
         async with _mb_semaphore:
+            # Sleep only as long as needed to honour the 1 req/s policy.
+            elapsed = asyncio.get_event_loop().time() - _last_mb_request_time
+            if elapsed < 1.0:
+                await asyncio.sleep(1.0 - elapsed)
             try:
                 resp = await self._client().get(f"{MB_BASE}{path}", params=params)
                 resp.raise_for_status()
@@ -214,9 +220,7 @@ class MusicBrainzClient:
                 logger.warning("MB request error for %s: %s", path, exc)
                 data = None
             finally:
-                # Always sleep after releasing the semaphore so the next
-                # caller cannot immediately fire another request.
-                await asyncio.sleep(1.1)
+                _last_mb_request_time = asyncio.get_event_loop().time()
 
         return data
 

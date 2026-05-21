@@ -9,13 +9,15 @@ Rate limits (per MusicBrainz / Last.fm policy):
   Last.fm      : 5 req/s  — enforced by a per-worker semaphore below
 
 Design notes:
-  - Single asyncio task; processing is sequential, not concurrent.
-  - Items are processed one-at-a-time from the queue.  The BATCH_SIZE
-    constant controls how many items are pulled in a single DB query to
-    avoid locking the table for too long.
+  - Up to CONCURRENCY items are processed concurrently (asyncio tasks).
+    Each task opens its own SQLite connection to avoid write conflicts.
+  - MusicBrainz and Last.fm lookups run in parallel (asyncio.gather) so
+    LF latency is hidden inside the mandatory MB 1 s rate-limit sleep.
+  - The MusicBrainz semaphore (1 slot, timestamp-based sleep) is the
+    global throughput bottleneck — ~0.5 tracks/s per MB-search+tags pair.
   - On failure the item's ``attempts`` counter is incremented; after
     MAX_ATTEMPTS the item is marked ``failed`` and skipped permanently.
-  - A pause/resume mechanism uses a threading.Event so the REST API can
+  - A pause/resume mechanism uses asyncio.Event so the REST API can
     stop the worker without cancelling the asyncio task.
 """
 
@@ -34,8 +36,8 @@ logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 100          # Max pending items to pull per batch
 BATCH_PAUSE_SECONDS = 60  # Sleep between batches when no work is left
-ITEM_SLEEP_SECONDS = 0.2  # Tiny pause between individual items (LF rate headroom)
 MAX_ATTEMPTS = 3          # Retry failed items up to this many times
+CONCURRENCY = 5           # Max items processed concurrently within a batch
 
 # Last.fm rate: 5 req/s
 _lf_semaphore = asyncio.Semaphore(5)
@@ -239,19 +241,24 @@ async def enrich_one(
         from backend.musicbrainz_client import get_mb_client  # noqa: PLC0415
 
         mb_client = get_mb_client()
-        try:
-            mbid, mb_tags, mb_release_date, mb_country = await mb_client.lookup_recording(
-                artist, title
-            )
-        except Exception as exc:
-            logger.warning("MB lookup failed for %s - %s: %s", artist, title, exc)
-            mbid, mb_tags, mb_release_date, mb_country = None, [], None, None
+        # Run MB and LF lookups in parallel — LF finishes inside MB's rate-limit sleep.
+        mb_result, lf_result = await asyncio.gather(
+            mb_client.lookup_recording(artist, title),
+            _fetch_lastfm(artist, title),
+            return_exceptions=True,
+        )
 
-        try:
-            lf_tags, lf_listeners, lf_playcount = await _fetch_lastfm(artist, title)
-        except Exception as exc:
-            logger.warning("LF lookup failed for %s - %s: %s", artist, title, exc)
+        if isinstance(mb_result, Exception):
+            logger.warning("MB lookup failed for %s - %s: %s", artist, title, mb_result)
+            mbid, mb_tags, mb_release_date, mb_country = None, [], None, None
+        else:
+            mbid, mb_tags, mb_release_date, mb_country = mb_result
+
+        if isinstance(lf_result, Exception):
+            logger.warning("LF lookup failed for %s - %s: %s", artist, title, lf_result)
             lf_tags, lf_listeners, lf_playcount = [], None, None
+        else:
+            lf_tags, lf_listeners, lf_playcount = lf_result
 
         # Cache the result for deduplication within the current batch
         if len(_batch_cache) < BATCH_CACHE_MAX:
@@ -379,6 +386,61 @@ class EnrichmentWorker:
         return self._task is not None and not self._task.done()
 
     # ------------------------------------------------------------------
+    # Per-item processing (concurrent tasks)
+    # ------------------------------------------------------------------
+
+    async def _process_one(self, row: sqlite3.Row) -> None:
+        """Enrich a single queue item using its own DB connection."""
+        from backend.db import get_db_connection  # noqa: PLC0415
+
+        item_key = row["item_key"]
+        artist = row["artist"]
+        title = row["title"]
+
+        conn = get_db_connection()
+        try:
+            conn.execute("""
+                UPDATE enrichment_queue
+                SET status = 'processing', attempts = attempts + 1
+                WHERE item_key = ?
+            """, (item_key,))
+            conn.commit()
+
+            success = await enrich_one(item_key, artist, title, conn)
+
+            if not success:
+                attempts_row = conn.execute(
+                    "SELECT attempts FROM enrichment_queue WHERE item_key = ?",
+                    (item_key,),
+                ).fetchone()
+                attempts = attempts_row["attempts"] if attempts_row else MAX_ATTEMPTS
+                now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+                if attempts >= MAX_ATTEMPTS:
+                    conn.execute("""
+                        UPDATE enrichment_queue
+                        SET status = 'failed', error_message = 'max attempts exceeded',
+                            processed_at = ?
+                        WHERE item_key = ?
+                    """, (now, item_key))
+                else:
+                    conn.execute(
+                        "UPDATE enrichment_queue SET status = 'pending' WHERE item_key = ?",
+                        (item_key,),
+                    )
+                conn.commit()
+        except Exception as exc:
+            logger.error("Error processing %s: %s", item_key, exc)
+            with contextlib.suppress(Exception):
+                conn.execute(
+                    "UPDATE enrichment_queue SET status = 'pending' WHERE item_key = ?",
+                    (item_key,),
+                )
+                conn.commit()
+        finally:
+            with contextlib.suppress(Exception):
+                conn.close()
+
+    # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
 
@@ -393,9 +455,9 @@ class EnrichmentWorker:
             # Respect pause
             await self._paused.wait()
 
+            # Pull a batch of pending items (short-lived connection for SELECT only)
             conn = get_db_connection()
             try:
-                # Pull a batch of pending items
                 rows = conn.execute("""
                     SELECT item_key, artist, title, album
                     FROM enrichment_queue
@@ -407,116 +469,91 @@ class EnrichmentWorker:
                     END, created_at ASC
                     LIMIT ?
                 """, (MAX_ATTEMPTS, BATCH_SIZE)).fetchall()
+            except Exception as exc:
+                logger.error("EnrichmentWorker DB query failed: %s", exc)
+                rows = []
+            finally:
+                conn.close()
 
-                if not rows:
-                    # Nothing to do — sleep then re-check
-                    logger.debug("Enrichment queue empty, sleeping %ds", BATCH_PAUSE_SECONDS)
-                    conn.close()
-                    await asyncio.sleep(BATCH_PAUSE_SECONDS)
-                    continue
+            if not rows:
+                logger.debug("Enrichment queue empty, sleeping %ds", BATCH_PAUSE_SECONDS)
+                await asyncio.sleep(BATCH_PAUSE_SECONDS)
+                continue
 
-                logger.info("EnrichmentWorker: processing batch of %d items", len(rows))
-                _batch_cache.clear()
+            logger.info(
+                "EnrichmentWorker: processing batch of %d items (concurrency=%d)",
+                len(rows), CONCURRENCY,
+            )
+            _batch_cache.clear()
 
-                for row in rows:
-                    # Respect pause between items too
-                    await self._paused.wait()
-                    if not self._running:
-                        break
+            try:
+                # Launch up to CONCURRENCY items concurrently; each task owns its DB conn.
+                sem = asyncio.Semaphore(CONCURRENCY)
 
-                    item_key = row["item_key"]
-                    artist = row["artist"]
-                    title = row["title"]
+                async def _bounded(row: sqlite3.Row, _sem: asyncio.Semaphore = sem) -> None:
+                    async with _sem:
+                        await self._paused.wait()
+                        if self._running:
+                            await self._process_one(row)
 
-                    # Mark as processing
-                    conn.execute("""
-                        UPDATE enrichment_queue
-                        SET status = 'processing', attempts = attempts + 1
-                        WHERE item_key = ?
-                    """, (item_key,))
-                    conn.commit()
-
-                    success = await enrich_one(item_key, artist, title, conn)
-
-                    if not success:
-                        # Check attempts; mark failed if exceeded
-                        attempts_row = conn.execute(
-                            "SELECT attempts FROM enrichment_queue WHERE item_key = ?",
-                            (item_key,)
-                        ).fetchone()
-                        attempts = attempts_row["attempts"] if attempts_row else MAX_ATTEMPTS
-
-                        if attempts >= MAX_ATTEMPTS:
-                            now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
-                            conn.execute("""
-                                UPDATE enrichment_queue
-                                SET status = 'failed', error_message = 'max attempts exceeded',
-                                    processed_at = ?
-                                WHERE item_key = ?
-                            """, (now, item_key))
-                        else:
-                            conn.execute("""
-                                UPDATE enrichment_queue
-                                SET status = 'pending'
-                                WHERE item_key = ?
-                            """, (item_key,))
-                        conn.commit()
-
-                    await asyncio.sleep(ITEM_SLEEP_SECONDS)
-
-                # Auto-enrich listening_history after each batch
-                try:
-                    from rapidfuzz import fuzz as _fuzz  # noqa: PLC0415
-                    enrich_conn = get_db_connection()
-                    try:
-                        hist_rows = enrich_conn.execute("""
-                            SELECT lh.id, lh.track_title, lh.artist
-                            FROM listening_history lh
-                            WHERE (lh.genre IS NULL OR lh.genre = '')
-                            AND lh.track_title IS NOT NULL AND lh.track_title != ''
-                            AND lh.artist IS NOT NULL AND lh.artist != ''
-                            LIMIT 100
-                        """).fetchall()
-                        for hr in hist_rows:
-                            hist_id, h_title, h_artist = hr["id"], hr["track_title"], hr["artist"]
-                            candidates = enrich_conn.execute(
-                                "SELECT item_key, title, artist, year FROM tracks WHERE artist LIKE ? LIMIT 20",
-                                (f"%{h_artist[:20]}%",),
-                            ).fetchall()
-                            best_key, best_score, best_year = None, 0, None
-                            for c in candidates:
-                                score = _fuzz.token_sort_ratio(
-                                    f"{h_artist} {h_title}",
-                                    f"{c['artist']} {c['title']}",
-                                )
-                                if score > best_score:
-                                    best_score, best_key, best_year = score, c["item_key"], c["year"]
-                            if best_key and best_score >= 80:
-                                genre_rows2 = enrich_conn.execute(
-                                    "SELECT genre FROM track_genres WHERE track_key = ?",
-                                    (best_key,),
-                                ).fetchall()
-                                genre = ", ".join(r[0] for r in genre_rows2)
-                                decade = f"{(best_year // 10) * 10}s" if best_year else None
-                                enrich_conn.execute(
-                                    "UPDATE listening_history SET genre=?, year=?, decade=? WHERE id=?",
-                                    (genre, best_year, decade, hist_id),
-                                )
-                        enrich_conn.commit()
-                    finally:
-                        enrich_conn.close()
-                except Exception as enrich_exc:
-                    logger.debug("Auto listening_history enrichment: %s", enrich_exc)
-
+                results = await asyncio.gather(
+                    *[asyncio.create_task(_bounded(row)) for row in rows],
+                    return_exceptions=True,
+                )
+                for i, res in enumerate(results):
+                    if isinstance(res, Exception) and not isinstance(res, asyncio.CancelledError):
+                        logger.error("Unhandled error for %s: %s", rows[i]["item_key"], res)
             except asyncio.CancelledError:
                 logger.info("EnrichmentWorker task cancelled")
                 break
             except Exception as exc:
                 logger.error("EnrichmentWorker unexpected error: %s", exc, exc_info=True)
                 await asyncio.sleep(10)
-            finally:
-                with contextlib.suppress(Exception):
-                    conn.close()
+                continue
+
+            # Auto-enrich listening_history after each batch
+            try:
+                from rapidfuzz import fuzz as _fuzz  # noqa: PLC0415
+                enrich_conn = get_db_connection()
+                try:
+                    hist_rows = enrich_conn.execute("""
+                        SELECT lh.id, lh.track_title, lh.artist
+                        FROM listening_history lh
+                        WHERE (lh.genre IS NULL OR lh.genre = '')
+                        AND lh.track_title IS NOT NULL AND lh.track_title != ''
+                        AND lh.artist IS NOT NULL AND lh.artist != ''
+                        LIMIT 100
+                    """).fetchall()
+                    for hr in hist_rows:
+                        hist_id, h_title, h_artist = hr["id"], hr["track_title"], hr["artist"]
+                        candidates = enrich_conn.execute(
+                            "SELECT item_key, title, artist, year FROM tracks WHERE artist LIKE ? LIMIT 20",
+                            (f"%{h_artist[:20]}%",),
+                        ).fetchall()
+                        best_key, best_score, best_year = None, 0, None
+                        for c in candidates:
+                            score = _fuzz.token_sort_ratio(
+                                f"{h_artist} {h_title}",
+                                f"{c['artist']} {c['title']}",
+                            )
+                            if score > best_score:
+                                best_score, best_key, best_year = score, c["item_key"], c["year"]
+                        if best_key and best_score >= 80:
+                            genre_rows2 = enrich_conn.execute(
+                                "SELECT genre FROM track_genres WHERE track_key = ?",
+                                (best_key,),
+                            ).fetchall()
+                            genre = ", ".join(r[0] for r in genre_rows2)
+                            decade = f"{(best_year // 10) * 10}s" if best_year else None
+                            enrich_conn.execute(
+                                "UPDATE listening_history SET genre=?, year=?, decade=? WHERE id=?",
+                                (genre, best_year, decade, hist_id),
+                            )
+                    enrich_conn.commit()
+                finally:
+                    enrich_conn.close()
+            except Exception as enrich_exc:
+                logger.debug("Auto listening_history enrichment: %s", enrich_exc)
 
         logger.info("EnrichmentWorker loop exited")
 
