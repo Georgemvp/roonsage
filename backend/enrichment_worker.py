@@ -56,23 +56,11 @@ BATCH_CACHE_MAX = 2000
 def populate_enrichment_queue(conn: sqlite3.Connection) -> int:
     """Insert un-enriched tracks into ``enrichment_queue``.
 
-    Skips:
-    - Tracks that already have a row in ``track_metadata_ext`` (complete or pending).
-    - If the queue already has > 500 pending items (avoid unbounded growth).
+    Skips tracks that already have a row in ``track_metadata_ext``.
+    INSERT OR IGNORE prevents duplicates, so this is safe to call at any time.
 
     Returns the number of newly inserted rows.
     """
-    # Check current pending count
-    row = conn.execute(
-        "SELECT COUNT(*) FROM enrichment_queue WHERE status = 'pending'"
-    ).fetchone()
-    pending = row[0] if row else 0
-    if pending > 500:
-        logger.info(
-            "Enrichment queue already has %d pending items — skipping populate", pending
-        )
-        return 0
-
     # Find tracks missing from track_metadata_ext (either table row absent
     # or not yet in enrichment_queue at all)
     conn.execute("""
