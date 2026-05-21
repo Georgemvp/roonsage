@@ -551,19 +551,22 @@ class RoonBrowseMixin:
     def build_track_album_map(
         self,
         on_progress: Callable[[int, int], None] | None = None,
-    ) -> dict[tuple[str, str], str]:
-        """Browse Library → Albums → tracks to build a (title, artist) → album mapping.
+    ) -> dict[str, str]:
+        """Browse Library → Albums → tracks to build a title → album mapping.
 
         Navigates via hierarchy: "browse" (Library → Albums → each album).
-        Returns dict: (title_lower, artist_lower) → album_title.
+        Returns dict: title_lower → album_title.
 
-        Note: item_keys differ between flat-tracks browse and per-album browse,
-        so we match on (title, artist) instead.
+        Note: item_keys differ between flat-tracks and per-album browse, and
+        artist strings differ too (flat browse includes featured artists while
+        per-album browse subtitle often shows only the primary artist). We
+        therefore key only on lowercase title; setdefault ensures the first
+        album encountered wins (studio album before compilations).
         """
         if not self.is_connected():
             return {}
 
-        result: dict[tuple[str, str], str] = {}
+        result: dict[str, str] = {}
         try:
             with self._browse_lock:
                 self._api.browse_browse({"hierarchy": "browse", "pop_all": True})
@@ -640,12 +643,9 @@ class RoonBrowseMixin:
 
                         for t in track_items:
                             track_title = (t.get("title") or "").strip()
-                            subtitle = (t.get("subtitle") or "").strip()
-                            artist = subtitle.split("•")[0].strip() if subtitle else ""
                             if track_title:
-                                key = (track_title.lower(), artist.lower())
-                                # First occurrence wins (avoids overwriting with a compilation)
-                                result.setdefault(key, album_title)
+                                # First occurrence wins (studio album before compilations)
+                                result.setdefault(track_title.lower(), album_title)
 
                     except Exception as exc:
                         logger.debug(
@@ -659,7 +659,7 @@ class RoonBrowseMixin:
         except Exception as exc:
             logger.warning("build_track_album_map failed: %s", exc)
 
-        logger.info("build_track_album_map: mapped %d (title, artist) pairs", len(result))
+        logger.info("build_track_album_map: mapped %d unique titles to albums", len(result))
         return result
 
     def get_album_track_keys(self, album_item_key: str) -> list[str]:

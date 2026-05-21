@@ -389,13 +389,14 @@ def sync_library(
             track_album_map = roon_client.build_track_album_map(on_progress=_on_enrich_progress)
 
             if track_album_map:
-                # Match by (title, artist) — item_keys differ between browse paths
+                # Match by title only — item_keys and artist strings differ between
+                # flat-browse (all contributing artists) and per-album browse (primary only)
                 update_batch = [
-                    (album_title, title_lower, artist_lower)
-                    for (title_lower, artist_lower), album_title in track_album_map.items()
+                    (album_title, title_lower)
+                    for title_lower, album_title in track_album_map.items()
                 ]
                 conn.executemany(
-                    "UPDATE tracks SET album = ? WHERE LOWER(title) = ? AND LOWER(artist) = ?",
+                    "UPDATE tracks SET album = ? WHERE LOWER(title) = ?",
                     update_batch,
                 )
                 conn.commit()
