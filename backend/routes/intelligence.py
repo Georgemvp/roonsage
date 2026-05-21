@@ -1083,6 +1083,61 @@ async def enrich_listening_history() -> dict:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Scrobble history import (Last.fm + ListenBrainz)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/intelligence/lastfm/import-history")
+async def start_lastfm_history_import() -> dict:
+    """Start a background import of all Last.fm scrobbles since 2014."""
+    from backend.lastfm_client import get_lf_client  # noqa: PLC0415
+    from backend.scrobble_import import is_running, start_lastfm_import  # noqa: PLC0415
+
+    lf_client = get_lf_client()
+    if lf_client is None or not lf_client.is_configured():
+        raise HTTPException(status_code=400, detail="Last.fm not configured")
+    if is_running("lastfm"):
+        return {"started": False, "message": "Import already in progress"}
+    await start_lastfm_import(lf_client, from_year=2014)
+    return {"started": True, "message": "Last.fm history import started"}
+
+
+@router.get("/intelligence/lastfm/import-status")
+async def get_lastfm_import_status() -> dict:
+    """Get the current status of the Last.fm history import."""
+    from backend.scrobble_import import get_import_state, is_running  # noqa: PLC0415
+
+    state = get_import_state("lastfm")
+    state["is_running"] = is_running("lastfm")
+    return state
+
+
+@router.post("/intelligence/listenbrainz/import-history")
+async def start_lb_history_import() -> dict:
+    """Start a background import of all ListenBrainz listens."""
+    from backend.listenbrainz_client import get_lb_client  # noqa: PLC0415
+    from backend.scrobble_import import is_running, start_lb_import  # noqa: PLC0415
+
+    lb_client = get_lb_client()
+    if lb_client is None or not await lb_client.is_configured():
+        raise HTTPException(status_code=400, detail="ListenBrainz not configured")
+    if is_running("listenbrainz"):
+        return {"started": False, "message": "Import already in progress"}
+    await start_lb_import(lb_client, from_year=2014)
+    return {"started": True, "message": "ListenBrainz history import started"}
+
+
+@router.get("/intelligence/listenbrainz/import-status")
+async def get_lb_import_status() -> dict:
+    """Get the current status of the ListenBrainz history import."""
+    from backend.scrobble_import import get_import_state, is_running  # noqa: PLC0415
+
+    state = get_import_state("listenbrainz")
+    state["is_running"] = is_running("listenbrainz")
+    return state
+
+
 @router.get("/roon/tags")
 async def get_roon_tags() -> list[dict]:
     """Return all user-created Roon Tags via the Browse API."""

@@ -204,6 +204,29 @@ class ListenBrainzClient:
         )
         return result is not None and result.get("status") == "ok"
 
+    async def get_listens(
+        self,
+        min_ts: int | None = None,
+        max_ts: int | None = None,
+        count: int = 100,
+    ) -> list[dict]:
+        """Fetch listens from ListenBrainz (GET /1/user/{user}/listens).
+
+        Paginate backwards by passing max_ts = oldest timestamp - 1 from the previous batch.
+        Returns list of raw listen dicts from the API.
+        """
+        if not self._username or not self._token:
+            return []
+        params: dict[str, str] = {"count": str(min(count, 100))}
+        if min_ts is not None:
+            params["min_ts"] = str(min_ts)
+        if max_ts is not None:
+            params["max_ts"] = str(max_ts)
+        data = await self._get(f"/1/user/{self._username}/listens", params=params)
+        if data is None:
+            return []
+        return data.get("payload", {}).get("listens", [])
+
     async def get_user_feedback(self, score: int | None = None) -> list[dict]:
         """Return the user's recording feedback list.
 

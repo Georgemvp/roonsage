@@ -424,6 +424,34 @@ class LastFmClient:
             if t.get("name")
         ]
 
+    async def get_recent_tracks(
+        self,
+        from_ts: int | None = None,
+        to_ts: int | None = None,
+        page: int = 1,
+        limit: int = 200,
+    ) -> dict | None:
+        """Fetch a page of recent tracks via user.getRecentTracks.
+
+        Returns the raw API response dict (includes @attr for pagination),
+        or None on failure. Filter out the currently-playing track (no date).
+        """
+        if not self._api_key or not self._username:
+            return None
+        params: dict[str, str] = {
+            **self._base_params(),
+            "method": "user.getRecentTracks",
+            "user": self._username,
+            "limit": str(min(limit, 200)),
+            "page": str(page),
+            "extended": "0",
+        }
+        if from_ts is not None:
+            params["from"] = str(from_ts)
+        if to_ts is not None:
+            params["to"] = str(to_ts)
+        return await self._get(params)
+
     async def get_track_info(
         self,
         artist: str,

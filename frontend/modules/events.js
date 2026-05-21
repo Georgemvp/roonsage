@@ -36,6 +36,37 @@ export let pendingNavHash = null;
 export function setPendingNavHash(v) { pendingNavHash = v; }
 
 // =============================================================================
+// Import status polling helper
+// =============================================================================
+
+function _pollImportStatus(source, btn, statusEl, originalText) {
+    const endpoint = source === 'lastfm'
+        ? '/api/intelligence/lastfm/import-status'
+        : '/api/intelligence/listenbrainz/import-status';
+
+    const poll = setInterval(async () => {
+        try {
+            const res = await fetch(endpoint);
+            const data = await res.json();
+            const count = (data.total_imported || 0).toLocaleString();
+            if (data.status === 'running' || data.is_running) {
+                statusEl.textContent = `Bezig… ${count} tracks geïmporteerd`;
+            } else if (data.status === 'complete') {
+                clearInterval(poll);
+                btn.disabled = false;
+                btn.textContent = originalText;
+                statusEl.textContent = `✓ Klaar — ${count} tracks geïmporteerd`;
+            } else if (data.status === 'error') {
+                clearInterval(poll);
+                btn.disabled = false;
+                btn.textContent = originalText;
+                statusEl.textContent = `✗ Fout: ${data.error_message || 'onbekend'}`;
+            }
+        } catch (_) { /* ignore poll errors */ }
+    }, 3000);
+}
+
+// =============================================================================
 // Event Handlers
 // =============================================================================
 
@@ -458,6 +489,47 @@ export function setupEventListeners() {
             if (resultEl) resultEl.textContent = 'Error: ' + e.message;
         }
         if (btn) { btn.disabled = false; btn.textContent = 'Complete Session'; }
+    });
+
+    // Last.fm history import
+    document.getElementById('lastfm-import-history-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('lastfm-import-history-btn');
+        const statusEl = document.getElementById('lastfm-import-status');
+        btn.disabled = true;
+        btn.textContent = 'Bezig...';
+        statusEl.textContent = '';
+        try {
+            const res = await fetch('/api/intelligence/lastfm/import-history', { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Fout');
+            statusEl.textContent = data.message || 'Import gestart';
+            // Poll for status
+            _pollImportStatus('lastfm', btn, statusEl, 'Importeer geschiedenis');
+        } catch (e) {
+            btn.disabled = false;
+            btn.textContent = 'Importeer geschiedenis';
+            statusEl.textContent = '✗ ' + e.message;
+        }
+    });
+
+    // ListenBrainz history import
+    document.getElementById('lb-import-history-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('lb-import-history-btn');
+        const statusEl = document.getElementById('lb-import-status');
+        btn.disabled = true;
+        btn.textContent = 'Bezig...';
+        statusEl.textContent = '';
+        try {
+            const res = await fetch('/api/intelligence/listenbrainz/import-history', { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Fout');
+            statusEl.textContent = data.message || 'Import gestart';
+            _pollImportStatus('listenbrainz', btn, statusEl, 'Importeer geschiedenis');
+        } catch (e) {
+            btn.disabled = false;
+            btn.textContent = 'Importeer geschiedenis';
+            statusEl.textContent = '✗ ' + e.message;
+        }
     });
 
     // Success modal - Start New Playlist

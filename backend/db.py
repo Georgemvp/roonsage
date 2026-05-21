@@ -355,6 +355,23 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         );
     """)
 
+    # Scrobble import state table (tracks background history import per source)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS scrobble_import_state (
+            source TEXT PRIMARY KEY,
+            status TEXT DEFAULT 'idle',
+            total_imported INTEGER DEFAULT 0,
+            last_ts INTEGER,
+            started_at TEXT,
+            completed_at TEXT,
+            error_message TEXT
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_listening_external_dedup
+            ON listening_history(source, timestamp)
+            WHERE source IN ('lastfm', 'listenbrainz');
+    """)
+
     # -----------------------------------------------------------------------
     # Notification log table (v7.0)
     # -----------------------------------------------------------------------
