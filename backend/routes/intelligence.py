@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -34,34 +33,34 @@ class TasteEventRequest(BaseModel):
 
 class SavePlaylistRequest(BaseModel):
     name: str
-    prompt: Optional[str] = None
-    tracks_json: Optional[str] = None   # JSON array of {title, artist, album, item_key}
+    prompt: str | None = None
+    tracks_json: str | None = None   # JSON array of {title, artist, album, item_key}
     source_mode: str = "library"
-    tags: Optional[str] = ""           # comma-separated
+    tags: str | None = ""           # comma-separated
 
 
 class SavePlaylistFromSessionRequest(BaseModel):
     """Save playlist directly from a filter_tracks session_id + track_numbers."""
     name: str
-    prompt: Optional[str] = None
+    prompt: str | None = None
     session_id: str
     track_numbers: list[int]
     source_mode: str = "library"
-    tags: Optional[list[str]] = None
+    tags: list[str] | None = None
 
 
 class UpdatePlaylistRequest(BaseModel):
-    name: Optional[str] = None
-    tags: Optional[str] = None
-    rating: Optional[int] = None
-    qobuz_playlist_id: Optional[str] = None
+    name: str | None = None
+    tags: str | None = None
+    rating: int | None = None
+    qobuz_playlist_id: str | None = None
 
 
 class ModifyPlaylistRequest(BaseModel):
     session_id: str
-    remove_numbers: Optional[list[int]] = None
-    add_numbers: Optional[list[int]] = None
-    swap: Optional[list[list[int]]] = None
+    remove_numbers: list[int] | None = None
+    add_numbers: list[int] | None = None
+    swap: list[list[int]] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +119,7 @@ async def get_taste_events(limit: int = Query(20, ge=1, le=200)) -> list[dict]:
 @router.get("/listening/history")
 async def get_listening_history(
     limit: int = Query(50, ge=1, le=500),
-    zone: Optional[str] = Query(None),
+    zone: str | None = Query(None),
     days: int = Query(7, ge=1, le=3650),
 ) -> list[dict]:
     """Return recent listening history rows."""
@@ -247,7 +246,7 @@ async def get_listening_stats(days: int = Query(7, ge=1, le=3650)) -> dict:
 @router.get("/playlists/saved")
 async def list_saved_playlists(
     limit: int = Query(50, ge=1, le=200),
-    tag: Optional[str] = Query(None),
+    tag: str | None = Query(None),
 ) -> list[dict]:
     """Return saved playlists, optionally filtered by tag."""
     conn = get_db_connection()
@@ -934,7 +933,7 @@ async def trigger_lastfm_sync() -> dict:
 class ListenFeedbackRequest(BaseModel):
     artist: str
     title: str
-    recording_msid: Optional[str] = None
+    recording_msid: str | None = None
     score: int  # +1 love, -1 hate
 
 

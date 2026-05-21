@@ -27,7 +27,6 @@ import logging
 import time
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
 
 from backend.db import get_connection
 from backend.scheduler import matches_cron  # reuse existing cron parser
@@ -89,7 +88,7 @@ async def _exec_generate_playlist(config: dict) -> str:
     """Generate a playlist from a prompt and optionally queue it in a zone."""
     prompt = config.get("prompt", "Relaxing background music")
     track_count = int(config.get("track_count", 20))
-    zone_name: Optional[str] = config.get("zone_name") or config.get("zone")
+    zone_name: str | None = config.get("zone_name") or config.get("zone")
     genres: list[str] | None = config.get("genres") or None
     decades: list[str] | None = config.get("decades") or None
     exclude_live: bool = config.get("exclude_live", True)
@@ -132,7 +131,7 @@ async def _exec_generate_playlist(config: dict) -> str:
         roon = get_roon_client()
         if roon and roon.is_connected():
             zones = roon.get_zones()
-            zone_id: Optional[str] = None
+            zone_id: str | None = None
             for z in zones:
                 if zone_name.lower() in z.get("display_name", "").lower():
                     zone_id = z.get("zone_id")
@@ -235,7 +234,7 @@ async def _exec_volume_set(config: dict) -> str:
         raise RuntimeError("Roon not connected")
 
     zones = roon.get_zones()
-    zone_id: Optional[str] = None
+    zone_id: str | None = None
     for z in zones:
         if zone_name.lower() in z.get("display_name", "").lower():
             zone_id = z.get("zone_id")
@@ -271,7 +270,7 @@ class AutomationEngine:
     _SCHEDULE_SKIP_WINDOW = 55  # double-run guard (seconds)
 
     def __init__(self) -> None:
-        self._task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
+        self._task: asyncio.Task | None = None  # type: ignore[type-arg]
         self._running = False
 
     # ------------------------------------------------------------------ #
@@ -422,7 +421,7 @@ class AutomationEngine:
 
         start_ms = time.monotonic()
         status = "failed"
-        error_msg: Optional[str] = None
+        error_msg: str | None = None
         result_msg = ""
 
         try:
@@ -483,10 +482,10 @@ class AutomationEngine:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
-_engine: Optional[AutomationEngine] = None
+_engine: AutomationEngine | None = None
 
 
-def get_engine() -> Optional[AutomationEngine]:
+def get_engine() -> AutomationEngine | None:
     """Return the running AutomationEngine singleton, or None if not started."""
     return _engine
 

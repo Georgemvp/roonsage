@@ -17,7 +17,6 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
 
 from backend.db import get_connection
 
@@ -109,9 +108,9 @@ async def _run_schedule(row: dict) -> None:
     name: str = row["name"]
     prompt: str = row["prompt"]
     track_count: int = row["track_count"] or 25
-    zone_name: Optional[str] = row["zone_name"]
+    zone_name: str | None = row["zone_name"]
     save_to_qobuz: bool = bool(row["save_to_qobuz"])
-    qobuz_playlist_id: Optional[str] = row["qobuz_playlist_id"]
+    qobuz_playlist_id: str | None = row["qobuz_playlist_id"]
 
     # Parse optional filters JSON
     filters: dict = {}
@@ -126,7 +125,7 @@ async def _run_schedule(row: dict) -> None:
     exclude_live: bool = filters.get("exclude_live", True)
 
     logger.info("Running scheduled playlist id=%d name=%r", schedule_id, name)
-    error_msg: Optional[str] = None
+    error_msg: str | None = None
     status = "failed"
     generated_tracks: list[dict] = []
     playlist_title: str = name
@@ -253,7 +252,7 @@ async def _run_schedule(row: dict) -> None:
             if roon and roon.is_connected():
                 # Find the zone_id by name (fuzzy)
                 zones = roon.get_zones()
-                zone_id: Optional[str] = None
+                zone_id: str | None = None
                 zone_name_lower = zone_name.lower()
                 for z in zones:
                     if zone_name_lower in z.get("display_name", "").lower():
@@ -312,7 +311,7 @@ class PlaylistScheduler:
     _SKIP_WINDOW = 55
 
     def __init__(self) -> None:
-        self._task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
+        self._task: asyncio.Task | None = None  # type: ignore[type-arg]
         self._running = False
 
     def start(self) -> None:
@@ -388,10 +387,10 @@ class PlaylistScheduler:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
-_scheduler: Optional[PlaylistScheduler] = None
+_scheduler: PlaylistScheduler | None = None
 
 
-def get_scheduler() -> Optional[PlaylistScheduler]:
+def get_scheduler() -> PlaylistScheduler | None:
     """Return the running PlaylistScheduler singleton, or None if not started."""
     return _scheduler
 

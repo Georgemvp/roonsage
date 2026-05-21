@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -31,25 +30,25 @@ class ScheduleFilters(BaseModel):
 class CreateScheduleRequest(BaseModel):
     name: str
     prompt: str
-    filters: Optional[ScheduleFilters] = None
+    filters: ScheduleFilters | None = None
     track_count: int = 25
     schedule: str  # cron expression
-    zone_name: Optional[str] = None
+    zone_name: str | None = None
     save_to_qobuz: bool = True
-    qobuz_playlist_id: Optional[str] = None
+    qobuz_playlist_id: str | None = None
     enabled: bool = True
 
 
 class UpdateScheduleRequest(BaseModel):
-    name: Optional[str] = None
-    prompt: Optional[str] = None
-    filters: Optional[ScheduleFilters] = None
-    track_count: Optional[int] = None
-    schedule: Optional[str] = None
-    zone_name: Optional[str] = None
-    save_to_qobuz: Optional[bool] = None
-    qobuz_playlist_id: Optional[str] = None
-    enabled: Optional[bool] = None
+    name: str | None = None
+    prompt: str | None = None
+    filters: ScheduleFilters | None = None
+    track_count: int | None = None
+    schedule: str | None = None
+    zone_name: str | None = None
+    save_to_qobuz: bool | None = None
+    qobuz_playlist_id: str | None = None
+    enabled: bool | None = None
 
 
 def _row_to_dict(row) -> dict:

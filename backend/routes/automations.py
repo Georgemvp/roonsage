@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -47,13 +46,13 @@ class AutomationCreate(BaseModel):
 
 
 class AutomationUpdate(BaseModel):
-    name: Optional[str] = None
-    trigger_type: Optional[str] = None
-    trigger_config: Optional[dict] = None
-    action_type: Optional[str] = None
-    action_config: Optional[dict] = None
-    enabled: Optional[bool] = None
-    cooldown_seconds: Optional[int] = None
+    name: str | None = None
+    trigger_type: str | None = None
+    trigger_config: dict | None = None
+    action_type: str | None = None
+    action_config: dict | None = None
+    enabled: bool | None = None
+    cooldown_seconds: int | None = None
 
 
 # ---------------------------------------------------------------------------

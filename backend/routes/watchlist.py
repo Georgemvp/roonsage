@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -26,9 +25,9 @@ class AddArtistRequest(BaseModel):
 
 
 class UpdateArtistRequest(BaseModel):
-    monitor_albums: Optional[bool] = None
-    monitor_eps: Optional[bool] = None
-    monitor_singles: Optional[bool] = None
+    monitor_albums: bool | None = None
+    monitor_eps: bool | None = None
+    monitor_singles: bool | None = None
 
 
 # ---------------------------------------------------------------------------

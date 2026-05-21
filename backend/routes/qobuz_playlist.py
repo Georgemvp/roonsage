@@ -3,7 +3,6 @@
 import asyncio
 import datetime
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -64,9 +63,9 @@ class TrackInput(BaseModel):
 
 class SaveQobuzPlaylistRequest(BaseModel):
     name: str
-    description: Optional[str] = ""
+    description: str | None = ""
     tracks: list[TrackInput]
-    is_public: Optional[bool] = False
+    is_public: bool | None = False
 
 
 @router.post("/api/qobuz/playlist/save")
@@ -117,8 +116,8 @@ async def qobuz_save_status():
 
 
 class ValidateQobuzRequest(BaseModel):
-    email: Optional[str] = None
-    password: Optional[str] = None
+    email: str | None = None
+    password: str | None = None
 
 
 @router.post("/api/qobuz/validate")
@@ -327,7 +326,7 @@ async def delete_qobuz_playlist(playlist_id: str):
 
 @router.get("/api/qobuz/new-releases")
 async def qobuz_new_releases(
-    genre_id: Optional[str] = Query(None, description="Qobuz genre ID (optional)"),
+    genre_id: str | None = Query(None, description="Qobuz genre ID (optional)"),
     limit: int = Query(50, ge=1, le=200),
 ):
     """Get new/featured album releases from Qobuz."""

@@ -24,7 +24,6 @@ import json
 import logging
 import sqlite3
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -350,7 +349,7 @@ class EnrichmentWorker:
         self._paused = asyncio.Event()
         self._paused.set()  # Not paused by default
         self._running = False
-        self._task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
+        self._task: asyncio.Task | None = None  # type: ignore[type-arg]
 
     # ------------------------------------------------------------------
     # Control API

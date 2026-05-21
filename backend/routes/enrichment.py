@@ -9,7 +9,6 @@ Routes:
 """
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
@@ -43,12 +42,12 @@ class EnrichmentQueueItem(BaseModel):
     item_key: str
     artist: str
     title: str
-    album: Optional[str] = None
+    album: str | None = None
     status: str
     attempts: int = 0
-    error_message: Optional[str] = None
-    created_at: Optional[str] = None
-    processed_at: Optional[str] = None
+    error_message: str | None = None
+    created_at: str | None = None
+    processed_at: str | None = None
 
 
 class EnrichmentQueueResponse(BaseModel):
@@ -174,7 +173,7 @@ async def resume_enrichment() -> dict:
 async def get_enrichment_queue(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    status: Optional[str] = Query(None),
+    status: str | None = Query(None),
 ) -> EnrichmentQueueResponse:
     """Paginated view of the enrichment queue.
 
