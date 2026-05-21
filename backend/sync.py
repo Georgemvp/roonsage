@@ -365,18 +365,71 @@ def sync_library(
         conn.commit()
 
         # ----------------------------------------------------------------
+        # Phase 4: Enrich album/parent_item_key when flat browse skipped it
+        # ----------------------------------------------------------------
+        unknown_album_count = conn.execute(
+            "SELECT COUNT(*) FROM tracks WHERE album = 'Unknown Album' OR album IS NULL OR album = ''"
+        ).fetchone()[0]
+
+        if unknown_album_count > synced_count * 0.5:
+            logger.info(
+                "Phase 4: %d/%d tracks missing album — building track→album map via per-album browse",
+                unknown_album_count, synced_count,
+            )
+            with _sync_lock:
+                _sync_state["phase"] = "enriching_albums"
+                _sync_state["current"] = 0
+                _sync_state["total"] = 0
+
+            def _on_enrich_progress(current: int, total: int) -> None:
+                with _sync_lock:
+                    _sync_state["current"] = current
+                    _sync_state["total"] = total
+
+            track_album_map = roon_client.build_track_album_map(on_progress=_on_enrich_progress)
+
+            if track_album_map:
+                update_batch = [
+                    (album_title, album_key, track_key)
+                    for track_key, (album_title, album_key) in track_album_map.items()
+                ]
+                conn.executemany(
+                    "UPDATE tracks SET album = ?, parent_item_key = ? WHERE item_key = ?",
+                    update_batch,
+                )
+                conn.commit()
+                enriched_count = len(update_batch)
+                logger.info("Phase 4: updated album for %d tracks", enriched_count)
+
+                # Enrich genres from albums table via title match for tracks
+                # that got a real album name but still have empty genres
+                conn.execute("""
+                    UPDATE tracks SET genres = (
+                        SELECT a.genres FROM albums a
+                        WHERE LOWER(a.title) = LOWER(tracks.album)
+                        AND a.genres IS NOT NULL AND a.genres != '[]'
+                        LIMIT 1
+                    )
+                    WHERE (genres IS NULL OR genres = '[]')
+                    AND album IS NOT NULL AND album != 'Unknown Album' AND album != ''
+                """)
+                conn.commit()
+            else:
+                logger.warning("Phase 4: build_track_album_map returned empty — skipping enrichment")
+
+        # ----------------------------------------------------------------
         # Post-processing: backfill year, rebuild genre junction table
         # ----------------------------------------------------------------
-        logger.info("Backfilling track year from albums table...")
+        logger.info("Backfilling track year from albums table (title match)...")
         conn.execute("""
             UPDATE tracks SET year = (
                 SELECT a.year FROM albums a
-                WHERE a.item_key = tracks.parent_item_key
+                WHERE LOWER(a.title) = LOWER(tracks.album)
                 AND a.year IS NOT NULL
+                LIMIT 1
             )
             WHERE year IS NULL
-            AND parent_item_key IS NOT NULL
-            AND parent_item_key != ''
+            AND album IS NOT NULL AND album != 'Unknown Album' AND album != ''
         """)
         conn.commit()
         backfilled = conn.execute(

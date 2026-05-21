@@ -548,6 +548,112 @@ class RoonBrowseMixin:
             logger.exception("Failed to get library stats: %s", e)
             return {"total_tracks": 0, "genres": [], "decades": [], "error": str(e)}
 
+    def build_track_album_map(
+        self,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> dict[str, tuple[str, str]]:
+        """Browse Library → Albums → tracks to build a track→album mapping.
+
+        Uses hierarchy: "browse" so track item_keys match those from flat-track
+        browse. Returns dict: track_item_key → (album_title, album_browse_key).
+        """
+        if not self.is_connected():
+            return {}
+
+        result: dict[str, tuple[str, str]] = {}
+        try:
+            with self._browse_lock:
+                self._api.browse_browse({"hierarchy": "browse", "pop_all": True})
+                root_page = self._api.browse_load({"hierarchy": "browse", "count": 100})
+                root_items = root_page.get("items", []) if root_page else []
+
+                library_item = next(
+                    (i for i in root_items if "library" in i.get("title", "").lower()),
+                    None,
+                )
+                if not library_item:
+                    logger.warning("build_track_album_map: Library not found in browse root")
+                    return {}
+
+                self._api.browse_browse(
+                    {"hierarchy": "browse", "item_key": library_item["item_key"]}
+                )
+                lib_page = self._api.browse_load({"hierarchy": "browse", "count": 100})
+                lib_items = lib_page.get("items", []) if lib_page else []
+
+                albums_item = next(
+                    (i for i in lib_items if "album" in i.get("title", "").lower()),
+                    None,
+                )
+                if not albums_item:
+                    logger.warning("build_track_album_map: Albums not found in Library")
+                    return {}
+
+                self._api.browse_browse(
+                    {"hierarchy": "browse", "item_key": albums_item["item_key"]}
+                )
+                album_items = self._paginate_browse_load("browse")
+                total_albums = len(album_items)
+                logger.info("build_track_album_map: %d albums to process", total_albums)
+
+                for idx, album in enumerate(album_items):
+                    album_key = album.get("item_key", "")
+                    album_title = album.get("title", "")
+                    if not album_key:
+                        continue
+
+                    try:
+                        self._api.browse_browse(
+                            {"hierarchy": "browse", "item_key": album_key}
+                        )
+                        page = self._api.browse_load({"hierarchy": "browse", "count": 500})
+                        items = page.get("items", []) if page else []
+
+                        track_keys = [
+                            item["item_key"] for item in items
+                            if item.get("hint") in ("action", "action_list")
+                            and item.get("item_key")
+                        ]
+
+                        if not track_keys:
+                            list_items = [
+                                i for i in items
+                                if i.get("hint") == "list" and i.get("item_key")
+                            ]
+                            for sub in list_items:
+                                self._api.browse_browse(
+                                    {"hierarchy": "browse", "item_key": sub["item_key"]}
+                                )
+                                sub_page = self._api.browse_load(
+                                    {"hierarchy": "browse", "count": 500}
+                                )
+                                sub_items = sub_page.get("items", []) if sub_page else []
+                                track_keys.extend(
+                                    item["item_key"] for item in sub_items
+                                    if item.get("hint") in ("action", "action_list")
+                                    and item.get("item_key")
+                                )
+                                if track_keys:
+                                    break
+
+                        for tk in track_keys:
+                            result[tk] = (album_title, album_key)
+
+                    except Exception as exc:
+                        logger.debug(
+                            "build_track_album_map: album '%s' failed: %s", album_title, exc
+                        )
+
+                    if on_progress:
+                        with contextlib.suppress(Exception):
+                            on_progress(idx + 1, total_albums)
+
+        except Exception as exc:
+            logger.warning("build_track_album_map failed: %s", exc)
+
+        logger.info("build_track_album_map: mapped %d tracks across albums", len(result))
+        return result
+
     def get_album_track_keys(self, album_item_key: str) -> list[str]:
         """Browse into an album and return its track item_keys."""
         if not self.is_connected():
