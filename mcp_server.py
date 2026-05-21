@@ -589,13 +589,19 @@ async def curate_and_play(
     tracks_skipped = data.get("tracks_skipped", 0)
     zone_name = data.get("zone_name", zone_id)
 
-    # Report clear failure when all tracks were skipped
+    # Report complete failure when all tracks were skipped
     if tracks_queued == 0 and tracks_skipped > 0:
         return (
-            f"ERROR: Playback failed — all {tracks_skipped} tracks were skipped. "
-            f"This usually means Roon's item keys are stale (try a library resync) "
-            f"or Roon search is not returning results. "
-            f"Run sync_library first, then retry."
+            f"PLAYBACK FAILED: 0 tracks played, {tracks_skipped} skipped. "
+            f"All item keys appear to be stale. Run sync_library first to refresh "
+            f"the library cache, then retry the playlist. "
+            f"If this persists, Roon search may be unavailable — check Roon Core connection."
+        )
+    # Report partial skip even on success
+    if tracks_skipped > 0:
+        return (
+            f"Playing {tracks_queued} tracks. "
+            f"Warning: {tracks_skipped} tracks were skipped (not found in Roon)."
         )
 
     result: dict = {
@@ -613,11 +619,6 @@ async def curate_and_play(
             + ". NIET opnieuw sturen."
         ) if tracks_queued > 0 else "Geen tracks gequeued. Controleer de sessie en zone.",
     }
-    # Mention partial skips in a note when some (not all) tracks were skipped
-    if tracks_skipped > 0 and tracks_queued > 0:
-        result["skip_warning"] = (
-            f"{tracks_skipped} track(s) could not be found and were skipped."
-        )
     if data.get("missing_numbers"):
         result["warning"] = f"Track numbers not found (skipped): {data['missing_numbers']}"
 

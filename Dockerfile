@@ -28,10 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy pre-built packages from builder stage
 COPY --from=builder /install /usr/local/lib/python3.12/site-packages/
+COPY --from=builder /install/bin/ /usr/local/bin/
 
 # Copy application source
 COPY --chown=roonsage:roonsage backend/ ./backend/
 COPY --chown=roonsage:roonsage frontend/ ./frontend/
+COPY --chown=roonsage:roonsage config.example.yaml ./
 
 EXPOSE 5765
 
@@ -40,4 +42,4 @@ USER roonsage
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
   CMD python -c "import urllib.request; import sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5765/api/health').getcode() == 200 else 1)"
 
-CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port 5765 --workers ${UVICORN_WORKERS:-1}"]
+CMD ["sh", "-c", "python -m uvicorn backend.main:app --host 0.0.0.0 --port 5765 --workers ${UVICORN_WORKERS:-1}"]
