@@ -58,9 +58,26 @@ def populate_enrichment_queue(conn: sqlite3.Connection) -> int:
 
     Skips tracks that already have a row in ``track_metadata_ext``.
     INSERT OR IGNORE prevents duplicates, so this is safe to call at any time.
+    Also removes stale queue entries for tracks no longer in the library.
 
     Returns the number of newly inserted rows.
     """
+    # Remove queue entries for tracks that no longer exist in the library
+    deleted = conn.execute("""
+        DELETE FROM enrichment_queue
+        WHERE item_key NOT IN (SELECT item_key FROM tracks)
+    """).rowcount
+    if deleted:
+        logger.info("Enrichment queue: removed %d stale entries (tracks no longer in library)", deleted)
+
+    # Also clean up track_metadata_ext for removed tracks
+    conn.execute("""
+        DELETE FROM track_metadata_ext
+        WHERE item_key NOT IN (SELECT item_key FROM tracks)
+    """)
+
+    conn.commit()
+
     # Find tracks missing from track_metadata_ext (either table row absent
     # or not yet in enrichment_queue at all)
     conn.execute("""
