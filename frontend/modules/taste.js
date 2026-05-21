@@ -98,7 +98,7 @@ export async function initTasteView() {
         }
 
         _renderIntelBanner(profile, stats, lbStatus);
-        _renderTasteStats(profile);
+        _renderTasteStats(profile, stats);
         _renderTimelineChart(stats);
         _renderGenreDistChart(profile);
         _renderProfile(profile);         // radar chart
@@ -228,7 +228,7 @@ function _renderIntelBanner(profile, stats, lbStatus) {
 }
 
 // ── Taste Stats Grid ──────────────────────────────────────────────────────────
-function _renderTasteStats(profile) {
+function _renderTasteStats(profile, listeningStats) {
     // Find or create the stats grid, inserted after the intel banner
     let statsGrid = document.querySelector('.taste-stats-grid');
     if (!statsGrid) {
@@ -245,11 +245,18 @@ function _renderTasteStats(profile) {
 
     const peakHour = profile?.listening_patterns?.peak_hour ?? profile?.peak_hour ?? null;
     const peakDay  = profile?.listening_patterns?.peak_day  ?? profile?.peak_day  ?? null;
-    const totalHours = profile?.stats?.total_hours ?? profile?.total_hours ?? null;
+    // Hours: prefer profile (all-time), fall back to listening stats total_minutes
+    const totalHours = profile?.stats?.total_hours ?? profile?.total_hours
+        ?? (listeningStats?.total_minutes != null ? listeningStats.total_minutes / 60 : null);
+    // Artists: prefer profile, fall back to unique artists in stats
+    const artistCount = (profile?.recently_active?.top_artists?.length)
+        || Object.keys(profile?.artists || {}).length
+        || listeningStats?.top_artists?.length
+        || null;
 
     const stats = [
         {
-            value: totalHours != null ? Math.round(totalHours) : '—',
+            value: totalHours != null ? (totalHours < 1 ? '<1' : Math.round(totalHours)) : '—',
             label: 'Hours Listened',
             color: 'teal',
         },
@@ -259,7 +266,7 @@ function _renderTasteStats(profile) {
             color: '',
         },
         {
-            value: (profile?.recently_active?.top_artists?.length) || Object.keys(profile?.artists || {}).length || '—',
+            value: artistCount ?? '—',
             label: 'Artists Tracked',
             color: '',
         },
