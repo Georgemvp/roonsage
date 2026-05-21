@@ -44,15 +44,19 @@ def get_undiscovered_albums() -> list[dict]:
             GROUP BY artist
         ),
         artist_albums AS (
-            -- All (artist, album) pairs in the library
+            -- All albums in the library, joined to artist play counts.
+            -- Uses the albums table so real album names are available
+            -- (tracks.album is unreliable for flat-browse syncs).
             SELECT DISTINCT
-                t.artist,
-                t.album,
-                t.parent_item_key,
+                a.artist,
+                a.title   AS album,
+                a.item_key AS parent_item_key,
                 ap.play_count AS artist_play_count
-            FROM tracks t
-            JOIN artist_plays ap ON LOWER(t.artist) = LOWER(ap.artist)
-            WHERE t.album IS NOT NULL AND t.album != ''
+            FROM albums a
+            JOIN artist_plays ap ON LOWER(a.artist) = LOWER(ap.artist)
+            WHERE a.title IS NOT NULL
+              AND a.title != ''
+              AND a.title != 'Unknown Album'
         ),
         album_plays AS (
             -- Distinct albums that have at least one play in listening_history

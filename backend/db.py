@@ -122,6 +122,7 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         );
 
         CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist);
+        CREATE INDEX IF NOT EXISTS idx_albums_artist_lower ON albums(LOWER(artist));
 
         -- Genre junction table: one row per (track, genre) for fast SQL filtering
         CREATE TABLE IF NOT EXISTS track_genres (
