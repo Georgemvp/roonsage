@@ -154,7 +154,7 @@ function _renderIntelBanner(profile, stats, lbStatus) {
     const peakHour = profile?.listening_patterns?.peak_hour ?? profile?.peak_hour ?? null;
     const peakLabel = peakHour != null ? `Peak: ${String(peakHour).padStart(2, '0')}:00` : 'Peak: —';
     const skipRate  = stats?.skip_rate != null ? `${Math.round(stats.skip_rate * 100)}%` : '—';
-    const totalPlays = stats?.total_plays ?? '—';
+    const totalPlays = stats?.total_plays ?? profile?.stats?.total_tracks ?? '—';
     const scrobbles  = lbStatus?.scrobble_count ?? null;
 
     const subtitleEl = document.getElementById('taste-intel-subtitle');
@@ -194,7 +194,7 @@ function _renderTasteStats(profile) {
 
     const peakHour = profile?.listening_patterns?.peak_hour ?? profile?.peak_hour ?? null;
     const peakDay  = profile?.listening_patterns?.peak_day  ?? profile?.peak_day  ?? null;
-    const totalHours = profile?.total_hours ?? profile?.listening_patterns?.total_hours ?? null;
+    const totalHours = profile?.stats?.total_hours ?? profile?.total_hours ?? null;
 
     const stats = [
         {
@@ -203,12 +203,12 @@ function _renderTasteStats(profile) {
             color: 'teal',
         },
         {
-            value: Object.keys(profile?.genre_scores || {}).length || (profile?.top_genres?.length ?? '—'),
+            value: Object.keys(profile?.genres || profile?.genre_scores || {}).length || (profile?.top_genres?.length ?? '—'),
             label: 'Genres',
             color: '',
         },
         {
-            value: (profile?.top_artists?.length) || '—',
+            value: (profile?.recently_active?.top_artists?.length) || Object.keys(profile?.artists || {}).length || '—',
             label: 'Artists Tracked',
             color: '',
         },
@@ -238,8 +238,10 @@ function _renderTasteStats(profile) {
 function _renderMoodTags(profile) {
     // Only add mood/skip tags if the profile has them — don't overwrite the
     // existing Likes/Dislikes notes that _renderTasteNotes already renders.
-    const moods = profile?.moods || [];
-    const skips = profile?.skip_signals || [];
+    const rawMoods = profile?.moods || {};
+    const moods = Array.isArray(rawMoods) ? rawMoods : Object.keys(rawMoods);
+    const rawSkips = profile?.skip_signals || {};
+    const skips = Array.isArray(rawSkips) ? rawSkips : [...(rawSkips.genres || []), ...(rawSkips.artists || [])];
     if (!moods.length && !skips.length) return;
 
     const notesSection = document.getElementById('taste-notes-section');
@@ -369,7 +371,13 @@ function _renderGenreDistChart(profile) {
     if (!canvas) return;
     _destroyChart('genreDist');
 
-    const rawGenres = profile?.top_genres || profile?.genres || [];
+    let rawGenres = profile?.top_genres || [];
+    if (!rawGenres.length && profile?.genres && typeof profile.genres === 'object' && !Array.isArray(profile.genres)) {
+        rawGenres = Object.entries(profile.genres).map(([name, score]) => ({ name, score }));
+    }
+    if (!rawGenres.length && Array.isArray(profile?.genres)) {
+        rawGenres = profile.genres;
+    }
     if (!rawGenres.length) {
         _showChartEmpty(canvas, 'No genre data yet.');
         return;
