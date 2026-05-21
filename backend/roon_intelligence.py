@@ -57,7 +57,7 @@ _GENRE_CACHE_MAX = 500
 
 # ── Auto-recompute taste profile ───────────────────────────────────────────────
 _listen_count_since_recompute = 0
-_RECOMPUTE_EVERY = 15
+_RECOMPUTE_EVERY = 3
 
 
 class RoonIntelligenceMixin:

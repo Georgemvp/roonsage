@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from backend import library_cache
 from backend.config import get_config
 from backend.filter_sessions import get_session, store_session
+from backend.results import save_result
 from backend.roon_client import get_roon_client
 from backend.llm_client import estimate_cost_for_model
 from backend.models import (
@@ -454,6 +455,35 @@ async def curate_from_session(request: dict) -> dict:
         })
 
     result_dict = result.model_dump()
+
+    if result.success and resolved_tracks:
+        try:
+            save_result(
+                result_type="mcp_playlist",
+                title=f"MCP Playlist ({len(resolved_tracks)} tracks)",
+                prompt="",  # MCP flow heeft geen user prompt
+                snapshot={
+                    "tracks": resolved_tracks,
+                    "zone": result_dict.get("zone_name", zone_id),
+                    "source": "mcp_curate_and_play",
+                },
+                track_count=len(resolved_tracks),
+                art_item_key=item_keys[0] if item_keys else None,
+            )
+        except Exception:
+            pass  # non-critical, niet laten crashen
+
+    if result.success:
+        try:
+            import threading
+            from backend.taste_profile import TasteProfile
+            threading.Thread(
+                target=TasteProfile.compute_profile_from_history,
+                daemon=True,
+            ).start()
+        except Exception:
+            pass
+
     return {
         "success": result.success,
         "tracks_queued": len(item_keys),
