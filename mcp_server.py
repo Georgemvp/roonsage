@@ -2124,6 +2124,63 @@ async def get_listening_history(days: int = 7, limit: int = 30) -> str:
 
 
 @mcp.tool()
+async def get_zone_history(
+    zone: str,
+    days: int = 30,
+    limit: int = 30,
+) -> str:
+    """Get listening history and stats for a specific Roon zone.
+
+    Use this when the user asks what has been playing in a particular room,
+    wants zone-specific recommendations, or asks about listening habits per zone.
+
+    Args:
+        zone:  Exact zone name as shown in Roon (e.g. "Woonkamer", "Slaapkamer").
+        days:  How many days back to look (default 30).
+        limit: Maximum history entries to return (default 30).
+    """
+    logger.info("GET_ZONE_HISTORY: zone='%s' days=%d limit=%d", zone, days, limit)
+
+    history, stats = await asyncio.gather(
+        _api_call("GET", "/api/listening/history", params={"zone": zone, "days": days, "limit": limit}),
+        _api_call("GET", "/api/listening/stats", params={"zone": zone, "days": days}),
+        return_exceptions=True,
+    )
+
+    lines = [f"Zone: {zone} (last {days} days)"]
+
+    if isinstance(stats, dict) and not isinstance(stats, Exception):
+        lines.append(
+            f"Plays: {stats.get('total_tracks', 0)} tracks · "
+            f"{stats.get('total_minutes', 0)} min · "
+            f"skip rate {stats.get('skip_rate_pct', 0)}%"
+        )
+        artists = stats.get("top_artists", [])
+        if artists:
+            lines.append("Top artists: " + ", ".join(
+                f"{a['artist']} ({a['plays']})" for a in artists[:5]
+            ))
+        genres = stats.get("top_genres", [])
+        if genres:
+            lines.append("Top genres: " + ", ".join(
+                f"{g['genre']} ({g['plays']})" for g in genres[:5]
+            ))
+
+    if isinstance(history, list) and history:
+        lines.append(f"\nRecent tracks ({len(history)}):")
+        for entry in history:
+            skipped = " [SKIPPED]" if entry.get("skipped") else ""
+            lines.append(
+                f"  {str(entry.get('timestamp', ''))[:16]}  "
+                f"{entry.get('artist', '?')} — {entry.get('track_title', '?')}{skipped}"
+            )
+    elif not (isinstance(history, list) and history):
+        lines.append("No history found for this zone.")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
 async def save_playlist(
     name: str,
     prompt: str,

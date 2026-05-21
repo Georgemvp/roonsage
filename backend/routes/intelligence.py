@@ -171,45 +171,115 @@ async def get_listening_history(
         conn.close()
 
 
-@router.get("/listening/stats")
-async def get_listening_stats(days: int = Query(7, ge=1, le=3650)) -> dict:
-    """Return aggregated listening statistics for the last *days* days."""
+@router.get("/listening/stats/zones")
+async def get_listening_stats_zones(days: int = Query(30, ge=1, le=3650)) -> list[dict]:
+    """Return per-zone listening stats for the last *days* days."""
     cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    conn = get_db_connection()
+    try:
+        zone_rows = conn.execute(
+            """
+            SELECT zone_name,
+                   COUNT(*) as total_plays,
+                   SUM(CASE WHEN skipped = 1 THEN 1 ELSE 0 END) as skipped,
+                   SUM(played_seconds) as total_seconds,
+                   MAX(timestamp) as last_played
+            FROM listening_history
+            WHERE timestamp >= ? AND zone_name IS NOT NULL AND zone_name != ''
+            GROUP BY zone_name ORDER BY total_plays DESC
+            """,
+            (cutoff,),
+        ).fetchall()
+
+        result = []
+        for zr in zone_rows:
+            zone_name, total, skipped_count, seconds, last_played = zr
+            skip_rate = round(skipped_count / total * 100, 1) if total else 0.0
+
+            top_artists = conn.execute(
+                """
+                SELECT artist, COUNT(*) as plays
+                FROM listening_history
+                WHERE timestamp >= ? AND zone_name = ?
+                  AND artist IS NOT NULL AND artist != ''
+                GROUP BY artist ORDER BY plays DESC LIMIT 5
+                """,
+                (cutoff, zone_name),
+            ).fetchall()
+
+            top_genres = conn.execute(
+                """
+                SELECT genre, COUNT(*) as plays
+                FROM listening_history
+                WHERE timestamp >= ? AND zone_name = ?
+                  AND genre IS NOT NULL AND genre != ''
+                GROUP BY genre ORDER BY plays DESC LIMIT 5
+                """,
+                (cutoff, zone_name),
+            ).fetchall()
+
+            result.append({
+                "zone_name":     zone_name,
+                "total_plays":   total,
+                "total_minutes": round((seconds or 0) / 60),
+                "skip_rate_pct": skip_rate,
+                "last_played":   last_played,
+                "top_artists":   [{"artist": r[0], "plays": r[1]} for r in top_artists],
+                "top_genres":    [{"genre": r[0], "plays": r[1]} for r in top_genres],
+            })
+        return result
+    finally:
+        conn.close()
+
+
+@router.get("/listening/stats")
+async def get_listening_stats(
+    days: int = Query(7, ge=1, le=3650),
+    zone: str | None = Query(None),
+) -> dict:
+    """Return aggregated listening statistics for the last *days* days.
+
+    Args:
+        days: Number of days to look back (1–3650).
+        zone: Optional Roon zone name to filter by (e.g. "Woonkamer").
+    """
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    zone_clause = "AND zone_name = ?" if zone else ""
+    base_params: list = [cutoff, zone] if zone else [cutoff]
 
     conn = get_db_connection()
     try:
-        # Top artists
         artist_rows = conn.execute(
-            """
+            f"""
             SELECT artist, COUNT(*) as plays,
                    SUM(CASE WHEN skipped = 0 THEN 1 ELSE 0 END) as full_plays
             FROM listening_history
-            WHERE timestamp >= ? AND artist IS NOT NULL AND artist != ''
+            WHERE timestamp >= ? {zone_clause}
+              AND artist IS NOT NULL AND artist != ''
             GROUP BY artist ORDER BY plays DESC LIMIT 15
             """,
-            (cutoff,),
+            base_params,
         ).fetchall()
 
-        # Top genres
         genre_rows = conn.execute(
-            """
+            f"""
             SELECT genre, COUNT(*) as plays
             FROM listening_history
-            WHERE timestamp >= ? AND genre IS NOT NULL AND genre != ''
+            WHERE timestamp >= ? {zone_clause}
+              AND genre IS NOT NULL AND genre != ''
             GROUP BY genre ORDER BY plays DESC LIMIT 10
             """,
-            (cutoff,),
+            base_params,
         ).fetchall()
 
-        # Overall stats
         totals = conn.execute(
-            """
+            f"""
             SELECT COUNT(*) as total,
                    SUM(CASE WHEN skipped = 1 THEN 1 ELSE 0 END) as skipped,
                    SUM(played_seconds) as total_seconds
-            FROM listening_history WHERE timestamp >= ?
+            FROM listening_history WHERE timestamp >= ? {zone_clause}
             """,
-            (cutoff,),
+            base_params,
         ).fetchone()
 
         total = totals[0] or 0
@@ -219,15 +289,16 @@ async def get_listening_stats(days: int = Query(7, ge=1, le=3650)) -> dict:
 
         return {
             "period_days":   days,
+            "zone":          zone,
             "total_tracks":  total,
             "total_minutes": total_minutes,
             "skip_rate_pct": skip_rate,
             "top_artists": [
                 {
-                    "artist":      r[0],
-                    "plays":       r[1],
-                    "full_plays":  r[2],
-                    "completion":  round(r[2] / r[1] * 100) if r[1] else 0,
+                    "artist":     r[0],
+                    "plays":      r[1],
+                    "full_plays": r[2],
+                    "completion": round(r[2] / r[1] * 100) if r[1] else 0,
                 }
                 for r in artist_rows
             ],
