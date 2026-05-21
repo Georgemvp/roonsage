@@ -53,3 +53,4 @@ services:
       # Optional: persist UI settings
       # - ./config.user.yaml:/app/config.user.yaml
     restart: unless-stopped
+    stop_grace_period: 60s

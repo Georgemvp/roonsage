@@ -244,6 +244,21 @@ async def start_background_tasks(app: FastAPI) -> None:
     from backend.automation_engine import init_engine  # noqa: PLC0415
     init_engine()
 
+    # Periodic DB backup (every 4 hours)
+    async def _db_backup_loop() -> None:
+        import shutil  # noqa: PLC0415
+        from backend.db import DB_PATH  # noqa: PLC0415
+        while True:
+            await asyncio.sleep(4 * 3600)
+            try:
+                backup = DB_PATH.with_suffix(".db.bak")
+                shutil.copy2(str(DB_PATH), str(backup))
+                logger.info("DB backup written to %s", backup)
+            except Exception as exc:
+                logger.warning("DB backup failed: %s", exc)
+
+    _add_task(_db_backup_loop(), "db_backup")
+
 
 # ---------------------------------------------------------------------------
 # Graceful shutdown
@@ -281,3 +296,14 @@ async def shutdown(app: FastAPI) -> None:
     llm = get_llm_client()
     if llm is not None:
         await llm.close()
+
+    # Flush SQLite WAL to the main DB file before exit — prevents corruption
+    # on hard container kills by ensuring the DB is in a consistent state.
+    try:
+        from backend.db import get_db_connection  # noqa: PLC0415
+        _db = get_db_connection()
+        _db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        _db.close()
+        logger.info("SQLite WAL checkpoint complete")
+    except Exception as exc:
+        logger.warning("SQLite WAL checkpoint failed: %s", exc)
