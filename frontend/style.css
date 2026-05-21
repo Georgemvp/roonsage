@@ -4127,6 +4127,10 @@ body.no-scroll {
 .pl-source-badge--library  { background: rgba(67,160,71,.2);  color: #43a047; }
 .pl-source-badge--hybrid   { background: var(--amber-glow); color: var(--amber); }
 .pl-source-badge--qobuz    { background: rgba(33,150,243,.2); color: #2196f3; }
+.pl-source-badge--history  { background: rgba(156,39,176,.2); color: #ab47bc; }
+
+.pl-card--history { opacity: .92; }
+.pl-card-subtitle { font-size: .75rem; color: var(--text-muted); margin-bottom: 4px; }
 
 .pl-card-tags {
     display: flex;

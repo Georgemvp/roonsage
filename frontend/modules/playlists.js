@@ -23,26 +23,59 @@ async function loadPlaylists() {
     if (!container) return;
     container.innerHTML = '<div class="playlists-loading"><div class="spinner"></div></div>';
     try {
-        const data = await apiCall('/playlists/saved');
-        _playlists = Array.isArray(data) ? data : (data.playlists || []);
+        // Fetch saved playlists AND generated-playlist history in parallel
+        const [saved, resultsData] = await Promise.all([
+            apiCall('/playlists/saved'),
+            apiCall('/results?limit=100&type=prompt_playlist,seed_playlist,mcp_playlist').catch(() => ({ results: [] })),
+        ]);
+
+        const savedPlaylists = (Array.isArray(saved) ? saved : (saved.playlists || [])).map(p => ({
+            ...p,
+            _is_result: false,
+        }));
+
+        // Normalize result items to match the saved-playlist shape
+        const historyItems = ((resultsData && resultsData.results) || []).map(r => ({
+            id: r.id,
+            name: r.title,
+            prompt: r.prompt || '',
+            created_at: r.created_at,
+            source_mode: null,        // unknown at list level; fetched lazily
+            track_count: r.track_count || 0,
+            tags: [],
+            rating: null,
+            tracks: [],
+            _is_result: true,
+            _subtitle: r.subtitle || '',
+        }));
+
+        // Merge — saved IDs are integers, result IDs are hex strings so no collision
+        _playlists = [...savedPlaylists, ...historyItems].sort(
+            (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
+        );
+
         renderPlaylists();
     } catch (e) {
         container.innerHTML = `<p class="playlists-empty">Could not load playlists: ${escapeHtml(e.message)}</p>`;
     }
 }
 
-async function deletePlaylist(id) {
+async function deletePlaylist(id, isResult = false) {
     if (!confirm('Delete this playlist?')) return;
     try {
-        await apiCall(`/playlists/saved/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        _playlists = _playlists.filter(p => p.id !== id);
+        const endpoint = isResult
+            ? `/results/${encodeURIComponent(id)}`
+            : `/playlists/saved/${encodeURIComponent(id)}`;
+        await apiCall(endpoint, { method: 'DELETE' });
+        _playlists = _playlists.filter(p => String(p.id) !== String(id));
         renderPlaylists();
     } catch (e) {
         alert('Could not delete playlist: ' + e.message);
     }
 }
 
-async function updatePlaylistMeta(id, updates) {
+async function updatePlaylistMeta(id, updates, isResult = false) {
+    if (isResult) return; // Result history items don't support name/tag/rating edits
     try {
         await apiCall(`/playlists/saved/${encodeURIComponent(id)}`, {
             method: 'PUT',
@@ -54,7 +87,25 @@ async function updatePlaylistMeta(id, updates) {
 }
 
 async function playPlaylist(playlist) {
-    if (!playlist.item_keys?.length) {
+    // item_keys are not included in the list response — fetch lazily on play
+    let item_keys = playlist.item_keys;
+    if (!item_keys?.length) {
+        try {
+            if (playlist._is_result) {
+                // Results store tracks in the snapshot (GenerateResponse shape)
+                const detail = await apiCall(`/results/${playlist.id}`);
+                item_keys = (detail.snapshot?.tracks || []).map(t => t.item_key).filter(Boolean);
+            } else {
+                // Saved playlists store tracks_json with item_key per track
+                const data = await apiCall(`/playlists/saved/${playlist.id}/tracks`);
+                item_keys = (data.tracks || []).map(t => t.item_key).filter(Boolean);
+            }
+        } catch (e) {
+            alert('Could not load tracks: ' + e.message);
+            return;
+        }
+    }
+    if (!item_keys?.length) {
         alert('No playable tracks in this playlist.');
         return;
     }
@@ -66,7 +117,7 @@ async function playPlaylist(playlist) {
         const zoneId = active[0].zone_id;
         await apiCall('/queue', {
             method: 'POST',
-            body: JSON.stringify({ zone_id: zoneId, item_keys: playlist.item_keys }),
+            body: JSON.stringify({ zone_id: zoneId, item_keys }),
         });
         showToast('▶ Playing: ' + (playlist.name || 'Playlist'));
     } catch (e) {
@@ -123,7 +174,9 @@ function bindSearch() {
 function filteredPlaylists() {
     let list = [..._playlists];
     if (_filter.source !== 'all') {
-        list = list.filter(p => (p.source_mode || 'library') === _filter.source);
+        // History items (results) don't have a known source_mode at list level —
+        // only show them under "All"
+        list = list.filter(p => !p._is_result && (p.source_mode || 'library') === _filter.source);
     }
     if (_filter.tag) {
         list = list.filter(p => (p.tags || []).includes(_filter.tag));
@@ -162,7 +215,10 @@ function renderPlaylists() {
     // Bind card events
     container.querySelectorAll('.pl-card').forEach(card => {
         const id = card.dataset.id;
-        const playlist = _playlists.find(p => p.id === id);
+        const isResult = card.dataset.isResult === 'true';
+        // IDs from saved_playlists are integers (stored as strings in dataset),
+        // IDs from results are hex strings — compare as strings throughout.
+        const playlist = _playlists.find(p => String(p.id) === id);
         if (!playlist) return;
 
         // Expand / collapse
@@ -177,7 +233,7 @@ function renderPlaylists() {
             playPlaylist(playlist);
         });
 
-        // Save to Arc
+        // Save to Arc (saved playlists only)
         card.querySelector('.pl-action-arc')?.addEventListener('click', e => {
             e.stopPropagation();
             saveForArc(playlist);
@@ -186,23 +242,23 @@ function renderPlaylists() {
         // Delete
         card.querySelector('.pl-action-delete')?.addEventListener('click', e => {
             e.stopPropagation();
-            deletePlaylist(id);
+            deletePlaylist(id, isResult);
         });
 
-        // Star rating
+        // Star rating (saved playlists only)
         card.querySelectorAll('.pl-star').forEach(star => {
             star.addEventListener('click', e => {
                 e.stopPropagation();
                 const rating = parseInt(star.dataset.rating);
                 playlist.rating = rating;
-                updatePlaylistMeta(id, { rating });
+                updatePlaylistMeta(id, { rating }, isResult);
                 card.querySelectorAll('.pl-star').forEach(s => {
                     s.classList.toggle('pl-star--active', parseInt(s.dataset.rating) <= rating);
                 });
             });
         });
 
-        // Edit tags
+        // Edit tags (saved playlists only)
         card.querySelector('.pl-tag-edit-btn')?.addEventListener('click', e => {
             e.stopPropagation();
             openTagEditor(card, playlist);
@@ -237,43 +293,49 @@ function renderTagRow(list) {
 
 function playlistCardHtml(p) {
     const tracks = p.tracks || [];
+    const isResult = !!p._is_result;
     const rating = p.rating || 0;
-    const stars = [1,2,3,4,5].map(n =>
+    const stars = isResult ? '' : [1,2,3,4,5].map(n =>
         `<button class="pl-star${n <= rating ? ' pl-star--active' : ''}" data-rating="${n}" aria-label="${n} star">★</button>`
     ).join('');
-    const tags = (p.tags || []).map(t =>
+    const tags = isResult ? '' : (p.tags || []).map(t =>
         `<span class="pl-tag${_filter.tag === t ? ' pl-tag--active' : ''}" data-tag="${escapeHtml(t)}">#${escapeHtml(t)}</span>`
     ).join('');
     const date = p.created_at ? new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-    const sourceBadge = `<span class="pl-source-badge pl-source-badge--${p.source_mode || 'library'}">${p.source_mode || 'library'}</span>`;
+    const sourceBadge = isResult
+        ? '<span class="pl-source-badge pl-source-badge--history">history</span>'
+        : `<span class="pl-source-badge pl-source-badge--${p.source_mode || 'library'}">${p.source_mode || 'library'}</span>`;
+    const trackCount = p.track_count || tracks.length;
     const trackList = tracks.map((t, i) =>
         `<div class="pl-track-row"><span class="pl-track-num">${i+1}</span><span class="pl-track-title">${escapeHtml(t.artist || '')} — ${escapeHtml(t.title || '')}</span></div>`
     ).join('');
+    const subtitle = p._subtitle ? `<div class="pl-card-subtitle">${escapeHtml(p._subtitle)}</div>` : '';
 
     return `
-    <div class="pl-card" data-id="${escapeHtml(p.id)}">
+    <div class="pl-card${isResult ? ' pl-card--history' : ''}" data-id="${escapeHtml(String(p.id))}" data-is-result="${isResult}">
         <div class="pl-card-header">
             <div class="pl-card-info">
                 <div class="pl-card-title">${escapeHtml(p.name || 'Untitled Playlist')}</div>
                 ${p.prompt ? `<div class="pl-card-prompt">"${escapeHtml(p.prompt.slice(0, 100))}${p.prompt.length > 100 ? '…' : ''}"</div>` : ''}
+                ${subtitle}
                 <div class="pl-card-meta">
-                    <span>${tracks.length} tracks</span>
+                    <span>${trackCount} tracks</span>
                     ${sourceBadge}
                     ${date ? `<span>${date}</span>` : ''}
                 </div>
-                <div class="pl-card-tags">
+                ${!isResult ? `<div class="pl-card-tags">
                     ${tags}
                     <button class="pl-tag-edit-btn" title="Edit tags">+</button>
-                </div>
+                </div>` : ''}
             </div>
             <div class="pl-card-side">
-                <div class="pl-stars" role="group" aria-label="Rating">${stars}</div>
+                ${!isResult ? `<div class="pl-stars" role="group" aria-label="Rating">${stars}</div>` : ''}
             </div>
         </div>
         <div class="pl-card-actions">
             <button class="btn btn-secondary pl-action-play">▶ Play</button>
-            <button class="btn btn-outline pl-action-arc">📱 Save for Arc</button>
-            <button class="btn-ghost pl-action-delete" title="Delete playlist">🗑</button>
+            ${!isResult ? `<button class="btn btn-outline pl-action-arc">📱 Save for Arc</button>` : ''}
+            <button class="btn-ghost pl-action-delete" title="Delete">🗑</button>
         </div>
         ${tracks.length ? `
         <div class="pl-tracklist">
