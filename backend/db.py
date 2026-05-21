@@ -94,6 +94,10 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         CREATE INDEX IF NOT EXISTS idx_tracks_year ON tracks(year);
         CREATE INDEX IF NOT EXISTS idx_tracks_is_live ON tracks(is_live);
 
+        -- Expression indexes for discovery queries (LOWER joins)
+        CREATE INDEX IF NOT EXISTS idx_tracks_artist_lower ON tracks(LOWER(artist));
+        CREATE INDEX IF NOT EXISTS idx_tracks_title_lower ON tracks(LOWER(title));
+
         -- Sync state: single-row metadata table
         CREATE TABLE IF NOT EXISTS sync_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -281,6 +285,10 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         );
         CREATE INDEX IF NOT EXISTS idx_listening_ts ON listening_history(timestamp DESC);
         CREATE INDEX IF NOT EXISTS idx_listening_artist ON listening_history(artist);
+
+        -- Expression indexes for discovery queries (LOWER joins)
+        CREATE INDEX IF NOT EXISTS idx_listening_artist_lower ON listening_history(LOWER(artist));
+        CREATE INDEX IF NOT EXISTS idx_listening_title_lower ON listening_history(LOWER(track_title));
 
         -- Saved playlists from curation sessions
         CREATE TABLE IF NOT EXISTS saved_playlists (
