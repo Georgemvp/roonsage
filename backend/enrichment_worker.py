@@ -229,22 +229,40 @@ async def enrich_one(
     conn: sqlite3.Connection,
 ) -> bool:
     """Enrich a single track.  Returns True on success, False on failure."""
-    from backend.musicbrainz_client import get_mb_client  # noqa: PLC0415
+    import re as _re  # noqa: PLC0415
 
-    mb_client = get_mb_client()
-    try:
-        mbid, mb_tags, mb_release_date, mb_country = await mb_client.lookup_recording(
-            artist, title
-        )
-    except Exception as exc:
-        logger.warning("MB lookup failed for %s - %s: %s", artist, title, exc)
-        mbid, mb_tags, mb_release_date, mb_country = None, [], None, None
+    # Build cache key from primary artist + cleaned title for batch deduplication
+    primary = artist.split(",")[0].strip().lower() if artist else ""
+    clean = _re.sub(r'\s*[\(\[].*?[\)\]]\s*$', '', title).strip().lower() if title else ""
+    cache_key = (primary, clean)
 
-    try:
-        lf_tags, lf_listeners, lf_playcount = await _fetch_lastfm(artist, title)
-    except Exception as exc:
-        logger.warning("LF lookup failed for %s - %s: %s", artist, title, exc)
-        lf_tags, lf_listeners, lf_playcount = [], None, None
+    if cache_key in _batch_cache:
+        cached = _batch_cache[cache_key]
+        mbid, mb_tags, mb_release_date, mb_country, lf_tags, lf_listeners, lf_playcount = cached
+    else:
+        from backend.musicbrainz_client import get_mb_client  # noqa: PLC0415
+
+        mb_client = get_mb_client()
+        try:
+            mbid, mb_tags, mb_release_date, mb_country = await mb_client.lookup_recording(
+                artist, title
+            )
+        except Exception as exc:
+            logger.warning("MB lookup failed for %s - %s: %s", artist, title, exc)
+            mbid, mb_tags, mb_release_date, mb_country = None, [], None, None
+
+        try:
+            lf_tags, lf_listeners, lf_playcount = await _fetch_lastfm(artist, title)
+        except Exception as exc:
+            logger.warning("LF lookup failed for %s - %s: %s", artist, title, exc)
+            lf_tags, lf_listeners, lf_playcount = [], None, None
+
+        # Cache the result for deduplication within the current batch
+        if len(_batch_cache) < BATCH_CACHE_MAX:
+            _batch_cache[cache_key] = (
+                mbid, mb_tags, mb_release_date, mb_country,
+                lf_tags, lf_listeners, lf_playcount,
+            )
 
     # Determine enrichment_source
     has_mb = bool(mbid)
@@ -402,6 +420,7 @@ class EnrichmentWorker:
                     continue
 
                 logger.info("EnrichmentWorker: processing batch of %d items", len(rows))
+                _batch_cache.clear()
 
                 for row in rows:
                     # Respect pause between items too

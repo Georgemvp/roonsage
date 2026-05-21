@@ -234,6 +234,17 @@ def auto_populate_watchlist() -> list[str]:
         conn.close()
 
     for artist_name in candidates:
+        # Split credit strings and take only the primary artist
+        if " / " in artist_name:
+            parts = artist_name.split(" / ")
+            if len(parts) > 2:
+                # Too many credits — not useful for Qobuz search
+                continue
+            artist_name = parts[0].strip()
+        # Skip entries that are still too long (>50 chars = likely a credit string)
+        if len(artist_name) > 50:
+            continue
+
         if artist_name not in existing:
             try:
                 add_to_watchlist(artist_name, auto=True)

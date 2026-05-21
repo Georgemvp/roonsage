@@ -121,7 +121,7 @@ async def get_taste_events(limit: int = Query(20, ge=1, le=200)) -> list[dict]:
 async def get_listening_history(
     limit: int = Query(50, ge=1, le=500),
     zone: Optional[str] = Query(None),
-    days: int = Query(7, ge=1, le=365),
+    days: int = Query(7, ge=1, le=3650),
 ) -> list[dict]:
     """Return recent listening history rows."""
     cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
@@ -172,7 +172,7 @@ async def get_listening_history(
 
 
 @router.get("/listening/stats")
-async def get_listening_stats(days: int = Query(7, ge=1, le=365)) -> dict:
+async def get_listening_stats(days: int = Query(7, ge=1, le=3650)) -> dict:
     """Return aggregated listening statistics for the last *days* days."""
     cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
@@ -585,7 +585,7 @@ async def modify_playlist(request: ModifyPlaylistRequest) -> dict:
 
 
 @router.get("/intelligence/listening-stats")
-async def get_intelligence_listening_stats(days: int = Query(30, ge=1, le=365)) -> dict:
+async def get_intelligence_listening_stats(days: int = Query(30, ge=1, le=3650)) -> dict:
     """Combined local + ListenBrainz stats in one response."""
     cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 

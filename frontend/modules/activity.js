@@ -12,7 +12,7 @@ let _pollInterval = null;
 export function startActivityMonitor() {
     if (_pollInterval) return;
     _updateActivityBar();
-    _pollInterval = setInterval(_updateActivityBar, 5000);
+    _pollInterval = setInterval(_updateActivityBar, 30000);
 }
 
 /** Stop the polling interval (call when unmounting / logging out). */
