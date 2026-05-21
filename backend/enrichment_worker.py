@@ -41,6 +41,10 @@ MAX_ATTEMPTS = 3          # Retry failed items up to this many times
 _lf_semaphore = asyncio.Semaphore(5)
 _LF_SLEEP = 0.21  # seconds after releasing the LF semaphore
 
+# In-memory cache for batch deduplication: (artist, title) → enrichment results
+_batch_cache: dict[tuple[str, str], tuple] = {}
+BATCH_CACHE_MAX = 2000
+
 
 # ===========================================================================
 # Queue management helpers

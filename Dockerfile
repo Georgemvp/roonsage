@@ -1,4 +1,12 @@
-FROM python:3.14.3-slim
+# ── Stage 1: dependency builder ───────────────────────────────────────────────
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --target=/install -r requirements.txt
+
+# ── Stage 2: final image ───────────────────────────────────────────────────────
+FROM python:3.12-slim
 
 ARG VERSION=dev
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -7,34 +15,29 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Create a non-root user with specific UID for easier host permission matching
-RUN groupadd -r -g 1000 roonsageappuser && useradd -r -u 1000 -g roonsageappuser roonsageappuser
+# Non-root user with stable UID for volume-permission compatibility
+RUN groupadd -r -g 1000 roonsage && useradd -r -u 1000 -g roonsage roonsage
 
-# Create data directory with correct ownership (for volume mounts)
-RUN mkdir -p /app/data && chown roonsageappuser:roonsageappuser /app/data
+# Data directory (SQLite + user config) owned by app user
+RUN mkdir -p /app/data && chown roonsage:roonsage /app/data
 
-# Install system dependencies (chromaprint for AcoustID fingerprinting)
+# System dependencies (chromaprint for AcoustID fingerprinting)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libchromaprint-tools \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy pre-built packages from builder stage
+COPY --from=builder /install /usr/local/lib/python3.12/site-packages/
 
-# Copy application code with ownership
-COPY --chown=roonsageappuser:roonsageappuser backend/ ./backend/
-COPY --chown=roonsageappuser:roonsageappuser frontend/ ./frontend/
+# Copy application source
+COPY --chown=roonsage:roonsage backend/ ./backend/
+COPY --chown=roonsage:roonsage frontend/ ./frontend/
 
-# Expose port
 EXPOSE 5765
 
-# Switch to non-root user
-USER roonsageappuser
+USER roonsage
 
-# Healthcheck
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-  CMD python -c "import urllib.request; import sys; code = urllib.request.urlopen('http://localhost:5765/api/health').getcode(); sys.exit(0 if code == 200 else 1)"
+  CMD python -c "import urllib.request; import sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5765/api/health').getcode() == 200 else 1)"
 
-# Run the application
 CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port 5765 --workers ${UVICORN_WORKERS:-1}"]

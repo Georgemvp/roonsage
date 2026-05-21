@@ -1,13 +1,15 @@
 """Tests for playlist generation."""
 
 import json
-from unittest.mock import MagicMock, patch
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
-def _parse_sse_events(generator):
+async def _parse_sse_events(async_gen):
     """Parse SSE events from generate_playlist_stream into (event, data) tuples."""
     events = []
-    for raw in generator:
+    event_type = "unknown"
+    async for raw in async_gen:
         if raw.startswith(":"):
             continue  # SSE comment (heartbeat)
         for line in raw.strip().split("\n"):
@@ -21,7 +23,8 @@ def _parse_sse_events(generator):
 class TestPlaylistGeneration:
     """Tests for playlist generation (streaming)."""
 
-    def test_generate_validates_tracks_against_library(self, mocker, mock_roon_tracks):
+    @pytest.mark.asyncio
+    async def test_generate_validates_tracks_against_library(self, mocker, mock_roon_tracks):
         """Generated playlist should only contain tracks from library."""
         from backend.generator import generate_playlist_stream
         from backend.llm_client import LLMResponse
@@ -38,11 +41,11 @@ class TestPlaylistGeneration:
 
         with patch("backend.generator.get_llm_client") as mock_llm:
             mock_client = MagicMock()
-            mock_client.generate.return_value = mock_response
-            mock_client.analyze.return_value = LLMResponse(
+            mock_client.generate = AsyncMock(return_value=mock_response)
+            mock_client.analyze = AsyncMock(return_value=LLMResponse(
                 content='{"title": "Test", "narrative": "Test narrative."}',
                 input_tokens=100, output_tokens=50, model="test-model"
-            )
+            ))
             mock_client.parse_json_response.side_effect = [
                 json.loads(mock_response.content),
                 {"title": "Test", "narrative": "Test narrative."},
@@ -56,7 +59,7 @@ class TestPlaylistGeneration:
 
                 with patch("backend.generator.library_cache.has_cached_tracks", return_value=False):
                     with patch("backend.generator.library_cache.save_result", return_value="abc123"):
-                        events = _parse_sse_events(generate_playlist_stream(
+                        events = await _parse_sse_events(generate_playlist_stream(
                             prompt="90s alternative",
                             genres=["Alternative", "Rock"],
                             decades=["1990s"],
@@ -74,7 +77,8 @@ class TestPlaylistGeneration:
                         for key in track_keys:
                             assert key in library_keys
 
-    def test_generate_handles_empty_filter_results(self, mocker):
+    @pytest.mark.asyncio
+    async def test_generate_handles_empty_filter_results(self, mocker):
         """Should emit error event when no tracks match filters."""
         from backend.generator import generate_playlist_stream
 
@@ -87,7 +91,7 @@ class TestPlaylistGeneration:
                 mock_roon.return_value = mock_roon_client
 
                 with patch("backend.generator.library_cache.has_cached_tracks", return_value=False):
-                    events = _parse_sse_events(generate_playlist_stream(
+                    events = await _parse_sse_events(generate_playlist_stream(
                         prompt="nonexistent genre",
                         genres=["Nonexistent"],
                         decades=["1800s"],
@@ -99,7 +103,8 @@ class TestPlaylistGeneration:
                     assert len(error_events) == 1
                     assert "No tracks" in error_events[0]["message"]
 
-    def test_fuzzy_matching_finds_similar_titles(self, mocker, mock_roon_tracks):
+    @pytest.mark.asyncio
+    async def test_fuzzy_matching_finds_similar_titles(self, mocker, mock_roon_tracks):
         """Should fuzzy match LLM responses to library tracks."""
         from backend.generator import generate_playlist_stream
         from backend.llm_client import LLMResponse
@@ -115,11 +120,11 @@ class TestPlaylistGeneration:
 
         with patch("backend.generator.get_llm_client") as mock_llm:
             mock_client = MagicMock()
-            mock_client.generate.return_value = mock_response
-            mock_client.analyze.return_value = LLMResponse(
+            mock_client.generate = AsyncMock(return_value=mock_response)
+            mock_client.analyze = AsyncMock(return_value=LLMResponse(
                 content='{"title": "Test", "narrative": "Test."}',
                 input_tokens=100, output_tokens=50, model="test-model"
-            )
+            ))
             mock_client.parse_json_response.side_effect = [
                 json.loads(mock_response.content),
                 {"title": "Test", "narrative": "Test."},
@@ -133,7 +138,7 @@ class TestPlaylistGeneration:
 
                 with patch("backend.generator.library_cache.has_cached_tracks", return_value=False):
                     with patch("backend.generator.library_cache.save_result", return_value="abc123"):
-                        events = _parse_sse_events(generate_playlist_stream(
+                        events = await _parse_sse_events(generate_playlist_stream(
                             prompt="radiohead",
                             genres=["Alternative"],
                             decades=["1990s"],
@@ -179,7 +184,8 @@ class TestTrackMatching:
 class TestNarrativeGeneration:
     """Tests for curator narrative generation."""
 
-    def test_generate_narrative_returns_title_and_narrative(self, mocker):
+    @pytest.mark.asyncio
+    async def test_generate_narrative_returns_title_and_narrative(self, mocker):
         """Should generate creative title and narrative from track selections."""
         from backend.generator import generate_narrative
         from backend.llm_client import LLMResponse
@@ -197,35 +203,37 @@ class TestNarrativeGeneration:
         )
 
         mock_client = MagicMock()
-        mock_client.generate.return_value = mock_response
+        mock_client.analyze = AsyncMock(return_value=mock_response)
         mock_client.parse_json_response.return_value = {
             "title": "Rainstorm Reverie",
             "narrative": "This playlist weaves through Radiohead's Fake Plastic Trees and Pearl Jam's Black for a moody journey."
         }
 
-        title, narrative = generate_narrative(track_selections, mock_client)
+        title, narrative = await generate_narrative(track_selections, mock_client)
 
         assert "Rainstorm Reverie" in title
         # Title should include date suffix
         assert " - " in title
         assert "Fake Plastic Trees" in narrative or len(narrative) > 0
 
-    def test_generate_narrative_fallback_on_failure(self, mocker):
+    @pytest.mark.asyncio
+    async def test_generate_narrative_fallback_on_failure(self, mocker):
         """Should return fallback title on LLM failure."""
         from backend.generator import generate_narrative
 
         track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
 
         mock_client = MagicMock()
-        mock_client.generate.side_effect = Exception("LLM error")
+        mock_client.analyze = AsyncMock(side_effect=Exception("LLM error"))
 
-        title, narrative = generate_narrative(track_selections, mock_client)
+        title, narrative = await generate_narrative(track_selections, mock_client)
 
         # Should return fallback title with date
         assert "Playlist" in title
         assert narrative == ""
 
-    def test_generate_narrative_passes_through_long_narrative(self, mocker):
+    @pytest.mark.asyncio
+    async def test_generate_narrative_passes_through_long_narrative(self, mocker):
         """Should pass through narrative without truncation (LLM prompt guides length)."""
         from backend.generator import generate_narrative
         from backend.llm_client import LLMResponse
@@ -241,130 +249,165 @@ class TestNarrativeGeneration:
         )
 
         mock_client = MagicMock()
-        mock_client.generate.return_value = mock_response
+        mock_client.analyze = AsyncMock(return_value=mock_response)
         mock_client.parse_json_response.return_value = {
             "title": "Test",
             "narrative": long_narrative
         }
 
-        title, narrative = generate_narrative(track_selections, mock_client)
+        title, narrative = await generate_narrative(track_selections, mock_client)
 
         # No truncation - LLM prompt guides length instead
         assert narrative == long_narrative
 
-    def test_generate_narrative_handles_array_wrapped_response(self, mocker):
+    @pytest.mark.asyncio
+    async def test_generate_narrative_handles_array_wrapped_response(self, mocker):
         """Should handle array-wrapped JSON responses from some LLMs."""
         from backend.generator import generate_narrative
+        from backend.llm_client import LLMResponse
 
         track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
 
         mock_client = MagicMock()
+        mock_client.analyze = AsyncMock(return_value=LLMResponse(
+            content="[]", input_tokens=10, output_tokens=5, model="test"
+        ))
         # Some LLMs wrap their response in an array like [{...}]
         mock_client.parse_json_response.return_value = [
             {"title": "Wrapped Title", "narrative": "This is wrapped in an array."}
         ]
 
-        title, narrative = generate_narrative(track_selections, mock_client)
+        title, narrative = await generate_narrative(track_selections, mock_client)
 
         assert "Wrapped Title" in title
         assert narrative == "This is wrapped in an array."
 
-    def test_generate_narrative_handles_alternate_key_names(self, mocker):
+    @pytest.mark.asyncio
+    async def test_generate_narrative_handles_alternate_key_names(self, mocker):
         """Should try alternate keys like description, text, content."""
         from backend.generator import generate_narrative
+        from backend.llm_client import LLMResponse
 
         track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
 
         mock_client = MagicMock()
+        mock_client.analyze = AsyncMock(return_value=LLMResponse(
+            content="{}", input_tokens=10, output_tokens=5, model="test"
+        ))
         # LLM uses "description" instead of "narrative"
         mock_client.parse_json_response.return_value = {
             "title": "Alt Key Test",
             "description": "Using description key instead of narrative."
         }
 
-        title, narrative = generate_narrative(track_selections, mock_client)
+        title, narrative = await generate_narrative(track_selections, mock_client)
 
         assert "Alt Key Test" in title
         assert narrative == "Using description key instead of narrative."
 
-    def test_generate_narrative_handles_text_key(self, mocker):
+    @pytest.mark.asyncio
+    async def test_generate_narrative_handles_text_key(self, mocker):
         """Should fall back to 'text' key for narrative."""
         from backend.generator import generate_narrative
+        from backend.llm_client import LLMResponse
 
         track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
 
         mock_client = MagicMock()
+        mock_client.analyze = AsyncMock(return_value=LLMResponse(
+            content="{}", input_tokens=10, output_tokens=5, model="test"
+        ))
         mock_client.parse_json_response.return_value = {
             "title": "Text Key Test",
             "text": "Using text key."
         }
 
-        title, narrative = generate_narrative(track_selections, mock_client)
+        title, narrative = await generate_narrative(track_selections, mock_client)
 
         assert narrative == "Using text key."
 
-    def test_generate_narrative_handles_content_key(self, mocker):
+    @pytest.mark.asyncio
+    async def test_generate_narrative_handles_content_key(self, mocker):
         """Should fall back to 'content' key for narrative."""
         from backend.generator import generate_narrative
+        from backend.llm_client import LLMResponse
 
         track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
 
         mock_client = MagicMock()
+        mock_client.analyze = AsyncMock(return_value=LLMResponse(
+            content="{}", input_tokens=10, output_tokens=5, model="test"
+        ))
         mock_client.parse_json_response.return_value = {
             "title": "Content Key Test",
             "content": "Using content key."
         }
 
-        title, narrative = generate_narrative(track_selections, mock_client)
+        title, narrative = await generate_narrative(track_selections, mock_client)
 
         assert narrative == "Using content key."
 
-    def test_generate_narrative_empty_array_returns_fallback(self, mocker):
+    @pytest.mark.asyncio
+    async def test_generate_narrative_empty_array_returns_fallback(self, mocker):
         """Should handle empty array response gracefully."""
         from backend.generator import generate_narrative
+        from backend.llm_client import LLMResponse
 
         track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
 
         mock_client = MagicMock()
+        mock_client.analyze = AsyncMock(return_value=LLMResponse(
+            content="[]", input_tokens=10, output_tokens=5, model="test"
+        ))
         mock_client.parse_json_response.return_value = []
 
-        title, narrative = generate_narrative(track_selections, mock_client)
+        title, narrative = await generate_narrative(track_selections, mock_client)
 
         # Should return fallback
         assert "Playlist" in title
         assert narrative == ""
 
-    def test_generate_narrative_prefers_narrative_key_over_alternatives(self, mocker):
+    @pytest.mark.asyncio
+    async def test_generate_narrative_prefers_narrative_key_over_alternatives(self, mocker):
         """Should prefer 'narrative' key when multiple keys present."""
         from backend.generator import generate_narrative
+        from backend.llm_client import LLMResponse
 
         track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
 
         mock_client = MagicMock()
+        mock_client.analyze = AsyncMock(return_value=LLMResponse(
+            content="{}", input_tokens=10, output_tokens=5, model="test"
+        ))
         mock_client.parse_json_response.return_value = {
             "title": "Priority Test",
             "narrative": "Primary value",
             "description": "Should not use this"
         }
 
-        title, narrative = generate_narrative(track_selections, mock_client)
+        title, narrative = await generate_narrative(track_selections, mock_client)
 
         assert narrative == "Primary value"
 
-    def test_generate_narrative_empty_string_uses_fallback_key(self, mocker):
+    @pytest.mark.asyncio
+    async def test_generate_narrative_empty_string_uses_fallback_key(self, mocker):
         """Should try alternate keys when narrative key is empty string."""
         from backend.generator import generate_narrative
+        from backend.llm_client import LLMResponse
 
         track_selections = [{"artist": "Test", "title": "Song", "reason": "Test"}]
 
         mock_client = MagicMock()
+        mock_client.analyze = AsyncMock(return_value=LLMResponse(
+            content="{}", input_tokens=10, output_tokens=5, model="test"
+        ))
         mock_client.parse_json_response.return_value = {
             "title": "Empty Primary Test",
             "narrative": "",
             "description": "Fallback description used"
         }
 
-        title, narrative = generate_narrative(track_selections, mock_client)
+        title, narrative = await generate_narrative(track_selections, mock_client)
 
         assert narrative == "Fallback description used"
 

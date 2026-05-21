@@ -622,7 +622,7 @@ Last.fm uses a token-based OAuth-like flow:
 ### Docker (recommended)
 
 ```bash
-git clone https://github.com/yourusername/roonsage.git
+git clone https://github.com/Georgemvp/roon-mediasage.git
 cd roonsage
 cp config.example.yaml config.yaml
 # Edit config.yaml with your Roon host, LLM API key, etc.
@@ -636,7 +636,7 @@ docker-compose up -d
 ### Bare metal
 
 ```bash
-git clone https://github.com/yourusername/roonsage.git
+git clone https://github.com/Georgemvp/roon-mediasage.git
 cd roonsage
 pip install -r requirements.txt
 cp config.example.yaml config.yaml
@@ -1262,7 +1262,7 @@ docker-compose up -d --build
 
 ### Earlier versions
 
-For changes prior to v6.0 (Qobuz integration, Claude-native curation, filter-first approach, track-number matching, genre junction table, MCP server, Docker support), see the [git log](https://github.com/yourusername/roonsage/commits/main).
+For changes prior to v6.0 (Qobuz integration, Claude-native curation, filter-first approach, track-number matching, genre junction table, MCP server, Docker support), see the [git log](https://github.com/Georgemvp/roon-mediasage/commits/main).
 
 ---
 

@@ -10,7 +10,7 @@ services:
       - "5765:5765"
     environment:
       # Required: Roon Core settings
-      - ROON_HOST=10.94.184.22
+      - ROON_HOST=${ROON_HOST:-192.168.1.x}
       - ROON_PORT=9330
       # ROON_TOKEN and ROON_CORE_ID are intentionally omitted here.
       # They are auto-saved to data/config.user.yaml after first authorization

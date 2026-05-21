@@ -232,7 +232,7 @@ class RecommendationPipeline:
             f"Extract the structured facts."
         )
 
-        response = self.llm_client.generate(user_prompt, system)
+        response = self.llm_client.generate_sync(user_prompt, system)
         self._log_cost("fact_extraction", response, session_id)
 
         raw = self.llm_client.parse_json_response(response)
@@ -395,7 +395,7 @@ class RecommendationPipeline:
             f"would most change which album you'd recommend? Return JSON array of 2 IDs."
         )
 
-        response = self.llm_client.analyze(user_prompt, system)
+        response = self.llm_client.analyze_sync(user_prompt, system)
         self._log_cost("gap_analysis", response, session_id)
 
         dimensions = self.llm_client.parse_json_response(response)
@@ -444,7 +444,7 @@ class RecommendationPipeline:
             f"Which genres and decades are relevant?"
         )
 
-        response = self.llm_client.generate(user_prompt, system)
+        response = self.llm_client.generate_sync(user_prompt, system)
         self._log_cost("prompt_filter_analysis", response, "n/a")
 
         raw = self.llm_client.parse_json_response(response)
@@ -497,7 +497,7 @@ class RecommendationPipeline:
             + "\n\nGenerate 2 natural, conversational questions."
         )
 
-        response = self.llm_client.generate(user_prompt, system)
+        response = self.llm_client.generate_sync(user_prompt, system)
         self._log_cost("question_gen", response, session_id)
 
         raw = self.llm_client.parse_json_response(response)
@@ -609,7 +609,7 @@ class RecommendationPipeline:
             f"Pick 3 albums: 1 primary + 2 secondary.{small_pool_note}"
         )
 
-        response = self.llm_client.generate(user_prompt, system)
+        response = self.llm_client.generate_sync(user_prompt, system)
         self._log_cost("selection", response, session_id, album_count=len(album_candidates))
 
         raw = self.llm_client.parse_json_response(response)
@@ -783,7 +783,7 @@ class RecommendationPipeline:
             f"Write the pitches."
         )
 
-        response = self.llm_client.analyze(user_prompt, system)
+        response = self.llm_client.analyze_sync(user_prompt, system)
         self._log_cost("pitch_writing", response, session_id)
 
         raw = self.llm_client.parse_json_response(response)
@@ -888,7 +888,7 @@ class RecommendationPipeline:
             f"Are there any factual inaccuracies in the pitch?"
         )
 
-        response = self.llm_client.analyze(user_prompt, system)
+        response = self.llm_client.analyze_sync(user_prompt, system)
         self._log_cost("pitch_validation", response, session_id)
 
         raw = self.llm_client.parse_json_response(response)
@@ -951,7 +951,7 @@ class RecommendationPipeline:
             f"Rewrite the pitch fixing the errors above."
         )
 
-        response = self.llm_client.analyze(user_prompt, system)
+        response = self.llm_client.analyze_sync(user_prompt, system)
         self._log_cost("pitch_rewrite", response, session_id)
 
         item = self.llm_client.parse_json_response(response)
@@ -1066,7 +1066,7 @@ class RecommendationPipeline:
             f"Recommend 7 albums they don't own: 1 primary + 6 secondary."
         )
 
-        response = self.llm_client.analyze(user_prompt, system)
+        response = self.llm_client.analyze_sync(user_prompt, system)
         self._log_cost("discovery_selection", response, session_id)
 
         raw = self.llm_client.parse_json_response(response)
@@ -1143,7 +1143,7 @@ class RecommendationPipeline:
             f"Does this album genuinely match the request?"
         )
 
-        response = self.llm_client.generate(user_prompt, system)
+        response = self.llm_client.generate_sync(user_prompt, system)
         self._log_cost("discovery_validation", response, session_id)
 
         result = self.llm_client.parse_json_response(response)

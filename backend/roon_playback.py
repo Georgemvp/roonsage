@@ -275,6 +275,7 @@ class RoonPlaybackMixin:
                 self._api.browse_browse({
                     "hierarchy": "browse",
                     "item_key": key,
+                    "pop_all": True,           # Reset browse hierarchy to avoid stale state
                     "zone_or_output_id": zone_id,
                 })
                 result = self._api.browse_load({
@@ -461,6 +462,8 @@ class RoonPlaybackMixin:
                                 '',
                                 short_title,
                             )
+                            # Strip version/remaster/format suffixes that Roon doesn't index
+                            short_title = re.sub(r'\s*[\(\[].*?[\)\]]\s*$', '', short_title).strip()
                             search_query = f"{primary_artist} {short_title}" if primary_artist else short_title
 
                             logger.info("Direct key failed for '%s', trying search", title)
@@ -469,11 +472,12 @@ class RoonPlaybackMixin:
                                 target_kw, fallback_kw,
                             )
 
-                        # Fallback 2: search with just the title
+                        # Fallback 2: search with cleaned title only
                         if not queued:
-                            logger.info("Retry with title-only search for '%s'", title)
+                            clean_search_title = re.sub(r'\s*[\(\[].*?[\)\]]\s*$', '', title).strip()
+                            logger.info("Retry with title-only search for '%s'", clean_search_title)
                             queued = self._play_track_via_search(
-                                zone_id, title, title, artist,
+                                zone_id, clean_search_title, title, artist,
                                 target_kw, fallback_kw,
                             )
                     else:

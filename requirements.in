@@ -15,3 +15,4 @@ json-repair
 readability-lxml
 mcp[cli]
 pyacoustid
+slowapi

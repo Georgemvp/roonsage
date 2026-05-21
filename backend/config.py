@@ -15,6 +15,9 @@ load_dotenv()
 # User config file path (for UI-saved settings)
 USER_CONFIG_PATH = Path("data/config.user.yaml")
 
+# In-memory cache for config.user.yaml — invalidated on every save
+_user_config_cache: dict[str, Any] | None = None
+
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge override into base."""
@@ -78,11 +81,31 @@ def load_yaml_config(config_path: Path | None = None) -> dict[str, Any]:
 
 
 def load_user_yaml_config() -> dict[str, Any]:
-    """Load user configuration from config.user.yaml."""
+    """Load user configuration from config.user.yaml.
+
+    Returns the in-memory cached copy when available.  The cache is
+    invalidated by :func:`save_user_config` and :func:`invalidate_config_cache`.
+    """
+    global _user_config_cache
+    if _user_config_cache is not None:
+        return _user_config_cache
     if not USER_CONFIG_PATH.exists():
-        return {}
+        _user_config_cache = {}
+        return _user_config_cache
     with open(USER_CONFIG_PATH) as f:
-        return yaml.safe_load(f) or {}
+        _user_config_cache = yaml.safe_load(f) or {}
+    return _user_config_cache
+
+
+def invalidate_config_cache() -> None:
+    """Invalidate both the user-config and the global AppConfig cache.
+
+    Call this whenever external code modifies config.user.yaml directly,
+    or after a save that does *not* go through :func:`save_user_config`.
+    """
+    global _user_config_cache, _config
+    _user_config_cache = None
+    _config = None
 
 
 class ConfigSaveError(Exception):
@@ -94,10 +117,12 @@ def save_user_config(updates: dict[str, Any]) -> None:
     """Save user configuration to config.user.yaml.
 
     Only saves non-empty values. Preserves existing user config.
+    Invalidates the in-memory cache so the next read reflects the new file.
 
     Raises:
         ConfigSaveError: If file cannot be written (permissions, disk full, etc.)
     """
+    global _user_config_cache
     existing = load_user_yaml_config()
     merged = deep_merge(existing, updates)
     cleaned = remove_empty_values(merged)
@@ -118,6 +143,9 @@ def save_user_config(updates: dict[str, Any]) -> None:
             f"Failed to save configuration to {USER_CONFIG_PATH}: {e}. "
             "Check disk space and directory permissions."
         )
+    finally:
+        # Invalidate cache regardless of success/failure so stale data is never served
+        _user_config_cache = None
 
 
 def get_env_or_yaml(

@@ -55,7 +55,7 @@ Return a JSON object with:
 Return ONLY valid JSON, no markdown formatting."""
 
 
-def analyze_prompt(prompt: str) -> AnalyzePromptResponse:
+async def analyze_prompt(prompt: str) -> AnalyzePromptResponse:
     """Analyze a natural language prompt to suggest filters.
 
     Args:
@@ -110,24 +110,17 @@ Suggest genres and decades from the available options that best match the user's
     except Exception:
         pass  # Profile unavailable — continue without it
 
-    # Call LLM
-    response = llm_client.analyze(analysis_prompt, PROMPT_ANALYSIS_SYSTEM)
+    # Call LLM (async)
+    response = await llm_client.analyze(analysis_prompt, PROMPT_ANALYSIS_SYSTEM)
 
     # Parse response
     data = llm_client.parse_json_response(response)
 
-    # Filter suggestions to only include available options
     available_genre_names = {g.name for g in available_genres}
     available_decade_names = {d.name for d in available_decades}
 
-    suggested_genres = [
-        g for g in data.get("genres", [])
-        if g in available_genre_names
-    ]
-    suggested_decades = [
-        d for d in data.get("decades", [])
-        if d in available_decade_names
-    ]
+    suggested_genres = [g for g in data.get("genres", []) if g in available_genre_names]
+    suggested_decades = [d for d in data.get("decades", []) if d in available_decade_names]
 
     return AnalyzePromptResponse(
         suggested_genres=suggested_genres,
@@ -140,7 +133,7 @@ Suggest genres and decades from the available options that best match the user's
     )
 
 
-def analyze_track(track: Track) -> AnalyzeTrackResponse:
+async def analyze_track(track: Track) -> AnalyzeTrackResponse:
     """Analyze a seed track to extract musical dimensions.
 
     Args:
@@ -158,7 +151,6 @@ def analyze_track(track: Track) -> AnalyzeTrackResponse:
     if not llm_client:
         raise RuntimeError("LLM client not initialized")
 
-    # Build analysis prompt
     analysis_prompt = f"""Analyze this track:
 Title: {track.title}
 Artist: {track.artist}
@@ -168,10 +160,9 @@ Genres: {", ".join(track.genres) if track.genres else "Unknown"}
 
 Identify 5-7 specific musical dimensions that make this track distinctive."""
 
-    # Call LLM
-    response = llm_client.analyze(analysis_prompt, TRACK_ANALYSIS_SYSTEM)
+    # Call LLM (async)
+    response = await llm_client.analyze(analysis_prompt, TRACK_ANALYSIS_SYSTEM)
 
-    # Parse response
     data = llm_client.parse_json_response(response)
 
     dimensions = [

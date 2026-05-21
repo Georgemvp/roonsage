@@ -19,7 +19,7 @@ from backend.models import (
     Track,
 )
 from backend.roon_client import get_roon_client
-from backend.dependencies import check_rate_limit
+from backend.dependencies import check_rate_limit, limiter
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,15 @@ router = APIRouter(prefix="/api", tags=["generate"])
 
 
 @router.post("/generate/stream", dependencies=[Depends(check_rate_limit)])
-async def generate_playlist_sse(request: GenerateRequest) -> StreamingResponse:
-    """Generate a playlist with streaming progress updates."""
+@limiter.limit("30/hour")
+async def generate_playlist_sse(
+    http_request: Request, body: GenerateRequest
+) -> StreamingResponse:
+    """Generate a playlist with streaming progress updates.
+
+    ``http_request`` is required by slowapi for rate-key extraction; ``body``
+    carries the actual payload (GenerateRequest).
+    """
     roon_client = get_roon_client()
     llm_client = get_llm_client()
 
@@ -39,29 +46,30 @@ async def generate_playlist_sse(request: GenerateRequest) -> StreamingResponse:
 
     seed_track = None
     selected_dimensions = None
-    if request.seed_track:
+    if body.seed_track:
         seed_track = await asyncio.to_thread(
-            roon_client.get_track_by_key, request.seed_track.item_key
+            roon_client.get_track_by_key, body.seed_track.item_key
         )
         if not seed_track:
             raise HTTPException(status_code=404, detail="Seed track not found")
-        selected_dimensions = request.seed_track.selected_dimensions
+        selected_dimensions = body.seed_track.selected_dimensions
 
-    def event_stream():
-        yield from generate_playlist_stream(
-            prompt=request.prompt,
+    async def event_stream():
+        async for chunk in generate_playlist_stream(
+            prompt=body.prompt,
             seed_track=seed_track,
             selected_dimensions=selected_dimensions,
-            additional_notes=request.additional_notes,
-            refinement_answers=request.refinement_answers,
-            genres=request.genres,
-            decades=request.decades,
-            track_count=request.track_count,
-            exclude_live=request.exclude_live,
-            max_tracks_to_ai=request.max_tracks_to_ai,
-            source_mode=request.source_mode,
-            qobuz_percentage=request.qobuz_percentage,
-        )
+            additional_notes=body.additional_notes,
+            refinement_answers=body.refinement_answers,
+            genres=body.genres,
+            decades=body.decades,
+            track_count=body.track_count,
+            exclude_live=body.exclude_live,
+            max_tracks_to_ai=body.max_tracks_to_ai,
+            source_mode=body.source_mode,
+            qobuz_percentage=body.qobuz_percentage,
+        ):
+            yield chunk
 
     return StreamingResponse(
         event_stream(),
@@ -75,7 +83,10 @@ async def generate_playlist_sse(request: GenerateRequest) -> StreamingResponse:
 
 
 @router.post("/analyze/prompt", response_model=AnalyzePromptResponse)
-async def analyze_prompt(request: AnalyzePromptRequest) -> AnalyzePromptResponse:
+@limiter.limit("30/hour")
+async def analyze_prompt(
+    http_request: Request, body: AnalyzePromptRequest
+) -> AnalyzePromptResponse:
     """Analyze a natural language prompt to suggest filters."""
     roon_client = get_roon_client()
     llm_client = get_llm_client()
@@ -86,7 +97,7 @@ async def analyze_prompt(request: AnalyzePromptRequest) -> AnalyzePromptResponse
         raise HTTPException(status_code=503, detail="LLM not configured")
 
     try:
-        return await asyncio.to_thread(do_analyze_prompt, request.prompt)
+        return await do_analyze_prompt(body.prompt)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -107,7 +118,6 @@ async def analyze_track(request: AnalyzeTrackRequest) -> AnalyzeTrackResponse:
     if not llm_client:
         raise HTTPException(status_code=503, detail="LLM not configured")
 
-    # Prefer metadata supplied directly in the request over a Roon Browse lookup.
     if request.title and request.artist:
         logger.info(
             "analyze_track: using request metadata for %r by %r",
@@ -124,7 +134,6 @@ async def analyze_track(request: AnalyzeTrackRequest) -> AnalyzeTrackResponse:
             genres=request.genres,
         )
     else:
-        # Fallback: fetch from Roon Browse API (may return incomplete metadata)
         roon_client = get_roon_client()
         if not roon_client or not roon_client.is_connected():
             raise HTTPException(status_code=503, detail="Roon not connected")
@@ -137,7 +146,7 @@ async def analyze_track(request: AnalyzeTrackRequest) -> AnalyzeTrackResponse:
             raise HTTPException(status_code=404, detail="Track not found")
 
     try:
-        return await asyncio.to_thread(do_analyze_track, track)
+        return await do_analyze_track(track)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

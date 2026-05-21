@@ -5,6 +5,8 @@ import time
 from collections import defaultdict
 
 from fastapi import HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from backend.models import ConfigResponse
 from backend.config import get_qobuz_config, get_listenbrainz_config
 from backend.llm_client import (
@@ -23,7 +25,13 @@ from backend.version import get_version
 ROONSAGE_PASSWORD: str | None = os.environ.get("ROONSAGE_PASSWORD") or None
 
 # =============================================================================
-# In-memory rate limiter for LLM endpoints
+# slowapi Limiter  (attached to app.state.limiter in main.py)
+# =============================================================================
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+
+# =============================================================================
+# In-memory rate limiter for LLM endpoints (legacy — kept as belt-and-suspenders)
 # =============================================================================
 
 _rate_limits: dict[str, list[float]] = defaultdict(list)

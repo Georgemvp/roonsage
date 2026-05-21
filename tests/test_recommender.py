@@ -221,7 +221,7 @@ class TestFactExtraction:
         mock_response.output_tokens = 50
         mock_response.model = "test-model"
         mock_response.estimated_cost.return_value = 0.001
-        mock_llm.generate.return_value = mock_response
+        mock_llm.generate_sync.return_value = mock_response
         mock_llm.parse_json_response.return_value = {
             "origin_story": "Recorded in Reykjavik",
             "personnel": ["Jonsi"],
@@ -254,7 +254,7 @@ class TestFactExtraction:
         assert isinstance(facts, ExtractedFacts)
         assert "Vonlenska" in facts.vocal_approach
         assert "Icelandic" in facts.vocal_approach
-        mock_llm.generate.assert_called_once()
+        mock_llm.generate_sync.assert_called_once()
 
     def test_extract_facts_includes_all_sources_in_prompt(self):
         """extract_facts should pass Wikipedia, reviews, and track listing to LLM."""
@@ -266,7 +266,7 @@ class TestFactExtraction:
         mock_response.output_tokens = 50
         mock_response.model = "test-model"
         mock_response.estimated_cost.return_value = 0.001
-        mock_llm.generate.return_value = mock_response
+        mock_llm.generate_sync.return_value = mock_response
         mock_llm.parse_json_response.return_value = {
             "origin_story": "", "personnel": [], "musical_style": "",
             "vocal_approach": "", "cultural_context": "", "track_highlights": "",
@@ -289,7 +289,7 @@ class TestFactExtraction:
         )
 
         # Verify the prompt includes all source material
-        call_args = mock_llm.generate.call_args
+        call_args = mock_llm.generate_sync.call_args
         prompt = call_args[0][0]  # First positional arg is the user prompt
         assert "Wikipedia content here" in prompt
         assert "Pitchfork review content" in prompt
@@ -307,7 +307,7 @@ class TestFactExtraction:
         mock_response.output_tokens = 10
         mock_response.model = "test-model"
         mock_response.estimated_cost.return_value = 0.0
-        mock_llm.generate.return_value = mock_response
+        mock_llm.generate_sync.return_value = mock_response
         mock_llm.parse_json_response.return_value = {
             "origin_story": "NOT IN SOURCES",
             "personnel": [],
@@ -351,7 +351,7 @@ class TestWritePitchesGrounding:
         mock_response.output_tokens = 300
         mock_response.model = "test-model"
         mock_response.estimated_cost.return_value = 0.01
-        mock_llm.analyze.return_value = mock_response
+        mock_llm.analyze_sync.return_value = mock_response
         mock_llm.parse_json_response.return_value = [
             {
                 "artist": "Sigur Ros",
@@ -400,7 +400,7 @@ class TestWritePitchesGrounding:
             extracted_facts=facts,
         )
 
-        call_args = mock_llm.analyze.call_args
+        call_args = mock_llm.analyze_sync.call_args
         system_prompt = call_args[0][1]
         user_prompt = call_args[0][0]
 
@@ -426,7 +426,7 @@ class TestWritePitchesGrounding:
         mock_response.output_tokens = 300
         mock_response.model = "test-model"
         mock_response.estimated_cost.return_value = 0.01
-        mock_llm.analyze.return_value = mock_response
+        mock_llm.analyze_sync.return_value = mock_response
         mock_llm.parse_json_response.return_value = [
             {"artist": "Test", "album": "Test", "hook": "", "context": "",
              "listening_guide": "", "connection": ""},
@@ -463,7 +463,7 @@ class TestPitchValidation:
         mock_response.output_tokens = 20
         mock_response.model = "test-model"
         mock_response.estimated_cost.return_value = 0.005
-        mock_llm.analyze.return_value = mock_response
+        mock_llm.analyze_sync.return_value = mock_response
         mock_llm.parse_json_response.return_value = {"valid": True, "issues": []}
 
         pipeline = RecommendationPipeline(config=MagicMock(), llm_client=mock_llm)
@@ -498,7 +498,7 @@ class TestPitchValidation:
         mock_response.output_tokens = 100
         mock_response.model = "test-model"
         mock_response.estimated_cost.return_value = 0.005
-        mock_llm.analyze.return_value = mock_response
+        mock_llm.analyze_sync.return_value = mock_response
         mock_llm.parse_json_response.return_value = {
             "valid": False,
             "issues": [
@@ -544,7 +544,7 @@ class TestPitchRewrite:
         mock_response.output_tokens = 300
         mock_response.model = "test-model"
         mock_response.estimated_cost.return_value = 0.01
-        mock_llm.analyze.return_value = mock_response
+        mock_llm.analyze_sync.return_value = mock_response
         mock_llm.parse_json_response.return_value = {
             "hook": "Corrected hook",
             "context": "Jenkins rehearsed with the band before tragedy struck",
@@ -584,7 +584,7 @@ class TestPitchRewrite:
         )
 
         # Verify corrections were in the prompt
-        call_args = mock_llm.analyze.call_args
+        call_args = mock_llm.analyze_sync.call_args
         prompt = call_args[0][0]
         assert "touring stint with David Berman" in prompt
         assert "Rehearsed for four days" in prompt

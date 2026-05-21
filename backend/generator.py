@@ -3,7 +3,7 @@
 import json
 import logging
 import random
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 from datetime import datetime
 
 from backend.llm_client import get_llm_client
@@ -15,7 +15,7 @@ from backend.taste_profile import TasteProfile
 logger = logging.getLogger(__name__)
 
 
-def generate_narrative(
+async def generate_narrative(
     track_selections: list[dict],
     llm_client,
     user_request: str = "",
@@ -72,8 +72,8 @@ def generate_narrative(
     fallback_title = f"{date_suffix} Playlist"
 
     try:
-        # Use analysis model for better creative writing quality
-        response = llm_client.analyze(narrative_prompt, NARRATIVE_SYSTEM)
+        # Use analysis model for better creative writing quality (async)
+        response = await llm_client.analyze(narrative_prompt, NARRATIVE_SYSTEM)
         result = llm_client.parse_json_response(response)
 
         # Handle array-wrapped responses (some LLMs wrap in [])
@@ -226,7 +226,7 @@ def _build_profile_context() -> str:
     return "User's listening profile:\n" + "\n".join(f"- {p}" for p in parts)
 
 
-def generate_playlist_stream(
+async def generate_playlist_stream(
     prompt: str | None = None,
     seed_track: Track | None = None,
     selected_dimensions: list[str] | None = None,
@@ -239,8 +239,8 @@ def generate_playlist_stream(
     max_tracks_to_ai: int = 500,
     source_mode: str = "library",   # "library" | "hybrid" | "qobuz"
     qobuz_percentage: int = 30,     # % of Qobuz tracks in hybrid mode
-) -> Generator[str, None, None]:
-    """Generate a playlist with streaming progress updates.
+) -> AsyncGenerator[str, None]:
+    """Generate a playlist with streaming progress updates (async generator).
 
     Yields SSE-formatted events with progress updates and final result.
 
@@ -416,7 +416,7 @@ def generate_playlist_stream(
             yield emit("progress", {"step": "ai_working", "message": "AI is curating your playlist..."})
 
             logger.info("Calling LLM with prompt length: %d chars", len(generation_prompt))
-            response = llm_client.generate(generation_prompt, GENERATION_SYSTEM)
+            response = await llm_client.generate(generation_prompt, GENERATION_SYSTEM)
             logger.info("LLM response received: %d input, %d output tokens", response.input_tokens, response.output_tokens)
 
             # Step 5: Parse response
@@ -515,7 +515,7 @@ def generate_playlist_stream(
                 f"{seed_track.title} by {seed_track.artist}" if seed_track else ""
             )
             try:
-                qobuz_tracks, qobuz_response = _discover_qobuz_tracks(
+                qobuz_tracks, qobuz_response = await _discover_qobuz_tracks(
                     llm_client=llm_client,
                     roon_client=roon_client,
                     user_request=user_request_text,
@@ -543,7 +543,7 @@ def generate_playlist_stream(
         # Step 7: Generate narrative
         yield emit("progress", {"step": "narrative", "message": "Writing playlist narrative..."})
 
-        playlist_title, narrative = generate_narrative(
+        playlist_title, narrative = await generate_narrative(
             track_selections, llm_client, prompt or "", tracks_index=filtered_tracks
         )
         logger.info("Generated narrative: title='%s', narrative_len=%d", playlist_title, len(narrative))
@@ -733,7 +733,7 @@ Guidelines:
 - No markdown formatting, no explanations — just the JSON array."""
 
 
-def _discover_qobuz_tracks(
+async def _discover_qobuz_tracks(
     llm_client,
     roon_client,
     user_request: str,
@@ -741,8 +741,6 @@ def _discover_qobuz_tracks(
     library_tracks: list[Track],
 ):
     """Ask LLM to suggest tracks and search for them in Qobuz via Roon Browse API.
-
-    This is a synchronous function safe to call from a sync generator.
 
     Args:
         llm_client: LLM client for suggestions
@@ -756,7 +754,6 @@ def _discover_qobuz_tracks(
     """
     from backend.qobuz_browser import search_qobuz_tracks_sync
 
-    # Build the suggestion prompt
     parts = [f"User request: {user_request}"]
     if library_tracks:
         lib_summary = "\n".join(
@@ -771,7 +768,7 @@ def _discover_qobuz_tracks(
 
     llm_response = None
     try:
-        llm_response = llm_client.generate(suggestion_prompt, QOBUZ_SUGGESTION_SYSTEM)
+        llm_response = await llm_client.generate(suggestion_prompt, QOBUZ_SUGGESTION_SYSTEM)
         suggestions = llm_client.parse_json_response(llm_response)
     except Exception as e:
         logger.warning("Qobuz LLM suggestion call failed: %s", e)
