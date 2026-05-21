@@ -555,13 +555,13 @@ class RoonBrowseMixin:
         """Browse Library → Albums → tracks to build a title → album mapping.
 
         Navigates via hierarchy: "browse" (Library → Albums → each album).
-        Returns dict: title_lower → album_title.
+        Returns dict: exact_title → album_title.
 
-        Note: item_keys differ between flat-tracks and per-album browse, and
-        artist strings differ too (flat browse includes featured artists while
-        per-album browse subtitle often shows only the primary artist). We
-        therefore key only on lowercase title; setdefault ensures the first
-        album encountered wins (studio album before compilations).
+        Both flat-tracks browse and per-album browse return the same Roon title
+        strings, so an exact match works. We avoid LOWER() because SQLite's
+        built-in LOWER() only handles ASCII — titles with accented characters
+        would never match. setdefault ensures the first album (studio) wins
+        over later compilations.
         """
         if not self.is_connected():
             return {}
@@ -645,7 +645,7 @@ class RoonBrowseMixin:
                             track_title = (t.get("title") or "").strip()
                             if track_title:
                                 # First occurrence wins (studio album before compilations)
-                                result.setdefault(track_title.lower(), album_title)
+                                result.setdefault(track_title, album_title)
 
                     except Exception as exc:
                         logger.debug(

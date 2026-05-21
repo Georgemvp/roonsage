@@ -389,14 +389,14 @@ def sync_library(
             track_album_map = roon_client.build_track_album_map(on_progress=_on_enrich_progress)
 
             if track_album_map:
-                # Match by title only — item_keys and artist strings differ between
-                # flat-browse (all contributing artists) and per-album browse (primary only)
+                # Exact title match — both browse paths return identical Roon title strings.
+                # Avoid SQLite LOWER() which only handles ASCII; accented titles would never match.
                 update_batch = [
-                    (album_title, title_lower)
-                    for title_lower, album_title in track_album_map.items()
+                    (album_title, exact_title)
+                    for exact_title, album_title in track_album_map.items()
                 ]
                 conn.executemany(
-                    "UPDATE tracks SET album = ? WHERE LOWER(title) = ?",
+                    "UPDATE tracks SET album = ? WHERE title = ?",
                     update_batch,
                 )
                 conn.commit()
