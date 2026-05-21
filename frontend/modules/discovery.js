@@ -36,12 +36,15 @@ function _skeletonHtml() {
 // ── Main renderer ─────────────────────────────────────────────────────────────
 
 function _render(view, data) {
-    const undiscovered = data.undiscovered_albums || [];
-    const cuts         = data.deep_cuts           || [];
-    const forgotten    = data.forgotten_favorites  || [];
-    const genres       = data.genre_explorer       || [];
+    const favorites   = data.favorites_in_library || [];
+    const lbReleases  = data.lb_top_releases      || [];
+    const lbLoved     = data.lb_loved_in_library  || [];
+    const cuts        = data.deep_cuts            || [];
+    const forgotten   = data.forgotten_favorites  || [];
+    const genres      = data.genre_explorer       || [];
 
-    const hasAny = undiscovered.length || cuts.length || forgotten.length || genres.length;
+    const hasAny = favorites.length || lbReleases.length || lbLoved.length ||
+                   cuts.length || forgotten.length || genres.length;
 
     if (!hasAny) {
         view.innerHTML = `
@@ -54,9 +57,11 @@ function _render(view, data) {
 
     view.innerHTML = `
         <h2 class="view-title">Discover</h2>
-        <p class="discovery-subtitle">Pure library intelligence — zero AI, zero external APIs.</p>
+        <p class="discovery-subtitle">Gevoed door je Last.fm &amp; ListenBrainz luistergeschiedenis.</p>
 
-        ${_renderUndiscoveredAlbums(undiscovered)}
+        ${_renderLbTopReleases(lbReleases)}
+        ${_renderLbLoved(lbLoved)}
+        ${_renderFavoritesInLibrary(favorites)}
         ${_renderDeepCuts(cuts)}
         ${_renderForgottenFavorites(forgotten)}
         ${_renderGenreExplorer(genres)}
@@ -81,9 +86,71 @@ function _render(view, data) {
     });
 }
 
-// ── Section: Undiscovered Albums ──────────────────────────────────────────────
+// ── Section: LB Top Releases in Library ──────────────────────────────────────
 
-function _renderUndiscoveredAlbums(albums) {
+function _renderLbTopReleases(albums) {
+    if (!albums.length) return '';
+
+    const cards = albums.map(a => `
+        <div class="discovery-album-card">
+            <div class="discovery-album-info">
+                <span class="discovery-album-title">${escapeHtml(a.album)}</span>
+                <span class="discovery-album-artist">${escapeHtml(a.artist)}</span>
+                <span class="discovery-album-meta">${a.listen_count} keer geluisterd</span>
+            </div>
+            ${a.parent_item_key ? `
+            <button class="btn btn-secondary btn-sm discovery-play-btn"
+                data-play-key="${escapeHtml(a.parent_item_key)}" data-play-type="album"
+                title="Play ${escapeHtml(a.album)}">▶ Play</button>` : ''}
+        </div>
+    `).join('');
+
+    return `
+        <section class="discovery-section" aria-labelledby="disc-lbreleases-heading">
+            <div class="discovery-section-header">
+                <h3 class="discovery-section-title" id="disc-lbreleases-heading">Jouw meest beluisterde albums</h3>
+                <span class="discovery-section-badge">${albums.length}</span>
+            </div>
+            <p class="discovery-section-desc">Top albums uit je ListenBrainz geschiedenis die in je library staan.</p>
+            <div class="discovery-album-grid">${cards}</div>
+        </section>`;
+}
+
+// ── Section: LB Loved in Library ─────────────────────────────────────────────
+
+function _renderLbLoved(tracks) {
+    if (!tracks.length) return '';
+
+    const rows = tracks.map(t => `
+        <div class="discovery-track-row">
+            <div class="discovery-track-info">
+                <span class="discovery-track-title">${escapeHtml(t.title)}</span>
+                <span class="discovery-track-meta">${escapeHtml(t.artist)}</span>
+            </div>
+            <div class="discovery-track-right">
+                <span class="discovery-play-count">♥</span>
+                ${t.item_key ? `
+                <button class="btn btn-secondary btn-sm discovery-play-btn"
+                    data-play-key="${escapeHtml(t.item_key)}" data-play-type="track"
+                    title="Play ${escapeHtml(t.title)}">▶</button>` : ''}
+            </div>
+        </div>
+    `).join('');
+
+    return `
+        <section class="discovery-section" aria-labelledby="disc-lbloved-heading">
+            <div class="discovery-section-header">
+                <h3 class="discovery-section-title" id="disc-lbloved-heading">Geliefd op ListenBrainz</h3>
+                <span class="discovery-section-badge">${tracks.length}</span>
+            </div>
+            <p class="discovery-section-desc">Nummers die je op ListenBrainz hebt geliked en in je library staan.</p>
+            <div class="discovery-track-list">${rows}</div>
+        </section>`;
+}
+
+// ── Section: Favorites in Library ────────────────────────────────────────────
+
+function _renderFavoritesInLibrary(albums) {
     if (!albums.length) return '';
 
     const cards = albums.map(a => `
@@ -94,30 +161,20 @@ function _renderUndiscoveredAlbums(albums) {
                 <span class="discovery-album-meta">${a.artist_play_count} plays van deze artiest</span>
             </div>
             ${a.parent_item_key ? `
-            <button
-                class="btn btn-secondary btn-sm discovery-play-btn"
-                data-play-key="${escapeHtml(a.parent_item_key)}"
-                data-play-type="album"
-                title="Play ${escapeHtml(a.album)}"
-                aria-label="Play ${escapeHtml(a.album)} by ${escapeHtml(a.artist)}"
-            >▶ Play</button>` : ''}
+            <button class="btn btn-secondary btn-sm discovery-play-btn"
+                data-play-key="${escapeHtml(a.parent_item_key)}" data-play-type="album"
+                title="Play ${escapeHtml(a.album)}">▶ Play</button>` : ''}
         </div>
     `).join('');
 
     return `
-        <section class="discovery-section" aria-labelledby="discovery-undiscovered-heading">
+        <section class="discovery-section" aria-labelledby="disc-favorites-heading">
             <div class="discovery-section-header">
-                <h3 class="discovery-section-title" id="discovery-undiscovered-heading">
-                    Meer van je favorieten
-                </h3>
+                <h3 class="discovery-section-title" id="disc-favorites-heading">Meer van je favorieten</h3>
                 <span class="discovery-section-badge">${albums.length}</span>
             </div>
-            <p class="discovery-section-desc">
-                Albums van je meest beluisterde artiesten in je library.
-            </p>
-            <div class="discovery-album-grid">
-                ${cards}
-            </div>
+            <p class="discovery-section-desc">Eén album per artiest uit je top-40, wisselt bij elke refresh.</p>
+            <div class="discovery-album-grid">${cards}</div>
         </section>`;
 }
 

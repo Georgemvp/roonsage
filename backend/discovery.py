@@ -1,16 +1,14 @@
-"""Cache-Powered Discovery — pure SQL queries against the local SQLite library cache.
+"""Cache-Powered Discovery — pure SQL + LB/Last.fm cache queries.
 
-All functions run zero LLM calls and zero external API calls. They read from:
-  - tracks          (title, artist, album, item_key, parent_item_key)
-  - listening_history (artist, track_title, album, timestamp, skipped)
-  - track_genres    (track_key, genre)
-
-All queries use get_connection() from backend.db so the schema is always
-initialized before the first query runs.
+Reads from:
+  - tracks / albums / track_genres   (Roon library cache)
+  - listening_history                (Last.fm / ListenBrainz scrobbles)
+  - lb_stats_cache                   (LB top_releases, top_recordings, feedback_loved)
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -19,25 +17,21 @@ from backend.db import get_connection
 logger = logging.getLogger(__name__)
 
 
-def get_undiscovered_albums() -> list[dict]:
-    """Library albums by the user's most-played artists, shuffled per artist.
+def get_favorites_in_library() -> list[dict]:
+    """One random album per top-40 artist so every artist gets a slot.
 
-    Album name matching between Last.fm and Roon is unreliable (different
-    capitalization, "(Remastered)", "(Deluxe)" suffixes, etc.), so we don't
-    filter by "unplayed". Instead we surface albums from familiar artists
-    in a varied order so each page load shows different suggestions.
+    Uses ROW_NUMBER() OVER (PARTITION BY artist ORDER BY RANDOM()) so each
+    refresh shows a different album per artist, and Mark Knopfler never fills
+    all 20 slots.
 
     Returns:
-        Up to 20 dicts with keys: artist, album, parent_item_key, artist_play_count.
+        Up to 20 dicts: artist, album, parent_item_key, artist_play_count.
     """
     sql = """
         WITH artist_plays AS (
-            SELECT
-                artist,
-                COUNT(*) AS play_count
+            SELECT artist, COUNT(*) AS play_count
             FROM listening_history
-            WHERE artist IS NOT NULL
-              AND artist != ''
+            WHERE artist IS NOT NULL AND artist != ''
               AND (skipped IS NULL OR skipped = 0)
             GROUP BY artist
             ORDER BY play_count DESC
@@ -52,10 +46,16 @@ def get_undiscovered_albums() -> list[dict]:
             FROM albums a
             JOIN artist_plays ap ON LOWER(a.artist) = LOWER(ap.artist)
             WHERE a.title IS NOT NULL AND a.title != ''
+        ),
+        ranked AS (
+            SELECT *,
+                ROW_NUMBER() OVER (PARTITION BY artist ORDER BY RANDOM()) AS rn
+            FROM artist_albums
         )
         SELECT artist, album, parent_item_key, artist_play_count
-        FROM artist_albums
-        ORDER BY artist_play_count DESC, RANDOM()
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY artist_play_count DESC
         LIMIT 20
     """
     try:
@@ -63,27 +63,158 @@ def get_undiscovered_albums() -> list[dict]:
             rows = conn.execute(sql).fetchall()
             return [dict(r) for r in rows]
     except Exception:
-        logger.exception("get_undiscovered_albums failed")
+        logger.exception("get_favorites_in_library failed")
+        return []
+
+
+def get_lb_top_releases_in_library() -> list[dict]:
+    """LB top_releases matched against the Roon library.
+
+    Fetches the user's 50 most-listened albums from lb_stats_cache, then
+    looks up each one in the albums table by artist+title (case-insensitive,
+    strips common suffixes like Remastered/Deluxe for a fuzzy match).
+
+    Returns:
+        Up to 15 dicts: artist, album, parent_item_key, listen_count.
+        Sorted by LB listen_count descending.
+    """
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT data_json FROM lb_stats_cache WHERE stat_type = 'top_releases' LIMIT 1"
+            ).fetchone()
+            if not row:
+                return []
+
+            releases = json.loads(row[0])
+
+            results: list[dict] = []
+            seen_keys: set[str] = set()
+
+            for rel in releases:
+                artist = rel.get("artist_name", "")
+                title = rel.get("release_name", "")
+                listen_count = rel.get("listen_count", 0)
+                if not artist or not title:
+                    continue
+
+                # Try exact match first, then strip suffix variants
+                candidates = [title]
+                for suffix in [
+                    " (Remastered)", " (Remastered Edition)", " (Deluxe Edition)",
+                    " (Deluxe)", " (Deluxe Version)", " (Special Edition)",
+                    " (Expanded Edition)", " (Anniversary Edition)",
+                ]:
+                    if title.endswith(suffix):
+                        candidates.append(title[: -len(suffix)])
+
+                match = None
+                for candidate in candidates:
+                    match = conn.execute(
+                        """SELECT title, artist, item_key FROM albums
+                           WHERE LOWER(artist) = LOWER(?)
+                             AND LOWER(title)  = LOWER(?)
+                           LIMIT 1""",
+                        (artist, candidate),
+                    ).fetchone()
+                    if match:
+                        break
+
+                    # Also try: library title contains candidate
+                    match = conn.execute(
+                        """SELECT title, artist, item_key FROM albums
+                           WHERE LOWER(artist) = LOWER(?)
+                             AND LOWER(title) LIKE ?
+                           LIMIT 1""",
+                        (artist, f"%{candidate.lower()}%"),
+                    ).fetchone()
+                    if match:
+                        break
+
+                if match and match["item_key"] not in seen_keys:
+                    seen_keys.add(match["item_key"])
+                    results.append({
+                        "artist": match["artist"],
+                        "album": match["title"],
+                        "parent_item_key": match["item_key"],
+                        "listen_count": listen_count,
+                    })
+                    if len(results) >= 15:
+                        break
+
+            return results
+
+    except Exception:
+        logger.exception("get_lb_top_releases_in_library failed")
+        return []
+
+
+def get_lb_loved_in_library() -> list[dict]:
+    """ListenBrainz loved tracks that exist in the Roon library.
+
+    Matches feedback_loved tracks against the tracks table by artist+title
+    (case-insensitive). Returns up to 20 unique tracks.
+
+    Returns:
+        Up to 20 dicts: title, artist, item_key.
+    """
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT data_json FROM lb_stats_cache WHERE stat_type = 'feedback_loved' LIMIT 1"
+            ).fetchone()
+            if not row:
+                return []
+
+            loved = json.loads(row[0])
+
+            results: list[dict] = []
+            seen_keys: set[str] = set()
+
+            for entry in loved:
+                meta = entry.get("track_metadata") or {}
+                artist = meta.get("artist_name", "")
+                title = meta.get("track_name", "")
+                if not artist or not title:
+                    continue
+
+                match = conn.execute(
+                    """SELECT title, artist, item_key FROM tracks
+                       WHERE LOWER(artist) LIKE ?
+                         AND LOWER(title)  = LOWER(?)
+                         AND (is_live IS NULL OR is_live = 0)
+                       LIMIT 1""",
+                    (f"%{artist.lower()}%", title),
+                ).fetchone()
+
+                if match and match["item_key"] not in seen_keys:
+                    seen_keys.add(match["item_key"])
+                    results.append({
+                        "title": match["title"],
+                        "artist": match["artist"],
+                        "item_key": match["item_key"],
+                    })
+                    if len(results) >= 20:
+                        break
+
+            return results
+
+    except Exception:
+        logger.exception("get_lb_loved_in_library failed")
         return []
 
 
 def get_deep_cuts() -> list[dict]:
     """Tracks by the top-20 artists (by listening history) played fewer than 5 times.
 
-    These are the "album tracks the user keeps skipping" — deep cuts that the
-    listener hasn't explored yet despite enjoying the artist.
-
     Returns:
-        Up to 50 dicts with keys: title, artist, album, item_key, play_count.
+        Up to 50 dicts: title, artist, album, item_key, play_count.
     """
     sql = """
         WITH top_artists AS (
-            SELECT
-                artist,
-                COUNT(*) AS play_count
+            SELECT artist, COUNT(*) AS play_count
             FROM listening_history
-            WHERE artist IS NOT NULL
-              AND artist != ''
+            WHERE artist IS NOT NULL AND artist != ''
               AND (skipped IS NULL OR skipped = 0)
             GROUP BY artist
             ORDER BY play_count DESC
@@ -126,15 +257,10 @@ def get_deep_cuts() -> list[dict]:
 def get_forgotten_favorites() -> list[dict]:
     """Tracks with 2+ total plays but no play in the last 14 days.
 
-    Surfaces music the user used to love but hasn't revisited recently.
-
     Returns:
-        Up to 30 dicts with keys: title, artist, album, item_key,
-        total_plays, last_played_at.
+        Up to 30 dicts: title, artist, album, item_key, total_plays, last_played_at.
     """
-    cutoff = (datetime.now(tz=UTC) - timedelta(days=14)).strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
+    cutoff = (datetime.now(tz=UTC) - timedelta(days=14)).strftime("%Y-%m-%d %H:%M:%S")
     sql = """
         WITH track_stats AS (
             SELECT
@@ -174,11 +300,10 @@ def get_forgotten_favorites() -> list[dict]:
 
 
 def get_genre_explorer() -> list[dict]:
-    """Aggregate genres from track_genres: how many artists and tracks per genre.
+    """Aggregate genres from track_genres.
 
     Returns:
-        List of dicts with keys: genre, artist_count, track_count,
-        sorted by artist_count descending.
+        List of dicts: genre, artist_count, track_count.
     """
     sql = """
         SELECT
