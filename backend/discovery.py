@@ -229,14 +229,13 @@ def get_deep_cuts() -> list[dict]:
             WHERE artist IS NOT NULL AND track_title IS NOT NULL
             GROUP BY artist_lower, title_lower
         ),
-        candidates AS (
+        deduped AS (
+            -- One row per unique (artist, title) — pick any item_key
             SELECT
+                MIN(t.item_key) AS item_key,
                 t.title,
                 t.artist,
-                t.album,
-                t.item_key,
-                COALESCE(tp.play_count, 0) AS play_count,
-                ROW_NUMBER() OVER (PARTITION BY t.artist ORDER BY RANDOM()) AS rn
+                COALESCE(tp.play_count, 0) AS play_count
             FROM tracks t
             JOIN top_artists ta ON LOWER(t.artist) = LOWER(ta.artist)
             LEFT JOIN track_plays tp
@@ -244,8 +243,15 @@ def get_deep_cuts() -> list[dict]:
                AND LOWER(t.title)  = tp.title_lower
             WHERE COALESCE(tp.play_count, 0) < 5
               AND (t.is_live IS NULL OR t.is_live = 0)
+            GROUP BY t.artist, LOWER(t.title)
+        ),
+        candidates AS (
+            SELECT
+                item_key, title, artist, play_count,
+                ROW_NUMBER() OVER (PARTITION BY artist ORDER BY RANDOM()) AS rn
+            FROM deduped
         )
-        SELECT title, artist, album, item_key, play_count
+        SELECT title, artist, '' AS album, item_key, play_count
         FROM candidates
         WHERE rn <= 2
         ORDER BY RANDOM()
@@ -283,22 +289,34 @@ def get_forgotten_favorites() -> list[dict]:
             HAVING total_plays >= 3
                AND last_played_at < :cutoff
         ),
-        candidates AS (
+        deduped AS (
+            -- One row per unique (artist, title) — avoid duplicates from multiple editions
             SELECT
-                t.title,
+                MIN(t.item_key) AS item_key,
                 t.artist,
-                t.album,
-                t.item_key,
+                ts.artist_lower,
+                ts.title_lower,
                 ts.total_plays,
-                ts.last_played_at,
-                ROW_NUMBER() OVER (PARTITION BY t.artist ORDER BY RANDOM()) AS rn
+                ts.last_played_at
             FROM tracks t
             JOIN track_stats ts
                 ON LOWER(t.artist) = ts.artist_lower
                AND LOWER(t.title)  = ts.title_lower
             WHERE (t.is_live IS NULL OR t.is_live = 0)
+            GROUP BY t.artist, ts.title_lower
+        ),
+        candidates AS (
+            SELECT
+                d.item_key,
+                t.title,
+                d.artist,
+                d.total_plays,
+                d.last_played_at,
+                ROW_NUMBER() OVER (PARTITION BY d.artist ORDER BY RANDOM()) AS rn
+            FROM deduped d
+            JOIN tracks t ON t.item_key = d.item_key
         )
-        SELECT title, artist, album, item_key, total_plays, last_played_at
+        SELECT title, artist, '' AS album, item_key, total_plays, last_played_at
         FROM candidates
         WHERE rn <= 2
         ORDER BY RANDOM()

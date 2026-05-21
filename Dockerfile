@@ -42,4 +42,4 @@ USER roonsage
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
   CMD python -c "import urllib.request; import sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5765/api/health').getcode() == 200 else 1)"
 
-CMD ["sh", "-c", "python -m uvicorn backend.main:app --host 0.0.0.0 --port 5765 --workers ${UVICORN_WORKERS:-1}"]
+CMD ["sh", "-c", "if [ \"${UVICORN_WORKERS:-1}\" = \"1\" ]; then python -m uvicorn backend.main:app --host 0.0.0.0 --port 5765 --reload; else python -m uvicorn backend.main:app --host 0.0.0.0 --port 5765 --workers ${UVICORN_WORKERS}; fi"]
