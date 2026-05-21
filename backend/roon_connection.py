@@ -1,5 +1,6 @@
 """Roon connection management mixin and global singleton helpers."""
 
+import asyncio
 import logging
 import threading
 import time
@@ -105,6 +106,21 @@ class RoonConnectionMixin:
     def needs_authorization(self) -> bool:
         """Return True if the extension needs to be authorized in Roon."""
         return self._needs_authorization
+
+    async def wait_until_ready(self, timeout: float = 60.0) -> None:
+        """Wait until the background _connect() thread finishes (or timeout).
+
+        Used by setup endpoints to block until the Roon registration handshake
+        has either produced a token (`is_connected()` becomes True) or
+        determined that the user still needs to authorize the extension
+        (`needs_authorization()` becomes True). Yields back to the event loop
+        between polls so the FastAPI worker stays responsive.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not self._connecting:
+                return
+            await asyncio.sleep(0.5)
 
     def get_core_id(self) -> str | None:
         """Return the connected Roon Core's unique identifier."""

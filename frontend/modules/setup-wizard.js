@@ -251,8 +251,20 @@ export function setupWizardEventListeners() {
         btn.disabled = true;
         btn.textContent = 'Connecting...';
 
+        // After ~3 seconds the Roon Core will have shown RoonSage in its
+        // Extensions list — nudge the user to enable it there.
+        const hintTimer = setTimeout(() => {
+            const errorEl = document.getElementById('setup-roon-error');
+            if (errorEl && errorEl.classList.contains('hidden')) {
+                errorEl.textContent = 'Waiting for approval — open Roon → Settings → Extensions and enable RoonSage.';
+                errorEl.classList.remove('hidden');
+            }
+            btn.textContent = 'Waiting for Roon…';
+        }, 3000);
+
         try {
             const result = await validateRoon(host, port);
+            clearTimeout(hintTimer);
             if (result.success) {
                 state.setup.status.roon_connected = true;
                 setStepDone('roon', result.core_name
@@ -269,8 +281,10 @@ export function setupWizardEventListeners() {
                 setStepError('roon', result.error || 'Connection failed');
             }
         } catch (e) {
+            clearTimeout(hintTimer);
             setStepError('roon', e.message);
         } finally {
+            clearTimeout(hintTimer);
             btn.disabled = false;
             btn.textContent = 'Connect';
         }

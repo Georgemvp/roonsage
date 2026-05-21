@@ -146,7 +146,15 @@ async def setup_status() -> SetupStatusResponse:
 
 @router.post("/validate-roon", response_model=ValidateRoonResponse)
 async def setup_validate_roon(request: ValidateRoonRequest) -> ValidateRoonResponse:
-    """Validate Roon connection and save on success."""
+    """Validate Roon connection and save on success.
+
+    The Roon registration handshake (``RoonApi(blocking_init=True)``) blocks
+    until the user enables the extension in Roon → Settings → Extensions.
+    The RoonClient constructor delegates that handshake to a background
+    daemon thread and returns immediately, so we must wait here for the
+    thread to finish before reading its state — otherwise we always return
+    "Connection failed" while the handshake is still in flight.
+    """
     try:
         temp_client = await asyncio.to_thread(
             RoonClientInstance,
@@ -156,17 +164,21 @@ async def setup_validate_roon(request: ValidateRoonRequest) -> ValidateRoonRespo
     except Exception as e:
         return ValidateRoonResponse(success=False, error=str(e))
 
+    await temp_client.wait_until_ready(timeout=60.0)
+
     if temp_client.needs_authorization():
         return ValidateRoonResponse(
             success=False,
             needs_authorization=True,
-            error=temp_client.get_error() or "Awaiting authorization in Roon",
+            error=temp_client.get_error()
+            or "Open Roon → Settings → Extensions and enable RoonSage, then click Connect again.",
         )
 
     if not temp_client.is_connected():
         return ValidateRoonResponse(
             success=False,
-            error=temp_client.get_error() or "Connection failed",
+            error=temp_client.get_error()
+            or "Connection timed out — make sure Roon Core is reachable and try again.",
         )
 
     core_name = temp_client.get_core_name()

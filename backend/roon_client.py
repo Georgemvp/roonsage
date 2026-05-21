@@ -87,7 +87,11 @@ class RoonClient(
         self._albums_browse_lock = threading.Lock()
         self._genres_browse_lock = threading.Lock()
         self._needs_authorization = False
-        self._connecting = False
+        # Set _connecting = True before launching the thread to close the race
+        # window where is_connected() runs between t.start() and _connect()
+        # flipping the flag. Otherwise is_connected() would see the default
+        # False and kick off a duplicate reconnect thread.
+        self._connecting = True
 
         if extension_info:
             self.EXTENSION_INFO = extension_info
