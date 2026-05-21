@@ -28,6 +28,7 @@ import {
 import { showTimedStepLoading, showStepLoading, hideStepLoading, updateStepProgress, PLAYLIST_STEPS, PLAYLIST_STEP_MAP } from './loading.js';
 import { resetRecState, initRecommendView, PLAYLIST_PROMPT_GROUPS, shufflePromptPills, handlePlaylistRefineNext, setupQuestionEventHandlers, renderPlaylistQuestions } from './recommend.js';
 import { checkLibraryStatus, handleRefreshLibrary, showSyncModal } from './library.js';
+import { initDiscoveryView } from './discovery.js';
 import { viewFromHash, modeFromHash, navigateTo, loadSavedResult } from './router.js';
 
 // pendingNavHash is declared here and exported so instant-queue.js can read/set it
@@ -472,7 +473,11 @@ export function setupEventListeners() {
     if (refreshLink) {
         refreshLink.addEventListener('click', (e) => {
             e.preventDefault();
-            handleRefreshLibrary();
+            if (state.view === 'discovery') {
+                initDiscoveryView();
+            } else {
+                handleRefreshLibrary();
+            }
         });
     }
 

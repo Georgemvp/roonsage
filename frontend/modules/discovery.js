@@ -155,7 +155,7 @@ function _renderDeepCuts(tracks) {
                 <span class="discovery-section-badge">${tracks.length}</span>
             </div>
             <p class="discovery-section-desc">
-                Rarely played tracks from your top artists — the ones hiding on side B.
+                Tracks from your top artists you've played fewer than 5 times — the ones hiding on side B.
             </p>
             <div class="discovery-track-list">
                 ${rows}
@@ -205,7 +205,7 @@ function _renderForgottenFavorites(tracks) {
                 <span class="discovery-section-badge">${tracks.length}</span>
             </div>
             <p class="discovery-section-desc">
-                Tracks you loved but haven't played in over 60 days.
+                Tracks you've played before but haven't heard in over 2 weeks.
             </p>
             <div class="discovery-track-list">
                 ${rows}

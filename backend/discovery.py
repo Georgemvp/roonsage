@@ -85,7 +85,7 @@ def get_undiscovered_albums() -> list[dict]:
 
 
 def get_deep_cuts() -> list[dict]:
-    """Tracks by the top-20 artists (by listening history) played fewer than 2 times.
+    """Tracks by the top-20 artists (by listening history) played fewer than 5 times.
 
     These are the "album tracks the user keeps skipping" — deep cuts that the
     listener hasn't explored yet despite enjoying the artist.
@@ -126,7 +126,7 @@ def get_deep_cuts() -> list[dict]:
         LEFT JOIN track_plays tp
             ON LOWER(t.artist) = tp.artist_lower
            AND LOWER(t.title)  = tp.title_lower
-        WHERE COALESCE(tp.play_count, 0) < 2
+        WHERE COALESCE(tp.play_count, 0) < 5
           AND (t.is_live IS NULL OR t.is_live = 0)
         ORDER BY ta.play_count DESC, t.artist, t.album, t.title
         LIMIT 50
@@ -141,7 +141,7 @@ def get_deep_cuts() -> list[dict]:
 
 
 def get_forgotten_favorites() -> list[dict]:
-    """Tracks with 5+ total plays but no play in the last 60 days.
+    """Tracks with 2+ total plays but no play in the last 14 days.
 
     Surfaces music the user used to love but hasn't revisited recently.
 
@@ -149,7 +149,7 @@ def get_forgotten_favorites() -> list[dict]:
         Up to 30 dicts with keys: title, artist, album, item_key,
         total_plays, last_played_at.
     """
-    cutoff = (datetime.now(tz=UTC) - timedelta(days=60)).strftime(
+    cutoff = (datetime.now(tz=UTC) - timedelta(days=14)).strftime(
         "%Y-%m-%d %H:%M:%S"
     )
     sql = """
@@ -163,7 +163,7 @@ def get_forgotten_favorites() -> list[dict]:
             WHERE artist IS NOT NULL AND track_title IS NOT NULL
               AND (skipped IS NULL OR skipped = 0)
             GROUP BY artist_lower, title_lower
-            HAVING total_plays >= 5
+            HAVING total_plays >= 2
                AND last_played_at < :cutoff
         )
         SELECT
