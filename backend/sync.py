@@ -389,17 +389,20 @@ def sync_library(
             track_album_map = roon_client.build_track_album_map(on_progress=_on_enrich_progress)
 
             if track_album_map:
+                # Match by (title, artist) — item_keys differ between browse paths
                 update_batch = [
-                    (album_title, album_key, track_key)
-                    for track_key, (album_title, album_key) in track_album_map.items()
+                    (album_title, title_lower, artist_lower)
+                    for (title_lower, artist_lower), album_title in track_album_map.items()
                 ]
                 conn.executemany(
-                    "UPDATE tracks SET album = ?, parent_item_key = ? WHERE item_key = ?",
+                    "UPDATE tracks SET album = ? WHERE LOWER(title) = ? AND LOWER(artist) = ?",
                     update_batch,
                 )
                 conn.commit()
-                enriched_count = len(update_batch)
-                logger.info("Phase 4: updated album for %d tracks", enriched_count)
+                enriched_count = conn.execute(
+                    "SELECT COUNT(*) FROM tracks WHERE album != 'Unknown Album' AND album != '' AND album IS NOT NULL"
+                ).fetchone()[0]
+                logger.info("Phase 4: %d tracks now have an album name", enriched_count)
 
                 # Enrich genres from albums table via title match for tracks
                 # that got a real album name but still have empty genres

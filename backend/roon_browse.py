@@ -551,16 +551,19 @@ class RoonBrowseMixin:
     def build_track_album_map(
         self,
         on_progress: Callable[[int, int], None] | None = None,
-    ) -> dict[str, tuple[str, str]]:
-        """Browse Library → Albums → tracks to build a track→album mapping.
+    ) -> dict[tuple[str, str], str]:
+        """Browse Library → Albums → tracks to build a (title, artist) → album mapping.
 
-        Uses hierarchy: "browse" so track item_keys match those from flat-track
-        browse. Returns dict: track_item_key → (album_title, album_browse_key).
+        Navigates via hierarchy: "browse" (Library → Albums → each album).
+        Returns dict: (title_lower, artist_lower) → album_title.
+
+        Note: item_keys differ between flat-tracks browse and per-album browse,
+        so we match on (title, artist) instead.
         """
         if not self.is_connected():
             return {}
 
-        result: dict[str, tuple[str, str]] = {}
+        result: dict[tuple[str, str], str] = {}
         try:
             with self._browse_lock:
                 self._api.browse_browse({"hierarchy": "browse", "pop_all": True})
@@ -609,13 +612,12 @@ class RoonBrowseMixin:
                         page = self._api.browse_load({"hierarchy": "browse", "count": 500})
                         items = page.get("items", []) if page else []
 
-                        track_keys = [
-                            item["item_key"] for item in items
-                            if item.get("hint") in ("action", "action_list")
-                            and item.get("item_key")
+                        track_items = [
+                            i for i in items
+                            if i.get("hint") in ("action", "action_list") and i.get("item_key")
                         ]
 
-                        if not track_keys:
+                        if not track_items:
                             list_items = [
                                 i for i in items
                                 if i.get("hint") == "list" and i.get("item_key")
@@ -628,16 +630,22 @@ class RoonBrowseMixin:
                                     {"hierarchy": "browse", "count": 500}
                                 )
                                 sub_items = sub_page.get("items", []) if sub_page else []
-                                track_keys.extend(
-                                    item["item_key"] for item in sub_items
-                                    if item.get("hint") in ("action", "action_list")
-                                    and item.get("item_key")
+                                track_items.extend(
+                                    i for i in sub_items
+                                    if i.get("hint") in ("action", "action_list")
+                                    and i.get("item_key")
                                 )
-                                if track_keys:
+                                if track_items:
                                     break
 
-                        for tk in track_keys:
-                            result[tk] = (album_title, album_key)
+                        for t in track_items:
+                            track_title = (t.get("title") or "").strip()
+                            subtitle = (t.get("subtitle") or "").strip()
+                            artist = subtitle.split("•")[0].strip() if subtitle else ""
+                            if track_title:
+                                key = (track_title.lower(), artist.lower())
+                                # First occurrence wins (avoids overwriting with a compilation)
+                                result.setdefault(key, album_title)
 
                     except Exception as exc:
                         logger.debug(
@@ -651,7 +659,7 @@ class RoonBrowseMixin:
         except Exception as exc:
             logger.warning("build_track_album_map failed: %s", exc)
 
-        logger.info("build_track_album_map: mapped %d tracks across albums", len(result))
+        logger.info("build_track_album_map: mapped %d (title, artist) pairs", len(result))
         return result
 
     def get_album_track_keys(self, album_item_key: str) -> list[str]:
