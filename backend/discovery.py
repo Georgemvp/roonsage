@@ -205,10 +205,10 @@ def get_lb_loved_in_library() -> list[dict]:
 
 
 def get_deep_cuts() -> list[dict]:
-    """Tracks by the top-20 artists (by listening history) played fewer than 5 times.
+    """Max 2 random tracks per artist from top-40, played fewer than 5 times.
 
     Returns:
-        Up to 50 dicts: title, artist, album, item_key, play_count.
+        Up to 40 dicts: title, artist, album, item_key, play_count.
     """
     sql = """
         WITH top_artists AS (
@@ -218,7 +218,7 @@ def get_deep_cuts() -> list[dict]:
               AND (skipped IS NULL OR skipped = 0)
             GROUP BY artist
             ORDER BY play_count DESC
-            LIMIT 20
+            LIMIT 40
         ),
         track_plays AS (
             SELECT
@@ -228,22 +228,28 @@ def get_deep_cuts() -> list[dict]:
             FROM listening_history
             WHERE artist IS NOT NULL AND track_title IS NOT NULL
             GROUP BY artist_lower, title_lower
+        ),
+        candidates AS (
+            SELECT
+                t.title,
+                t.artist,
+                t.album,
+                t.item_key,
+                COALESCE(tp.play_count, 0) AS play_count,
+                ROW_NUMBER() OVER (PARTITION BY t.artist ORDER BY RANDOM()) AS rn
+            FROM tracks t
+            JOIN top_artists ta ON LOWER(t.artist) = LOWER(ta.artist)
+            LEFT JOIN track_plays tp
+                ON LOWER(t.artist) = tp.artist_lower
+               AND LOWER(t.title)  = tp.title_lower
+            WHERE COALESCE(tp.play_count, 0) < 5
+              AND (t.is_live IS NULL OR t.is_live = 0)
         )
-        SELECT
-            t.title,
-            t.artist,
-            t.album,
-            t.item_key,
-            COALESCE(tp.play_count, 0) AS play_count
-        FROM tracks t
-        JOIN top_artists ta ON LOWER(t.artist) = LOWER(ta.artist)
-        LEFT JOIN track_plays tp
-            ON LOWER(t.artist) = tp.artist_lower
-           AND LOWER(t.title)  = tp.title_lower
-        WHERE COALESCE(tp.play_count, 0) < 5
-          AND (t.is_live IS NULL OR t.is_live = 0)
-        ORDER BY ta.play_count DESC, t.artist, t.album, t.title
-        LIMIT 50
+        SELECT title, artist, album, item_key, play_count
+        FROM candidates
+        WHERE rn <= 2
+        ORDER BY RANDOM()
+        LIMIT 40
     """
     try:
         with get_connection() as conn:
@@ -255,12 +261,14 @@ def get_deep_cuts() -> list[dict]:
 
 
 def get_forgotten_favorites() -> list[dict]:
-    """Tracks with 2+ total plays but no play in the last 14 days.
+    """Max 2 forgotten tracks per artist, randomised each load.
+
+    Tracks with 3+ total plays but not played in the last 30 days.
 
     Returns:
         Up to 30 dicts: title, artist, album, item_key, total_plays, last_played_at.
     """
-    cutoff = (datetime.now(tz=UTC) - timedelta(days=14)).strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = (datetime.now(tz=UTC) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
     sql = """
         WITH track_stats AS (
             SELECT
@@ -272,22 +280,28 @@ def get_forgotten_favorites() -> list[dict]:
             WHERE artist IS NOT NULL AND track_title IS NOT NULL
               AND (skipped IS NULL OR skipped = 0)
             GROUP BY artist_lower, title_lower
-            HAVING total_plays >= 2
+            HAVING total_plays >= 3
                AND last_played_at < :cutoff
+        ),
+        candidates AS (
+            SELECT
+                t.title,
+                t.artist,
+                t.album,
+                t.item_key,
+                ts.total_plays,
+                ts.last_played_at,
+                ROW_NUMBER() OVER (PARTITION BY t.artist ORDER BY RANDOM()) AS rn
+            FROM tracks t
+            JOIN track_stats ts
+                ON LOWER(t.artist) = ts.artist_lower
+               AND LOWER(t.title)  = ts.title_lower
+            WHERE (t.is_live IS NULL OR t.is_live = 0)
         )
-        SELECT
-            t.title,
-            t.artist,
-            t.album,
-            t.item_key,
-            ts.total_plays,
-            ts.last_played_at
-        FROM tracks t
-        JOIN track_stats ts
-            ON LOWER(t.artist) = ts.artist_lower
-           AND LOWER(t.title)  = ts.title_lower
-        WHERE (t.is_live IS NULL OR t.is_live = 0)
-        ORDER BY ts.total_plays DESC
+        SELECT title, artist, album, item_key, total_plays, last_played_at
+        FROM candidates
+        WHERE rn <= 2
+        ORDER BY RANDOM()
         LIMIT 30
     """
     try:
