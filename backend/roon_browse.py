@@ -1,9 +1,11 @@
 """Browse API navigation mixin for RoonSage."""
 
+import contextlib
 import logging
 import re
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -278,10 +280,8 @@ class RoonBrowseMixin:
                 )
 
             if on_album_progress:
-                try:
+                with contextlib.suppress(Exception):
                     on_album_progress(album_idx + 1, total_albums)
-                except Exception:
-                    pass
 
         logger.info(
             "Per-album fallback complete: %d tracks from %d albums",

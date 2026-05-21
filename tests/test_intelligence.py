@@ -12,13 +12,12 @@ Covers:
 import json
 import sqlite3
 import threading
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -328,6 +327,7 @@ class TestListeningHistoryLogging:
 def api_client(patched_db):
     """FastAPI TestClient with intelligence router mounted."""
     from fastapi import FastAPI
+
     from backend.routes.intelligence import router
 
     app = FastAPI()

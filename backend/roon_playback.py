@@ -809,7 +809,7 @@ class RoonPlaybackMixin:
         try:
             if action == "group":
                 first_output_data = None
-                for zid, z in zones_raw.items():
+                for _zid, z in zones_raw.items():
                     for out in z.get("outputs", []):
                         if out.get("output_id") == output_ids[0]:
                             first_output_data = out

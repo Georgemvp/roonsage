@@ -19,12 +19,12 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.db import get_connection
 from backend.automation_engine import (
     ActionType,
     TriggerType,
     get_engine,
 )
+from backend.db import get_connection
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/automations", tags=["automations"])
@@ -135,7 +135,7 @@ def _validate_trigger_type(value: str) -> None:
         valid = [t.value for t in TriggerType]
         raise HTTPException(
             status_code=422, detail=f"Invalid trigger_type {value!r}. Valid: {valid}"
-        )
+        ) from None
 
 
 def _validate_action_type(value: str) -> None:
@@ -145,7 +145,7 @@ def _validate_action_type(value: str) -> None:
         valid = [a.value for a in ActionType]
         raise HTTPException(
             status_code=422, detail=f"Invalid action_type {value!r}. Valid: {valid}"
-        )
+        ) from None
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +295,7 @@ async def run_automation(automation_id: int) -> dict:
     try:
         result = await engine.run_now(automation_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return result

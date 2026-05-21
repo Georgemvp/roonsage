@@ -2,13 +2,13 @@
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
-from backend import library_cache
 import backend.db as _db
 import backend.sync as _sync
+from backend import library_cache
 
 
 @pytest.fixture
@@ -127,7 +127,7 @@ class TestSyncState:
         conn = library_cache.get_db_connection()
 
         # Simulate a completed sync
-        synced_at = datetime.now(timezone.utc).isoformat()
+        synced_at = datetime.now(UTC).isoformat()
         conn.execute(
             "UPDATE sync_state SET roon_core_id = ?, last_sync_at = ?, "
             "track_count = ?, sync_duration_ms = ? WHERE id = 1",
@@ -179,7 +179,7 @@ class TestCacheOperations:
         )
         conn.execute(
             "UPDATE sync_state SET track_count = 1, last_sync_at = ? WHERE id = 1",
-            (datetime.now(timezone.utc).isoformat(),),
+            (datetime.now(UTC).isoformat(),),
         )
         conn.commit()
         conn.close()
@@ -348,7 +348,7 @@ class TestStalenessCheck:
     def test_recent_cache_not_stale(self, initialized_db):
         """Recently synced cache is not stale."""
         conn = library_cache.get_db_connection()
-        synced_at = datetime.now(timezone.utc).isoformat()
+        synced_at = datetime.now(UTC).isoformat()
         conn.execute(
             "UPDATE sync_state SET last_sync_at = ? WHERE id = 1",
             (synced_at,),
@@ -363,7 +363,7 @@ class TestStalenessCheck:
         conn = library_cache.get_db_connection()
         # Set sync time to 25 hours ago
         from datetime import timedelta
-        old_time = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+        old_time = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
         conn.execute(
             "UPDATE sync_state SET last_sync_at = ? WHERE id = 1",
             (old_time,),

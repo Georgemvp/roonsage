@@ -324,10 +324,8 @@ class MusicResearchClient:
                     result["wikidata_url"] = url
                 elif rel_type == "discogs":
                     result["discogs_url"] = url
-                elif rel_type == "review":
-                    # Skip AllMusic (TOS prohibits automated access)
-                    if "allmusic.com" not in url:
-                        review_urls.append(url)
+                elif rel_type == "review" and "allmusic.com" not in url:
+                    review_urls.append(url)
 
             result["review_urls"] = review_urls[:2]  # Limit to 2 reviews
 

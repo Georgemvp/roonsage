@@ -1,9 +1,10 @@
 """Pytest fixtures for RoonSage tests."""
 
-import pytest
 from unittest.mock import MagicMock
 
-from backend.models import Track, Dimension
+import pytest
+
+from backend.models import Dimension, Track
 
 
 @pytest.fixture

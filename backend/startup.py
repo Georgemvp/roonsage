@@ -12,8 +12,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import TYPE_CHECKING
 
-from fastapi import FastAPI
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
 
@@ -41,18 +43,18 @@ def _make_task_done_callback(name: str):
 
 async def init_clients(app: FastAPI) -> None:
     """Initialise all external service clients and store them on app.state."""
+    from backend import library_cache  # noqa: PLC0415
     from backend.config import (  # noqa: PLC0415
-        get_config,
         get_acoustid_config,
+        get_config,
         get_lastfm_config,
         get_listenbrainz_config,
         get_notifications_config,
         get_qobuz_config,
     )
-    from backend.roon_client import init_roon_client  # noqa: PLC0415
     from backend.llm_client import init_llm_client  # noqa: PLC0415
     from backend.qobuz_api import init_qobuz_api_client  # noqa: PLC0415
-    from backend import library_cache  # noqa: PLC0415
+    from backend.roon_client import init_roon_client  # noqa: PLC0415
 
     config = get_config()
 
@@ -132,8 +134,8 @@ async def start_background_tasks(app: FastAPI) -> None:
     Task references are stored in ``app.state.background_tasks`` so
     :func:`shutdown` can cancel them cleanly.
     """
-    from backend.roon_client import get_roon_client  # noqa: PLC0415
     from backend import library_cache  # noqa: PLC0415
+    from backend.roon_client import get_roon_client  # noqa: PLC0415
 
     app.state.background_tasks: list[asyncio.Task] = []
 
@@ -226,8 +228,8 @@ async def start_background_tasks(app: FastAPI) -> None:
     init_scheduler()
 
     # Metadata enrichment worker
-    from backend.enrichment_worker import get_worker, populate_enrichment_queue  # noqa: PLC0415
     from backend.db import get_db_connection  # noqa: PLC0415
+    from backend.enrichment_worker import get_worker, populate_enrichment_queue  # noqa: PLC0415
     try:
         _enrich_conn = get_db_connection()
         _pending = populate_enrichment_queue(_enrich_conn)

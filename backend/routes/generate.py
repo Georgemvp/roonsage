@@ -1,13 +1,14 @@
 """Playlist generation and analysis endpoints."""
 
 import asyncio
+import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import StreamingResponse
 
-import logging
-
-from backend.analyzer import analyze_prompt as do_analyze_prompt, analyze_track as do_analyze_track
+from backend.analyzer import analyze_prompt as do_analyze_prompt
+from backend.analyzer import analyze_track as do_analyze_track
+from backend.dependencies import limiter
 from backend.generator import generate_playlist_stream
 from backend.llm_client import get_llm_client
 from backend.models import (
@@ -19,7 +20,6 @@ from backend.models import (
     Track,
 )
 from backend.roon_client import get_roon_client
-from backend.dependencies import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +99,9 @@ async def analyze_prompt(
     try:
         return await do_analyze_prompt(body.prompt)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}") from e
 
 
 @router.post("/analyze/track", response_model=AnalyzeTrackResponse)
@@ -148,6 +148,6 @@ async def analyze_track(request: AnalyzeTrackRequest) -> AnalyzeTrackResponse:
     try:
         return await do_analyze_track(track)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}") from e

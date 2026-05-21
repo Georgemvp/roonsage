@@ -260,9 +260,8 @@ class RecommendationPipeline:
 
     def migrate_sessions_from(self, other: "RecommendationPipeline") -> None:
         """Thread-safe session migration from another pipeline instance."""
-        with other._session_lock:
-            with self._session_lock:
-                self._sessions = dict(other._sessions)
+        with other._session_lock, self._session_lock:
+            self._sessions = dict(other._sessions)
 
     def get_session(self, session_id: str) -> RecommendSessionState | None:
         """Retrieve a session by ID, or None if expired/missing."""
@@ -493,7 +492,7 @@ class RecommendationPipeline:
         user_prompt = (
             f"User wants: \"{prompt}\"\n\n"
             f"Dimensions to ask about:\n"
-            + "\n".join(f"- {did}: {desc}" for did, desc in zip(dimension_ids, dim_descriptions))
+            + "\n".join(f"- {did}: {desc}" for did, desc in zip(dimension_ids, dim_descriptions, strict=False))
             + "\n\nGenerate 2 natural, conversational questions."
         )
 
@@ -590,9 +589,7 @@ class RecommendationPipeline:
             time_context = f"Het is {day_name}ochtend vroeg ({hour}:00)"
         elif 9 <= hour < 12:
             time_context = f"Het is {day_name}ochtend ({hour}:00)"
-        elif 12 <= hour < 14:
-            time_context = f"Het is {day_name}middag ({hour}:00)"
-        elif 14 <= hour < 17:
+        elif 12 <= hour < 14 or 14 <= hour < 17:
             time_context = f"Het is {day_name}middag ({hour}:00)"
         elif 17 <= hour < 21:
             time_context = f"Het is {day_name}avond ({hour}:00)"

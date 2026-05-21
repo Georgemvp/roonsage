@@ -226,12 +226,11 @@ def count_tracks_by_filters(
         genres_lower_set = {g.lower() for g in genres}
         count = 0
         for row in rows:
-            if row["genres"]:
-                if any(
-                    g.lower() in genres_lower_set
-                    for g in json.loads(row["genres"])
-                ):
-                    count += 1
+            if row["genres"] and any(
+                g.lower() in genres_lower_set
+                for g in json.loads(row["genres"])
+            ):
+                count += 1
         return count
 
 

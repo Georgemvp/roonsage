@@ -52,10 +52,10 @@ def _urllib_login(email: str, password: str, app_id: str):
     Returns a response-like object with .status_code and .json(), or None
     on network/timeout error.
     """
-    import urllib.request
-    import urllib.parse
-    import urllib.error
     import json as _json
+    import urllib.error
+    import urllib.parse
+    import urllib.request
 
     params = urllib.parse.urlencode({
         "email": email,

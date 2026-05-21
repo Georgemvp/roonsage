@@ -5,11 +5,11 @@ from unittest.mock import patch
 import yaml
 
 from backend.config import (
+    MODEL_DEFAULTS,
     deep_merge,
     get_env_or_yaml,
     load_config,
     load_yaml_config,
-    MODEL_DEFAULTS,
     remove_empty_values,
 )
 

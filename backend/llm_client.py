@@ -8,13 +8,19 @@ from dataclasses import dataclass
 from typing import Any
 
 import anthropic
+import httpx
+import openai
 from google import genai
 from google.genai import types as genai_types
-import httpx
 from json_repair import repair_json
-import openai
 
-from backend.models import LLMConfig, OllamaModel, OllamaModelInfo, OllamaModelsResponse, OllamaStatus
+from backend.models import (
+    LLMConfig,
+    OllamaModel,
+    OllamaModelInfo,
+    OllamaModelsResponse,
+    OllamaStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -482,7 +488,7 @@ class LLMClient:
             raise ValueError(
                 f"Failed to parse LLM response as JSON: {original_error}\n"
                 f"Response preview: {preview}"
-            )
+            ) from None
 
 
 # Global client instance

@@ -338,12 +338,12 @@ class TestWritePitchesGrounding:
 
     def test_write_pitches_uses_extracted_facts(self):
         """write_pitches should include ExtractedFacts in the prompt, not raw Wikipedia."""
-        from backend.recommender import RecommendationPipeline
         from backend.models import (
             AlbumRecommendation,
             ExtractedFacts,
             ResearchData,
         )
+        from backend.recommender import RecommendationPipeline
 
         mock_llm = MagicMock()
         mock_response = MagicMock()
@@ -417,8 +417,8 @@ class TestWritePitchesGrounding:
 
     def test_write_pitches_no_500_char_truncation(self):
         """write_pitches should NOT truncate Wikipedia to 500 chars (old behavior)."""
-        from backend.recommender import RecommendationPipeline
         from backend.models import AlbumRecommendation
+        from backend.recommender import RecommendationPipeline
 
         mock_llm = MagicMock()
         mock_response = MagicMock()
@@ -454,8 +454,8 @@ class TestPitchValidation:
 
     def test_validate_pitch_passes_clean_pitch(self):
         """validate_pitch should return valid=True for a factually correct pitch."""
-        from backend.recommender import RecommendationPipeline
         from backend.models import SommelierPitch
+        from backend.recommender import RecommendationPipeline
 
         mock_llm = MagicMock()
         mock_response = MagicMock()
@@ -489,8 +489,8 @@ class TestPitchValidation:
 
     def test_validate_pitch_catches_inaccuracy(self):
         """validate_pitch should flag claims contradicting research."""
-        from backend.recommender import RecommendationPipeline
         from backend.models import SommelierPitch
+        from backend.recommender import RecommendationPipeline
 
         mock_llm = MagicMock()
         mock_response = MagicMock()
@@ -531,12 +531,12 @@ class TestPitchRewrite:
 
     def test_rewrite_pitch_incorporates_corrections(self):
         """rewrite_pitch should pass corrections as constraints to the LLM."""
-        from backend.recommender import RecommendationPipeline
         from backend.models import (
             AlbumRecommendation,
             PitchIssue,
             PitchValidation,
         )
+        from backend.recommender import RecommendationPipeline
 
         mock_llm = MagicMock()
         mock_response = MagicMock()

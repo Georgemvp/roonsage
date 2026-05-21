@@ -13,6 +13,7 @@ from starlette.responses import StreamingResponse
 
 from backend import library_cache
 from backend.config import get_config
+from backend.dependencies import check_rate_limit
 from backend.llm_client import TOKENS_PER_ALBUM, estimate_cost_for_model, get_llm_client
 from backend.models import (
     AlbumCandidate,
@@ -29,7 +30,6 @@ from backend.models import (
     album_key,
 )
 from backend.roon_client import get_roon_client
-from backend.dependencies import check_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +227,7 @@ async def recommend_questions(request: RecommendQuestionsRequest) -> RecommendQu
     except Exception as e:
         if 'session_id' in locals():
             pipeline.delete_session(session_id)
-        raise HTTPException(status_code=500, detail=f"Question generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Question generation failed: {str(e)}") from e
 
 
 @router.post("/switch-mode", response_model=RecommendSwitchModeResponse)
@@ -561,6 +561,7 @@ async def recommend_generate(request: RecommendGenerateRequest, raw_request: Req
             # Run searches in parallel to keep latency low (1-3 s per album).
             if is_discovery:
                 from rapidfuzz import fuzz
+
                 from backend.qobuz_browser import search_qobuz_tracks
 
                 discovery_recs = [r for r in recommendations if not r.track_item_keys]

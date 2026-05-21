@@ -7,6 +7,7 @@ import os
 import httpx
 from fastapi import APIRouter
 
+from backend import library_cache
 from backend.config import (
     ConfigSaveError,
     get_config,
@@ -14,7 +15,7 @@ from backend.config import (
     save_user_config,
     update_config_values,
 )
-from backend import library_cache
+from backend.dependencies import _is_llm_configured
 from backend.llm_client import get_ollama_status, init_llm_client
 from backend.models import (
     SetupCompleteResponse,
@@ -25,9 +26,9 @@ from backend.models import (
     ValidateRoonRequest,
     ValidateRoonResponse,
 )
-from backend.roon_client import RoonClient as RoonClientInstance, get_roon_client, init_roon_client
-from backend.dependencies import _is_llm_configured
 from backend.qobuz_api import get_qobuz_api_client
+from backend.roon_client import RoonClient as RoonClientInstance
+from backend.roon_client import get_roon_client, init_roon_client
 
 logger = logging.getLogger(__name__)
 
@@ -382,9 +383,9 @@ async def validate_lastfm(request: dict) -> dict:
             logger.warning("Failed to save Last.fm config: %s", save_exc)
         # Re-init the singleton client (session_key loaded from existing config)
         try:
+            from backend.config import get_lastfm_config  # noqa: PLC0415
             from backend.lastfm_client import init_lf_client  # noqa: PLC0415
             from backend.lastfm_sync import init_lf_sync_instance  # noqa: PLC0415
-            from backend.config import get_lastfm_config  # noqa: PLC0415
             existing_cfg = get_lastfm_config()
             lf = init_lf_client(
                 api_key=api_key,

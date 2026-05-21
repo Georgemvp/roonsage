@@ -383,7 +383,7 @@ class TasteProfile:
                     """).fetchall()
                     if mb_decade_rows:
                         max_w = max((r[1] or 0) for r in mb_decade_rows) or 1.0
-                        for decade, w_plays, w_full in mb_decade_rows:
+                        for decade, w_plays, _ in mb_decade_rows:
                             w_plays = w_plays or 0
                             normalized = round(min(1.0, (w_plays / max_w) * 0.6 + 0.4), 4)
                             decade_scores[decade] = normalized

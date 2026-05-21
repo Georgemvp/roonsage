@@ -1,6 +1,5 @@
 """FastAPI application for RoonSage."""
 
-import asyncio
 import base64
 import json as _json
 import logging
@@ -11,25 +10,23 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-from backend.version import get_version
-from backend.routes import setup, library, generate, recommend, roon, config_routes, results
-from backend.routes.qobuz_playlist import router as qobuz_playlist_router
-from backend.routes.intelligence import router as intelligence_router
-from backend.routes.discovery import router as discovery_router
-from backend.routes.templates import router as templates_router
-from backend.routes.notifications import router as notifications_router
-from backend.routes.watchlist import router as watchlist_router
-from backend.routes.scheduler import router as scheduler_router
-from backend.routes.enrichment import router as enrichment_router
-from backend.routes.automations import router as automations_router
-from backend.routes.verify import router as verify_router
 from backend.dependencies import ROONSAGE_PASSWORD, limiter
-from backend.startup import init_clients, start_background_tasks, shutdown
-import backend.routes.recommend as _recommend_module
-
+from backend.routes import config_routes, generate, library, recommend, results, roon, setup
+from backend.routes.automations import router as automations_router
+from backend.routes.discovery import router as discovery_router
+from backend.routes.enrichment import router as enrichment_router
+from backend.routes.intelligence import router as intelligence_router
+from backend.routes.notifications import router as notifications_router
+from backend.routes.qobuz_playlist import router as qobuz_playlist_router
+from backend.routes.scheduler import router as scheduler_router
+from backend.routes.templates import router as templates_router
+from backend.routes.verify import router as verify_router
+from backend.routes.watchlist import router as watchlist_router
+from backend.startup import init_clients, shutdown, start_background_tasks
+from backend.version import get_version
 
 # =============================================================================
 # Structured JSON logging

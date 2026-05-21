@@ -128,7 +128,7 @@ async def create_template(body: CreateTemplateRequest) -> TemplateResponse:
     try:
         saved = save_user_template(template)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _to_response(saved)
 
 
@@ -138,7 +138,7 @@ async def delete_template(template_id: str) -> None:
     try:
         found = delete_user_template(template_id)
     except ValueError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     if not found:
         raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
 

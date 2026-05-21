@@ -175,10 +175,10 @@ async def add_qobuz_favorite(req: QobuzFavoriteRequest):
         result = await asyncio.to_thread(client.add_favorite, req.type, req.ids)
         return {"success": True, "type": req.type, "ids": req.ids, "result": result}
     except QobuzAPIError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Qobuz add_favorite failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}") from exc
 
 
 @router.post("/api/qobuz/favorite/remove", dependencies=[Depends(check_rate_limit)])
@@ -192,10 +192,10 @@ async def remove_qobuz_favorite(req: QobuzFavoriteRequest):
         result = await asyncio.to_thread(client.remove_favorite, req.type, req.ids)
         return {"success": True, "type": req.type, "ids": req.ids, "result": result}
     except QobuzAPIError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Qobuz remove_favorite failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}") from exc
 
 
 @router.get("/api/qobuz/favorites")
@@ -228,10 +228,10 @@ async def get_qobuz_favorites(
         )
         return QobuzFavoritesResponse(type=type, items=items, total=total)
     except QobuzAPIError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Qobuz get_favorites failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}") from exc
 
 
 # =============================================================================
@@ -248,10 +248,10 @@ async def list_qobuz_playlists(limit: int = Query(50, ge=1, le=500)):
         summaries = [QobuzPlaylistSummary(**p) for p in playlists]
         return QobuzPlaylistsResponse(playlists=summaries, total=len(summaries))
     except QobuzAPIError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Qobuz list_playlists failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}") from exc
 
 
 @router.get("/api/qobuz/playlist/{playlist_id}")
@@ -262,10 +262,10 @@ async def get_qobuz_playlist(playlist_id: str):
         result = await asyncio.to_thread(client.get_playlist, playlist_id)
         return result
     except QobuzAPIError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Qobuz get_playlist failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}") from exc
 
 
 @router.put("/api/qobuz/playlist/{playlist_id}")
@@ -299,10 +299,10 @@ async def update_qobuz_playlist(playlist_id: str, req: QobuzPlaylistUpdateReques
             tracks_removed=tracks_removed,
         )
     except QobuzAPIError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Qobuz update_playlist failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}") from exc
 
 
 @router.delete("/api/qobuz/playlist/{playlist_id}")
@@ -313,10 +313,10 @@ async def delete_qobuz_playlist(playlist_id: str):
         result = await asyncio.to_thread(client.delete_playlist, playlist_id)
         return {"success": True, "playlist_id": playlist_id, "result": result}
     except QobuzAPIError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Qobuz delete_playlist failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}") from exc
 
 
 # =============================================================================
@@ -336,10 +336,10 @@ async def qobuz_new_releases(
         summaries = [QobuzAlbumSummary(**a) for a in albums]
         return QobuzNewReleasesResponse(albums=summaries, total=len(summaries))
     except QobuzAPIError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Qobuz new_releases failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}") from exc
 
 
 # =============================================================================
@@ -434,7 +434,7 @@ async def prepare_for_arc(req: PrepareForArcRequest):
         )
 
     except QobuzAPIError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("prepare_for_arc failed: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}") from exc

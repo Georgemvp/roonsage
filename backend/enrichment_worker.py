@@ -20,10 +20,11 @@ Design notes:
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -209,14 +210,10 @@ async def _fetch_lastfm(artist: str, title: str) -> tuple[list[str], int | None,
 
     listeners: int | None = None
     playcount: int | None = None
-    try:
+    with contextlib.suppress(ValueError, TypeError):
         listeners = int(track_info.get("listeners", 0)) or None
-    except (ValueError, TypeError):
-        pass
-    try:
+    with contextlib.suppress(ValueError, TypeError):
         playcount = int(track_info.get("playcount", 0)) or None
-    except (ValueError, TypeError):
-        pass
 
     return raw_tags, listeners, playcount
 
@@ -276,7 +273,7 @@ async def enrich_one(
         # Nothing found — still write a row so we don't retry forever
         source = "none"
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
     try:
         conn.execute("""
             INSERT INTO track_metadata_ext
@@ -450,7 +447,7 @@ class EnrichmentWorker:
                         attempts = attempts_row["attempts"] if attempts_row else MAX_ATTEMPTS
 
                         if attempts >= MAX_ATTEMPTS:
-                            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                            now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
                             conn.execute("""
                                 UPDATE enrichment_queue
                                 SET status = 'failed', error_message = 'max attempts exceeded',
@@ -518,10 +515,8 @@ class EnrichmentWorker:
                 logger.error("EnrichmentWorker unexpected error: %s", exc, exc_info=True)
                 await asyncio.sleep(10)
             finally:
-                try:
+                with contextlib.suppress(Exception):
                     conn.close()
-                except Exception:
-                    pass
 
         logger.info("EnrichmentWorker loop exited")
 

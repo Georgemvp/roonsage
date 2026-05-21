@@ -12,7 +12,7 @@ initialized before the first query runs.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from backend.db import get_connection
 
@@ -149,7 +149,7 @@ def get_forgotten_favorites() -> list[dict]:
         Up to 30 dicts with keys: title, artist, album, item_key,
         total_plays, last_played_at.
     """
-    cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=60)).strftime(
+    cutoff = (datetime.now(tz=UTC) - timedelta(days=60)).strftime(
         "%Y-%m-%d %H:%M:%S"
     )
     sql = """

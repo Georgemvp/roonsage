@@ -1,17 +1,16 @@
 """Prompt analysis and seed track dimension extraction."""
 
 from backend.llm_client import get_llm_client
-from backend.taste_profile import TasteProfile
 from backend.models import (
     AnalyzePromptResponse,
     AnalyzeTrackResponse,
+    DecadeCount,
     Dimension,
     GenreCount,
-    DecadeCount,
     Track,
 )
 from backend.roon_client import get_roon_client
-
+from backend.taste_profile import TasteProfile
 
 PROMPT_ANALYSIS_SYSTEM = """You are a music expert helping to create playlists from a user's music library.
 

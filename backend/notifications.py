@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -111,7 +111,7 @@ class GenericWebhookNotifier:
         try:
             payload = {
                 "event": event_type.value,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "data": data,
             }
             async with httpx.AsyncClient(timeout=10) as client:
@@ -161,7 +161,7 @@ def _build_discord_embed(
         "title": title,
         "description": description,
         "color": ACCENT_COLOR,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "footer": {"text": "RoonSage"},
     }
 

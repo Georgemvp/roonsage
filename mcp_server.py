@@ -21,16 +21,16 @@ Environment variables:
     ROONSAGE_URL  Base URL of the running RoonSage app (default: http://localhost:5765)
 """
 
-import atexit
 import asyncio
+import atexit
+import contextlib
 import json
+import logging
 import os
-from typing import AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
 
 import httpx
 from mcp.server.fastmcp import FastMCP
-
-import logging
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,10 +85,8 @@ async def _cleanup() -> None:
     """Close all open HTTP clients gracefully."""
     for client in [_client, _stream_client, _playback_client]:
         if client is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await client.aclose()
-            except Exception:
-                pass
 
 
 def _sync_cleanup() -> None:
@@ -209,7 +207,7 @@ async def get_library_stats() -> str:
     """
     logger.info("GET_LIBRARY_STATS called")
     result = await _api_call("GET", "/api/library/stats/cached")
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
@@ -239,7 +237,7 @@ async def get_discovery_sections() -> str:
     """
     logger.info("GET_DISCOVERY_SECTIONS called")
     result = await _api_call("GET", "/api/discovery/sections")
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
@@ -261,7 +259,7 @@ async def search_library(query: str) -> str:
     """
     logger.info("SEARCH_LIBRARY: query='%s'", query)
     result = await _api_call("GET", "/api/library/search", params={"q": query})
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 # ---------------------------------------------------------------------------
@@ -304,13 +302,13 @@ def _format_ultra_line(i: int, track: dict) -> str:
 
 @mcp.tool()
 async def filter_tracks(
-    genres: Optional[list[str]] = None,
-    decades: Optional[list[str]] = None,
+    genres: list[str] | None = None,
+    decades: list[str] | None = None,
     exclude_live: bool = True,
     max_tracks: int = 200,
     output_format: str = "json",
     artist_limit: int = 2,
-    exclude_keywords: Optional[list[str]] = None,
+    exclude_keywords: list[str] | None = None,
 ) -> str:
     """Filter the Roon library by genre, decade, and/or live-version exclusion.
 
@@ -475,7 +473,7 @@ async def list_zones() -> str:
     """
     logger.info("LIST_ZONES called")
     result = await _api_call("GET", "/api/roon/zones")
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
@@ -668,7 +666,7 @@ async def validate_playlist(
             "max_per_artist": max_per_artist,
         },
     )
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
@@ -678,7 +676,7 @@ async def sync_library() -> str:
     The sync runs in the background — it may take a minute for large libraries."""
     logger.info("SYNC_LIBRARY called")
     result = await _api_call("POST", "/api/library/sync")
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 def _build_playlist_result(
@@ -780,8 +778,8 @@ async def _stream_generate(body: dict) -> tuple[list[dict], dict, list[str]]:
 @mcp.tool()
 async def generate_playlist(
     prompt: str,
-    genres: Optional[list[str]] = None,
-    decades: Optional[list[str]] = None,
+    genres: list[str] | None = None,
+    decades: list[str] | None = None,
     track_count: int = 25,
     exclude_live: bool = True,
     source_mode: str = "library",
@@ -1020,7 +1018,7 @@ async def get_library_status() -> str:
     """
     logger.info("GET_LIBRARY_STATUS called")
     result = await _api_call("GET", "/api/library/status")
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
@@ -1037,7 +1035,7 @@ async def get_artist_albums(artist: str, max_albums: int = 50) -> str:
     """
     logger.info("GET_ARTIST_ALBUMS: artist='%s' max=%d", artist, max_albums)
     result = await _api_call("GET", "/api/library/artist-albums", params={"artist": artist, "max_albums": max_albums})
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
@@ -1045,7 +1043,7 @@ async def seed_track_playlist(
     item_key: str,
     dimensions: list[str],
     track_count: int = 25,
-    decades: Optional[list[str]] = None,
+    decades: list[str] | None = None,
     exclude_live: bool = True,
     source_mode: str = "library",
     qobuz_percentage: int = 30,
@@ -1159,14 +1157,14 @@ async def analyze_prompt(prompt: str) -> str:
     """
     logger.info("ANALYZE_PROMPT: prompt='%s'", prompt[:80])
     result = await _api_call("POST", "/api/analyze/prompt", json={"prompt": prompt})
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
 async def recommend_album_interactive(
     prompt: str,
-    answers: Optional[list[str]] = None,
-    session_id: Optional[str] = None,
+    answers: list[str] | None = None,
+    session_id: str | None = None,
     mode: str = "library",
     familiarity_pref: str = "any",
 ) -> str:
@@ -1342,9 +1340,9 @@ async def play_album(query: str, zone_id: str) -> str:
 async def transport_control(
     zone_id: str,
     action: str,
-    value: Optional[str] = None,
-    position_seconds: Optional[int] = None,
-    seek_offset: Optional[int] = None,
+    value: str | None = None,
+    position_seconds: int | None = None,
+    seek_offset: int | None = None,
 ) -> str:
     """Send a transport or playback-mode command to a Roon zone.
 
@@ -1375,12 +1373,12 @@ async def transport_control(
         body["seek_offset"] = seek_offset
 
     result = await _api_call("POST", "/api/roon/transport", retryable=False, json=body)
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
 async def get_result_history(
-    type: Optional[str] = None,
+    type: str | None = None,
     limit: int = 20,
 ) -> str:
     """Return previously generated playlists and album recommendations.
@@ -1399,14 +1397,14 @@ async def get_result_history(
         params["type"] = type
 
     result = await _api_call("GET", "/api/results", params=params)
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
 async def volume_control(
     zone_name: str,
     action: str,
-    value: Optional[int] = None,
+    value: int | None = None,
 ) -> str:
     """Control volume for a Roon zone by display name.
 
@@ -1433,7 +1431,7 @@ async def volume_control(
         body["value"] = value
 
     result = await _api_call("POST", "/api/roon/volume", retryable=False, json=body)
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
@@ -1449,13 +1447,13 @@ async def transfer_zone(from_zone: str, to_zone: str) -> str:
     """
     logger.info("TRANSFER_ZONE: from='%s' to='%s'", from_zone, to_zone)
     result = await _api_call("POST", "/api/roon/transfer", json={"from_zone": from_zone, "to_zone": to_zone})
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
 async def zone_grouping(
     action: str,
-    zones: Optional[list[str]] = None,
+    zones: list[str] | None = None,
 ) -> str:
     """Group, ungroup, or list Roon zone groups.
 
@@ -1475,7 +1473,7 @@ async def zone_grouping(
     """
     logger.info("ZONE_GROUPING: action=%s zones=%s", action, zones)
     result = await _api_call("POST", "/api/roon/group", json={"action": action, "zones": zones or []})
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
@@ -1494,14 +1492,14 @@ async def play_radio(station: str, zone_id: str) -> str:
     """
     logger.info("PLAY_RADIO: station='%s' zone=%s", station, zone_id)
     result = await _api_call("POST", "/api/roon/radio", json={"station": station, "zone_id": zone_id})
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
 async def browse_playlists(
     action: str,
-    playlist_name: Optional[str] = None,
-    zone_id: Optional[str] = None,
+    playlist_name: str | None = None,
+    zone_id: str | None = None,
 ) -> str:
     """Browse or play Roon playlists (all playlists, not only RoonSage-generated ones).
 
@@ -1527,7 +1525,7 @@ async def browse_playlists(
     }
 
     result = await _api_call("POST", "/api/roon/playlists", json=body)
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
@@ -1547,7 +1545,7 @@ async def search_qobuz(query: str, limit: int = 10) -> str:
     """
     logger.info("SEARCH_QOBUZ: query='%s' limit=%d", query, limit)
     result = await _api_call("POST", "/api/roon/qobuz-search", json={"query": query, "limit": limit})
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
@@ -1583,7 +1581,7 @@ async def save_to_qobuz(
             "description": description,
         },
     )
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
@@ -1701,10 +1699,10 @@ async def list_qobuz_playlists() -> str:
 @mcp.tool()
 async def update_qobuz_playlist(
     playlist_id: str,
-    add_tracks: Optional[list[str]] = None,
-    remove_indices: Optional[list[int]] = None,
-    new_name: Optional[str] = None,
-    new_description: Optional[str] = None,
+    add_tracks: list[str] | None = None,
+    remove_indices: list[int] | None = None,
+    new_name: str | None = None,
+    new_description: str | None = None,
 ) -> str:
     """Update an existing Qobuz playlist — rename, add or remove tracks.
 
@@ -1735,7 +1733,7 @@ async def update_qobuz_playlist(
         body["remove_playlist_track_ids"] = [str(i) for i in remove_indices]
 
     result = await _api_call("PUT", f"/api/qobuz/playlist/{playlist_id}", json=body)
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
@@ -1750,12 +1748,12 @@ async def delete_qobuz_playlist(playlist_id: str) -> str:
     """
     logger.info("DELETE_QOBUZ_PLAYLIST: id=%s", playlist_id)
     result = await _api_call("DELETE", f"/api/qobuz/playlist/{playlist_id}", retryable=False)
-    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else result
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
 @mcp.tool()
 async def browse_qobuz_new_releases(
-    genre: Optional[str] = None,
+    genre: str | None = None,
     limit: int = 20,
 ) -> str:
     """Browse new album releases on Qobuz, optionally filtered by genre.
@@ -1839,9 +1837,9 @@ async def browse_qobuz_new_releases(
 @mcp.tool()
 async def prepare_for_arc(
     playlist_name: str,
-    session_id: Optional[str] = None,
-    track_numbers: Optional[list[int]] = None,
-    item_keys: Optional[list[str]] = None,
+    session_id: str | None = None,
+    track_numbers: list[int] | None = None,
+    item_keys: list[str] | None = None,
     add_albums_to_favorites: bool = True,
 ) -> str:
     """Save a curated playlist to Qobuz for listening in Roon Arc on the go.
@@ -1995,12 +1993,12 @@ async def get_taste_profile() -> str:
 
 @mcp.tool()
 async def update_taste_profile(
-    genre_preferences: Optional[dict] = None,
-    artist_preferences: Optional[dict] = None,
-    decade_preferences: Optional[dict] = None,
-    mood_preferences: Optional[dict] = None,
-    dislikes: Optional[list[str]] = None,
-    notes: Optional[list[str]] = None,
+    genre_preferences: dict | None = None,
+    artist_preferences: dict | None = None,
+    decade_preferences: dict | None = None,
+    mood_preferences: dict | None = None,
+    dislikes: list[str] | None = None,
+    notes: list[str] | None = None,
 ) -> str:
     """Update the user's taste profile based on this session's interactions.
 
@@ -2057,7 +2055,7 @@ async def update_taste_profile(
 async def rate_playlist(
     playlist_name: str,
     rating: int,
-    feedback: Optional[str] = None,
+    feedback: str | None = None,
 ) -> str:
     """Rate a recently generated playlist and provide optional feedback.
 
@@ -2132,7 +2130,7 @@ async def save_playlist(
     session_id: str,
     track_numbers: list[int],
     source_mode: str = "library",
-    tags: Optional[list[str]] = None,
+    tags: list[str] | None = None,
 ) -> str:
     """Save a curated playlist to the local library for future replay.
 
@@ -2170,7 +2168,7 @@ async def save_playlist(
 
 
 @mcp.tool()
-async def list_saved_playlists(tag: Optional[str] = None, limit: int = 20) -> str:
+async def list_saved_playlists(tag: str | None = None, limit: int = 20) -> str:
     """List previously saved playlists from the local library.
 
     Use when the user asks "play that playlist from last week",
@@ -2271,9 +2269,9 @@ async def browse_tags() -> str:
 @mcp.tool()
 async def modify_playlist(
     session_id: str,
-    remove_numbers: Optional[list[int]] = None,
-    add_numbers: Optional[list[int]] = None,
-    swap: Optional[list[list[int]]] = None,
+    remove_numbers: list[int] | None = None,
+    add_numbers: list[int] | None = None,
+    swap: list[list[int]] | None = None,
 ) -> str:
     """Modify a curated playlist without starting over.
 
@@ -2425,7 +2423,7 @@ async def submit_listen_feedback(
     artist: str,
     title: str,
     score: int,
-    recording_msid: Optional[str] = None,
+    recording_msid: str | None = None,
 ) -> str:
     """Submit love (+1) or hate (-1) feedback for a track to ListenBrainz.
 
@@ -2560,10 +2558,10 @@ async def list_playlist_templates() -> str:
 async def generate_from_template(
     template_id: str,
     zone_id: str,
-    genres: Optional[list[str]] = None,
-    decades: Optional[list[str]] = None,
-    track_count: Optional[int] = None,
-    exclude_live: Optional[bool] = None,
+    genres: list[str] | None = None,
+    decades: list[str] | None = None,
+    track_count: int | None = None,
+    exclude_live: bool | None = None,
 ) -> str:
     """Generate a playlist from a pre-defined template and start playback.
 
@@ -2790,7 +2788,7 @@ async def scan_watchlist() -> str:
 async def play_new_release(
     artist_name: str,
     album_title: str,
-    zone_id: Optional[str] = None,
+    zone_id: str | None = None,
 ) -> str:
     """Play a new release found by the watchlist scanner.
 
@@ -2902,10 +2900,10 @@ async def create_scheduled_playlist(
     prompt: str,
     schedule: str,
     track_count: int = 25,
-    genres: Optional[list[str]] = None,
-    decades: Optional[list[str]] = None,
+    genres: list[str] | None = None,
+    decades: list[str] | None = None,
     exclude_live: bool = True,
-    zone_name: Optional[str] = None,
+    zone_name: str | None = None,
     save_to_qobuz: bool = True,
 ) -> str:
     """Create a new scheduled playlist that auto-regenerates on a cron schedule.

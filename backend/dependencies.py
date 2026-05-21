@@ -7,13 +7,14 @@ from collections import defaultdict
 from fastapi import HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from backend.models import ConfigResponse
-from backend.config import get_qobuz_config, get_listenbrainz_config, get_lastfm_config
+
+from backend.config import get_lastfm_config, get_listenbrainz_config, get_qobuz_config
 from backend.llm_client import (
-    get_max_tracks_for_model,
     get_max_albums_for_model,
+    get_max_tracks_for_model,
     get_model_cost,
 )
+from backend.models import ConfigResponse
 from backend.version import get_version
 
 # =============================================================================

@@ -1,8 +1,9 @@
 """Tests for playlist generation."""
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 async def _parse_sse_events(async_gen):

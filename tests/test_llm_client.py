@@ -1,8 +1,8 @@
 """Tests for LLM client (async-first, v12 refactor)."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers

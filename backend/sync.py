@@ -9,8 +9,9 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from backend.db import clear_migration_flag, ensure_db_initialized, get_connection
 from backend.roon_utils import is_live_version
@@ -116,7 +117,7 @@ def is_cache_stale(max_age_hours: int = 24) -> bool:
 
     try:
         synced_at = datetime.fromisoformat(state["synced_at"].replace("Z", "+00:00"))
-        age_hours = (datetime.now(timezone.utc) - synced_at).total_seconds() / 3600
+        age_hours = (datetime.now(UTC) - synced_at).total_seconds() / 3600
         return age_hours > max_age_hours
     except (ValueError, TypeError):
         return True
@@ -411,7 +412,7 @@ def sync_library(
         # Update sync_state metadata row
         # ----------------------------------------------------------------
         duration_ms = int((time.time() - start_time) * 1000)
-        synced_at = datetime.now(timezone.utc).isoformat()
+        synced_at = datetime.now(UTC).isoformat()
 
         conn.execute(
             "UPDATE sync_state SET roon_core_id = ?, last_sync_at = ?, "

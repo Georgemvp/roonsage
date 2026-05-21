@@ -1,6 +1,7 @@
 """Library cache and filter endpoints."""
 
 import asyncio
+import contextlib
 import random as _random
 from collections import defaultdict
 
@@ -9,8 +10,6 @@ from fastapi import APIRouter, HTTPException, Query
 from backend import library_cache
 from backend.config import get_config
 from backend.filter_sessions import get_session, store_session
-from backend.results import save_result
-from backend.roon_client import get_roon_client
 from backend.llm_client import estimate_cost_for_model
 from backend.models import (
     DecadeCount,
@@ -25,6 +24,8 @@ from backend.models import (
     SyncTriggerResponse,
     Track,
 )
+from backend.results import save_result
+from backend.roon_client import get_roon_client
 
 # ---------------------------------------------------------------------------
 # Playlist-validatie helpers
@@ -64,7 +65,7 @@ def _validate_track_selection(
 
     # 1. Duplicates (same artist + title at two different positions)
     seen: dict[tuple[str, str], list[int]] = {}
-    for pos, rk, artist, title in resolved:
+    for pos, _rk, artist, title in resolved:
         key = (artist, title)
         seen.setdefault(key, []).append(pos)
     for (artist, title), positions in seen.items():
@@ -97,7 +98,7 @@ def _validate_track_selection(
 
     # 3. Overrepresentation (more than max_per_artist tracks from same artist)
     artist_counts: dict[str, list[int]] = {}
-    for pos, rk, artist, title in resolved:
+    for pos, _rk, artist, _title in resolved:
         artist_counts.setdefault(artist, []).append(pos)
     for artist, positions in artist_counts.items():
         if len(positions) > max_per_artist:
@@ -445,7 +446,7 @@ async def curate_from_session(request: dict) -> dict:
     resolved_tracks = []
     for num, key in zip(
         [n for n in track_numbers if key_map.get(str(n))],
-        item_keys,
+        item_keys, strict=False,
     ):
         meta = track_meta.get(key, {})
         resolved_tracks.append({
@@ -457,7 +458,7 @@ async def curate_from_session(request: dict) -> dict:
     result_dict = result.model_dump()
 
     if result.success and resolved_tracks:
-        try:
+        with contextlib.suppress(Exception):
             save_result(
                 result_type="mcp_playlist",
                 title=f"MCP Playlist ({len(resolved_tracks)} tracks)",
@@ -470,12 +471,11 @@ async def curate_from_session(request: dict) -> dict:
                 track_count=len(resolved_tracks),
                 art_item_key=item_keys[0] if item_keys else None,
             )
-        except Exception:
-            pass  # non-critical, niet laten crashen
 
     if result.success:
         try:
             import threading
+
             from backend.taste_profile import TasteProfile
             threading.Thread(
                 target=TasteProfile.compute_profile_from_history,

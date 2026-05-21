@@ -25,7 +25,7 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 
 from backend.db import get_connection
@@ -65,7 +65,7 @@ class ActionType(str, Enum):
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _row_to_dict(row) -> dict:
@@ -171,8 +171,8 @@ async def _exec_play_template(config: dict) -> str:
 
 
 async def _exec_sync_library(_config: dict) -> str:
-    from backend.roon_client import get_roon_client  # noqa: PLC0415
     from backend import library_cache  # noqa: PLC0415
+    from backend.roon_client import get_roon_client  # noqa: PLC0415
     roon = get_roon_client()
     if not roon or not roon.is_connected():
         raise RuntimeError("Roon not connected — cannot sync library")
@@ -379,7 +379,7 @@ class AutomationEngine:
             if last:
                 try:
                     last_dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
-                    elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
+                    elapsed = (datetime.now(UTC) - last_dt).total_seconds()
                     if elapsed < cooldown:
                         logger.debug(
                             "Automation id=%d cooldown (%ds remaining)",

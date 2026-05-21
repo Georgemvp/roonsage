@@ -14,9 +14,10 @@ Double-run protection: a schedule is skipped when its last_run is within 55 s of
 """
 
 import asyncio
+import contextlib
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from backend.db import get_connection
 
@@ -115,10 +116,8 @@ async def _run_schedule(row: dict) -> None:
     # Parse optional filters JSON
     filters: dict = {}
     if row["filters"]:
-        try:
+        with contextlib.suppress(Exception):
             filters = json.loads(row["filters"])
-        except Exception:
-            pass
 
     genres: list[str] | None = filters.get("genres") or None
     decades: list[str] | None = filters.get("decades") or None
@@ -283,7 +282,7 @@ async def _run_schedule(row: dict) -> None:
     # -------------------------------------------------------------------
     # 4. Persist run result
     # -------------------------------------------------------------------
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     with get_connection() as conn:
         conn.execute(
             """UPDATE scheduled_playlists

@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, MagicMock, patch  # noqa: E402
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

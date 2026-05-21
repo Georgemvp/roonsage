@@ -1,6 +1,7 @@
 """Intelligence layer endpoints — taste profile, listening history, saved playlists, tags."""
 
 import asyncio
+import contextlib
 import json
 import logging
 from datetime import datetime, timedelta
@@ -292,10 +293,8 @@ async def save_playlist(request: SavePlaylistRequest) -> dict:
     """Save a playlist with a pre-built tracks_json string."""
     track_count = 0
     if request.tracks_json:
-        try:
+        with contextlib.suppress(Exception):
             track_count = len(json.loads(request.tracks_json))
-        except Exception:
-            pass
 
     conn = get_db_connection()
     try:
@@ -466,10 +465,8 @@ async def get_saved_playlist_tracks(playlist_id: int) -> dict:
 
         tracks = []
         if row[1]:
-            try:
+            with contextlib.suppress(Exception):
                 tracks = json.loads(row[1])
-            except Exception:
-                pass
 
         return {
             "playlist_id": playlist_id,
@@ -499,7 +496,7 @@ async def modify_playlist(request: ModifyPlaylistRequest) -> dict:
         raise HTTPException(status_code=404, detail="Session expired or not found")
 
     key_map: dict[str, str] = session["key_map"]
-    all_numbers = sorted(int(k) for k in key_map.keys())
+    all_numbers = sorted(int(k) for k in key_map)
 
     # Start with all numbers; the caller is responsible for passing the current selection.
     # Here we treat the full pool as the working list and apply operations.
@@ -832,8 +829,8 @@ async def lastfm_get_auth_token() -> dict:
     The user must visit auth_url to grant permission, then call
     POST /intelligence/lastfm/auth/session with the same token.
     """
-    from backend.lastfm_client import get_lf_client, LastFmClient  # noqa: PLC0415
     from backend.config import get_lastfm_config  # noqa: PLC0415
+    from backend.lastfm_client import LastFmClient, get_lf_client  # noqa: PLC0415
 
     lf_cfg = get_lastfm_config()
     if not lf_cfg["api_key"] or not lf_cfg["api_secret"]:
@@ -863,9 +860,9 @@ async def lastfm_get_session(request: LastFmSessionRequest) -> dict:
 
     Saves the session key (and username if available) to config.user.yaml.
     """
-    from backend.lastfm_client import get_lf_client, LastFmClient, init_lf_client  # noqa: PLC0415
-    from backend.lastfm_sync import init_lf_sync_instance  # noqa: PLC0415
     from backend.config import get_lastfm_config, save_user_config  # noqa: PLC0415
+    from backend.lastfm_client import LastFmClient, get_lf_client, init_lf_client  # noqa: PLC0415
+    from backend.lastfm_sync import init_lf_sync_instance  # noqa: PLC0415
 
     lf_cfg = get_lastfm_config()
     if not lf_cfg["api_key"] or not lf_cfg["api_secret"]:

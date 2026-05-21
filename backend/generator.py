@@ -6,10 +6,10 @@ import random
 from collections.abc import AsyncGenerator
 from datetime import datetime
 
+from backend import library_cache
 from backend.llm_client import get_llm_client
 from backend.models import GenerateResponse, Track
 from backend.roon_client import RoonQueryError, get_roon_client
-from backend import library_cache
 from backend.taste_profile import TasteProfile
 
 logger = logging.getLogger(__name__)
@@ -100,10 +100,7 @@ async def generate_narrative(
             logger.warning("Narrative missing from response. Keys: %s", list(result.keys()))
 
         # Append date to title
-        if raw_title:
-            playlist_title = f"{raw_title} - {date_suffix}"
-        else:
-            playlist_title = fallback_title
+        playlist_title = f"{raw_title} - {date_suffix}" if raw_title else fallback_title
 
         return playlist_title, narrative
 
@@ -371,9 +368,7 @@ async def generate_playlist_stream(
                 time_context = f"Het is {day_name}ochtend vroeg ({hour}:00)"
             elif 9 <= hour < 12:
                 time_context = f"Het is {day_name}ochtend ({hour}:00)"
-            elif 12 <= hour < 14:
-                time_context = f"Het is {day_name}middag ({hour}:00)"
-            elif 14 <= hour < 17:
+            elif 12 <= hour < 14 or 14 <= hour < 17:
                 time_context = f"Het is {day_name}middag ({hour}:00)"
             elif 17 <= hour < 21:
                 time_context = f"Het is {day_name}avond ({hour}:00)"
@@ -830,7 +825,8 @@ def _tracks_match(llm_artist: str, llm_title: str, library_track: Track) -> bool
     Uses fuzzy matching to handle slight variations in naming.
     """
     from rapidfuzz import fuzz
-    from backend.roon_client import simplify_string, normalize_artist, FUZZ_THRESHOLD
+
+    from backend.roon_client import FUZZ_THRESHOLD, normalize_artist, simplify_string
 
     # Compare titles
     simplified_llm_title = simplify_string(llm_title)

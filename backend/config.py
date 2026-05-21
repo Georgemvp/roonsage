@@ -137,12 +137,12 @@ def save_user_config(updates: dict[str, Any]) -> None:
             "Check that the data directory is writable. "
             "For Docker, ensure the volume is mounted with correct permissions "
             "(e.g., user directive or chown to UID 1000)."
-        )
+        ) from None
     except OSError as e:
         raise ConfigSaveError(
             f"Failed to save configuration to {USER_CONFIG_PATH}: {e}. "
             "Check disk space and directory permissions."
-        )
+        ) from e
     finally:
         # Invalidate cache regardless of success/failure so stale data is never served
         _user_config_cache = None

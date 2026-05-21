@@ -5,7 +5,9 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from backend import library_cache
 from backend.config import ConfigSaveError, get_config, get_qobuz_config, update_config_values
+from backend.dependencies import _build_config_response, _is_llm_configured
 from backend.llm_client import (
     get_ollama_model_info,
     get_ollama_status,
@@ -20,10 +22,8 @@ from backend.models import (
     OllamaStatus,
     UpdateConfigRequest,
 )
-from backend.roon_client import get_roon_client, init_roon_client
 from backend.qobuz_api import init_qobuz_api_client
-from backend.dependencies import _is_llm_configured, _build_config_response
-from backend import library_cache
+from backend.roon_client import get_roon_client, init_roon_client
 
 router = APIRouter(prefix="/api", tags=["config"])
 
@@ -82,7 +82,7 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
     try:
         config = update_config_values(updates)
     except ConfigSaveError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     roon_connection_changed = (
         config.roon.host != prev_roon_host
@@ -110,7 +110,7 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
 
     # Persist ListenBrainz credentials when provided via settings UI
     if any(k in updates for k in ["listenbrainz_token", "listenbrainz_username"]):
-        from backend.config import save_user_config, get_listenbrainz_config  # noqa: PLC0415
+        from backend.config import get_listenbrainz_config, save_user_config  # noqa: PLC0415
         lb_updates: dict = {}
         if updates.get("listenbrainz_token"):
             lb_updates["token"] = updates["listenbrainz_token"]

@@ -1,7 +1,8 @@
 """Tests for new Roon API endpoints: volume, transfer, grouping, radio, playlists."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.models import RoonResponse
