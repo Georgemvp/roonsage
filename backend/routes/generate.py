@@ -2,7 +2,7 @@
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import StreamingResponse
 
 import logging
@@ -19,23 +19,23 @@ from backend.models import (
     Track,
 )
 from backend.roon_client import get_roon_client
-from backend.dependencies import check_rate_limit, limiter
+from backend.dependencies import limiter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["generate"])
 
 
-@router.post("/generate/stream", dependencies=[Depends(check_rate_limit)])
+@router.post("/generate/stream")
 @limiter.limit("30/hour")
 async def generate_playlist_sse(
-    http_request: Request, body: GenerateRequest
+    request: Request, body: GenerateRequest
 ) -> StreamingResponse:
     """Generate a playlist with streaming progress updates.
 
-    ``http_request`` is required by slowapi for rate-key extraction; ``body``
+    ``request`` is required by slowapi for rate-key extraction; ``body``
     carries the actual payload (GenerateRequest).
-    """
+"""
     roon_client = get_roon_client()
     llm_client = get_llm_client()
 
@@ -85,7 +85,7 @@ async def generate_playlist_sse(
 @router.post("/analyze/prompt", response_model=AnalyzePromptResponse)
 @limiter.limit("30/hour")
 async def analyze_prompt(
-    http_request: Request, body: AnalyzePromptRequest
+    request: Request, body: AnalyzePromptRequest
 ) -> AnalyzePromptResponse:
     """Analyze a natural language prompt to suggest filters."""
     roon_client = get_roon_client()
