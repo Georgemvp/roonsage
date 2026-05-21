@@ -114,12 +114,33 @@ async def start_lastfm_import(lf_client, from_year: int = 2014) -> bool:
     return True
 
 
+def _pause_enrichment() -> None:
+    try:
+        from backend.enrichment_worker import get_worker  # noqa: PLC0415
+        get_worker().pause()
+        logger.info("Enrichment worker paused during scrobble import")
+    except Exception as exc:
+        logger.warning("Could not pause enrichment worker: %s", exc)
+
+
+def _resume_enrichment() -> None:
+    try:
+        from backend.enrichment_worker import get_worker  # noqa: PLC0415
+        w = get_worker()
+        if w.is_paused() and not is_running("lastfm") and not is_running("listenbrainz"):
+            w.resume()
+            logger.info("Enrichment worker resumed after scrobble import")
+    except Exception as exc:
+        logger.warning("Could not resume enrichment worker: %s", exc)
+
+
 async def _run_lastfm_import(lf_client, from_year: int) -> None:
     source = "lastfm"
     from_ts = int(timegm(strptime(f"{from_year}-01-01", "%Y-%m-%d")))
     total = 0
     page = 1
 
+    _pause_enrichment()
     try:
         while True:
             data = await lf_client.get_recent_tracks(from_ts=from_ts, page=page, limit=200)
@@ -174,6 +195,8 @@ async def _run_lastfm_import(lf_client, from_year: int) -> None:
     except Exception as exc:
         logger.exception("Last.fm import failed")
         _set_state(source, status="error", error_message=str(exc))
+    finally:
+        _resume_enrichment()
 
 
 async def start_lb_import(lb_client, from_year: int = 2014) -> bool:
@@ -200,6 +223,7 @@ async def _run_lb_import(lb_client, from_year: int) -> None:
     total = 0
     max_ts = None  # Start from now, paginate backwards
 
+    _pause_enrichment()
     try:
         while True:
             listens = await lb_client.get_listens(min_ts=min_ts, max_ts=max_ts, count=100)
@@ -247,3 +271,5 @@ async def _run_lb_import(lb_client, from_year: int) -> None:
     except Exception as exc:
         logger.exception("ListenBrainz import failed")
         _set_state(source, status="error", error_message=str(exc))
+    finally:
+        _resume_enrichment()
