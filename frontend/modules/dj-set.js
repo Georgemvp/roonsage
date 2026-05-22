@@ -15,6 +15,69 @@ let _lastPayload = null;
 let _savedId = null;
 let _curveChart = null;
 let _selectedGenres = new Set();
+let _bpmUserEdited = false;
+
+// Typical BPM center + half-spread per mood.
+// center = midpoint, spread = half the typical range.
+const MOOD_BPM = {
+    meditatief:    { center: 65,  spread: 10 },
+    rustig:        { center: 72,  spread: 10 },
+    zacht:         { center: 78,  spread: 10 },
+    dromerig:      { center: 82,  spread: 12 },
+    melancholisch: { center: 78,  spread: 12 },
+    romantisch:    { center: 82,  spread: 10 },
+    chill:         { center: 90,  spread: 12 },
+    nostalgisch:   { center: 90,  spread: 12 },
+    serieus:       { center: 100, spread: 10 },
+    donker:        { center: 105, spread: 15 },
+    blij:          { center: 112, spread: 10 },
+    vrolijk:       { center: 116, spread: 10 },
+    intens:        { center: 122, spread: 15 },
+    energiek:      { center: 122, spread: 12 },
+    krachtig:      { center: 130, spread: 15 },
+    feestelijk:    { center: 128, spread: 12 },
+    opgewonden:    { center: 130, spread: 12 },
+    euforisch:     { center: 145, spread: 15 },
+};
+
+function _suggestBpm() {
+    if (_bpmUserEdited) return;
+    const startMood = document.getElementById('dj-start-mood')?.value || '';
+    const endMood   = document.getElementById('dj-end-mood')?.value   || '';
+    const curve     = document.getElementById('dj-curve')?.value      || 'ramp_up';
+    const hint      = document.getElementById('dj-bpm-hint');
+
+    const startProfile = MOOD_BPM[startMood];
+    if (!startProfile) {
+        if (hint) hint.textContent = '';
+        return;
+    }
+
+    const endProfile = endMood && MOOD_BPM[endMood] ? MOOD_BPM[endMood] : null;
+    const endCenter  = endProfile ? endProfile.center : startProfile.center;
+
+    let startBpm, endBpm;
+    if (curve === 'flat') {
+        const mid = Math.round((startProfile.center + endCenter) / 2);
+        startBpm = endBpm = mid;
+    } else if (curve === 'ramp_down') {
+        // High → low: start at the higher of the two, end at the lower
+        startBpm = Math.max(startProfile.center, endCenter) + Math.round(startProfile.spread * 0.5);
+        endBpm   = Math.min(startProfile.center, endCenter) - Math.round(startProfile.spread * 0.5);
+    } else {
+        // ramp_up, peak, valley: start low, ramp up to end
+        startBpm = startProfile.center - Math.round(startProfile.spread * 0.5);
+        endBpm   = endCenter + Math.round((endProfile?.spread ?? startProfile.spread) * 0.5);
+    }
+
+    startBpm = Math.max(40, Math.min(220, startBpm));
+    endBpm   = Math.max(40, Math.min(220, endBpm));
+
+    document.getElementById('dj-start-bpm').value = startBpm;
+    document.getElementById('dj-end-bpm').value   = endBpm;
+
+    if (hint) hint.textContent = `Automatisch ingesteld op basis van mood · klik op een veld om zelf aan te passen`;
+}
 
 function _esc(s) {
     return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -266,6 +329,23 @@ export async function initDJSetView() {
         document.getElementById('dj-form')?.addEventListener('submit', _build);
         document.getElementById('dj-play-btn')?.addEventListener('click', _play);
         document.getElementById('dj-save-btn')?.addEventListener('click', () => _save());
+
+        // BPM auto-suggest: update when mood or curve changes
+        ['dj-start-mood', 'dj-end-mood', 'dj-curve'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => {
+                _bpmUserEdited = false;
+                _suggestBpm();
+            });
+        });
+        // Track manual BPM edits
+        ['dj-start-bpm', 'dj-end-bpm'].forEach(id => {
+            document.getElementById(id)?.addEventListener('input', () => {
+                _bpmUserEdited = true;
+                const hint = document.getElementById('dj-bpm-hint');
+                if (hint) hint.textContent = 'Handmatig ingesteld';
+            });
+        });
+
         _initialized = true;
     }
     await Promise.all([_populateZones(), _loadGenres()]);
