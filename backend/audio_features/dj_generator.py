@@ -38,14 +38,29 @@ AVG_TRACK_MINUTES = 4.0
 # Mood → (valence_min, valence_max, energy_bias).
 # valence 0=sad/dark, 1=happy/bright. energy_bias shifts the energy curve.
 MOOD_PROFILES: dict[str, tuple[float, float, float]] = {
-    "blij":          (0.65, 1.00,  0.10),
-    "energiek":      (0.45, 0.85,  0.30),
-    "feestelijk":    (0.70, 1.00,  0.25),
-    "chill":         (0.35, 0.70, -0.20),
-    "dromerig":      (0.25, 0.65, -0.25),
-    "romantisch":    (0.50, 0.85, -0.20),
-    "melancholisch": (0.00, 0.40, -0.10),
-    "intens":        (0.10, 0.55,  0.20),
+    # ── Hoog energie / positief ───────────────────────────────────────────────
+    "euforisch":     (0.80, 1.00,  0.40),  # max happy + max energy
+    "feestelijk":    (0.70, 1.00,  0.25),  # party
+    "opgewonden":    (0.60, 0.90,  0.35),  # pumped/excited
+    "energiek":      (0.45, 0.85,  0.30),  # energetic
+    "vrolijk":       (0.65, 0.95,  0.15),  # cheerful, lighthearted
+    "blij":          (0.60, 0.95,  0.05),  # happy, neutral energy
+    # ── Krachtig / gedreven ───────────────────────────────────────────────────
+    "krachtig":      (0.15, 0.55,  0.35),  # powerful, driving (dark energy)
+    "intens":        (0.10, 0.50,  0.20),  # intense, focused
+    "serieus":       (0.20, 0.55, -0.05),  # serious, no-nonsense
+    # ── Midden / gemengd ──────────────────────────────────────────────────────
+    "nostalgisch":   (0.35, 0.65, -0.05),  # bittersweet nostalgia
+    "romantisch":    (0.50, 0.85, -0.15),  # warm, tender
+    # ── Ontspannen / low-energy ───────────────────────────────────────────────
+    "chill":         (0.35, 0.70, -0.20),  # laid-back
+    "zacht":         (0.45, 0.80, -0.30),  # soft, gentle
+    "dromerig":      (0.25, 0.65, -0.25),  # dreamy, floaty
+    "rustig":        (0.40, 0.75, -0.35),  # calm, peaceful
+    "meditatief":    (0.30, 0.65, -0.40),  # meditative, minimal
+    # ── Donker / melancholisch ────────────────────────────────────────────────
+    "melancholisch": (0.00, 0.40, -0.10),  # sad, reflective
+    "donker":        (0.00, 0.30,  0.15),  # dark, brooding
 }
 
 
