@@ -108,10 +108,16 @@ def _curve_values(curve: EnergyCurve, n: int) -> list[float]:
     return [0.55 for _ in xs]
 
 
-def _bpm_targets(start_bpm: float, end_bpm: float, n: int) -> list[float]:
+def _bpm_targets(start_bpm: float, end_bpm: float, n: int, curve: EnergyCurve = "ramp_up") -> list[float]:
     if n <= 1:
         return [start_bpm]
-    return [start_bpm + (end_bpm - start_bpm) * i / (n - 1) for i in range(n)]
+    raw = _curve_values(curve, n)
+    v_min, v_max = min(raw), max(raw)
+    if v_max == v_min:
+        return [(start_bpm + end_bpm) / 2] * n
+    bpm_low = min(start_bpm, end_bpm)
+    bpm_high = max(start_bpm, end_bpm)
+    return [bpm_low + (v - v_min) / (v_max - v_min) * (bpm_high - bpm_low) for v in raw]
 
 
 def _valence_targets(start_mood: str | None, end_mood: str | None, n: int) -> list[float] | None:
@@ -291,7 +297,7 @@ def build_dj_set(
     if not pool:
         return {"tracks": [], "total_matching": 0, "returned": 0, "curve": []}
 
-    bpm_curve = _bpm_targets(start_bpm, end_bpm, n_tracks)
+    bpm_curve = _bpm_targets(start_bpm, end_bpm, n_tracks, energy_curve)
     raw_energy = _curve_values(energy_curve, n_tracks)
     e_bias = _energy_bias(start_mood, end_mood, n_tracks)
     energy_curve_vals = [max(0.0, min(1.0, e + b)) for e, b in zip(raw_energy, e_bias, strict=False)]
