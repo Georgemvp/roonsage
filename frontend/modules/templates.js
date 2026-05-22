@@ -46,11 +46,7 @@ async function saveTemplate(payload) {
 }
 
 async function deleteTemplate(id) {
-    const response = await fetch(`/api/templates/${id}`, { method: 'DELETE' });
-    if (!response.ok && response.status !== 204) {
-        const err = await response.json().catch(() => ({ detail: 'Delete failed' }));
-        throw new Error(err.detail || 'Delete failed');
-    }
+    await apiCall(`/templates/${id}`, { method: 'DELETE' });
 }
 
 // ---------------------------------------------------------------------------

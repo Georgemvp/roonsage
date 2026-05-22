@@ -268,7 +268,10 @@ export function finalizeHistoryDelete(resultId) {
     _historyDeleteConfirm = null;
     renderHistoryFeedFromCache();
 
-    // Fire the server delete; restore cache on failure
+    // Fire the server delete; restore cache on failure.
+    // Raw fetch (not apiCall) because we need to tolerate 404 — the item may
+    // already be gone server-side, in which case the optimistic cache update
+    // is the correct end state.
     fetch(`/api/results/${encodeURIComponent(resultId)}`, { method: 'DELETE' })
         .then(resp => {
             if (!resp.ok && resp.status !== 404) {

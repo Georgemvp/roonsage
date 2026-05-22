@@ -3,6 +3,8 @@
 // Polls enrichment and library-sync status; drives the global activity bar.
 // =============================================================================
 
+import { apiCall } from './api.js';
+
 let _pollInterval = null;
 
 /**
@@ -32,37 +34,31 @@ async function _updateActivityBar() {
 
     // ── Enrichment status ───────────────────────────────────────────────────
     try {
-        const res = await fetch('/api/enrichment/status');
-        if (res.ok) {
-            const data = await res.json();
-            if (data.worker_state === 'running' && data.pending > 0) {
-                const pct = data.completion_pct != null
-                    ? `${Math.round(data.completion_pct)}%`
-                    : '';
-                items.push(`
-                    <div class="bg-activity-item">
-                        <span class="bg-activity-spinner" aria-hidden="true"></span>
-                        <span class="bg-activity-label">Enriching metadata</span>
-                        <span class="bg-activity-progress">${data.completed}/${data.total} ${pct}</span>
-                    </div>`);
-            }
+        const data = await apiCall('/enrichment/status');
+        if (data.worker_state === 'running' && data.pending > 0) {
+            const pct = data.completion_pct != null
+                ? `${Math.round(data.completion_pct)}%`
+                : '';
+            items.push(`
+                <div class="bg-activity-item">
+                    <span class="bg-activity-spinner" aria-hidden="true"></span>
+                    <span class="bg-activity-label">Enriching metadata</span>
+                    <span class="bg-activity-progress">${data.completed}/${data.total} ${pct}</span>
+                </div>`);
         }
     } catch (_) { /* network error — ignore silently */ }
 
     // ── Library sync status ─────────────────────────────────────────────────
     try {
-        const res = await fetch('/api/library/status');
-        if (res.ok) {
-            const data = await res.json();
-            if (data.syncing) {
-                const progress = data.sync_progress ? ` ${data.sync_progress}` : '';
-                items.push(`
-                    <div class="bg-activity-item">
-                        <span class="bg-activity-spinner" aria-hidden="true"></span>
-                        <span class="bg-activity-label">Syncing library</span>
-                        <span class="bg-activity-progress">${progress}</span>
-                    </div>`);
-            }
+        const data = await apiCall('/library/status');
+        if (data.syncing) {
+            const progress = data.sync_progress ? ` ${data.sync_progress}` : '';
+            items.push(`
+                <div class="bg-activity-item">
+                    <span class="bg-activity-spinner" aria-hidden="true"></span>
+                    <span class="bg-activity-label">Syncing library</span>
+                    <span class="bg-activity-progress">${progress}</span>
+                </div>`);
         }
     } catch (_) { /* network error — ignore silently */ }
 

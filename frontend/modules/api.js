@@ -19,6 +19,7 @@ export async function apiCall(endpoint, options = {}) {
         throw new Error(detail || error.error || 'Request failed');
     }
 
+    if (response.status === 204) return null;
     return response.json();
 }
 

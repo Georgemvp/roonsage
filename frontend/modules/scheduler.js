@@ -139,7 +139,7 @@ async function _toggle(id, btn) {
 async function _delete(id) {
     if (!confirm('Delete this scheduled playlist?')) return;
     try {
-        await fetch(`/api/schedules/${id}`, { method: 'DELETE' });
+        await apiCall(`/schedules/${id}`, { method: 'DELETE' });
         await _loadSchedules();
     } catch (e) {
         alert(`Delete failed: ${e.message}`);

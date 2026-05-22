@@ -199,10 +199,8 @@ export async function loadSettings() {
         updateConfigRequiredUI();
 
         // Populate Last.fm settings status indicator (fire-and-forget)
-        fetch('/api/intelligence/lastfm/status')
-            .then(r => r.ok ? r.json() : null)
+        apiCall('/intelligence/lastfm/status')
             .then(lf => {
-                if (!lf) return;
                 const dot = document.querySelector('#lastfm-settings-status .status-dot');
                 const txt = document.querySelector('#lastfm-settings-status .status-text');
                 if (lf.can_scrobble) {
@@ -218,10 +216,8 @@ export async function loadSettings() {
         // Restore import status labels on page load (fire-and-forget)
         for (const source of ['lastfm', 'listenbrainz']) {
             const elId = source === 'lastfm' ? 'lastfm-import-status' : 'lb-import-status';
-            fetch(`/api/intelligence/${source}/import-status`)
-                .then(r => r.ok ? r.json() : null)
+            apiCall(`/intelligence/${source}/import-status`)
                 .then(data => {
-                    if (!data) return;
                     const el = document.getElementById(elId);
                     if (!el) return;
                     const count = (data.total_imported || 0).toLocaleString();
@@ -373,12 +369,10 @@ export async function handleValidateQobuz() {
         btn.textContent = 'Validating...';
     }
     try {
-        const res = await fetch('/api/qobuz/validate', {
+        const data = await apiCall('/qobuz/validate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password }),
         });
-        const data = await res.json();
         if (statusEl) {
             statusEl.classList.toggle('connected', !!data.available);
             statusEl.querySelector('.status-text').textContent = data.available
@@ -433,9 +427,7 @@ const _NOTIF_EVENT_IDS = [
 /** Load notification config from the API and populate the form fields. */
 export async function loadNotificationSettings() {
     try {
-        const res = await fetch('/api/notifications/config');
-        if (!res.ok) return;
-        const cfg = await res.json();
+        const cfg = await apiCall('/notifications/config');
 
         const discordEl = document.getElementById('notif-discord-url');
         const tgTokenEl = document.getElementById('notif-tg-token');
@@ -484,9 +476,8 @@ async function _saveNotificationSettings() {
     if (Object.keys(updates).length === 0) return;
 
     try {
-        await fetch('/api/notifications/config', {
+        await apiCall('/notifications/config', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updates),
         });
     } catch (err) {
@@ -513,12 +504,10 @@ async function _testNotification(channel, resultElId) {
     }
 
     try {
-        const res = await fetch('/api/notifications/test', {
+        const data = await apiCall('/notifications/test', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
         });
-        const data = await res.json();
         if (resultEl) {
             resultEl.textContent = data.success ? '✓ Verzonden!' : `✗ ${data.error || 'Mislukt'}`;
             resultEl.style.color = data.success ? '#4caf50' : '#f44336';
@@ -553,9 +542,7 @@ let _enrichmentPollTimer = null;
  */
 export async function loadEnrichmentStatus() {
     try {
-        const res = await fetch('/api/enrichment/status');
-        if (!res.ok) return null;
-        const data = await res.json();
+        const data = await apiCall('/enrichment/status');
         _updateEnrichmentUI(data);
         return data;
     } catch (err) {
@@ -623,8 +610,7 @@ async function _startEnrichment() {
     if (resultEl) { resultEl.textContent = 'Bezig met starten…'; resultEl.style.color = ''; }
 
     try {
-        const res = await fetch('/api/enrichment/start', { method: 'POST' });
-        const data = await res.json();
+        const data = await apiCall('/enrichment/start', { method: 'POST' });
         if (resultEl) {
             resultEl.textContent = data.message || 'Gestart.';
             resultEl.style.color = '#4caf50';
@@ -639,7 +625,7 @@ async function _startEnrichment() {
 async function _pauseEnrichment() {
     const resultEl = document.getElementById('enrich-action-result');
     try {
-        await fetch('/api/enrichment/pause', { method: 'POST' });
+        await apiCall('/enrichment/pause', { method: 'POST' });
         if (resultEl) { resultEl.textContent = 'Worker gepauzeerd.'; resultEl.style.color = ''; }
         await loadEnrichmentStatus();
         _stopEnrichmentPolling();
@@ -651,7 +637,7 @@ async function _pauseEnrichment() {
 async function _resumeEnrichment() {
     const resultEl = document.getElementById('enrich-action-result');
     try {
-        await fetch('/api/enrichment/resume', { method: 'POST' });
+        await apiCall('/enrichment/resume', { method: 'POST' });
         if (resultEl) { resultEl.textContent = 'Worker hervat.'; resultEl.style.color = '#4caf50'; }
         await loadEnrichmentStatus();
         _startEnrichmentPolling();

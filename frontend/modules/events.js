@@ -376,12 +376,10 @@ export function setupEventListeners() {
         }
         if (btn) { btn.disabled = true; btn.textContent = 'Validating...'; }
         try {
-            const res = await fetch('/api/setup/validate-listenbrainz', {
+            const data = await apiCall('/setup/validate-listenbrainz', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token, username }),
             });
-            const data = await res.json();
             if (data.valid) {
                 if (resultEl) resultEl.innerHTML = `<span style="color:#4caf50">✓ Connected as <strong>${data.user_name || username}</strong></span>`;
                 const dot = document.querySelector('#lb-settings-status .status-dot');
@@ -411,12 +409,10 @@ export function setupEventListeners() {
         }
         if (btn) { btn.disabled = true; btn.textContent = 'Validating...'; }
         try {
-            const res = await fetch('/api/setup/validate-lastfm', {
+            const data = await apiCall('/setup/validate-lastfm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret, username }),
             });
-            const data = await res.json();
             if (data.valid) {
                 if (resultEl) resultEl.innerHTML = `<span style="color:#4caf50">✓ Connected as <strong>${data.username || username}</strong>. Now click Authorize to enable scrobbling.</span>`;
                 const dot = document.querySelector('#lastfm-settings-status .status-dot');
@@ -442,12 +438,7 @@ export function setupEventListeners() {
 
         if (btn) { btn.disabled = true; btn.textContent = 'Fetching token...'; }
         try {
-            const res  = await fetch('/api/intelligence/lastfm/auth/token', { method: 'POST' });
-            const data = await res.json();
-            if (!res.ok) {
-                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.detail || 'Could not fetch token'}</span>`;
-                return;
-            }
+            const data = await apiCall('/intelligence/lastfm/auth/token', { method: 'POST' });
             _lastfmPendingToken = data.token;
             if (authLink) { authLink.href = data.auth_url; }
             if (step2) step2.style.display = '';
@@ -455,7 +446,7 @@ export function setupEventListeners() {
             window.open(data.auth_url, '_blank');
             if (resultEl) resultEl.innerHTML = `<span style="color:#e5a00d">🔗 Authorization page opened. Come back and click "Complete Session".</span>`;
         } catch (e) {
-            if (resultEl) resultEl.textContent = 'Error: ' + e.message;
+            if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${e.message || 'Could not fetch token'}</span>`;
         }
         if (btn) { btn.disabled = false; btn.textContent = 'Authorize'; }
     });
@@ -472,16 +463,10 @@ export function setupEventListeners() {
         }
         if (btn) { btn.disabled = true; btn.textContent = 'Completing session...'; }
         try {
-            const res  = await fetch('/api/intelligence/lastfm/auth/session', {
+            const data = await apiCall('/intelligence/lastfm/auth/session', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token: _lastfmPendingToken }),
             });
-            const data = await res.json();
-            if (!res.ok) {
-                if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${data.detail || 'Session completion failed'}</span>`;
-                return;
-            }
             _lastfmPendingToken = null;
             if (step2) step2.style.display = 'none';
             const dot = document.querySelector('#lastfm-settings-status .status-dot');
@@ -491,7 +476,7 @@ export function setupEventListeners() {
             const validateResult = document.getElementById('lastfm-validate-result');
             if (validateResult) validateResult.innerHTML = `<span style="color:#4caf50">✓ Last.fm session active for <strong>${data.username}</strong>. Scrobbling enabled!</span>`;
         } catch (e) {
-            if (resultEl) resultEl.textContent = 'Error: ' + e.message;
+            if (resultEl) resultEl.innerHTML = `<span style="color:#e57373">✗ ${e.message || 'Session completion failed'}</span>`;
         }
         if (btn) { btn.disabled = false; btn.textContent = 'Complete Session'; }
     });
@@ -504,9 +489,7 @@ export function setupEventListeners() {
         btn.textContent = 'Bezig...';
         statusEl.textContent = '';
         try {
-            const res = await fetch('/api/intelligence/lastfm/import-history', { method: 'POST' });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Fout');
+            const data = await apiCall('/intelligence/lastfm/import-history', { method: 'POST' });
             statusEl.textContent = data.message || 'Import gestart';
             // Poll for status
             _pollImportStatus('lastfm', btn, statusEl, 'Importeer geschiedenis');
@@ -525,9 +508,7 @@ export function setupEventListeners() {
         btn.textContent = 'Bezig...';
         statusEl.textContent = '';
         try {
-            const res = await fetch('/api/intelligence/listenbrainz/import-history', { method: 'POST' });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Fout');
+            const data = await apiCall('/intelligence/listenbrainz/import-history', { method: 'POST' });
             statusEl.textContent = data.message || 'Import gestart';
             _pollImportStatus('listenbrainz', btn, statusEl, 'Importeer geschiedenis');
         } catch (e) {

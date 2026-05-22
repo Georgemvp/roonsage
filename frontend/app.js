@@ -14,7 +14,7 @@ import { renderHistoryFeed }              from './modules/history.js';
 import {
     updateView, updateMode, updateStep,
     hideError, hideSuccess, hideSuccessModal, dismissSuccessModal,
-    setLoading
+    closeBottomSheet, setLoading
 } from './modules/ui.js';
 import { checkLibraryStatus }             from './modules/library.js';
 import { setupEventListeners }            from './modules/events.js';
@@ -382,3 +382,4 @@ window.dismissSuccessModal = dismissSuccessModal;
 window.dismissClientPicker = dismissClientPicker;
 window.dismissPlayChoice   = dismissPlayChoice;
 window.dismissPlaySuccess  = dismissPlaySuccess;
+window.closeBottomSheet    = closeBottomSheet;

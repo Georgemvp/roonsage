@@ -440,15 +440,9 @@ export async function updateRecAlbumPreview() {
         }
         params.set('max_albums', state.rec.maxAlbumsToAI);
 
-        const response = await fetch(`/api/recommend/albums/preview?${params}`, {
+        const data = await apiCall(`/recommend/albums/preview?${params}`, {
             signal: recPreviewController.signal,
         });
-
-        if (!response.ok) {
-            throw new Error('Failed to get album preview');
-        }
-
-        const data = await response.json();
 
         // Clear loading timeout - response arrived fast
         clearTimeout(recPreviewLoadingTimeout);
@@ -714,6 +708,8 @@ export async function handleRecGenerate() {
     };
 
     try {
+        // Raw fetch (not apiCall) because we read the body as an SSE stream
+        // via response.body.getReader() below — apiCall would consume it as JSON.
         const response = await fetch('/api/recommend/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

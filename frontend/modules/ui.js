@@ -446,18 +446,11 @@ export async function updateFilterPreview() {
         };
         console.log('[RoonSage] Filter preview request:', requestBody);
 
-        const response = await fetch('/api/filter/preview', {
+        const data = await apiCall('/filter/preview', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
             signal: filterPreviewController.signal,
         });
-
-        if (!response.ok) {
-            throw new Error('Failed to get filter preview');
-        }
-
-        const data = await response.json();
         console.log('[RoonSage] Filter preview response:', data);
 
         // Clear loading timeout - response arrived fast
