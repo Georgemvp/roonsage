@@ -29,7 +29,10 @@ from backend.db import get_connection
 
 logger = logging.getLogger(__name__)
 
-EnergyCurve = Literal["flat", "ramp_up", "ramp_down", "peak", "valley"]
+EnergyCurve = Literal[
+    "flat", "ramp_up", "ramp_down", "peak", "valley",
+    "crescendo", "sunrise", "explosion", "afterparty", "wave", "marathon", "rollercoaster",
+]
 
 # Estimated average track length used to turn `duration_minutes` into a
 # track count when the user does not specify `track_count` explicitly.
@@ -81,6 +84,27 @@ def _curve_values(curve: EnergyCurve, n: int) -> list[float]:
         return [0.35 + 0.55 * math.sin(math.pi * x) for x in xs]
     if curve == "valley":
         return [0.85 - 0.55 * math.sin(math.pi * x) for x in xs]
+    if curve == "crescendo":
+        # Exponential build — slow start, explosive finish
+        return [0.25 + 0.65 * x ** 2 for x in xs]
+    if curve == "sunrise":
+        # Very gentle sqrt build — ideal for early morning sets
+        return [0.18 + 0.65 * math.sqrt(x) for x in xs]
+    if curve == "explosion":
+        # Flat for 75% then sudden peak — crowd-pleaser drop effect
+        return [0.30 + max(0.0, (x - 0.75) / 0.25) * 0.60 for x in xs]
+    if curve == "afterparty":
+        # Starts high, concave decline — easing out after a peak moment
+        return [max(0.15, 0.90 - 0.65 * x ** 0.6) for x in xs]
+    if curve == "wave":
+        # Two complete sine cycles — alternating highs and lows
+        return [0.50 + 0.35 * math.sin(4 * math.pi * x) for x in xs]
+    if curve == "marathon":
+        # Long sustained effort, sprint at the end
+        return [0.45 + 0.40 * max(0.0, (x - 0.70) / 0.30) for x in xs]
+    if curve == "rollercoaster":
+        # Three sharp peaks — for maximum variation
+        return [0.35 + 0.55 * abs(math.sin(3 * math.pi * x)) for x in xs]
     return [0.55 for _ in xs]
 
 

@@ -1193,11 +1193,24 @@
                                 <div class="auto-form-row">
                                     <label for="dj-curve">Energy curve</label>
                                     <select id="dj-curve" class="auto-form-select">
-                                        <option value="ramp_up">Ramp up (warm-up → peak)</option>
-                                        <option value="ramp_down">Ramp down (peak → cool-down)</option>
-                                        <option value="flat">Flat</option>
-                                        <option value="peak">Peak (build then drop)</option>
-                                        <option value="valley">Valley (chill mid-set)</option>
+                                        <optgroup label="Opbouwend">
+                                            <option value="ramp_up">Oplopend (warm-up naar piek)</option>
+                                            <option value="crescendo">Crescendo (langzaam opbouwen, explosief einde)</option>
+                                            <option value="sunrise">Zonsopgang (heel geleidelijke opbouw)</option>
+                                            <option value="explosion">Explosie (lang rustig, dan knaller)</option>
+                                            <option value="marathon">Marathon (lang gelijkmatig, sprint aan het eind)</option>
+                                        </optgroup>
+                                        <optgroup label="Afbouwend">
+                                            <option value="ramp_down">Aflopend (piek naar cool-down)</option>
+                                            <option value="afterparty">Afterparty (hoog begin, rustig afsluiten)</option>
+                                        </optgroup>
+                                        <optgroup label="Vrij">
+                                            <option value="flat">Gelijkmatig</option>
+                                            <option value="peak">Piek (opbouw dan dip)</option>
+                                            <option value="valley">Dal (rustig midden)</option>
+                                            <option value="wave">Golf (afwisseling hoog-laag)</option>
+                                            <option value="rollercoaster">Achtbaan (meerdere pieken en dalen)</option>
+                                        </optgroup>
                                     </select>
                                 </div>
                                 <div class="auto-form-row">

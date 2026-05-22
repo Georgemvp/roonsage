@@ -17,6 +17,31 @@ let _curveChart = null;
 let _selectedGenres = new Set();
 let _bpmUserEdited = false;
 
+// Energy rank per mood (1 = calmest, 18 = most energetic).
+// Used to restrict which end moods are valid for a given curve direction.
+const MOOD_ENERGY_RANK = {
+    meditatief: 1, rustig: 2, dromerig: 3, zacht: 4, melancholisch: 5,
+    romantisch: 6, chill: 7, nostalgisch: 8, serieus: 9, donker: 10,
+    blij: 11, vrolijk: 12, intens: 13, energiek: 14, krachtig: 15,
+    feestelijk: 16, opgewonden: 17, euforisch: 18,
+};
+
+// Which direction a curve travels: 'up' (end > start), 'down' (end < start), 'any'.
+const CURVE_DIRECTION = {
+    ramp_up:      'up',
+    crescendo:    'up',
+    sunrise:      'up',
+    explosion:    'up',
+    marathon:     'up',
+    ramp_down:    'down',
+    afterparty:   'down',
+    flat:         'any',
+    peak:         'any',
+    valley:       'any',
+    wave:         'any',
+    rollercoaster:'any',
+};
+
 // Typical BPM center + half-spread per mood.
 // center = midpoint, spread = half the typical range.
 const MOOD_BPM = {
@@ -39,6 +64,32 @@ const MOOD_BPM = {
     opgewonden:    { center: 130, spread: 12 },
     euforisch:     { center: 145, spread: 15 },
 };
+
+function _filterEndMoods() {
+    const startMood = document.getElementById('dj-start-mood')?.value || '';
+    const curve     = document.getElementById('dj-curve')?.value      || 'ramp_up';
+    const endSelect = document.getElementById('dj-end-mood');
+    if (!endSelect) return;
+
+    const direction  = CURVE_DIRECTION[curve] || 'any';
+    const startRank  = MOOD_ENERGY_RANK[startMood] ?? 0;
+    const currentEnd = endSelect.value;
+
+    endSelect.querySelectorAll('option[value]').forEach(opt => {
+        const val = opt.value;
+        if (!val) return; // keep the "— Zelfde als start —" placeholder
+        const rank = MOOD_ENERGY_RANK[val] ?? 0;
+        let allowed = true;
+        if (direction === 'up'   && startMood) allowed = rank > startRank;
+        if (direction === 'down' && startMood) allowed = rank < startRank;
+        opt.hidden   = !allowed;
+        opt.disabled = !allowed;
+    });
+
+    // If the currently selected end mood is no longer valid, reset it
+    const selectedOpt = endSelect.querySelector(`option[value="${currentEnd}"]`);
+    if (currentEnd && selectedOpt?.hidden) endSelect.value = '';
+}
 
 function _suggestBpm() {
     if (_bpmUserEdited) return;
@@ -330,12 +381,17 @@ export async function initDJSetView() {
         document.getElementById('dj-play-btn')?.addEventListener('click', _play);
         document.getElementById('dj-save-btn')?.addEventListener('click', () => _save());
 
-        // BPM auto-suggest: update when mood or curve changes
-        ['dj-start-mood', 'dj-end-mood', 'dj-curve'].forEach(id => {
+        // Filter end moods + BPM auto-suggest when mood or curve changes
+        ['dj-start-mood', 'dj-curve'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => {
+                _filterEndMoods();
                 _bpmUserEdited = false;
                 _suggestBpm();
             });
+        });
+        document.getElementById('dj-end-mood')?.addEventListener('change', () => {
+            _bpmUserEdited = false;
+            _suggestBpm();
         });
         // Track manual BPM edits
         ['dj-start-bpm', 'dj-end-bpm'].forEach(id => {
@@ -348,5 +404,6 @@ export async function initDJSetView() {
 
         _initialized = true;
     }
+    _filterEndMoods();
     await Promise.all([_populateZones(), _loadGenres()]);
 }

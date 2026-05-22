@@ -294,7 +294,10 @@ class DJSetRequest(BaseModel):
     track_count: int | None = None
     start_bpm: float = 110.0
     end_bpm: float = 128.0
-    energy_curve: Literal["flat", "ramp_up", "ramp_down", "peak", "valley"] = "ramp_up"
+    energy_curve: Literal[
+        "flat", "ramp_up", "ramp_down", "peak", "valley",
+        "crescendo", "sunrise", "explosion", "afterparty", "wave", "marathon", "rollercoaster",
+    ] = "ramp_up"
     genres: list[str] = []
     decades: list[str] = []
     exclude_live: bool = True
