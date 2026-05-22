@@ -24,8 +24,7 @@ services:
       - ENRICHMENT_SKIP_MB=true
 
       # Audio feature analysis (BPM, key, energy) — see backend/audio_features/
-      # Set AUDIO_FEATURES_ENABLED=true and mount your music library below.
-      - AUDIO_FEATURES_ENABLED=${AUDIO_FEATURES_ENABLED:-false}
+      - AUDIO_FEATURES_ENABLED=${AUDIO_FEATURES_ENABLED:-true}
       # Filesystem path inside the container where your music library lives.
       - MUSIC_LIBRARY_PATH=${MUSIC_LIBRARY_PATH:-/music}
       # Optional: map a Roon-side path prefix to the container path (handy for NAS).
@@ -68,7 +67,6 @@ services:
       # Optional: persist UI settings
       # - ./config.user.yaml:/app/config.user.yaml
       # Music library mount (read-only) for the audio_features worker.
-      # Uncomment and adjust the host path to enable BPM / key / energy analysis.
-      # - /Volumes/Music:/music:ro
+      - /Volumes/4tbdrive/Muziek:/music:ro
     restart: unless-stopped
     stop_grace_period: 60s
