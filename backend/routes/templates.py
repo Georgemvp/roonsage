@@ -45,6 +45,7 @@ class TemplateResponse(BaseModel):
     name: str
     description: str
     icon: str
+    category: str
     prompt: str
     filters: TemplateFilters
     track_count: int
@@ -58,6 +59,7 @@ class CreateTemplateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
     description: str = Field("", max_length=200)
     icon: str = Field("🎵", max_length=8)
+    category: str = Field("My Templates", max_length=40)
     prompt: str = Field(..., min_length=10, max_length=4000)
     filters: TemplateFilters = Field(default_factory=TemplateFilters)
     track_count: int = Field(25, ge=5, le=200)
@@ -85,6 +87,7 @@ def _to_response(t: PlaylistTemplate) -> TemplateResponse:
         name=t.name,
         description=t.description,
         icon=t.icon,
+        category=t.category,
         prompt=t.prompt,
         filters=t.filters,
         track_count=t.track_count,
@@ -120,6 +123,7 @@ async def create_template(body: CreateTemplateRequest) -> TemplateResponse:
         name=body.name,
         description=body.description,
         icon=body.icon,
+        category=body.category,
         prompt=body.prompt,
         filters=body.filters,
         track_count=body.track_count,

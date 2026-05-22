@@ -20,6 +20,34 @@ import { markHistoryStale } from './history.js';
 
 let _templates = [];        // Cached template list from the API
 let _customModal = null;    // Custom template modal element reference
+let _activeCategory = 'All'; // Currently selected category tab
+
+// Canonical category order. Unknown categories from user templates are
+// appended at the end (alphabetically). "All" and "My Templates" are
+// computed virtual tabs.
+const CATEGORY_ORDER = [
+    'Mood',
+    'Activities',
+    'Time of Day',
+    'Eras',
+    'Genres',
+    'Social',
+    'Seasonal',
+    'Discovery',
+];
+
+const CATEGORY_ICONS = {
+    All: '✨',
+    Mood: '🎭',
+    Activities: '🏃',
+    'Time of Day': '🕒',
+    Eras: '📻',
+    Genres: '🎶',
+    Social: '🥂',
+    Seasonal: '🍂',
+    Discovery: '🧭',
+    'My Templates': '⭐',
+};
 
 // ---------------------------------------------------------------------------
 // API helpers
@@ -53,11 +81,64 @@ async function deleteTemplate(id) {
 // Template card renderer
 // ---------------------------------------------------------------------------
 
+function _getCategoriesInOrder() {
+    // Categories that actually appear in the loaded templates
+    const present = new Set();
+    _templates.forEach(t => present.add(t.category || 'General'));
+
+    const ordered = CATEGORY_ORDER.filter(c => present.has(c));
+
+    // Append any unknown categories (alphabetical) — except "My Templates"
+    // which we want pinned at the end.
+    const extras = [...present]
+        .filter(c => !CATEGORY_ORDER.includes(c) && c !== 'My Templates')
+        .sort();
+    ordered.push(...extras);
+
+    // If any user templates exist, pin "My Templates" at the end
+    if (_templates.some(t => !t.is_builtin)) {
+        if (!ordered.includes('My Templates')) ordered.push('My Templates');
+    }
+
+    return ordered;
+}
+
+function _matchesActiveCategory(t) {
+    if (_activeCategory === 'All') return true;
+    if (_activeCategory === 'My Templates') return !t.is_builtin;
+    return (t.category || 'General') === _activeCategory;
+}
+
+function renderTemplateTabs() {
+    const container = document.getElementById('template-tabs');
+    if (!container) return;
+
+    const categories = ['All', ..._getCategoriesInOrder()];
+
+    container.innerHTML = categories.map(c => `
+        <button class="template-tab${c === _activeCategory ? ' is-active' : ''}"
+                data-category="${escapeHtml(c)}" type="button">
+            <span class="template-tab-icon" aria-hidden="true">${escapeHtml(CATEGORY_ICONS[c] || '🎵')}</span>
+            <span class="template-tab-label">${escapeHtml(c)}</span>
+        </button>
+    `).join('');
+
+    container.querySelectorAll('.template-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            _activeCategory = btn.dataset.category;
+            renderTemplateTabs();
+            renderTemplateGrid();
+        });
+    });
+}
+
 function renderTemplateGrid() {
     const container = document.getElementById('template-grid');
     if (!container) return;
 
-    const cards = _templates.map(t => `
+    const visible = _templates.filter(_matchesActiveCategory);
+
+    const cards = visible.map(t => `
         <button class="template-card" data-template-id="${escapeHtml(t.id)}"
                 aria-label="Use template: ${escapeHtml(t.name)}" type="button">
             <span class="template-card-icon" aria-hidden="true">${escapeHtml(t.icon)}</span>
@@ -89,6 +170,11 @@ function renderTemplateGrid() {
             try {
                 await deleteTemplate(id);
                 _templates = _templates.filter(t => t.id !== id);
+                // If "My Templates" tab is active but no user templates remain, fall back to "All"
+                if (_activeCategory === 'My Templates' && !_templates.some(t => !t.is_builtin)) {
+                    _activeCategory = 'All';
+                }
+                renderTemplateTabs();
                 renderTemplateGrid();
             } catch (err) {
                 showError(err.message);
@@ -296,6 +382,7 @@ async function handleSaveCustomTemplate() {
         if (idx >= 0) _templates[idx] = saved;
         else _templates.push(saved);
 
+        renderTemplateTabs();
         renderTemplateGrid();
         closeCustomModal();
     } catch (err) {
@@ -310,6 +397,7 @@ async function handleSaveCustomTemplate() {
 export async function initTemplates() {
     // Fetch templates on load
     await fetchTemplates();
+    renderTemplateTabs();
     renderTemplateGrid();
 
     // Wire up modal close / save
@@ -326,4 +414,4 @@ export async function initTemplates() {
     });
 }
 
-export { fetchTemplates, renderTemplateGrid };
+export { fetchTemplates, renderTemplateGrid, renderTemplateTabs };

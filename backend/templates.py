@@ -47,6 +47,7 @@ class PlaylistTemplate(BaseModel):
     name: str
     description: str = ""
     icon: str = "🎵"
+    category: str = "General"
     prompt: str
     filters: TemplateFilters = Field(default_factory=TemplateFilters)
     track_count: int = 25
@@ -96,6 +97,7 @@ def _raw_to_template(raw: dict[str, Any], is_builtin: bool = True) -> PlaylistTe
             name=raw["name"],
             description=raw.get("description", ""),
             icon=raw.get("icon", "🎵"),
+            category=raw.get("category", "General"),
             prompt=raw["prompt"].strip() if isinstance(raw["prompt"], str) else raw["prompt"],
             filters=TemplateFilters(**filters_raw),
             track_count=raw.get("track_count", 25),

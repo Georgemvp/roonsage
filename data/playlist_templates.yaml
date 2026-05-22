@@ -1,8 +1,12 @@
 templates:
+  # ===========================================================================
+  # Mood
+  # ===========================================================================
   - id: friday-night-chill
     name: Friday Night Chill
     description: Melancholic but warm, perfect for winding down the week
     icon: "🌙"
+    category: Mood
     prompt: >
       A melancholic but warm playlist for a Friday evening. Mix of electronic,
       ambient, and jazz with introspective lyrics. Think late-night city vibes,
@@ -18,6 +22,7 @@ templates:
     name: Sunday Morning
     description: Calm acoustic folk and singer-songwriter for an easy morning
     icon: "☀️"
+    category: Mood
     prompt: >
       A calm, unhurried Sunday morning playlist. Acoustic guitar, gentle vocals,
       folk and singer-songwriter tracks that feel like sunlight through curtains.
@@ -29,10 +34,174 @@ templates:
       exclude_live: true
     track_count: 20
 
+  - id: rainy-day
+    name: Rainy Day
+    description: Atmospheric shoegaze, dream pop, and post-rock for grey skies
+    icon: "🌧️"
+    category: Mood
+    prompt: >
+      A rainy day playlist steeped in atmosphere. Shoegaze, dream pop, and post-rock
+      with lush reverb and introspective mood. Guitars that wash like waves, vocals
+      that blur into the texture. Music that makes rain feel cinematic. 20 deeply
+      immersive tracks to get lost in on a grey afternoon.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 20
+
+  - id: melancholic-evening
+    name: Melancholic Evening
+    description: Sad-but-beautiful songs to sit with your feelings
+    icon: "🥀"
+    category: Mood
+    prompt: >
+      A deeply melancholic but beautiful evening playlist. Slow tempos, minor keys,
+      heartbreak and longing. Sad indie, slowcore, melancholy folk, and downbeat
+      electronica. Songs that don't try to cheer you up — they just sit with you.
+      25 tracks for when you want to feel something honest.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: sunny-optimism
+    name: Sunny Optimism
+    description: Uplifting indie pop and feel-good anthems
+    icon: "🌻"
+    category: Mood
+    prompt: >
+      A bright, sunny optimism playlist. Major keys, jangly guitars, upbeat indie
+      pop, soulful grooves, and feel-good anthems. Music that makes you grin
+      without trying too hard. No saccharine pop — just genuine warmth and energy.
+      25 tracks to lift the mood instantly.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: cozy-autumn
+    name: Cozy Autumn
+    description: Warm folk, dusky jazz, and acoustic textures for sweater season
+    icon: "🍂"
+    category: Mood
+    prompt: >
+      A cozy autumn playlist. Warm acoustic folk, dusky jazz, baroque pop, and
+      indie tracks with rich instrumentation — cello, brushed drums, fingerpicked
+      guitar. Music that smells like coffee and old books. Reflective but never
+      cold. 25 tracks for sweater weather and amber light.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: midnight-drive
+    name: Midnight Drive
+    description: Synthwave, krautrock, and cinematic motorik for empty highways
+    icon: "🌃"
+    category: Mood
+    prompt: >
+      A midnight drive playlist. Synthwave, motorik krautrock, cinematic
+      post-punk, and electronic tracks with a steady forward pulse. Neon-soaked,
+      slightly sinister, deeply hypnotic. Music that makes empty highways feel
+      like a film. 30 tracks built around motion and atmosphere.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: golden-hour
+    name: Golden Hour
+    description: Warm, glowing tracks for that magical light before sunset
+    icon: "🌅"
+    category: Mood
+    prompt: >
+      A golden hour playlist for the magic light just before sunset. Soft
+      psychedelic pop, sunlit folk, dreamy soul, and gentle indie. Music that
+      sounds warm and slightly hazy, like memories. Slow-to-mid tempo, warm
+      analog production. 25 tracks that glow.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: euphoric-high
+    name: Euphoric High
+    description: Soaring, transcendent tracks that lift the soul
+    icon: "✨"
+    category: Mood
+    prompt: >
+      A euphoric playlist full of transcendent moments. Big-room electronic peaks,
+      anthemic indie, gospel-tinged soul, and uplifting post-rock crescendos.
+      Music that feels like sunrise after a long night. 25 tracks built around
+      release, catharsis, and soaring melodies.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: introspective
+    name: Introspective
+    description: Quiet songs for deep thinking and inner reflection
+    icon: "🪞"
+    category: Mood
+    prompt: >
+      An introspective playlist for deep thinking. Sparse arrangements,
+      whispered vocals, ambient textures, contemplative folk and minimalist
+      classical. Music that creates space rather than filling it. Honest,
+      unhurried, internal. 20 tracks for solitude and reflection.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 20
+
+  - id: romantic-mood
+    name: Romantic Mood
+    description: Slow, sensual tracks that set the tone for love
+    icon: "💞"
+    category: Mood
+    prompt: >
+      A romantic mood playlist. Slow soul, intimate jazz, sensual R&B, and
+      tender indie love songs. Sultry without being cliché, tender without
+      being saccharine. Warm, close-mic'd vocals, smoky chord changes. 20 tracks
+      for slow dances and shared quiet.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 20
+
+  - id: bittersweet
+    name: Bittersweet
+    description: Songs that hold joy and sadness in the same breath
+    icon: "🍯"
+    category: Mood
+    prompt: >
+      A bittersweet playlist — songs that mix joy and sadness in the same breath.
+      Major-key heartbreakers, hopeful melancholy, indie songs with smiling but
+      teary vocals. Warm but tinged with longing. 25 tracks that resist easy
+      emotional categories.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  # ===========================================================================
+  # Activities
+  # ===========================================================================
   - id: deep-focus
     name: Deep Focus
     description: Minimal electronic and ambient for concentration and flow state
     icon: "🎯"
+    category: Activities
     prompt: >
       A deep focus playlist for concentration and flow state. Minimal electronic,
       ambient, and post-rock. Prefer instrumental tracks or tracks with minimal
@@ -48,6 +217,7 @@ templates:
     name: Workout Energy
     description: High-energy rock, electronic, and hip-hop to power your training
     icon: "💪"
+    category: Activities
     prompt: >
       A high-energy workout playlist. Hard-hitting rock, driving electronic, and
       energetic hip-hop. Fast tempo, aggressive beats, anthemic hooks. No slow
@@ -59,55 +229,11 @@ templates:
       exclude_live: true
     track_count: 35
 
-  - id: late-night-jazz
-    name: Late Night Jazz
-    description: Classic jazz from the golden era, perfect after midnight
-    icon: "🎷"
-    prompt: >
-      A late-night jazz playlist drawing from the golden era of jazz. Cool jazz,
-      hard bop, modal jazz from the 1950s and 1970s. Think Blue Note Records,
-      smoky clubs, late-night conversations. Mix of piano trios, quartets, and
-      solo instruments. 20 tracks with deep groove and sophisticated improvisation.
-    filters:
-      genres: []
-      decades: ["1950s", "1960s", "1970s"]
-      exclude_live: true
-    track_count: 20
-
-  - id: 90s-nostalgia
-    name: 90s Nostalgia
-    description: Alternative rock, grunge, and britpop from the nineties
-    icon: "📼"
-    prompt: >
-      A 90s nostalgia playlist full of alternative rock, grunge, and britpop from
-      the 1990s. Guitar-driven, angsty but catchy, with that distinct lo-fi warmth
-      of the decade. Mix of big hits and underrated deep cuts. 30 tracks that take
-      you straight back to the era of flannel shirts and mixtapes.
-    filters:
-      genres: []
-      decades: ["1990s"]
-      exclude_live: true
-    track_count: 30
-
-  - id: dinner-party
-    name: Dinner Party
-    description: Sophisticated soul, jazz, and bossa nova for elegant gatherings
-    icon: "🍷"
-    prompt: >
-      A sophisticated dinner party playlist. Smooth jazz, soul, bossa nova, and
-      world music with elegant sensibility. Music that enhances conversation without
-      dominating it — warm, unhurried, refined. Mix of classics and modern takes.
-      25 tracks that make any gathering feel more special.
-    filters:
-      genres: []
-      decades: []
-      exclude_live: true
-    track_count: 25
-
   - id: road-trip
     name: Road Trip
     description: Classic rock, indie, and upbeat tracks for the open road
     icon: "🚗"
+    category: Activities
     prompt: >
       The perfect road trip playlist. Classic rock anthems, indie gems, and upbeat
       tracks that celebrate open roads and freedom. Mix of decades — timeless songs
@@ -119,25 +245,717 @@ templates:
       exclude_live: true
     track_count: 40
 
-  - id: rainy-day
-    name: Rainy Day
-    description: Atmospheric shoegaze, dream pop, and post-rock for grey skies
-    icon: "🌧️"
+  - id: dinner-party
+    name: Dinner Party
+    description: Sophisticated soul, jazz, and bossa nova for elegant gatherings
+    icon: "🍷"
+    category: Activities
     prompt: >
-      A rainy day playlist steeped in atmosphere. Shoegaze, dream pop, and post-rock
-      with lush reverb and introspective mood. Guitars that wash like waves, vocals
-      that blur into the texture. Music that makes rain feel cinematic. 20 deeply
-      immersive tracks to get lost in on a grey afternoon.
+      A sophisticated dinner party playlist. Smooth jazz, soul, bossa nova, and
+      world music with elegant sensibility. Music that enhances conversation without
+      dominating it — warm, unhurried, refined. Mix of classics and modern takes.
+      25 tracks that make any gathering feel more special.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: cooking-session
+    name: Cooking Session
+    description: Upbeat soul, funk, and Latin grooves to make dinner an event
+    icon: "🍳"
+    category: Activities
+    prompt: >
+      A kitchen playlist for a cooking session. Upbeat soul, funk, Latin grooves,
+      and feel-good Afrobeat. Mid-to-up tempo, rhythmic, fun to chop vegetables
+      to. Not too aggressive — keeps you moving without overwhelming the senses.
+      30 tracks that turn dinner prep into a vibe.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: studying-hard
+    name: Studying Hard
+    description: Instrumental hip-hop, lo-fi, and modern classical for study sessions
+    icon: "📚"
+    category: Activities
+    prompt: >
+      A studying playlist that supports concentration without distraction.
+      Instrumental hip-hop, lo-fi beats, modern minimalist classical, and
+      mellow jazz. Steady mid-tempo grooves, no lyrics that pull focus. Long
+      arcs rather than abrupt changes. 30 tracks for serious study time.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: yoga-flow
+    name: Yoga Flow
+    description: Ambient, world, and meditative tracks to support breath and movement
+    icon: "🧘"
+    category: Activities
+    prompt: >
+      A yoga flow playlist that supports breath and movement. Ambient drones,
+      world instrumentation (sitar, kora, hang drum), meditative electronics,
+      and slow neo-classical. Gentle pulse, no sudden dynamics. Builds and
+      releases organically. 20 tracks for a full practice — opening, flow, savasana.
     filters:
       genres: []
       decades: []
       exclude_live: true
     track_count: 20
 
+  - id: house-cleaning
+    name: House Cleaning
+    description: Upbeat pop, disco, and dance to make chores fly by
+    icon: "🧹"
+    category: Activities
+    prompt: >
+      A house cleaning playlist that makes chores fly by. Upbeat pop, disco,
+      modern dance, and feel-good rock. Fast tempo, big hooks, infectious
+      energy. Music you can vacuum, sing, and dance to without thinking.
+      30 tracks to get the place spotless.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: reading-time
+    name: Reading Time
+    description: Soft instrumental music to disappear into a book with
+    icon: "📖"
+    category: Activities
+    prompt: >
+      A reading playlist for getting lost in a book. Modern classical,
+      ambient piano, soft chamber music, and instrumental folk. No lyrics to
+      pull attention from the page. Warm, intimate recordings — like background
+      candlelight. 30 tracks for long reading sessions.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: late-coding
+    name: Late Coding
+    description: Hypnotic electronic and post-rock for night-time programming
+    icon: "💻"
+    category: Activities
+    prompt: >
+      A late-night coding playlist. Hypnotic techno, ambient electronic,
+      post-rock, and IDM with steady forward motion. Mostly instrumental,
+      no sudden vocals or dynamic spikes. Keeps the brain humming without
+      distracting it. 35 tracks for a long coding session after midnight.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 35
+
+  - id: date-night
+    name: Date Night
+    description: Smooth, romantic tracks for an intimate evening in
+    icon: "🕯️"
+    category: Activities
+    prompt: >
+      A date night playlist for an intimate evening in. Smooth jazz, classic
+      soul, modern R&B, and warm singer-songwriter tracks. Romantic but not
+      cliché — sophisticated rather than cheesy. Mood-setting without
+      dominating. 25 tracks to share over wine and conversation.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  # ===========================================================================
+  # Time of Day
+  # ===========================================================================
+  - id: morning-coffee
+    name: Morning Coffee
+    description: Gentle wake-up tracks for the first cup of the day
+    icon: "☕"
+    category: Time of Day
+    prompt: >
+      A morning coffee playlist for the first hour of the day. Soft acoustic
+      folk, warm indie, gentle soul, and laid-back jazz. Music that wakes you
+      slowly — no shock to the system. Bright but not loud, gentle but not
+      sleepy. 20 tracks for sunrise and steam.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 20
+
+  - id: lunch-break
+    name: Lunch Break
+    description: Bright, mid-tempo tracks for a midday reset
+    icon: "🥪"
+    category: Time of Day
+    prompt: >
+      A lunch break playlist for a midday reset. Bright indie pop, soulful
+      grooves, easygoing world music, and breezy jazz. Mid-tempo, refreshing,
+      a small dose of joy in the middle of the day. 20 tracks to recharge
+      between meetings.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 20
+
+  - id: afternoon-pickup
+    name: Afternoon Pickup
+    description: Upbeat energy to push through the post-lunch slump
+    icon: "⚡"
+    category: Time of Day
+    prompt: >
+      An afternoon pickup playlist for beating the post-lunch slump. Upbeat
+      indie rock, funk, neo-soul, and energetic pop. Mid-to-up tempo,
+      driving rhythms, lift without being aggressive. 25 tracks to power
+      through the rest of the day.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: sunset-drive
+    name: Sunset Drive
+    description: Cinematic, glowing tracks for the golden commute home
+    icon: "🌇"
+    category: Time of Day
+    prompt: >
+      A sunset drive playlist for the golden commute home. Cinematic indie,
+      atmospheric pop, dreamy synthwave, and warm classic rock. Music that
+      makes a highway feel like a film. Mid-tempo, melodic, slightly hazy.
+      25 tracks for the magic hour behind the wheel.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: late-night-lounge
+    name: Late Night Lounge
+    description: Smoky downtempo and lounge for the small hours
+    icon: "🥃"
+    category: Time of Day
+    prompt: >
+      A late night lounge playlist for the small hours. Trip-hop, downtempo,
+      noir jazz, and smoky lounge electronica. Slow, sultry, slightly mysterious.
+      Music for dim rooms and one more drink. 25 tracks to stretch the night
+      out a little further.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: 3am-thoughts
+    name: 3 AM Thoughts
+    description: Sparse, haunting songs for when sleep won't come
+    icon: "🌌"
+    category: Time of Day
+    prompt: >
+      A 3 AM thoughts playlist for when sleep won't come. Sparse ambient,
+      slowcore, whispered folk, lonely piano, and ghostly post-rock. Quiet,
+      vast, slightly unsettling. Music for the loneliest hour of the night.
+      20 tracks for restless minds.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 20
+
+  # ===========================================================================
+  # Eras
+  # ===========================================================================
+  - id: 90s-nostalgia
+    name: 90s Nostalgia
+    description: Alternative rock, grunge, and britpop from the nineties
+    icon: "📼"
+    category: Eras
+    prompt: >
+      A 90s nostalgia playlist full of alternative rock, grunge, and britpop from
+      the 1990s. Guitar-driven, angsty but catchy, with that distinct lo-fi warmth
+      of the decade. Mix of big hits and underrated deep cuts. 30 tracks that take
+      you straight back to the era of flannel shirts and mixtapes.
+    filters:
+      genres: []
+      decades: ["1990s"]
+      exclude_live: true
+    track_count: 30
+
+  - id: 50s-rock-roll
+    name: 50s Rock & Roll
+    description: The birth of rock — raw, rhythmic, and electric
+    icon: "🎸"
+    category: Eras
+    prompt: >
+      A 1950s rock and roll playlist that captures the birth of rock. Chuck
+      Berry-style guitar shuffles, doo-wop harmonies, early rockabilly, and
+      raw rhythm and blues. Energetic, dance-ready, dripping with reverb and
+      tape hiss. 25 tracks from the decade that invented the form.
+    filters:
+      genres: []
+      decades: ["1950s"]
+      exclude_live: true
+    track_count: 25
+
+  - id: 60s-psychedelic
+    name: 60s Psychedelic
+    description: Trippy guitars, sitars, and mind-bending sixties studio magic
+    icon: "🌀"
+    category: Eras
+    prompt: >
+      A 1960s psychedelic playlist. Trippy guitars, sitars, swirling organs,
+      and mind-bending studio production. British psych, San Francisco acid
+      rock, garage psych obscurities. Lush, kaleidoscopic, slightly chaotic.
+      25 tracks that capture the decade's experimental peak.
+    filters:
+      genres: []
+      decades: ["1960s"]
+      exclude_live: true
+    track_count: 25
+
+  - id: 70s-soul-funk
+    name: 70s Soul & Funk
+    description: Deep grooves, lush strings, and Philly soul classics
+    icon: "🪩"
+    category: Eras
+    prompt: >
+      A 1970s soul and funk playlist. Deep grooves, lush string arrangements,
+      Philly soul, Stax classics, P-funk, and the early disco moment. Tight
+      horns, warm bass, falsetto vocals. 30 tracks of pure decade-defining
+      groove from soul's richest era.
+    filters:
+      genres: []
+      decades: ["1970s"]
+      exclude_live: true
+    track_count: 30
+
+  - id: 80s-synthwave
+    name: 80s Synthwave
+    description: Neon-drenched synths, gated drums, and pure eighties drama
+    icon: "🎹"
+    category: Eras
+    prompt: >
+      A 1980s synth playlist. Neon-drenched synths, gated reverb drums,
+      anthemic choruses, new wave melancholy, and proto-synthwave epics.
+      Equal parts pop sheen and synthetic drama. 30 tracks from the decade
+      that synthesizers conquered the charts.
+    filters:
+      genres: []
+      decades: ["1980s"]
+      exclude_live: true
+    track_count: 30
+
+  - id: 2000s-indie
+    name: 2000s Indie
+    description: The era of dance-punk, garage revival, and indie blogs
+    icon: "🎧"
+    category: Eras
+    prompt: >
+      A 2000s indie playlist. Dance-punk, garage rock revival, the early indie
+      blog era, and the post-punk renaissance. Skinny jeans, angular guitars,
+      sharp drums, hooky choruses. 30 tracks that defined a decade of indie
+      taking over the mainstream.
+    filters:
+      genres: []
+      decades: ["2000s"]
+      exclude_live: true
+    track_count: 30
+
+  - id: 2010s-pop
+    name: 2010s Pop
+    description: Big choruses, modern production, and the streaming era
+    icon: "📱"
+    category: Eras
+    prompt: >
+      A 2010s pop playlist. Big choruses, modern hybrid production, EDM-pop
+      crossovers, alt-pop breakthroughs, and the streaming-era hits. Both
+      mainstream chart toppers and the indie-pop tracks that crossed over.
+      30 tracks from the decade pop reinvented itself.
+    filters:
+      genres: []
+      decades: ["2010s"]
+      exclude_live: true
+    track_count: 30
+
+  # ===========================================================================
+  # Genres
+  # ===========================================================================
+  - id: late-night-jazz
+    name: Late Night Jazz
+    description: Classic jazz from the golden era, perfect after midnight
+    icon: "🎷"
+    category: Genres
+    prompt: >
+      A late-night jazz playlist drawing from the golden era of jazz. Cool jazz,
+      hard bop, modal jazz from the 1950s and 1970s. Think Blue Note Records,
+      smoky clubs, late-night conversations. Mix of piano trios, quartets, and
+      solo instruments. 20 tracks with deep groove and sophisticated improvisation.
+    filters:
+      genres: []
+      decades: ["1950s", "1960s", "1970s"]
+      exclude_live: true
+    track_count: 20
+
+  - id: electronic-trip
+    name: Electronic Trip
+    description: An immersive journey through ambient, techno, and IDM
+    icon: "🛸"
+    category: Genres
+    prompt: >
+      An electronic trip playlist that flows as a journey. Start with ambient
+      and downtempo, build through deep techno and house, peak with euphoric
+      melodic electronic, then come down through IDM and beatless drift. 30
+      tracks designed as a single arc, not a shuffle.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: hip-hop-classics
+    name: Hip-Hop Classics
+    description: Boom-bap, golden-era rap, and modern essentials
+    icon: "🎤"
+    category: Genres
+    prompt: >
+      A hip-hop classics playlist. Boom-bap from the 90s golden era, late-90s /
+      early-00s rap, and a sprinkle of modern essentials. Tight beats, witty
+      bars, jazz-sampled production. Skip the obvious commercial chart hits in
+      favor of head-nodding deep cuts. 30 tracks of essential hip-hop.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: blues-foundations
+    name: Blues Foundations
+    description: From Delta acoustic to electric Chicago blues
+    icon: "🎻"
+    category: Genres
+    prompt: >
+      A blues foundations playlist. Mississippi Delta acoustic blues, jump
+      blues, electric Chicago blues, and West Coast blues. Steel guitar, harmonica,
+      growling vocals, slow burn solos. The DNA of rock and soul. 25 tracks
+      tracing the genre's deep roots.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: classical-calm
+    name: Classical Calm
+    description: Soft chamber works, piano, and string adagios for quiet hours
+    icon: "🎼"
+    category: Genres
+    prompt: >
+      A classical calm playlist. Soft chamber works, piano nocturnes,
+      string adagios, and minimalist neo-classical. Music that breathes
+      slowly and creates space. Quiet dynamics throughout — no thunderous
+      tutti. 20 tracks for tranquil hours.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 20
+
+  - id: world-music
+    name: World Music
+    description: A journey through African, Latin, Asian, and Middle Eastern sounds
+    icon: "🌍"
+    category: Genres
+    prompt: >
+      A world music playlist that travels across continents. Afrobeat and
+      desert blues from Africa, Latin grooves and bossa nova from South America,
+      ghazal and qawwali from South Asia, Tuareg guitar from the Sahel. Rhythmic,
+      melodic, deeply human. 30 tracks that map a global pulse.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: reggae-vibes
+    name: Reggae Vibes
+    description: Classic Jamaican reggae, rocksteady, and dub
+    icon: "🌴"
+    category: Genres
+    prompt: >
+      A reggae vibes playlist. Classic Jamaican roots reggae, rocksteady,
+      lovers rock, and dub. Off-beat skanks, bouncing basslines, conscious
+      lyrics, deep echo. Sun-warmed and unhurried. 25 tracks of authentic
+      reggae across its golden eras.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: folk-tradition
+    name: Folk Tradition
+    description: Acoustic storytelling from American and British folk traditions
+    icon: "🪕"
+    category: Genres
+    prompt: >
+      A folk tradition playlist. American folk revival, British folk-rock,
+      Appalachian ballads, and modern singer-songwriter material rooted in
+      traditional forms. Acoustic guitar, fiddle, banjo, story-driven lyrics.
+      Earthy and timeless. 25 tracks honoring folk's deep lineage.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: metal-mayhem
+    name: Metal Mayhem
+    description: Heavy, technical, and uncompromising metal across subgenres
+    icon: "🤘"
+    category: Genres
+    prompt: >
+      A metal mayhem playlist across subgenres. Classic heavy metal, thrash,
+      progressive metal, sludge, and modern post-metal. Crushing riffs,
+      technical chops, dynamic builds. Skip generic radio metal — favor bands
+      that push the form. 30 tracks of pure heaviness.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: country-roads
+    name: Country Roads
+    description: Outlaw country, Americana, and modern alt-country gems
+    icon: "🤠"
+    category: Genres
+    prompt: >
+      A country roads playlist. Outlaw country, classic Bakersfield twang,
+      Americana, and modern alt-country. Pedal steel, storytelling, weathered
+      vocals. Avoid slick modern radio country in favor of grit and authenticity.
+      25 tracks for highways and heartbreak.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: bossa-nova-sunset
+    name: Bossa Nova Sunset
+    description: Sophisticated Brazilian rhythms and whispered vocals
+    icon: "🇧🇷"
+    category: Genres
+    prompt: >
+      A bossa nova sunset playlist. Classic Brazilian bossa, samba-jazz, and
+      modern Brazilian fusion. Whispered vocals, gentle nylon guitar, brushed
+      drums, sophisticated harmony. Warm, breezy, effortlessly cool. 20 tracks
+      for slow sunsets and good company.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 20
+
+  - id: punk-spirit
+    name: Punk Spirit
+    description: Three chords, two minutes, and one big idea
+    icon: "🔥"
+    category: Genres
+    prompt: >
+      A punk spirit playlist. First-wave punk, post-punk, hardcore, and
+      modern punk descendants. Short songs, raw production, attitude that
+      doesn't apologize. Three chords, two minutes, one big idea per track.
+      30 tracks of pure punk energy.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  # ===========================================================================
+  # Social
+  # ===========================================================================
+  - id: house-party
+    name: House Party
+    description: Dance-floor fillers across decades to keep the party going
+    icon: "🎉"
+    category: Social
+    prompt: >
+      A house party playlist of dance-floor fillers. Mix of decades — disco,
+      80s pop hits, 90s dance, modern hip-hop, and indie crossover bangers.
+      Big choruses, beats that don't quit, songs everyone knows the words to.
+      40 tracks to keep the party going all night.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 40
+
+  - id: bbq-vibes
+    name: BBQ Vibes
+    description: Sunny, soulful tracks for grilling and friends in the yard
+    icon: "🔥"
+    category: Social
+    prompt: >
+      A BBQ vibes playlist. Sunny soul, classic funk, reggae, mellow hip-hop,
+      and easygoing rock. Mid-tempo, infectious grooves, songs that work
+      whether you're at the grill or in the lawn chair. 30 tracks for an
+      afternoon of food, friends, and sunshine.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: quiet-conversation
+    name: Quiet Conversation
+    description: Background-friendly jazz and instrumental for catching up
+    icon: "💬"
+    category: Social
+    prompt: >
+      A quiet conversation playlist. Subtle jazz, instrumental folk,
+      light bossa, and chamber pop with restrained dynamics. Sets a warm mood
+      without ever stealing focus from the people in the room. 25 tracks
+      for long talks over wine.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: family-time
+    name: Family Time
+    description: All-ages favorites everyone in the room can enjoy
+    icon: "👨‍👩‍👧"
+    category: Social
+    prompt: >
+      A family time playlist that works across generations. Classic Motown,
+      timeless pop, feel-good indie, gentle folk, and a few well-loved
+      modern hits. Warm, inclusive, never edgy. 30 tracks for living rooms
+      filled with people of all ages.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: pre-game
+    name: Pre-Game
+    description: Hype tracks to get the night started before going out
+    icon: "🍻"
+    category: Social
+    prompt: >
+      A pre-game playlist to get the night started. Hype hip-hop, big-room
+      pop, dance-rock anthems, and party-starter electronic. Tempo and
+      energy build progressively — from confident strut to full hype mode
+      by the end. 25 tracks for getting ready before going out.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  # ===========================================================================
+  # Seasonal
+  # ===========================================================================
+  - id: winter-warmth
+    name: Winter Warmth
+    description: Crackling folk, dusky jazz, and cozy indie for cold nights
+    icon: "❄️"
+    category: Seasonal
+    prompt: >
+      A winter warmth playlist. Crackling acoustic folk, dusky jazz, warm
+      indie with rich strings, and cozy soul. Music that pairs with woolen
+      blankets, fireplaces, and steaming mugs. Inward-looking, glowing,
+      slightly nostalgic. 25 tracks for the coldest nights.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: spring-awakening
+    name: Spring Awakening
+    description: Bright, blooming indie and folk for the first warm days
+    icon: "🌱"
+    category: Seasonal
+    prompt: >
+      A spring awakening playlist for the first warm days. Bright indie pop,
+      blooming folk, hopeful singer-songwriter material, and jangly guitar
+      pop. Sense of renewal, freshness, sunlight after a long grey winter.
+      25 tracks that feel like the season turning.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: beach-day
+    name: Beach Day
+    description: Sun-baked surf, tropical pop, and breezy summer grooves
+    icon: "🏖️"
+    category: Seasonal
+    prompt: >
+      A beach day playlist. Sun-baked surf rock, tropical pop, breezy reggae,
+      easygoing indie, and modern summer hits. Warm guitar tones, laid-back
+      tempos, salt-air vibe. Music for sand, sea, and zero responsibility.
+      30 tracks for long sunny afternoons.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: crisp-autumn
+    name: Crisp Autumn
+    description: Earthy folk and atmospheric indie for falling leaves
+    icon: "🍁"
+    category: Seasonal
+    prompt: >
+      A crisp autumn playlist. Earthy folk, baroque pop, atmospheric indie,
+      and contemplative singer-songwriter material. Warm acoustic textures,
+      reflective lyrics, the bittersweet beauty of seasonal change.
+      25 tracks for falling leaves and amber afternoons.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: holiday-cheer
+    name: Holiday Cheer
+    description: Soulful, jazzy, and indie takes on holiday warmth
+    icon: "🎄"
+    category: Seasonal
+    prompt: >
+      A holiday cheer playlist that skips the kitsch. Soulful holiday classics,
+      jazz interpretations, indie takes on the season, and warm folk holiday
+      tracks. Festive but tasteful — no novelty songs, no shopping-mall pop.
+      25 tracks for tree-trimming and quiet snowy nights.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  # ===========================================================================
+  # Discovery
+  # ===========================================================================
   - id: new-discoveries
     name: New Discoveries
     description: Mix your library with fresh Qobuz finds for a hybrid adventure
     icon: "🔭"
+    category: Discovery
     prompt: >
       A playlist that blends your library favorites with fresh discoveries from
       Qobuz. Mix of familiar tracks and new music you haven't heard yet.
@@ -150,4 +968,69 @@ templates:
       exclude_live: true
     source_mode: hybrid
     qobuz_percentage: 50
+    track_count: 25
+
+  - id: deep-cuts
+    name: Deep Cuts
+    description: Album tracks and B-sides over the obvious singles
+    icon: "💎"
+    category: Discovery
+    prompt: >
+      A deep cuts playlist that avoids obvious singles. Pull album tracks,
+      B-sides, late-album closers, and the third single nobody played. Music
+      that rewards attention. Curate across the user's library favorites — the
+      buried gems, not the radio hits. 25 tracks that reveal new layers.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: underrated-gems
+    name: Underrated Gems
+    description: Brilliant tracks that didn't get the love they deserved
+    icon: "🪄"
+    category: Discovery
+    prompt: >
+      An underrated gems playlist. Brilliant tracks from artists who never
+      broke through, criminally overlooked albums, and lost classics from
+      well-known artists. Music that deserves a wider audience. Across genres
+      and decades. 25 tracks of overlooked excellence.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 25
+
+  - id: time-machine
+    name: Time Machine
+    description: A guided tour across decades, one era at a time
+    icon: "⏳"
+    category: Discovery
+    prompt: >
+      A time machine playlist that takes a guided tour across decades. Order
+      tracks chronologically by era, starting in the 60s and moving forward
+      through the 70s, 80s, 90s, 2000s, and 2010s. Each era represented by
+      genuinely defining tracks, not just hits. 30 tracks for a musical
+      journey through time.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
+    track_count: 30
+
+  - id: genre-bender
+    name: Genre Bender
+    description: Boundary-crossing tracks that defy easy categories
+    icon: "🔀"
+    category: Discovery
+    prompt: >
+      A genre bender playlist. Tracks that refuse easy categories — jazz-rap
+      fusion, electronic folk, classical-influenced pop, post-rock with hip-hop
+      drums. Music that lives in the cracks between genres. Surprising
+      combinations that work. 25 tracks for open ears.
+    filters:
+      genres: []
+      decades: []
+      exclude_live: true
     track_count: 25
