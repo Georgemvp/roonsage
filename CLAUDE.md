@@ -1,373 +1,194 @@
-# RoonSage Development Guidelines
+# CLAUDE.md
 
-Last updated: 2026-05-19 (MCP v6.0 — ListenBrain + ListenBrainz integration)
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-RoonSage is a self-hosted web application that generates Roon music playlists using LLMs with library awareness. It uses a filter-first approach to ensure 100% of suggested tracks are playable. It connects to Roon as an Extension via the Python `roonapi` package and uses the Browse API (`browse_browse`/`browse_load`) for all library access.
+RoonSage is a self-hosted FastAPI web app + MCP server that connects to a Roon Core as an Extension, mirrors the library into a local SQLite cache, and exposes ~62 tools so Claude Desktop can curate playlists, discover music, monitor releases, automate workflows, and control Roon through natural language. The constitution principle is **library-first**: every suggested track must exist either in the user's Roon library or on Qobuz — nothing is hallucinated.
 
-## Active Technologies
-
-- **Backend**: Python 3.11+, FastAPI, python-roonapi, anthropic SDK, openai SDK, google-genai SDK, pydantic, uvicorn, rapidfuzz, unidecode, httpx
-- **Frontend**: Vanilla HTML/CSS/JS (no build step)
-- **Config**: YAML + environment variables
-- **Database**: SQLite at `data/library_cache.db` (library cache + results history)
-- **Deployment**: Docker
-
-## Project Structure
-
-```text
-backend/
-├── main.py              # FastAPI app, lifespan, router registration, static files
-├── dependencies.py      # Shared helpers, auth, rate limiting
-├── listenbrainz_client.py  # ListenBrainz API client (scrobbling, stats, feedback)
-├── listenbrainz_sync.py    # LB stats sync service + lb_stats_cache management
-├── routes/
-│   ├── setup.py         # Setup/onboarding endpoints + validate-listenbrainz
-│   ├── library.py       # Library cache, sync, search, filter endpoints
-│   ├── generate.py      # Playlist generation + analysis endpoints
-│   ├── recommend.py     # Album recommendation pipeline endpoints
-│   ├── roon.py          # Roon zones, queue, transport control, art proxy endpoints
-│   ├── config_routes.py # Config, health, Ollama endpoints
-│   ├── results.py       # Result history endpoints
-│   └── qobuz_playlist.py # Qobuz playlist save endpoints
-├── config.py
-├── roon_client.py
-├── llm_client.py
-├── analyzer.py
-├── generator.py
-├── library_cache.py
-├── qobuz_browser.py     # Qobuz search and playback via Roon Browse API
-├── qobuz_api.py         # Direct Qobuz API client for playlist save (independent of Roon)
-├── recommender.py
-├── music_research.py
-└── models.py
-
-frontend/
-├── index.html           # Single page app
-├── style.css            # Dark theme
-└── app.js               # UI logic
-
-tests/
-└── test_*.py            # pytest tests
-```
+Current version: **v12.0** (see `pyproject.toml`, `backend/version.py` auto-detects via `git describe`).
 
 ## Commands
 
 ```bash
-# Development
-pip install -r requirements.txt
+# Install
+pip install -r requirements.txt -r requirements-dev.txt
+
+# Development server (with auto-reload; use --workers 1 to avoid file-handle races on the SQLite cache)
 uvicorn backend.main:app --reload --port 5765
 
-# Testing
-pytest
+# Tests
+pytest                              # full suite
+pytest tests/test_library_cache.py  # single file
+pytest -k "test_filter"             # by name
+pytest --cov=backend --cov-report=term-missing --cov-fail-under=40   # what CI runs
 
-# Linting
+# Lint (CI gate — must be clean)
 ruff check .
 
 # Docker
-docker-compose up -d
+docker-compose up -d --build
+
+# MCP server setup (runs LOCALLY on the user's machine, not in Docker)
+pip install "mcp[cli]" httpx
+python3 scripts/install_mcp.py   # writes claude_desktop_config.json
 ```
+
+CI (`.github/workflows/test.yml`) runs ruff + pytest with coverage gate ≥40% on Python 3.11 and 3.12.
+
+## Architecture
+
+### Backend layout (`backend/`)
+
+- **`main.py`** — FastAPI app, lifespan, JSON-line logging, optional HTTP Basic Auth middleware, CORS, slowapi rate-limiter wiring, static file serving. Lifespan logic is split out to **`startup.py`** (`init_clients`, `start_background_tasks`, `shutdown`).
+- **`routes/`** — every feature has its own router (library, generate, recommend, roon, intelligence, qobuz_playlist, discovery, templates, watchlist, scheduler, automations, enrichment, verify, notifications, results, setup, config_routes). New endpoints go into the matching router; don't add to `main.py`.
+- **`db.py`** — SQLite schema, WAL-mode connections, migration flag, `needs_resync()`. All other cache modules use `get_db_connection()` or the `get_connection()` context manager from here.
+- **`library_cache.py`** — orchestrates library sync into SQLite and exposes the read queries used by filters/discovery.
+- **`roon_client.py`** — thin re-export. The real implementation is the **mixin pattern** across `roon_connection.py`, `roon_browse.py`, `roon_playback.py`, `roon_search.py`, `roon_intelligence.py`. `RoonClient` inherits all of them. Browse calls are serialized via `_browse_lock` (single-session API constraint, see below).
+- **LLM/AI**: `llm_client.py` (multi-provider — anthropic, openai, gemini, ollama, custom), `analyzer.py` (prompt → genre/decade filter), `generator.py` (filtered track list → playlist), `recommender.py` (album recommendations), `music_research.py` (web research helper for albums).
+- **Intelligence**: `roon_intelligence.py` (zone monitor + listening history + scrobble dispatch to LB/LF), `taste_profile.py` (combines local + LB + Last.fm into a unified profile with `lb_` / `lf_` prefixed keys), `scrobble_import.py` (one-time backfill from LB/LF).
+- **External services**: `listenbrainz_client.py` + `listenbrainz_sync.py`, `lastfm_client.py` + `lastfm_sync.py`, `musicbrainz_client.py`, `acoustid_client.py`, `qobuz_browser.py` (search/playback via Roon), `qobuz_api.py` (direct Qobuz JSON API for playlist save).
+- **Workflow subsystems**: `discovery.py` (4 cache-only discovery sections), `watchlist.py` (artist new-release scanner), `scheduler.py` (cron-based playlist regeneration), `automation_engine.py` (trigger-action workflows), `enrichment_worker.py` (background MusicBrainz + Last.fm enrichment), `templates.py` (playlist template engine), `notifications.py` (event bus → Discord/Telegram/webhook).
+- **`filter_sessions.py`** — server-side `session_id` → `key_map` storage so the MCP client doesn't have to hold the full track list in context (saves 10–20k tokens per curation flow).
+- **`models.py`** — Pydantic models for all API contracts. Every request/response uses these.
+
+### Frontend (`frontend/`)
+
+Vanilla HTML/CSS/JS, no build step. Single-page app shell `index.html` + `app.js` bootstrap; per-view modules live in `frontend/modules/` (one file per view: playlist, library, discovery, taste, watchlist, automations, scheduler, history, playlists, nowplaying, recommend, templates, setup-wizard, plus shared `api.js`/`state.js`/`router.js`/`ui.js`/`events.js`). Chart.js is loaded via CDN for taste-profile charts. The frontend is a PWA (`manifest.json` + SVG icons).
+
+### Data flow
+
+1. **Sync** — `library_cache.sync_library()` walks Roon Browse hierarchy (Root → Library → Albums → tracks per album) and writes into `tracks` + `track_genres` + `albums` tables.
+2. **Query** — `filter_tracks` runs SQL against the local cache (genre IN (...), decade, keywords, optional artist-cap, live-version exclusion); never re-hits Roon.
+3. **Curate** — Claude Desktop (or the backend LLM for the web UI) picks track numbers from the numbered list; `curate_and_play` translates them back to Roon item keys via the stored session and calls Play Now.
+4. **Background** — listening monitor, LB/LF sync (every 6h), watchlist scan (every 12h), scheduler (60s tick), enrichment worker, automation engine, periodic DB backup (every 4h) all run as managed asyncio tasks; cancelled cleanly in `shutdown()`.
+
+### MCP Server (`mcp_server.py`, single file at repo root)
+
+Wraps the RoonSage REST API as **~62 tools** for Claude Desktop using `mcp[cli]` (FastMCP) + httpx over stdio. Contains **no LLM logic** — Claude Desktop does the thinking. When you change a backend endpoint in `routes/`, update the corresponding tool here too. It runs locally on the user's machine (not in Docker); `scripts/install_mcp.py` configures `claude_desktop_config.json`. The system prompt that ships to Claude Desktop is `system_prompt.md` at repo root.
+
+## Key Conventions and Gotchas
+
+### Roon API constraints (NOT bugs — work around them)
+
+- **No user ratings**: `user_rating` is always `None`. Any `min_rating` filter code has been removed.
+- **No play counts via Roon**: `view_count` is hardcoded to `0`. Play counts come from the local `listening_history` table (logged by `roon_intelligence._log_listen`) + LB/LF stats.
+- **No playlist creation via Roon Extension API**: use `qobuz_api.py` (direct Qobuz JSON API) for playlist save. `app_id` is auto-detected — never hardcode.
+- **No direct track queries**: every library access goes through Browse hierarchy (Root → Library → Albums → tracks per album).
+- **Metadata parsed from subtitle strings**: `"Artist • Year • Genre"` split on `•`. Fragile — defend against missing fields.
+- **ARC zones invisible**: Roon ARC playback is not observable from the Extension API.
+- **Single-session Browse API**: concurrent browse calls on the same hierarchy interfere. All Roon Browse sequences must be serialized — `_browse_lock` (and the album/genre variants) on `RoonClient` exists for this reason. Don't bypass it.
+- **`hierarchy: "search"` (global search) returns ephemeral item keys**. They expire as soon as another browse/search call mutates session state. For Qobuz global-search fallback, `qobuz_browser.py` generates a synthetic key `qobuz_search::{url-encoded artist}::{url-encoded title}`; `roon_playback.play_tracks` detects this prefix and re-issues a fresh search at playback time. Don't try to "fix" this by storing the real key.
+
+### Playback / queue
+
+- **`play_tracks` tries direct key browse first**, then falls back to search. This was deliberate — for classical/long titles Roon search often returns the wrong track when given a key that's still valid. Don't reorder.
+- **`curate_and_play` uses a 180s timeout** (not 30s) because 30+ track queues can take that long. The response includes `playback_started` and a "do not retry" flag for Claude Desktop.
+- **`/api/library/filter/curate` always returns a `resolved_tracks` list** (`{number, title, artist}`) sourced from SQLite. The MCP system prompt instructs Claude to render this verbatim — never reconstruct the tracklist from memory.
+
+### Track matching
+
+- Generation LLM is told to return **track numbers** from the numbered list (O(1) lookup). Falls back to rapidfuzz fuzzy match (threshold ~60) if a model ignores the instruction.
+- **Live versions**: filter out by keywords (`live`, `concert`, `unplugged`) and date patterns in title/album. `is_live` is a stored column for SQL-native filtering.
+- **Genre filtering**: SQL via the `track_genres` junction table, not JSON parsing in Python.
+
+### Filter sessions (server-side key_map)
+
+`filter_tracks(output_format="compact" | "ultra")` returns a `session_id`. The key_map (number → item_key) is stored server-side in `filter_sessions.py`. The client (web UI or Claude Desktop) only sees the numbered list. `curate_and_play` looks the session back up by `session_id`. This saves ~10–20k tokens per flow and is required for `max_tracks` ≥ 500.
+
+### Time-of-day context
+
+Generation/recommendation prompts get the current day + hour prepended (Dutch day names — kept for UI-language consistency). This subtly shapes mood without explicit prompting.
+
+### Auth / rate limiting
+
+- HTTP Basic Auth is enabled only when `ROONSAGE_PASSWORD` is set. Exempt paths: `/api/health`, `/api/art/*`, `/api/external-art` (otherwise Docker health checks and post-login art loading break).
+- LLM endpoints are rate-limited (30 req/h/IP) via slowapi.
+
+### LLM models (per provider)
+
+| Provider | Analysis | Generation | Context |
+|----------|----------|------------|---------|
+| Gemini (default) | `gemini-2.5-flash` | `gemini-2.5-flash-lite` | 1M tokens (~18k tracks) |
+| Anthropic | `claude-sonnet-4-5` | `claude-haiku-4-5` | 200K (~3.5k tracks) |
+| OpenAI | `gpt-4.1` | `gpt-4.1-mini` | 128K (~2.3k tracks) |
+| Ollama | auto-detect via `/api/show` | same | auto-detect |
+| Custom | OpenAI-compatible base_url | same | user-set |
+
+`smart_generation: true` uses the analysis model for both stages (higher quality, ~3–5× cost).
+
+## Environment Variables (essentials)
+
+```bash
+ROON_HOST=192.168.1.x            # required
+ROON_PORT=9330
+ROON_CORE_ID=                    # auto-saved after Roon authorization
+ROON_TOKEN=                      # auto-saved after Roon authorization
+LLM_PROVIDER=gemini              # anthropic | openai | gemini | ollama | custom
+ANTHROPIC_API_KEY= / OPENAI_API_KEY= / GEMINI_API_KEY=
+OLLAMA_URL=http://localhost:11434
+CUSTOM_LLM_URL= / CUSTOM_CONTEXT_WINDOW=
+ROONSAGE_PASSWORD=               # enables HTTP Basic Auth
+CORS_ORIGINS=http://localhost:5765
+# Optional services
+QOBUZ_EMAIL= / QOBUZ_PASSWORD=                       # playlist save (app_id auto-detected)
+LISTENBRAINZ_TOKEN= / LISTENBRAINZ_USERNAME=
+LASTFM_API_KEY= / LASTFM_API_SECRET= / LASTFM_SESSION_KEY= / LASTFM_USERNAME=
+ACOUSTID_API_KEY= / ACOUSTID_ENABLED=false / ACOUSTID_AUTO_VERIFY_QOBUZ=false
+DISCORD_WEBHOOK_URL= / TELEGRAM_BOT_TOKEN= / TELEGRAM_CHAT_ID= / WEBHOOK_URL=
+WATCHLIST_SCAN_INTERVAL_HOURS=12
+APP_VERSION=                     # injected by Docker build; falls back to git describe
+```
+
+Config priority: env > `data/config.user.yaml` (UI-saved) > `config.yaml` (file) > defaults. UI writes go to `config.user.yaml` with `chmod 600`.
 
 ## Code Style
 
-- **Python**: PEP 8, type hints, Pydantic models for all API contracts
-- **JavaScript**: ES6+, no framework, simple state object
-- **CSS**: BEM-style naming, CSS custom properties for theming
+- **Python**: PEP 8, type hints everywhere, Pydantic models for every API contract. `ruff` config in `pyproject.toml` (line length 100, selected rules `E,F,W,I,UP,B,SIM,TCH`; `E501`, `SIM117` ignored). CI fails on lint errors.
+- **JavaScript**: ES6+, no framework, module pattern with a single shared `state` object in `frontend/modules/state.js`.
+- **CSS**: BEM-style naming, CSS custom properties for theming (`--color-bg #1a1a1a`, `--color-accent #e5a00d`).
+- **Logging**: structured JSON lines via `JSONFormatter` in `main.py`. Use module-level `logger = logging.getLogger(__name__)`; don't replace `except Exception: pass` with bare suppression — log a warning.
+- **Background tasks**: register through `_add_task(coro, name)` in `startup.start_background_tasks` so they're cancelled cleanly on shutdown and surface exceptions via the done-callback.
 
-## Constitution Principles
+## MCP Tool Selection (for Claude Desktop)
 
-1. **Library-First**: All playlist tracks MUST exist in user's Roon library
-2. **Simplicity**: No build steps, no frameworks, single container
-3. **User Agency**: Users control filters and can remove/regenerate
-4. **Cost Transparency**: Display token counts and estimated costs
-5. **Dark Theme**: Dark UI (#1a1a1a background), amber accent (#e5a00d)
+The MCP system prompt (`system_prompt.md`) instructs Claude Desktop to **curate natively** for playlists, seeds, and albums. Native curation is the primary flow; backend LLM tools (`generate_playlist`, `seed_track_playlist`, `recommend_album`) are fallback-only and are mainly used by the web UI.
 
-## Environment Variables
+### Native curation flow (library)
 
-```bash
-ROON_HOST=192.168.1.x          # IP address of your Roon Core
-ROON_PORT=9330                  # Default Roon Extension port
-ROON_CORE_ID=                   # Roon Core unique ID (saved after first auth)
-ROON_TOKEN=                     # Roon Extension token (saved after authorization)
-LLM_PROVIDER=anthropic          # anthropic, openai, gemini, ollama, or custom
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=...
-# For local providers
-OLLAMA_URL=http://localhost:11434
-CUSTOM_LLM_URL=http://localhost:5000/v1
-CUSTOM_CONTEXT_WINDOW=4096
-# Qobuz playlist save (optional)
-QOBUZ_EMAIL=                # Qobuz account email (for playlist save)
-QOBUZ_PASSWORD=             # Qobuz account password (for playlist save)
-# app_id is auto-detected — no manual configuration needed
-# ListenBrainz integration (optional — v6.0)
-LISTENBRAINZ_TOKEN=         # ListenBrainz user token (from listenbrainz.org/profile)
-LISTENBRAINZ_USERNAME=      # ListenBrainz username
-```
+1. Analyse the user request (mood, genre, era).
+2. `get_library_stats` → see what's available.
+3. `filter_tracks(output_format="compact", genres=[...], decades=[...], max_tracks=500)` → numbered list + `session_id`.
+4. Curate 15–50 tracks: ≥80% unique artists, max 2 tracks/album, no consecutive same-artist, alternate tempo/era.
+5. (Optional) `validate_playlist(session_id, track_numbers)` to catch duplicates/clustering.
+6. `curate_and_play(track_numbers, session_id, zone_id)`.
+7. Present the `resolved_tracks` list from the response verbatim.
 
-## Key Design Decisions
+### Source modes
 
-- **Filter-first**: Apply genre/decade filters before sending to LLM (handles 50k+ track libraries)
-- **SQLite cache + Browse API**: Library data is synced once into SQLite via `library_cache.sync_library()`; all subsequent queries read from the local cache for instant response. The Roon Browse API is used for the initial sync and for playback.
-- **Optional auth**: Password protection via `ROONSAGE_PASSWORD` env var. Rate limiting on LLM endpoints (30/hour/IP).
-- **Album art proxy**: Backend proxies art from Roon's image URL to avoid exposing the Roon token to the browser
-- **Two-model strategy**: Smart model for analysis, cheap model for generation
-- **Track number matching**: LLM returns track numbers from the numbered list for O(1) lookup. Falls back to fuzzy matching (rapidfuzz, threshold ~60) for models that don't follow number instructions.
-- **Genre junction table**: `track_genres` table enables SQL-native genre filtering instead of Python-side JSON parsing.
-- **Live version filtering**: Exclude tracks with "live", "concert", dates in title/album
-- **Browse hierarchy**: All Roon library access follows: Root → Library → Albums → tracks per album
-- **Qobuz via Roon Browse API**: No separate Qobuz API key needed. RoonSage navigates Roon's Browse hierarchy (Root → Qobuz → Search) to find and play Qobuz tracks. Detected automatically at startup.
-- **Qobuz playlist save via direct API**: Roon's Extension API cannot create playlists. RoonSage connects directly to the Qobuz JSON API (`https://www.qobuz.com/api.json/0.2/`) for playlist creation. The app_id is obtained automatically by trying known working app_ids (from LMS plugin, QobuzDL, streamrip) with fallback to web player extraction. Track resolution uses search + fuzzy matching (rapidfuzz) to translate artist+title to Qobuz track IDs. Rate limited at 150ms between searches.
-- **Time-of-day context**: Day and hour are prepended to generation prompts as subtle mood hints. Dutch day names used for consistency with the UI language.
+- **library**: `filter_tracks` → `curate_and_play`
+- **hybrid**: `filter_tracks` + multiple `search_qobuz` → mix → `play_tracks` (combined keys)
+- **qobuz**: multiple `search_qobuz` → `play_tracks` (Qobuz keys only)
 
-## Roon API Limitations
+### Common direct actions
 
-These are NOT bugs — they are Roon Extension API constraints:
-
-- **No user ratings**: `user_rating` is always `None` via Browse API. The `min_rating` filter code has been removed since Roon never exposes this data.
-- **No play counts**: `view_count` is hardcoded to `0`. The "familiarity" feature classifies everything as "unplayed".
-- **No playlist creation**: Roon cannot save playlists via the Extension API. RoonSage uses the Qobuz API directly for playlist save (requires `QOBUZ_EMAIL` + `QOBUZ_PASSWORD`; app_id is auto-detected).
-- **No direct track queries**: All library access goes through Browse hierarchy (Root → Library → Albums → tracks per album).
-- **Metadata parsed from subtitle strings**: Genre, year, and artist are parsed from `"Artist • Year • Genre"` format using `•` separator. This is fragile.
-- **ARC zones invisible**: Roon ARC playback is not visible to the Extension API.
-- **Single-session Browse API**: Concurrent browse operations on the same hierarchy interfere. All browse sequences are serialized via `_browse_lock`.
-
-## LLM Models
-
-| Task | Anthropic | OpenAI | Gemini |
-|------|-----------|--------|--------|
-| Analysis | `claude-sonnet-4-5` | `gpt-4.1` | `gemini-2.5-flash` |
-| Generation | `claude-haiku-4-5` | `gpt-4.1-mini` | `gemini-2.5-flash` |
-| Context Limit | 200K tokens | 128K tokens | **1M tokens** |
-
-Gemini's 1M context allows sending ~18,000 tracks to the AI, vs ~3,500 for Anthropic/OpenAI.
-
-Option: `smart_generation: true` uses analysis model for both (higher quality, ~3-5x cost)
-
-### Local LLM Providers
-
-**Ollama** (`LLM_PROVIDER=ollama`):
-- Auto-discovers installed models via `/api/tags`
-- Auto-detects context window via `/api/show`
-- Uses native `/api/generate` endpoint for completions
-- 10-minute timeout for slow hardware
-- Zero cost (local inference)
-
-**Custom** (`LLM_PROVIDER=custom`):
-- Any OpenAI-compatible endpoint (LM Studio, text-generation-webui, etc.)
-- Manual configuration: URL, model name, context window
-- Uses openai SDK with custom `base_url`
-- Zero cost (local inference)
-
-## Recent Changes
-
-- **MCP v6.0 (2026-05-19):** ListenBrain + ListenBrainz integration:
-  - New module `backend/listenbrainz_client.py`: async httpx client for all LB API calls (scrobbling, stats, feedback, social). Rate-limit-aware. Optional (no-op when unconfigured).
-  - New module `backend/listenbrainz_sync.py`: pulls LB stats (genre activity, daily heatmap, era distribution, artist map, top artists/recordings/releases, similar users, feedback) and caches in `lb_stats_cache` SQLite table. TTL 6h, auto-syncs every 6h in background.
-  - `backend/db.py`: new columns in `listening_history` (year, decade, hour_of_day, day_of_week, source); new `lb_stats_cache` table.
-  - `backend/roon_intelligence.py`: `_log_listen()` now enriches genre/year/decade via fuzzy match against library cache; logs hour_of_day + day_of_week; fire-and-forget scrobble to LB after track completion; `_process_zone_change()` sends now_playing to LB on track start.
-  - `backend/taste_profile.py`: `compute_profile_from_history()` expanded with decade scores, listening patterns (peak_hour, peak_day, top_albums, total_hours), and full LB data integration (lb_genre_by_hour, lb_era_distribution, lb_daily_heatmap, lb_artist_countries, lb_loved/hated_recordings, lb_similar_users, lb_top_artists/recordings/releases). All LB keys prefixed `lb_`.
-  - `backend/config.py`: `get_listenbrainz_config()` reads LISTENBRAINZ_TOKEN + LISTENBRAINZ_USERNAME from env/config.user.yaml.
-  - New endpoints: `GET /api/intelligence/listening-stats`, `GET /api/intelligence/taste-profile/detailed`, `POST /api/intelligence/listenbrainz/sync`, `GET /api/intelligence/listenbrainz/status`, `GET /api/intelligence/listenbrainz/recommendations`, `POST /api/intelligence/listening-history/enrich`, `POST /api/setup/validate-listenbrainz`.
-  - MCP tools: `get_listening_stats`, `get_listenbrainz_recommendations`, `submit_listen_feedback`, `sync_listenbrainz`. `get_taste_profile` now calls `/api/intelligence/taste-profile/detailed`.
-  - Frontend: ListenBrainz settings section in Settings (token + username + validate button). "My Taste" view extended with LB status card, bar charts (genres, era, countries), 7×24 listening heatmap, LB top artists, loved tracks. CSS: new LB-specific utility classes.
-  - `system_prompt.md`: new "ListenBrainz-verrijkte data (v6.0)" section with usage guidance for all lb_* profile keys.
-
-- roon-support: Converted from Plex to Roon Labs Extension API. All library access via Browse API. SQLite cache for fast queries. Playlist creation not available (Roon API limitation).
-- Refactored `main.py` into FastAPI routers (`routes/` directory)
-- Track matching by number (with fuzzy fallback)
-- Genre junction table (`track_genres`) for SQL-native filtering
-- Optional password auth (`ROONSAGE_PASSWORD`)
-- Rate limiting on LLM endpoints (30 requests/hour/IP)
-- Renamed `plex_server_id` → `roon_core_id` in `sync_state`
-- MCP server: added `generate_playlist`, `get_now_playing`, `recommend_album` tools
-- All backend error messages standardized to English
-- MCP server expanded with 8 new tools: `get_library_status`, `get_artist_albums`, `seed_track_playlist`, `analyze_prompt`, `recommend_album_interactive`, `play_album`, `transport_control`, `get_result_history`
-- Backend: added `transport_control()` to `roon_client.py` via `roonapi.playback_control()`
-- Backend: added `POST /api/roon/transport` endpoint + `TransportControlRequest/Response` models
-- Backend: added `get_albums_by_artist()` to `library_cache.py` + `GET /api/library/artist-albums` endpoint
-- MCP v3 (2026-05-15): 7 new tools + playlist/generation improvements
-- **MCP v4 (2026-05-15):** Qobuz integration, playlist refinement, time-aware context, and code cleanup:
-  - Qobuz integration: source mode selection (library/hybrid/qobuz) for playlist generation, Qobuz search via Roon Browse API, discovery album playback via Qobuz
-  - Playlist refinement: "Refine" button in web UI for iterative playlist generation using `additional_notes` parameter
-  - Time-of-day context: playlist and album recommendation prompts now include day/time for mood-appropriate suggestions
-  - MCP server refactored: centralized `_api_call()` helper, persistent httpx client, shared SSE parser — reduced ~400 lines of duplication
-  - Removed dead `min_rating` code path (Roon API doesn't expose user ratings)
-  - Removed `commit_fix.sh` and `commit_prompt5.sh` from repo tracking
-  - New MCP tool: `search_qobuz` for Qobuz catalog search via Roon Browse API
-  - `generate_playlist` MCP tool now accepts `source_mode` and `qobuz_percentage` parameters
-- **MCP v4.1 (2026-05-15):** Qobuz source mode voor seed_track_playlist:
-  - `seed_track_playlist` accepts `source_mode` and `qobuz_percentage` parameters (same as `generate_playlist`)
-  - Discovery album Qobuz lookup was already implemented in `recommend.py`; frontend already handles `source="qobuz"` and `playable=False` display
-- **MCP v4.2 (2026-05-15):** Claude-native curation for ALL flows (playlists, seeds, albums, Qobuz):
-  - `filter_tracks` now has `output_format` parameter: "json" (default) or "compact" (numbered list + key_map, token-efficient, max_tracks auto-raised to 500)
-  - New tool `curate_and_play`: translates track numbers from key_map to item_keys and starts playback; handles missing numbers gracefully
-  - `system_prompt.md` fully rewritten: 3 native flows (prompt/seed/album) × 3 source modes (library/hybrid/qobuz)
-  - `CLAUDE.md` Tool Selection Guide updated: native curation is now primary for all flows; backend LLM tools demoted to fallback
-  - Web UI flow unchanged — backend LLM tools (`generate_playlist`, `seed_track_playlist`, `recommend_album`) still used by the web interface
-- **MCP v4.3 (2026-05-15):** 5 token-optimalisaties:
-  - `filter_tracks` output_format="ultra": minimale "nr. Artist — Title" output (~50% minder tokens dan compact)
-  - `filter_tracks` artist_limit parameter voor stratified sampling per artiest
-  - `filter_tracks` exclude_keywords parameter voor keyword-based uitsluiting
-  - Server-side key_map opslag: session_id in plaats van key_map in context (~10-20K tokens bespaard)
-  - `validate_playlist` tool: controleer duplicaten, clustering en overrepresentatie vóór afspelen
-- **MCP v4.6 (2026-05-16):** Queue mismatch fix:
-  - Fix: `/api/library/filter/curate` now returns `resolved_tracks` list (`{number, title, artist}`) for every queued track, sourced from SQLite — eliminates Claude hallucinating the wrong tracklist
-  - Fix: `curate_and_play` MCP tool passes `resolved_tracks` through to Claude's response
-  - Fix: `system_prompt.md` instructs Claude to always show `resolved_tracks` from the response, never reconstruct from memory
-  - Fix: `play_tracks` now tries direct key browse first (most reliable), falls back to search only on failure — fixes classical track mismatches where Roon search returned unrelated tracks
-- **MCP v4.5 (2026-05-16):** Reliability improvements:
-  - Fix: curate_and_play uses 180s timeout instead of 30s (prevents false timeout during 30+ track playback)
-  - Fix: Classical track search query shortened (primary artist + short title, with fallback to title-only and direct key)
-  - Fix: play_tracks checks Roon connection per-track with 30s reconnect wait (prevents silent failures during websocket drops)
-  - Fix: curate_and_play response includes `playback_started` flag and explicit "do not retry" note
-  - Fix: system_prompt.md includes retry prevention rules (Claude must never re-send after curate_and_play)
-- **MCP v4.4 (2026-05-15):** Qobuz playlist save:
-  - New module `backend/qobuz_api.py`: direct Qobuz API client with auto-detected app_id (tries known working app_ids from LMS plugin/QobuzDL/streamrip, falls back to web player extraction), email/password login with MD5 fallback, track search, playlist create, playlist addTracks, fuzzy track resolution
-  - New endpoint `POST /api/qobuz/playlist/save`: full pipeline — resolve tracks to Qobuz IDs → create playlist → add tracks
-  - New endpoint `POST /api/qobuz/validate`: test credentials with live login attempt
-  - New endpoint `GET /api/qobuz/save-status`: check if Qobuz save is configured
-  - New MCP tool `save_to_qobuz`: save curated playlists to Qobuz from Claude Desktop
-  - Frontend: Qobuz settings section (email + password only, app_id auto-detected) with validate button
-  - Frontend: "Opslaan in Qobuz" button on playlist results (visible when Qobuz is configured)
-  - Config: `QOBUZ_EMAIL`, `QOBUZ_PASSWORD` environment variables (no app_id needed)
-- **MCP v4.9 (2026-05-19):** Synthetic key fix — Qobuz global-search playback:
-  - Root cause: `item_key` values returned by `hierarchy: "search"` (global search fallback) are ephemeral session keys. They expire as soon as another browse/search call changes the session state. Using them minutes later in `play_tracks` resolves to wrong content (e.g. "Not Found" by Bert Joris).
-  - Fix in `backend/qobuz_browser.py` Step 6: when `used_hierarchy == "search"`, generate a synthetic key `qobuz_search::{url-encoded artist}::{url-encoded title}` instead of the real session key. Browse-hierarchy paths (A/B/C) are unaffected — their item_keys are stable and continue to be returned as-is.
-  - Fix in `backend/roon_playback.py` `play_tracks`: at the start of each track's loop, detect the `qobuz_search::` prefix. Parse `artist` and `title` from the key, build a fresh search query, and call `_play_track_via_search` directly — skipping all stale-key browse logic. Uses `continue` to bypass the normal `meta`/direct-key path entirely.
-  - Result: Qobuz tracks found via global search now play correctly regardless of time elapsed between `search_qobuz` and `play_tracks` / `curate_and_play`.
-- **MCP v4.8 (2026-05-19):** Qobuz search global-search fallback:
-  - Fix: `search_qobuz_tracks_sync` in `backend/qobuz_browser.py` no longer returns `[]` when the Qobuz Browse hierarchy has no search entry point (Paths A/B/C all fail). It now falls back to Roon's `hierarchy: "search"` global search, which searches all configured services simultaneously and is present on all Roon versions.
-  - `result_items` is initialised to `None` before Path A/B/C; both Path C failure branches populate it via global search; Step 4 only runs when `result_items is None` (i.e. a browse-hierarchy entry was found). No existing paths were changed.
-  - `hierarchy: "search"` is independent from `hierarchy: "browse"` — switching does not corrupt browse state; `input` + `pop_all` can be combined in one call.
-  - Debug endpoint `GET /api/roon/qobuz-browse-test` now always appends `fallback_global_search` + `global_search_results` steps so the global-search output is visible regardless of which path succeeded.
-- **MCP v4.7 (2026-05-18):** recommend_album_interactive parameter fix:
-  - `recommend_album_interactive` now accepts `session_id: Optional[str] = None` as a proper parameter
-  - Removed fragile `"SESSION:<id>|<prompt>"` prompt-prefix encoding (broke when prompt contained `|`)
-  - Step 2 passes `session_id` directly; step 1 response instructions updated accordingly
-  - `filter_tracks` helpers extracted: `_build_key_map`, `_store_session`, `_format_compact_line`, `_format_ultra_line` — eliminates duplication between compact/ultra branches; `except Exception: pass` replaced with `logger.warning()`
-
-## MCP Server
-
-`mcp_server.py` in the repo root is an MCP server that wraps the RoonSage REST API as tools for Claude Desktop. It uses `mcp[cli]` (FastMCP) and `httpx` for async HTTP calls. The server connects to the RoonSage API at `ROONSAGE_URL` (default: `http://localhost:5765`). Transport: stdio.
-
-The MCP server contains NO own LLM logic — Claude Desktop does the thinking. When changing API endpoints in `main.py`, update the corresponding tool in `mcp_server.py` too.
-
-The MCP server runs LOCALLY on the user's machine, not inside Docker. `pip install "mcp[cli]"` must be done locally. `scripts/install_mcp.py` configures Claude Desktop — one-time setup per machine.
-
-### Full Tool List (27 tools)
-
-| Tool | Backend endpoint | Purpose |
-|------|-----------------|---------|
-| `get_library_stats` | `GET /api/library/stats/cached` | Genre/decade/total stats from cache |
-| `get_library_status` | `GET /api/library/status` | Cache freshness, needs_resync flag |
-| `search_library` | `GET /api/library/search` | Search by track/artist/album name |
-| `search_qobuz` | `POST /api/roon/qobuz-search` | Search Qobuz catalog via Roon |
-| `filter_tracks` | `POST /api/library/filter` | Filter by genre, decade, live exclusion; `output_format` = json/compact/ultra; supports `artist_limit` and `exclude_keywords` |
-| `get_artist_albums` | `GET /api/library/artist-albums` | All albums by artist from SQLite cache |
-| `sync_library` | `POST /api/library/sync` | Trigger background library sync |
-| `generate_playlist` | `POST /api/generate/stream` (SSE) | AI playlist from natural language prompt; `source_mode` = library/hybrid/qobuz; `qobuz_percentage` for hybrid |
-| `seed_track_playlist` | `POST /api/generate/stream` (SSE) | "More like this" playlist from seed track; `source_mode` = library/hybrid/qobuz; `qobuz_percentage` for hybrid |
-| `analyze_prompt` | `POST /api/analyze/prompt` | Preview prompt → filter mapping |
-| `recommend_album` | `POST /api/recommend/questions` + `generate` | Quick album recommendation; `mode="discovery"` suggests new albums, looked up on Qobuz for playback |
-| `recommend_album_interactive` | `POST /api/recommend/questions` + `generate` | 2-step Q&A album recommendation; step 2 passes `session_id` from step 1 as a separate parameter; `mode="discovery"` supports Qobuz playback |
-| `play_album` | `GET /api/library/search` + `POST /api/queue` | Search + play album in one step |
-| `list_zones` | `GET /api/roon/zones` | List active Roon zones |
-| `get_now_playing` | `GET /api/roon/zones` | Current playback state per zone |
-| `play_tracks` | `POST /api/queue` | Send tracks to zone (replaces queue) |
-| `queue_tracks` | `POST /api/queue/append` | Append tracks to zone queue |
-| `transport_control` | `POST /api/roon/transport` | play/pause/stop/next/previous/shuffle/repeat/seek |
-| `get_result_history` | `GET /api/results` | Previously generated playlists/recs |
-| `volume_control` | `POST /api/roon/volume` | Set/adjust/get/mute volume by zone name |
-| `transfer_zone` | `POST /api/roon/transfer` | Transfer playback between zones |
-| `zone_grouping` | `POST /api/roon/group` | Group/ungroup/list zone groups |
-| `play_radio` | `POST /api/roon/radio` | Play internet radio station (fuzzy match) |
-| `browse_playlists` | `POST /api/roon/playlists` | List/play Roon playlists (all playlists, not just RoonSage) |
-| `curate_and_play` | `POST /api/library/filter/curate` | Play Claude-curated track selection using session_id from filter_tracks; translates track numbers to item_keys server-side |
-| `validate_playlist` | `POST /api/library/filter/validate` | Check curated selection for duplicates, clustering, overrepresentation |
-| `save_to_qobuz` | `POST /api/qobuz/playlist/save` | Save curated playlist to user's Qobuz account |
-
-### Tool Selection Guide (for Claude Desktop)
-
-**Playlist curatie (primaire flow — Claude curates natively):**
-- **Mood/genre/occasion → library** → `get_library_stats` → `filter_tracks(output_format="compact")` → curate zelf → valideer → `curate_and_play`
-- **Na selectie: validatie** → `validate_playlist(session_id, track_numbers)` → fix waarschuwingen → `curate_and_play`
-- **Mood/genre/occasion → hybrid** → `filter_tracks(output_format="compact")` + `search_qobuz` → meng en curate → `play_tracks`
-- **Mood/genre/occasion → qobuz only** → meerdere `search_qobuz` calls → curate → `play_tracks`
-
-**Seed playlist (primaire flow — Claude curates natively):**
-- **"Meer zoals X" → library** → `search_library` → `filter_tracks(output_format="compact")` → curate → `curate_and_play`
-- **"Meer zoals X" → hybrid** → `search_library` (analyse) → `filter_tracks(output_format="compact")` + `search_qobuz` → meng → `play_tracks`
-- **"Meer zoals X" → qobuz only** → `search_library` (analyse) → meerdere `search_qobuz` calls → curate → `play_tracks`
-
-**Album aanbeveling (primaire flow — Claude curates natively):**
-- **Album uit library** → `filter_tracks(output_format="compact")` of `get_artist_albums` → kies album → editorial pitch → `play_album`
-- **Album ontdekken (nieuw)** → eigen muziekkennis → `search_qobuz` per album → editorial pitch → `play_tracks` met Qobuz item_keys
-
-**Overige acties (ongewijzigd):**
-- **Specifiek album afspelen** → `play_album`
+- **Specific album** → `play_album`
 - **Internet radio** → `play_radio`
-- **Volume** → `volume_control`
-- **Verplaatsen naar andere kamer** → `transfer_zone`
-- **Zones groeperen** → `zone_grouping`
-- **Shuffle/repeat** → `transport_control` with action="shuffle"/"repeat"
-- **Library search levert niets op** → `search_qobuz` als fallback
-- **Playlist opslaan in Qobuz** → `save_to_qobuz` (na curate_and_play of play_tracks)
+- **Volume / transport / shuffle / repeat** → `volume_control` / `transport_control`
+- **Move playback between rooms** → `transfer_zone`
+- **Group zones** → `zone_grouping`
+- **Library search misses** → fall back to `search_qobuz`
+- **Save curated playlist to Qobuz** → `save_to_qobuz` (after `curate_and_play` or `play_tracks`)
 
-**Fallback tools (alleen bij problemen of op expliciet verzoek):**
-- `generate_playlist` — backend-LLM generatie (bij context-overflow of op verzoek)
-- `seed_track_playlist` — backend seed-generatie (fallback)
-- `recommend_album` / `recommend_album_interactive` — backend aanbeveling (fallback)
+### Tool categories (~62 total)
 
-### Claude-Native Curatie Flow
+Library & search · Discovery · Playlist generation · Claude-native curation · Album recommendations · Roon playback & control · Intelligence & taste · ListenBrainz · Last.fm · Qobuz · Watchlist · Scheduled playlists · Metadata enrichment · Automation · AcoustID verification.
 
-Claude Desktop doet zelf het curatie-werk voor playlists, seed-playlists en albumaanbevelingen.
-De backend levert alleen data (`filter_tracks`, `search_library`, `search_qobuz`) en connectiviteit
-(`play_tracks`, `queue_tracks`). Geen backend LLM-calls nodig voor de MCP-flow.
+The full per-tool table is maintained in **README.md** under "Full MCP Tool List".
 
-**Voordelen:**
-- Betere kwaliteit bij abstracte/mood-based verzoeken (Claude > goedkope generation models)
-- Multi-turn verfijning ("iets minder jazz, meer post-rock") zonder nieuwe generatie
-- Geen aparte API-key of per-token kosten (Claude Pro dekt alles)
-- Qobuz-integratie via `search_qobuz` voor hybrid/discovery modes
+## When Editing
 
-De backend tools (`generate_playlist`, `seed_track_playlist`, `recommend_album`) blijven beschikbaar als fallback en worden nog steeds gebruikt door de Web UI.
-
-**Stap-voor-stap voor library playlist:**
-
-1. **Analyse** — understand mood, genre, tempo, era from the user's request.
-2. **`get_library_stats`** — check which genres and decades are available.
-3. **`filter_tracks(output_format="compact", genres=[...], decades=[...], max_tracks=500)`** — retrieve a numbered list of filtered tracks; returns a `session_id` (key_map stored server-side, ~10-20K tokens saved).
-4. **Curate** — select the best 15–50 tracks using musical knowledge:
-   - Artist diversity: max 1 track per artist (2 only when exceptional)
-   - Album diversity: max 2 tracks per album
-   - Flow: alternate tempo, decades, and styles; start strong, end memorably
-   - No clustering: never two tracks from the same artist consecutively
-   - Aim for ≥80% unique artists (e.g. 20 unique in a 25-track playlist)
-5. **`curate_and_play(track_numbers=[...], session_id="...", zone_id="...")`** — server translates numbers to item_keys via stored key_map and starts playback.
-6. **Present** — title, numbered tracklist with artist – title, brief note on why the tracks fit.
-
-**Voor hybrid playlists:** combineer stap 1–4 met `search_qobuz` calls voor Qobuz-tracks; meng gelijkmatig door de library-selectie; gebruik `play_tracks` met gecombineerde item_keys.
-
-**Voor discovery albums:** gebruik eigen muziekkennis → `search_qobuz` per album → `play_tracks` met Qobuz item_keys.
-
-### Playlist Generation Output Format (v2)
-
-Both `generate_playlist` and `seed_track_playlist` now return:
-- `track_count` — exact number of tracks matching the request
-- `tracks[].year` — year from SQLite cache
-- `tracks[].album` — album name (falls back to "Unknown Album")
-- `genre_breakdown` — e.g. `"Jazz: 12 | Blues: 8 | Pop/Rock: 5"`
-- `note_live` — confirms live track exclusion status
-- `extra_item_keys` — if AI generated more than requested, surplus keys for `queue_tracks`
-- `live_excluded` — boolean flag
-
-Qobuz tracks have `source="qobuz"` on the Track model; library tracks have `source="library"`.
-
-### Album Recommendation Output (discovery mode)
-
-In `mode="discovery"`, recommended albums are searched on Qobuz after selection:
-- `playable=True` + `source="qobuz"` — album found on Qobuz; `track_rating_keys` contains Qobuz item keys usable with `play_tracks` / `queue_tracks`
-- `playable=False` — album not found on Qobuz; display only, cannot be played
+- **Adding a backend endpoint**: add to the correct `routes/*.py`, add the Pydantic request/response models to `models.py`, expose to MCP by adding a tool in `mcp_server.py`, and update `system_prompt.md` if the tool affects Claude Desktop's flows.
+- **Changing the DB schema**: edit `backend/db.py` — `init_schema` handles incremental `ALTER TABLE` migrations and flips `_migration_applied`, which triggers auto-resync in `startup.start_background_tasks`. Tables: `tracks`, `track_genres`, `albums`, `listening_history`, `lb_stats_cache`, `lf_stats_cache`, `track_metadata_ext`, `enrichment_queue`, `artist_watchlist`, `artist_releases_cache`, `scheduled_playlists`, `automations`, `automation_log`, `scrobble_import_state`, plus the results history.
+- **Touching Roon Browse code**: respect `_browse_lock` and the synthetic-key convention for Qobuz global-search results. Test that browse → search → browse sequences don't corrupt session state.
+- **Working on the frontend**: changes are picked up live without a rebuild (Docker mounts `frontend/` as a volume); HTML asset URLs are cache-busted with `?v={version}` in `serve_index`.
