@@ -501,6 +501,86 @@ function showArcModal(playlist) {
     });
 }
 
+// ── DJ Set → Qobuz Arc modal ─────────────────────────────────────────────────
+function _showDJSetArcModal(set) {
+    const existing = document.getElementById('arc-save-modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'arc-save-modal';
+    modal.className = 'modal-overlay';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.innerHTML = `
+        <div class="modal-card">
+            <button class="modal-close" id="arc-modal-close" aria-label="Close">×</button>
+            <h2>Opslaan voor Roon Arc</h2>
+            <p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:var(--spacing-sm);">
+                Tracks worden opgezocht op Qobuz en als playlist opgeslagen.
+                Zo kun je ze onderweg luisteren via Roon Arc.
+            </p>
+            <div class="form-group">
+                <label for="arc-playlist-name">Naam op Qobuz</label>
+                <input type="text" id="arc-playlist-name" class="form-input" value="${escapeHtml(set.name)}">
+            </div>
+            <label class="checkbox-label">
+                <input type="checkbox" id="arc-add-favorites" checked>
+                <span>Albums ook aan favorieten toevoegen</span>
+            </label>
+            <div id="arc-modal-result" class="arc-modal-result hidden"></div>
+            <div class="modal-actions">
+                <button id="arc-modal-save" class="btn btn-primary">Opslaan op Qobuz</button>
+                <button id="arc-modal-cancel" class="btn btn-secondary">Annuleren</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    const close = () => modal.remove();
+    modal.querySelector('#arc-modal-close').addEventListener('click', close);
+    modal.querySelector('#arc-modal-cancel').addEventListener('click', close);
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+
+    modal.querySelector('#arc-modal-save').addEventListener('click', async () => {
+        const name = modal.querySelector('#arc-playlist-name').value.trim() || set.name;
+        const addFavorites = modal.querySelector('#arc-add-favorites').checked;
+        const resultEl = modal.querySelector('#arc-modal-result');
+        const saveBtn = modal.querySelector('#arc-modal-save');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Bezig…';
+        resultEl.className = 'arc-modal-result';
+        resultEl.textContent = '';
+
+        const trackItems = (set.tracks || []).map(t => ({ title: t.title, artist: t.artist }));
+        if (!trackItems.length) {
+            resultEl.className = 'arc-modal-result arc-modal-result--error';
+            resultEl.textContent = 'Geen tracks in deze set.';
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Opslaan op Qobuz';
+            return;
+        }
+
+        try {
+            const resp = await apiCall('/qobuz/prepare-for-arc', {
+                method: 'POST',
+                body: JSON.stringify({
+                    playlist_name: name,
+                    track_items: trackItems,
+                    add_to_favorites: addFavorites,
+                }),
+            });
+            resultEl.className = 'arc-modal-result arc-modal-result--success';
+            resultEl.textContent = `✓ Opgeslagen als Qobuz-playlist — beschikbaar in Roon Arc (${resp.tracks_resolved || 0} tracks, ${resp.tracks_skipped || 0} niet gevonden)`;
+            saveBtn.textContent = 'Opgeslagen';
+        } catch (e) {
+            resultEl.className = 'arc-modal-result arc-modal-result--error';
+            resultEl.textContent = 'Fout: ' + e.message;
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Opslaan op Qobuz';
+        }
+    });
+}
+
 // ── Toast helper ──────────────────────────────────────────────────────────────
 function showToast(msg) {
     const el = document.getElementById('success-toast');
@@ -554,6 +634,7 @@ function _djSetCardHtml(s) {
         </div>
         <div class="pl-card-actions">
             <button class="btn btn-secondary dj-action-play">▶ Afspelen</button>
+            <button class="btn btn-outline dj-action-arc">📱 Opslaan voor Arc</button>
             <button class="btn-ghost dj-action-delete" title="Verwijderen">🗑</button>
         </div>
         <div class="pl-tracklist">
@@ -593,6 +674,10 @@ function renderDJSets() {
             } catch (e) {
                 alert('Afspelen mislukt: ' + e.message);
             }
+        });
+
+        card.querySelector('.dj-action-arc')?.addEventListener('click', () => {
+            _showDJSetArcModal(set);
         });
 
         card.querySelector('.dj-action-delete')?.addEventListener('click', async () => {
