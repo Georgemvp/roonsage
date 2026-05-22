@@ -280,6 +280,8 @@ async def build_dj_set(request: DJSetRequest) -> DJSetResponseWithSession:
         decades=request.decades or None,
         exclude_live=request.exclude_live,
         seed_item_key=request.seed_item_key,
+        start_mood=request.start_mood,
+        end_mood=request.end_mood,
     )
 
     tracks = [

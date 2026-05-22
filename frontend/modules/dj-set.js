@@ -110,21 +110,26 @@ function _renderCurve(curve) {
         _curveChart = null;
     }
     const labels = curve.map((_, i) => String(i + 1));
+    const hasValence = curve.some(c => c.valence != null);
+    const datasets = [
+        {
+            label: 'BPM', data: curve.map(c => c.bpm),
+            borderColor: '#e5a00d', tension: 0.3, yAxisID: 'y',
+        },
+        {
+            label: 'Energy (×100)', data: curve.map(c => Math.round((c.energy || 0) * 100)),
+            borderColor: '#5fb3b3', tension: 0.3, yAxisID: 'y',
+        },
+    ];
+    if (hasValence) {
+        datasets.push({
+            label: 'Mood/Valence (×100)', data: curve.map(c => Math.round((c.valence || 0) * 100)),
+            borderColor: '#b388ff', borderDash: [4, 3], tension: 0.3, yAxisID: 'y',
+        });
+    }
     _curveChart = new Chart(canvas, {
         type: 'line',
-        data: {
-            labels,
-            datasets: [
-                {
-                    label: 'BPM', data: curve.map(c => c.bpm),
-                    borderColor: '#e5a00d', tension: 0.3, yAxisID: 'y',
-                },
-                {
-                    label: 'Energy (×100)', data: curve.map(c => Math.round((c.energy || 0) * 100)),
-                    borderColor: '#5fb3b3', tension: 0.3, yAxisID: 'y',
-                },
-            ],
-        },
+        data: { labels, datasets },
         options: {
             responsive: true, maintainAspectRatio: false,
             scales: { y: { beginAtZero: false } },
@@ -140,6 +145,8 @@ async function _build(ev) {
     if (status) { status.textContent = 'Bouw set…'; status.style.color = ''; }
 
     const genres = Array.from(_selectedGenres);
+    const startMood = document.getElementById('dj-start-mood')?.value || null;
+    const endMood   = document.getElementById('dj-end-mood')?.value   || null;
 
     const payload = {
         duration_minutes: parseInt(document.getElementById('dj-duration').value, 10) || 60,
@@ -147,6 +154,8 @@ async function _build(ev) {
         end_bpm: parseFloat(document.getElementById('dj-end-bpm').value) || 128,
         energy_curve: document.getElementById('dj-curve').value || 'ramp_up',
         genres,
+        start_mood: startMood || null,
+        end_mood:   (endMood && endMood !== startMood) ? endMood : null,
     };
 
     try {

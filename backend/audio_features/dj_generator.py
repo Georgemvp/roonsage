@@ -35,6 +35,19 @@ EnergyCurve = Literal["flat", "ramp_up", "ramp_down", "peak", "valley"]
 # track count when the user does not specify `track_count` explicitly.
 AVG_TRACK_MINUTES = 4.0
 
+# Mood → (valence_min, valence_max, energy_bias).
+# valence 0=sad/dark, 1=happy/bright. energy_bias shifts the energy curve.
+MOOD_PROFILES: dict[str, tuple[float, float, float]] = {
+    "blij":          (0.65, 1.00,  0.10),
+    "energiek":      (0.45, 0.85,  0.30),
+    "feestelijk":    (0.70, 1.00,  0.25),
+    "chill":         (0.35, 0.70, -0.20),
+    "dromerig":      (0.25, 0.65, -0.25),
+    "romantisch":    (0.50, 0.85, -0.20),
+    "melancholisch": (0.00, 0.40, -0.10),
+    "intens":        (0.10, 0.55,  0.20),
+}
+
 
 def _curve_values(curve: EnergyCurve, n: int) -> list[float]:
     """Return ``n`` energy targets in [0, 1] following the requested shape."""
@@ -62,6 +75,34 @@ def _bpm_targets(start_bpm: float, end_bpm: float, n: int) -> list[float]:
     return [start_bpm + (end_bpm - start_bpm) * i / (n - 1) for i in range(n)]
 
 
+def _valence_targets(start_mood: str | None, end_mood: str | None, n: int) -> list[float] | None:
+    """Return per-position valence targets, or None if no mood was requested."""
+    if start_mood is None:
+        return None
+    p_start = MOOD_PROFILES.get(start_mood)
+    if p_start is None:
+        return None
+    v_start = (p_start[0] + p_start[1]) / 2.0
+
+    p_end = MOOD_PROFILES.get(end_mood) if end_mood else None
+    v_end = (p_end[0] + p_end[1]) / 2.0 if p_end else v_start
+
+    if n <= 1:
+        return [v_start]
+    return [v_start + (v_end - v_start) * i / (n - 1) for i in range(n)]
+
+
+def _energy_bias(start_mood: str | None, end_mood: str | None, n: int) -> list[float]:
+    """Per-position additive energy bias from mood profiles."""
+    if start_mood is None:
+        return [0.0] * n
+    b_start = MOOD_PROFILES.get(start_mood, (0, 0, 0))[2]
+    b_end = MOOD_PROFILES.get(end_mood, (0, 0, 0))[2] if end_mood else b_start
+    if n <= 1:
+        return [b_start]
+    return [b_start + (b_end - b_start) * i / (n - 1) for i in range(n)]
+
+
 def _score_candidate(
     cand: dict[str, Any],
     *,
@@ -69,8 +110,9 @@ def _score_candidate(
     target_energy: float,
     prev_camelot: str | None,
     recent_artists: list[str],
+    target_valence: float | None = None,
 ) -> float:
-    """Lower is better — combines BPM/energy distance with diversity penalty."""
+    """Lower is better — combines BPM/energy/valence distance with diversity penalty."""
     bpm = cand.get("bpm") or target_bpm
     energy = cand.get("energy") or 0.5
     cam = cand.get("camelot") or ""
@@ -90,8 +132,14 @@ def _score_candidate(
         elif cam in camelot.compatible(prev_camelot):
             harmonic_bonus = -0.25
 
+    valence_pen = 0.0
+    if target_valence is not None:
+        v = cand.get("valence")
+        if v is not None:
+            valence_pen = abs(v - target_valence) * 0.7
+
     # tighter BPM bias than energy: BPM mismatches are audible immediately.
-    return 1.2 * bpm_pen + 0.8 * energy_pen + artist_pen + harmonic_bonus
+    return 1.2 * bpm_pen + 0.8 * energy_pen + valence_pen + artist_pen + harmonic_bonus
 
 
 def _load_candidates(
@@ -101,6 +149,8 @@ def _load_candidates(
     genres: list[str] | None,
     exclude_live: bool,
     decades: list[str] | None,
+    start_mood: str | None = None,
+    end_mood: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return all tracks with audio features within the broad BPM window."""
     low = min(start_bpm, end_bpm) - 8.0
@@ -110,6 +160,20 @@ def _load_candidates(
     params: list[Any] = [low, high]
     if exclude_live:
         conditions.append("t.is_live = 0")
+
+    # Broad valence pre-filter: keeps the pool relevant without over-constraining.
+    # Window covers the full range of both start and end moods, plus ±0.2 slack.
+    moods_to_check = [m for m in [start_mood, end_mood] if m and m in MOOD_PROFILES]
+    if moods_to_check:
+        all_mins = [MOOD_PROFILES[m][0] for m in moods_to_check]
+        all_maxs = [MOOD_PROFILES[m][1] for m in moods_to_check]
+        v_low  = max(0.0, min(all_mins) - 0.2)
+        v_high = min(1.0, max(all_maxs) + 0.2)
+        conditions.append("af.valence IS NOT NULL")
+        conditions.append("af.valence >= ?")
+        conditions.append("af.valence <= ?")
+        params.extend([v_low, v_high])
+
     if decades:
         decade_conds = []
         for d in decades:
@@ -162,6 +226,8 @@ def build_dj_set(
     exclude_live: bool = True,
     seed_item_key: str | None = None,
     rng_seed: int | None = None,
+    start_mood: str | None = None,
+    end_mood: str | None = None,
 ) -> dict[str, Any]:
     """Construct a beatmatched, harmonically-mixed set.
 
@@ -180,12 +246,17 @@ def build_dj_set(
         genres=genres,
         exclude_live=exclude_live,
         decades=decades,
+        start_mood=start_mood,
+        end_mood=end_mood,
     )
     if not pool:
         return {"tracks": [], "total_matching": 0, "returned": 0, "curve": []}
 
     bpm_curve = _bpm_targets(start_bpm, end_bpm, n_tracks)
-    energy_curve_vals = _curve_values(energy_curve, n_tracks)
+    raw_energy = _curve_values(energy_curve, n_tracks)
+    e_bias = _energy_bias(start_mood, end_mood, n_tracks)
+    energy_curve_vals = [max(0.0, min(1.0, e + b)) for e, b in zip(raw_energy, e_bias, strict=False)]
+    valence_targets = _valence_targets(start_mood, end_mood, n_tracks)
 
     used_keys: set[str] = set()
     recent_artists: list[str] = []
@@ -205,6 +276,7 @@ def build_dj_set(
     for i in range(start_idx, n_tracks):
         target_bpm = bpm_curve[i]
         target_energy = energy_curve_vals[i]
+        target_valence = valence_targets[i] if valence_targets else None
 
         scored = [
             (
@@ -214,6 +286,7 @@ def build_dj_set(
                     target_energy=target_energy,
                     prev_camelot=prev_camelot,
                     recent_artists=recent_artists,
+                    target_valence=target_valence,
                 ),
                 c,
             )
@@ -233,10 +306,17 @@ def build_dj_set(
         recent_artists.append(pick["artist"])
         prev_camelot = pick.get("camelot")
 
+    n = len(selected)
+    curve = []
+    for i, (b, e) in enumerate(zip(bpm_curve[:n], energy_curve_vals[:n], strict=False)):
+        point: dict[str, Any] = {"bpm": round(b, 1), "energy": round(e, 3)}
+        if valence_targets:
+            point["valence"] = round(valence_targets[i], 3)
+        curve.append(point)
+
     return {
         "tracks": selected,
         "total_matching": len(pool),
         "returned": len(selected),
-        "curve": [{"bpm": round(b, 1), "energy": round(e, 3)}
-                  for b, e in zip(bpm_curve[: len(selected)], energy_curve_vals[: len(selected)], strict=False)],
+        "curve": curve,
     }

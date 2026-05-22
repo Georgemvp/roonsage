@@ -299,6 +299,8 @@ class DJSetRequest(BaseModel):
     decades: list[str] = []
     exclude_live: bool = True
     seed_item_key: str | None = None
+    start_mood: str | None = None
+    end_mood: str | None = None
 
 
 class DJSetCurvePoint(BaseModel):
