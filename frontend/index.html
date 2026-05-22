@@ -1188,13 +1188,16 @@
                                     </select>
                                 </div>
                                 <div class="auto-form-row">
-                                    <label for="dj-genres">Genres (komma-gescheiden, optioneel)</label>
-                                    <input id="dj-genres" type="text" class="auto-form-input" placeholder="House, Techno" />
-                                </div>
-                                <div class="auto-form-row">
                                     <label for="dj-zone">Roon zone</label>
                                     <select id="dj-zone" class="auto-form-select"></select>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div class="auto-form-row" style="margin-top:var(--spacing-sm);">
+                            <label>Genres <span id="dj-genre-selected-count" style="font-size:0.8em;color:var(--text-muted);">(optioneel — alles als niets geselecteerd)</span></label>
+                            <div id="dj-genre-cloud" class="discovery-genre-cloud" style="margin-top:6px;min-height:32px;">
+                                <span style="color:var(--text-muted);font-size:0.85em;">Laden…</span>
                             </div>
                         </div>
 

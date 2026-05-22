@@ -11,9 +11,53 @@ import { apiCall } from './api.js';
 let _initialized = false;
 let _lastResult = null;
 let _curveChart = null;
+let _selectedGenres = new Set();
 
 function _esc(s) {
     return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function _updateGenreCountLabel() {
+    const el = document.getElementById('dj-genre-selected-count');
+    if (!el) return;
+    el.textContent = _selectedGenres.size > 0
+        ? `(${_selectedGenres.size} geselecteerd)`
+        : '(optioneel — alles als niets geselecteerd)';
+}
+
+async function _loadGenres() {
+    const cloud = document.getElementById('dj-genre-cloud');
+    if (!cloud) return;
+    try {
+        const data = await apiCall('/library/stats');
+        const genres = data.genres || [];
+        if (!genres.length) {
+            cloud.innerHTML = '<span style="color:var(--text-muted);font-size:0.85em;">Geen genres gevonden.</span>';
+            return;
+        }
+        cloud.innerHTML = genres.map(g => `
+            <button type="button"
+                class="discovery-genre-pill${_selectedGenres.has(g.name) ? ' discovery-genre-pill--selected' : ''}"
+                data-dj-genre="${_esc(g.name)}"
+                title="${g.count} tracks"
+            >${_esc(g.name)} <span class="discovery-genre-count">${g.count}</span></button>
+        `).join('');
+        cloud.querySelectorAll('[data-dj-genre]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const genre = btn.dataset.djGenre;
+                if (_selectedGenres.has(genre)) {
+                    _selectedGenres.delete(genre);
+                    btn.classList.remove('discovery-genre-pill--selected');
+                } else {
+                    _selectedGenres.add(genre);
+                    btn.classList.add('discovery-genre-pill--selected');
+                }
+                _updateGenreCountLabel();
+            });
+        });
+    } catch {
+        cloud.innerHTML = '<span style="color:var(--text-muted);font-size:0.85em;">Genres konden niet worden geladen.</span>';
+    }
 }
 
 async function _populateZones() {
@@ -94,8 +138,7 @@ async function _build(ev) {
     if (playBtn) playBtn.disabled = true;
     if (status) { status.textContent = 'Bouw set…'; status.style.color = ''; }
 
-    const genresRaw = document.getElementById('dj-genres')?.value?.trim() || '';
-    const genres = genresRaw ? genresRaw.split(',').map(g => g.trim()).filter(Boolean) : [];
+    const genres = Array.from(_selectedGenres);
 
     const payload = {
         duration_minutes: parseInt(document.getElementById('dj-duration').value, 10) || 60,
@@ -163,5 +206,5 @@ export async function initDJSetView() {
         document.getElementById('dj-play-btn')?.addEventListener('click', _play);
         _initialized = true;
     }
-    await _populateZones();
+    await Promise.all([_populateZones(), _loadGenres()]);
 }

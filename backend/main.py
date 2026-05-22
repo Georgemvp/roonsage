@@ -180,6 +180,23 @@ app.include_router(audio_features_router)
 
 
 # =============================================================================
+# JS module cache-bust middleware
+# =============================================================================
+# Browser caches ES modules under their original URL, so a new deploy that
+# only changes app.js?v=NEW still serves stale copies of ./modules/dj-set.js
+# etc. Setting no-cache forces the browser to revalidate on every load; the
+# server replies 304 when unchanged, so there is no measurable overhead.
+
+@app.middleware("http")
+async def js_no_cache(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/static/") and path.endswith(".js"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
+
+# =============================================================================
 # Static File Serving
 # =============================================================================
 
