@@ -123,6 +123,35 @@ async def init_clients(app: FastAPI) -> None:
     # DB schema — initialise early so migration flag is set
     library_cache.ensure_db_initialized().close()
 
+    # Self-heal corrupt SQLite indexes from interrupted writes (uvicorn reload,
+    # container kill, etc.). Also resets stuck 'processing'/'analyzing' rows
+    # so workers don't leave orphan items every restart.
+    from backend.db import get_db_connection, repair_corrupt_indexes  # noqa: PLC0415
+
+    _repair_conn = get_db_connection()
+    try:
+        repaired = repair_corrupt_indexes(_repair_conn)
+        if repaired:
+            logger.info("Auto-repaired indexes on: %s", repaired)
+        # Reset any rows orphaned mid-write by the previous shutdown.
+        for table, busy_state in [
+            ("enrichment_queue", "processing"),
+            ("audio_features_queue", "analyzing"),
+        ]:
+            try:
+                n = _repair_conn.execute(
+                    f"UPDATE {table} SET status='pending' WHERE status=?",
+                    (busy_state,),
+                ).rowcount
+                if n:
+                    logger.info("Reset %d orphaned %s rows in %s to 'pending'",
+                                n, busy_state, table)
+            except Exception as exc:
+                logger.debug("Orphan reset on %s skipped: %s", table, exc)
+        _repair_conn.commit()
+    finally:
+        _repair_conn.close()
+
 
 # ---------------------------------------------------------------------------
 # Background task launcher

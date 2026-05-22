@@ -31,6 +31,11 @@ services:
       # Example: Roon reports "/Volumes/Music/Artist/..." → inside container at "/music/Artist/..."
       - MUSIC_PATH_MAP_FROM=${MUSIC_PATH_MAP_FROM:-}
       - MUSIC_PATH_MAP_TO=${MUSIC_PATH_MAP_TO:-}
+      # librosa uses numba's JIT cache — without a writable cache dir it errors
+      # ("cannot cache function: no locator available"). Point both numba and
+      # matplotlib (transitively loaded) at a writable location inside /app/data.
+      - NUMBA_CACHE_DIR=/app/data/.numba_cache
+      - MPLCONFIGDIR=/app/data/.mpl_cache
 
       # LLM Provider (anthropic, openai, gemini, ollama, or custom)
       # Defaults to gemini. Can also be configured in the web UI.
