@@ -389,13 +389,18 @@ function _defaultSetName(payload) {
 }
 
 function _showResultActions(payload) {
-    const el = document.getElementById('dj-result-actions');
-    const nameInput = document.getElementById('dj-set-name');
-    if (!el) return;
-    if (nameInput && !nameInput.value) nameInput.value = _defaultSetName(payload);
-    el.style.display = 'block';
+    // Reveal the action buttons next to Build set
+    ['dj-play-btn', 'dj-save-btn', 'dj-arc-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = '';
+    });
     const saveBtn = document.getElementById('dj-save-btn');
     if (saveBtn) { saveBtn.textContent = 'Opslaan'; saveBtn.disabled = false; }
+    // Show name input below tracklist
+    const actionsEl = document.getElementById('dj-result-actions');
+    if (actionsEl) actionsEl.style.display = 'block';
+    const nameInput = document.getElementById('dj-set-name');
+    if (nameInput && !nameInput.value) nameInput.value = _defaultSetName(payload);
 }
 
 async function _save(autoName) {

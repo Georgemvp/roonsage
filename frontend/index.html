@@ -1293,6 +1293,9 @@
 
                         <div class="auto-form-actions">
                             <button id="dj-build-btn" type="submit" class="btn btn-primary">Build set</button>
+                            <button id="dj-play-btn" type="button" class="btn btn-primary" style="display:none;">▶ Speel af op zone</button>
+                            <button id="dj-save-btn" type="button" class="btn btn-secondary" style="display:none;">Opslaan</button>
+                            <button id="dj-arc-btn" type="button" class="btn btn-secondary" style="display:none;">Opslaan in Arc ↗</button>
                         </div>
                     </form>
                 </section>
@@ -1301,12 +1304,7 @@
                     <canvas id="dj-curve-chart" style="max-height:200px;"></canvas>
                     <div id="dj-result" class="auto-list"></div>
                     <div id="dj-result-actions" style="display:none;margin-top:var(--spacing-sm);">
-                        <input id="dj-set-name" type="text" class="auto-form-input" style="width:100%;margin-bottom:8px;" placeholder="Naam voor deze set…" />
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <button id="dj-play-btn" type="button" class="btn btn-primary">▶ Speel af op zone</button>
-                            <button id="dj-save-btn" type="button" class="btn btn-secondary">Opslaan</button>
-                            <button id="dj-arc-btn" type="button" class="btn btn-secondary">Opslaan in Arc ↗</button>
-                        </div>
+                        <input id="dj-set-name" type="text" class="auto-form-input" style="width:100%;" placeholder="Naam voor deze set…" />
                     </div>
                     <div id="dj-status" class="enrich-result"></div>
                 </section>
