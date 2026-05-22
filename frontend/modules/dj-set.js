@@ -17,6 +17,10 @@ let _curveChart = null;
 let _selectedGenres = new Set();
 let _bpmUserEdited = false;
 
+// Pre-fetch genres as soon as the module loads so the data is ready by the
+// time the user opens the DJ Set view — avoids "Laden…" delay on navigation.
+const _genresFetch = apiCall('/library/stats').catch(() => null);
+
 // Energy rank per mood (1 = calmest, 18 = most energetic).
 // Used to restrict which end moods are valid for a given curve direction.
 const MOOD_ENERGY_RANK = {
@@ -146,7 +150,7 @@ async function _loadGenres() {
     const cloud = document.getElementById('dj-genre-cloud');
     if (!cloud) return;
     try {
-        const data = await apiCall('/library/stats');
+        const data = await _genresFetch;
         const genres = data.genres || [];
         if (!genres.length) {
             cloud.innerHTML = '<span style="color:var(--text-muted);font-size:0.85em;">Geen genres gevonden.</span>';
