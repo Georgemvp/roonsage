@@ -18,6 +18,7 @@ from backend.routes import config_routes, generate, library, recommend, results,
 from backend.routes.audio_features import router as audio_features_router
 from backend.routes.automations import router as automations_router
 from backend.routes.discovery import router as discovery_router
+from backend.routes.dj_sets import router as dj_sets_router
 from backend.routes.enrichment import router as enrichment_router
 from backend.routes.intelligence import router as intelligence_router
 from backend.routes.notifications import router as notifications_router
@@ -177,6 +178,7 @@ app.include_router(enrichment_router)
 app.include_router(automations_router)
 app.include_router(verify_router)
 app.include_router(audio_features_router)
+app.include_router(dj_sets_router)
 
 
 # =============================================================================

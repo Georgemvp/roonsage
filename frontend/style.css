@@ -3967,6 +3967,48 @@ body.no-scroll {
    PLAYLIST LIBRARY
    ============================================================================= */
 
+.pl-view-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+}
+
+.pl-view-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 8px 18px;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    cursor: pointer;
+    margin-bottom: -1px;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.pl-view-tab:hover {
+    color: var(--text-primary);
+}
+
+.pl-view-tab--active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+}
+
+.pl-dj-badge {
+    display: inline-block;
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 4px;
+    font-size: 0.7em;
+    padding: 1px 6px;
+    vertical-align: middle;
+    margin-left: 4px;
+}
+
 .playlists-toolbar {
     display: flex;
     gap: var(--spacing-sm);

@@ -9,12 +9,37 @@ import { state } from './state.js';
 // ── Local state ──────────────────────────────────────────────────────────────
 let _playlists = [];
 let _filter = { source: 'all', tag: null, sort: 'newest', query: '' };
+let _activeTab = 'playlists';
+let _djSets = [];
 
 // ── Public init ──────────────────────────────────────────────────────────────
 export function initPlaylistsView() {
-    renderFilters();
-    loadPlaylists();
-    bindSearch();
+    _bindTabs();
+    if (_activeTab === 'dj-sets') {
+        loadDJSets();
+    } else {
+        renderFilters();
+        loadPlaylists();
+        bindSearch();
+    }
+}
+
+function _bindTabs() {
+    document.querySelectorAll('.pl-view-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tab = btn.dataset.tab;
+            if (tab === _activeTab) return;
+            _activeTab = tab;
+            document.querySelectorAll('.pl-view-tab').forEach(b => {
+                b.classList.toggle('pl-view-tab--active', b.dataset.tab === tab);
+                b.setAttribute('aria-selected', b.dataset.tab === tab ? 'true' : 'false');
+            });
+            document.getElementById('playlists-tab-content').style.display = tab === 'playlists' ? '' : 'none';
+            document.getElementById('dj-sets-tab-content').style.display  = tab === 'dj-sets'   ? '' : 'none';
+            if (tab === 'dj-sets') loadDJSets();
+            else { renderFilters(); loadPlaylists(); bindSearch(); }
+        });
+    });
 }
 
 // ── API helpers ──────────────────────────────────────────────────────────────
@@ -481,4 +506,104 @@ function showToast(msg) {
     const el = document.getElementById('success-toast');
     const msgEl = document.getElementById('success-message');
     if (el && msgEl) { msgEl.textContent = msg; el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 3000); }
+}
+
+// =============================================================================
+// DJ Sets tab
+// =============================================================================
+
+export async function loadDJSets() {
+    const grid = document.getElementById('dj-sets-grid');
+    if (!grid) return;
+    grid.innerHTML = '<div class="playlists-loading"><div class="spinner"></div></div>';
+    try {
+        _djSets = await apiCall('/dj-sets');
+        renderDJSets();
+    } catch (e) {
+        grid.innerHTML = `<p class="playlists-empty">Kon DJ sets niet laden: ${escapeHtml(e.message)}</p>`;
+    }
+}
+
+function _moodLabel(m) {
+    return m ? m.charAt(0).toUpperCase() + m.slice(1) : '';
+}
+
+function _djSetCardHtml(s) {
+    const date = s.created_at ? new Date(s.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    const moodLine = [_moodLabel(s.start_mood), _moodLabel(s.end_mood)].filter(Boolean).join(' → ');
+    const bpmLine = s.start_bpm != null
+        ? `${Math.round(s.start_bpm)}–${Math.round(s.end_bpm || s.start_bpm)} BPM`
+        : '';
+    const genres = (s.genres || []).slice(0, 3).map(g => `<span class="pl-tag">${escapeHtml(g)}</span>`).join('');
+    const trackList = (s.tracks || []).map((t, i) =>
+        `<div class="pl-track-row"><span class="pl-track-num">${i + 1}</span><span class="pl-track-title">${escapeHtml(t.artist || '')} — ${escapeHtml(t.title || '')}</span></div>`
+    ).join('');
+    return `
+    <div class="pl-card" data-dj-id="${s.id}">
+        <div class="pl-card-header">
+            <div class="pl-card-info">
+                <div class="pl-card-title">${escapeHtml(s.name)}<span class="pl-dj-badge">DJ Set</span></div>
+                <div class="pl-card-meta">
+                    <span>${s.track_count} tracks</span>
+                    ${bpmLine ? `<span>${bpmLine}</span>` : ''}
+                    ${moodLine ? `<span>${moodLine}</span>` : ''}
+                    ${date ? `<span>${date}</span>` : ''}
+                </div>
+                ${genres ? `<div class="pl-card-tags">${genres}</div>` : ''}
+            </div>
+        </div>
+        <div class="pl-card-actions">
+            <button class="btn btn-secondary dj-action-play">▶ Afspelen</button>
+            <button class="btn-ghost dj-action-delete" title="Verwijderen">🗑</button>
+        </div>
+        <div class="pl-tracklist">
+            <div class="pl-tracklist-inner">${trackList}</div>
+        </div>
+    </div>`;
+}
+
+function renderDJSets() {
+    const grid = document.getElementById('dj-sets-grid');
+    if (!grid) return;
+    if (!_djSets.length) {
+        grid.innerHTML = '<p class="playlists-empty">Nog geen DJ sets opgeslagen. Bouw een set en sla hem op via de DJ Set pagina.</p>';
+        return;
+    }
+    grid.innerHTML = _djSets.map(_djSetCardHtml).join('');
+
+    grid.querySelectorAll('.pl-card[data-dj-id]').forEach(card => {
+        const id = parseInt(card.dataset.djId, 10);
+        const set = _djSets.find(s => s.id === id);
+
+        // Expand/collapse tracklist on card click (not on button click)
+        card.addEventListener('click', e => {
+            if (e.target.closest('button')) return;
+            card.querySelector('.pl-tracklist').classList.toggle('pl-tracklist--open');
+        });
+
+        card.querySelector('.dj-action-play')?.addEventListener('click', async () => {
+            const zones = await apiCall('/roon/zones').catch(() => []);
+            if (!zones.length) { alert('Geen Roon zones beschikbaar.'); return; }
+            const zone = zones.length === 1 ? zones[0] : zones.find(z => z.display_name === 'Mac mini') || zones[0];
+            const keys = (set.tracks || []).map(t => t.item_key).filter(Boolean);
+            if (!keys.length) { alert('Geen afspeelbare tracks in deze set.'); return; }
+            try {
+                await apiCall('/queue', { method: 'POST', body: JSON.stringify({ item_keys: keys, zone_id: zone.zone_id, mode: 'replace' }) });
+                showToast(`▶ ${set.name} speelt af op ${zone.display_name}`);
+            } catch (e) {
+                alert('Afspelen mislukt: ' + e.message);
+            }
+        });
+
+        card.querySelector('.dj-action-delete')?.addEventListener('click', async () => {
+            if (!confirm(`"${set.name}" verwijderen?`)) return;
+            try {
+                await apiCall(`/dj-sets/${id}`, { method: 'DELETE' });
+                _djSets = _djSets.filter(s => s.id !== id);
+                renderDJSets();
+            } catch (e) {
+                alert('Verwijderen mislukt: ' + e.message);
+            }
+        });
+    });
 }

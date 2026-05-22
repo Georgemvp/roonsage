@@ -11,6 +11,8 @@ import { showSuccess } from './ui.js';
 
 let _initialized = false;
 let _lastResult = null;
+let _lastPayload = null;
+let _savedId = null;
 let _curveChart = null;
 let _selectedGenres = new Set();
 
@@ -164,6 +166,8 @@ async function _build(ev) {
             body: JSON.stringify(payload),
         });
         _lastResult = data;
+        _lastPayload = payload;
+        _savedId = null;
         _renderTracks(data.tracks, data.curve || []);
         _renderCurve(data.curve || []);
         if (status) {
@@ -171,11 +175,58 @@ async function _build(ev) {
             status.style.color = '#4caf50';
         }
         if (playBtn && data.tracks?.length) playBtn.disabled = false;
+        _showSaveRow(payload);
     } catch (err) {
         if (status) {
             status.textContent = '✗ ' + (err.message || 'Onbekende fout');
             status.style.color = '#f44336';
         }
+    }
+}
+
+function _defaultSetName(payload) {
+    const parts = [];
+    if (payload.start_mood) parts.push(payload.start_mood.charAt(0).toUpperCase() + payload.start_mood.slice(1));
+    if (payload.end_mood)   parts.push(payload.end_mood.charAt(0).toUpperCase() + payload.end_mood.slice(1));
+    if (payload.genres?.length) parts.push(payload.genres[0]);
+    parts.push(`${Math.round(payload.start_bpm)}–${Math.round(payload.end_bpm)} BPM`);
+    return 'DJ Set · ' + parts.join(' · ');
+}
+
+function _showSaveRow(payload) {
+    const row = document.getElementById('dj-save-row');
+    const nameInput = document.getElementById('dj-set-name');
+    if (!row) return;
+    if (nameInput && !nameInput.value) nameInput.value = _defaultSetName(payload);
+    row.style.display = 'block';
+}
+
+async function _save(autoName) {
+    if (!_lastResult?.tracks?.length) return null;
+    const name = autoName || document.getElementById('dj-set-name')?.value?.trim() || _defaultSetName(_lastPayload || {});
+    try {
+        const saved = await apiCall('/dj-sets', {
+            method: 'POST',
+            body: JSON.stringify({
+                name,
+                duration_minutes: _lastPayload?.duration_minutes || 60,
+                start_bpm: _lastPayload?.start_bpm,
+                end_bpm:   _lastPayload?.end_bpm,
+                start_mood: _lastPayload?.start_mood || null,
+                end_mood:   _lastPayload?.end_mood   || null,
+                genres: _lastPayload?.genres || [],
+                tracks: _lastResult.tracks,
+                curve:  _lastResult.curve || [],
+            }),
+        });
+        _savedId = saved.id;
+        const btn = document.getElementById('dj-save-btn');
+        if (btn) { btn.textContent = 'Opgeslagen ✓'; btn.disabled = true; }
+        return saved;
+    } catch (err) {
+        const status = document.getElementById('dj-status');
+        if (status) { status.textContent = '✗ Opslaan mislukt: ' + err.message; status.style.color = '#f44336'; }
+        return null;
     }
 }
 
@@ -198,6 +249,8 @@ async function _play() {
             method: 'POST',
             body: JSON.stringify({ item_keys: itemKeys, zone_id: zoneId, mode: 'replace' }),
         });
+        // Auto-save on first play if not saved yet
+        if (!_savedId) await _save(_defaultSetName(_lastPayload || {}));
         showSuccess(`▶ DJ set van ${itemKeys.length} tracks gestart.`);
         if (status) { status.textContent = ''; }
     } catch (err) {
@@ -212,6 +265,7 @@ export async function initDJSetView() {
     if (!_initialized) {
         document.getElementById('dj-form')?.addEventListener('submit', _build);
         document.getElementById('dj-play-btn')?.addEventListener('click', _play);
+        document.getElementById('dj-save-btn')?.addEventListener('click', () => _save());
         _initialized = true;
     }
     await Promise.all([_populateZones(), _loadGenres()]);

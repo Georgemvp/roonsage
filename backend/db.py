@@ -579,6 +579,23 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         );
         CREATE INDEX IF NOT EXISTS idx_audio_features_queue_status
             ON audio_features_queue(status);
+
+        CREATE TABLE IF NOT EXISTS dj_sets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            duration_minutes INTEGER NOT NULL DEFAULT 0,
+            track_count INTEGER NOT NULL DEFAULT 0,
+            start_bpm REAL,
+            end_bpm REAL,
+            start_mood TEXT,
+            end_mood TEXT,
+            genres_json TEXT NOT NULL DEFAULT '[]',
+            tracks_json TEXT NOT NULL DEFAULT '[]',
+            curve_json TEXT NOT NULL DEFAULT '[]'
+        );
+        CREATE INDEX IF NOT EXISTS idx_dj_sets_created
+            ON dj_sets(created_at DESC);
     """)
 
     conn.commit()
