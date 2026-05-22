@@ -157,12 +157,16 @@ class MusicBrainzClient:
         self,
         artist: str,
         title: str,
+        fetch_tags: bool = True,
     ) -> tuple[str | None, list[str], str | None, str | None]:
-        """One-stop lookup: search + tag fetch in a single call.
+        """One-stop lookup: search + optional tag fetch.
 
         Falls back to the primary artist (before the first comma) when the full
         Roon performer string (e.g. "Eagles, Danny Kortchmar") yields no match,
         since MusicBrainz only indexes the main credited artist.
+
+        Pass ``fetch_tags=False`` to skip the second MB request (tag lookup) when
+        Last.fm is configured and covers tags — halves the number of MB calls.
 
         Returns:
             (mbid, tags, release_date, country)
@@ -190,6 +194,9 @@ class MusicBrainzClient:
             first = releases[0]
             release_date = first.get("date") or first.get("release-events", [{}])[0].get("date")
             country = first.get("country")
+
+        if not fetch_tags:
+            return mbid, [], release_date, country
 
         tags = await self.get_recording_tags(mbid)
         return mbid, tags, release_date, country

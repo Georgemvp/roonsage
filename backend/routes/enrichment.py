@@ -36,6 +36,7 @@ class EnrichmentStatusResponse(BaseModel):
     worker_running: bool = False
     worker_paused: bool = False
     lastfm_active: bool = False  # True when Last.fm is configured and active in enrichment
+    skip_mb: bool = False        # True when ENRICHMENT_SKIP_MB=true (LF-only, ~50× faster)
 
 
 class EnrichmentQueueItem(BaseModel):
@@ -79,6 +80,7 @@ async def get_enrichment_status() -> EnrichmentStatusResponse:
     finally:
         conn.close()
 
+    from backend.enrichment_worker import ENRICHMENT_SKIP_MB  # noqa: PLC0415
     from backend.lastfm_client import get_lf_client  # noqa: PLC0415
 
     worker = get_worker()
@@ -95,6 +97,7 @@ async def get_enrichment_status() -> EnrichmentStatusResponse:
         worker_running=worker.is_running(),
         worker_paused=worker.is_paused(),
         lastfm_active=lastfm_active,
+        skip_mb=ENRICHMENT_SKIP_MB,
     )
 
 

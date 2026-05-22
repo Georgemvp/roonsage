@@ -25,6 +25,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import sqlite3
 from datetime import UTC, datetime
 
@@ -34,18 +35,25 @@ logger = logging.getLogger(__name__)
 # Configuration constants
 # ------------------------------------------------------------------
 
-BATCH_SIZE = 100          # Max pending items to pull per batch
+BATCH_SIZE = 200          # Max pending items to pull per batch
 BATCH_PAUSE_SECONDS = 60  # Sleep between batches when no work is left
 MAX_ATTEMPTS = 3          # Retry failed items up to this many times
-CONCURRENCY = 5           # Max items processed concurrently within a batch
+CONCURRENCY = 10          # Max items processed concurrently within a batch
+
+# Set ENRICHMENT_SKIP_MB=true to skip MusicBrainz entirely and use only Last.fm.
+# Last.fm allows 5 req/s (vs MB's 1 req/s), so this reduces a 68k-track library
+# from ~36 hours to under an hour. MBID and release-date backfill are skipped.
+ENRICHMENT_SKIP_MB: bool = os.getenv("ENRICHMENT_SKIP_MB", "").lower() in ("1", "true", "yes")
 
 # Last.fm rate: 5 req/s
 _lf_semaphore = asyncio.Semaphore(5)
 _LF_SLEEP = 0.21  # seconds after releasing the LF semaphore
 
-# In-memory cache for batch deduplication: (artist, title) → enrichment results
+# Persistent dedup cache across all batches: (primary_artist, clean_title) → enrichment results.
+# Avoids re-querying MB/LF for the same recording (remasters, album versions, etc.).
+# Capped at BATCH_CACHE_MAX entries; old entries are kept (no LRU) — fine for one enrichment run.
 _batch_cache: dict[tuple[str, str], tuple] = {}
-BATCH_CACHE_MAX = 2000
+BATCH_CACHE_MAX = 50_000
 
 
 # ===========================================================================
@@ -243,29 +251,47 @@ async def enrich_one(
         cached = _batch_cache[cache_key]
         mbid, mb_tags, mb_release_date, mb_country, lf_tags, lf_listeners, lf_playcount = cached
     else:
-        from backend.musicbrainz_client import get_mb_client  # noqa: PLC0415
+        lf_future = _fetch_lastfm(artist, title)
 
-        mb_client = get_mb_client()
-        # Run MB and LF lookups in parallel — LF finishes inside MB's rate-limit sleep.
-        mb_result, lf_result = await asyncio.gather(
-            mb_client.lookup_recording(artist, title),
-            _fetch_lastfm(artist, title),
-            return_exceptions=True,
-        )
-
-        if isinstance(mb_result, Exception):
-            logger.warning("MB lookup failed for %s - %s: %s", artist, title, mb_result)
+        if ENRICHMENT_SKIP_MB:
+            # LF-only mode: no MB semaphore, ~50× faster for large libraries.
             mbid, mb_tags, mb_release_date, mb_country = None, [], None, None
+            lf_result = await lf_future
+            if isinstance(lf_result, Exception):
+                logger.warning("LF lookup failed for %s - %s: %s", artist, title, lf_result)
+                lf_tags, lf_listeners, lf_playcount = [], None, None
+            else:
+                lf_tags, lf_listeners, lf_playcount = lf_result
         else:
-            mbid, mb_tags, mb_release_date, mb_country = mb_result
+            from backend.musicbrainz_client import get_mb_client  # noqa: PLC0415
 
-        if isinstance(lf_result, Exception):
-            logger.warning("LF lookup failed for %s - %s: %s", artist, title, lf_result)
-            lf_tags, lf_listeners, lf_playcount = [], None, None
-        else:
-            lf_tags, lf_listeners, lf_playcount = lf_result
+            mb_client = get_mb_client()
+            from backend.lastfm_client import get_lf_client  # noqa: PLC0415
+            lf_client = get_lf_client()
+            lf_configured = lf_client is not None and lf_client.is_configured()
+            # Skip MB tag-fetch (second request) when Last.fm is active — LF covers tags
+            # and halving MB calls doubles throughput from ~1s/track to ~0.5s/track.
+            # Run MB and LF lookups in parallel — LF finishes inside MB's rate-limit sleep.
+            mb_result, lf_result = await asyncio.gather(
+                mb_client.lookup_recording(artist, title, fetch_tags=not lf_configured),
+                lf_future,
+                return_exceptions=True,
+            )
 
-        # Cache the result for deduplication within the current batch
+            if isinstance(mb_result, Exception):
+                logger.warning("MB lookup failed for %s - %s: %s", artist, title, mb_result)
+                mbid, mb_tags, mb_release_date, mb_country = None, [], None, None
+            else:
+                mbid, mb_tags, mb_release_date, mb_country = mb_result
+
+            if isinstance(lf_result, Exception):
+                logger.warning("LF lookup failed for %s - %s: %s", artist, title, lf_result)
+                lf_tags, lf_listeners, lf_playcount = [], None, None
+            else:
+                lf_tags, lf_listeners, lf_playcount = lf_result
+
+        # Cache result — persists across all batches to avoid redundant lookups for
+        # remasters / album versions of the same recording.
         if len(_batch_cache) < BATCH_CACHE_MAX:
             _batch_cache[cache_key] = (
                 mbid, mb_tags, mb_release_date, mb_country,
@@ -486,10 +512,9 @@ class EnrichmentWorker:
                 continue
 
             logger.info(
-                "EnrichmentWorker: processing batch of %d items (concurrency=%d)",
-                len(rows), CONCURRENCY,
+                "EnrichmentWorker: processing batch of %d items (concurrency=%d, skip_mb=%s, cache=%d)",
+                len(rows), CONCURRENCY, ENRICHMENT_SKIP_MB, len(_batch_cache),
             )
-            _batch_cache.clear()
 
             try:
                 # Launch up to CONCURRENCY items concurrently; each task owns its DB conn.

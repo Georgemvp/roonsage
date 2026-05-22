@@ -568,8 +568,10 @@ function _updateEnrichmentUI(data) {
     _setText('enrich-pending', pending);
     _setText('enrich-failed',  failed);
 
-    // Worker state label
-    const stateLabel = paused ? '⏸ Gepauzeerd' : (running ? '▶ Actief' : '⏹ Gestopt');
+    // Worker state label (with mode badge when MB is skipped)
+    const skipMb = data.skip_mb ?? false;
+    const modeBadge = skipMb ? ' · Last.fm only' : '';
+    const stateLabel = paused ? '⏸ Gepauzeerd' : (running ? `▶ Actief${modeBadge}` : '⏹ Gestopt');
     _setText('enrich-worker-state', stateLabel);
 
     // Progress bar
