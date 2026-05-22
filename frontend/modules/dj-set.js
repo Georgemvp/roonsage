@@ -7,6 +7,7 @@
 // which dispatches the curated set via the standard play_tracks endpoint.
 
 import { apiCall } from './api.js';
+import { showSuccess } from './ui.js';
 
 let _initialized = false;
 let _lastResult = null;
@@ -188,10 +189,8 @@ async function _play() {
             method: 'POST',
             body: JSON.stringify({ item_keys: itemKeys, zone_id: zoneId, mode: 'replace' }),
         });
-        if (status) {
-            status.textContent = `▶ Speelt ${itemKeys.length} tracks af op de gekozen zone.`;
-            status.style.color = '#4caf50';
-        }
+        showSuccess(`▶ DJ set van ${itemKeys.length} tracks gestart.`);
+        if (status) { status.textContent = ''; }
     } catch (err) {
         if (status) {
             status.textContent = '✗ ' + (err.message || 'Playback mislukt');
