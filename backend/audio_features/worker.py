@@ -9,9 +9,8 @@ Mirrors the design of ``backend/enrichment_worker.py``:
   - Pause / resume via ``asyncio.Event`` so the REST API can stop the worker
     without cancelling the task.
 
-Audio analysis is CPU-heavy (librosa.load + chroma + autocorrelation), so
-concurrency is intentionally low — 2 workers per ~4 CPU cores. The bottleneck
-is the analyser, not I/O, so adding more workers makes things worse.
+Audio analysis is CPU-heavy (librosa.load + chroma + autocorrelation).
+Concurrency is set to 4 — tune down if the host CPU is saturated.
 """
 
 from __future__ import annotations
@@ -32,7 +31,7 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = 50
 BATCH_PAUSE_SECONDS = 60
 MAX_ATTEMPTS = 3
-CONCURRENCY = 2  # CPU-bound; raising this past 2 hurts throughput on most NAS CPUs.
+CONCURRENCY = 4
 
 # Set AUDIO_FEATURES_FULL=false to compute only BPM + key (fase 1 mode).
 # True (default) computes the full Spotify-style feature vector.
