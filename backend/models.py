@@ -260,6 +260,18 @@ class FilterLibraryRequest(BaseModel):
     max_tracks: int = 500  # Cap to protect context windows
     artist_limit: int = 2  # Max tracks per artist in stratified sampling
     exclude_keywords: list[str] | None = None  # Filter out tracks containing these words in title/album
+    # Audio feature filters — require the audio_features worker to have run.
+    # When any of these are set the query INNER JOINs track_audio_features,
+    # silently skipping tracks without analysis.
+    bpm_min: float | None = None
+    bpm_max: float | None = None
+    camelot_keys: list[str] | None = None
+    energy_min: float | None = None
+    energy_max: float | None = None
+    danceability_min: float | None = None
+    valence_min: float | None = None
+    valence_max: float | None = None
+    instrumentalness_min: float | None = None
 
 
 class FilterLibraryResponse(BaseModel):
@@ -268,6 +280,44 @@ class FilterLibraryResponse(BaseModel):
     total_matching: int
     returned: int
     tracks: list[Track]
+
+
+# =============================================================================
+# DJ Set Builder (audio features)
+# =============================================================================
+
+
+class DJSetRequest(BaseModel):
+    """Request to build a beatmatched, harmonically-mixed DJ set."""
+
+    duration_minutes: int = 60
+    track_count: int | None = None
+    start_bpm: float = 110.0
+    end_bpm: float = 128.0
+    energy_curve: Literal["flat", "ramp_up", "ramp_down", "peak", "valley"] = "ramp_up"
+    genres: list[str] = []
+    decades: list[str] = []
+    exclude_live: bool = True
+    seed_item_key: str | None = None
+
+
+class DJSetCurvePoint(BaseModel):
+    bpm: float
+    energy: float
+
+
+class DJSetResponse(BaseModel):
+    """Output of the DJ set builder.
+
+    ``tracks`` mirrors the field shape of FilterLibraryResponse so the
+    frontend / MCP server can pipe the result straight into the existing
+    server-side session + curate_and_play flow.
+    """
+
+    total_matching: int
+    returned: int
+    tracks: list[Track]
+    curve: list[DJSetCurvePoint] = []
 
 
 class SeedTrackInput(BaseModel):

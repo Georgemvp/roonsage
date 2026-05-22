@@ -85,6 +85,11 @@
                             <span class="nav-check" aria-hidden="true"></span>
                             Watchlist
                         </button>
+                        <button class="nav-dropdown-item" role="menuitem" data-nav="dj-set">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4l5 2 5-2v8"/><circle cx="4" cy="12" r="1.5"/><circle cx="13" cy="11" r="1.5"/></svg>
+                            <span class="nav-check" aria-hidden="true"></span>
+                            DJ Set
+                        </button>
                     </div>
                 </div>
 
@@ -1145,6 +1150,68 @@
                 </div>
             </div>
 
+            <!-- DJ Set View -->
+            <div id="dj-set-view" class="view">
+                <div class="auto-header">
+                    <div>
+                        <h2>DJ Set</h2>
+                        <p class="auto-subtitle">Bouw een beatmatched set met BPM-ramp en harmonische (Camelot) overgangen.</p>
+                    </div>
+                </div>
+
+                <section class="auto-section">
+                    <form id="dj-form" class="auto-form" autocomplete="off">
+                        <div class="auto-form-grid">
+                            <div>
+                                <div class="auto-form-row">
+                                    <label for="dj-duration">Duration (minutes)</label>
+                                    <input id="dj-duration" type="number" class="auto-form-input" min="10" max="240" value="60" />
+                                </div>
+                                <div class="auto-form-row">
+                                    <label for="dj-start-bpm">Start BPM</label>
+                                    <input id="dj-start-bpm" type="number" class="auto-form-input" min="60" max="200" step="1" value="110" />
+                                </div>
+                                <div class="auto-form-row">
+                                    <label for="dj-end-bpm">End BPM</label>
+                                    <input id="dj-end-bpm" type="number" class="auto-form-input" min="60" max="200" step="1" value="128" />
+                                </div>
+                            </div>
+                            <div>
+                                <div class="auto-form-row">
+                                    <label for="dj-curve">Energy curve</label>
+                                    <select id="dj-curve" class="auto-form-select">
+                                        <option value="ramp_up">Ramp up (warm-up → peak)</option>
+                                        <option value="ramp_down">Ramp down (peak → cool-down)</option>
+                                        <option value="flat">Flat</option>
+                                        <option value="peak">Peak (build then drop)</option>
+                                        <option value="valley">Valley (chill mid-set)</option>
+                                    </select>
+                                </div>
+                                <div class="auto-form-row">
+                                    <label for="dj-genres">Genres (komma-gescheiden, optioneel)</label>
+                                    <input id="dj-genres" type="text" class="auto-form-input" placeholder="House, Techno" />
+                                </div>
+                                <div class="auto-form-row">
+                                    <label for="dj-zone">Roon zone</label>
+                                    <select id="dj-zone" class="auto-form-select"></select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="auto-form-actions">
+                            <button id="dj-build-btn" type="submit" class="btn btn-primary">Build set</button>
+                            <button id="dj-play-btn" type="button" class="btn btn-secondary" disabled>Play on zone</button>
+                        </div>
+                    </form>
+                </section>
+
+                <section class="auto-section">
+                    <canvas id="dj-curve-chart" style="max-height:200px;"></canvas>
+                    <div id="dj-result" class="auto-list"></div>
+                    <div id="dj-status" class="enrich-result"></div>
+                </section>
+            </div>
+
             <!-- Settings View -->
             <div id="settings-view" class="view">
                 <h2>Settings</h2>
@@ -1522,6 +1589,56 @@
                         <button id="enrich-resume-btn" class="btn btn-outline btn-sm" style="display:none;">Resume</button>
                     </div>
                     <div id="enrich-action-result" class="enrich-result"></div>
+                </section>
+
+                <!-- Audio Feature Analysis Section -->
+                <section class="settings-section" id="audio-features-settings-section">
+                    <h3>Audio Feature Analysis</h3>
+                    <p class="settings-section-desc">Analyseert je tracks lokaal voor BPM, toonsoort (Camelot), energy, danceability en valence. Vereist een gemounte muziek-library en de <code>AUDIO_FEATURES_ENABLED=true</code> environment variable. CPU-intensief — laat dit ’s nachts draaien.</p>
+
+                    <div id="af-disabled-banner" class="enrich-result" style="display:none;color:#f0a000;">
+                        Audio-features uitgeschakeld. Zet <code>AUDIO_FEATURES_ENABLED=true</code> en mount je muziek in <code>MUSIC_LIBRARY_PATH</code>.
+                    </div>
+
+                    <div class="enrich-stats-grid" id="af-stats">
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value" id="af-analysed">–</span>
+                            <span class="enrich-stat-label">Analysed</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value enrich-stat-value--pending" id="af-pending">–</span>
+                            <span class="enrich-stat-label">Pending</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value" id="af-analyzing">–</span>
+                            <span class="enrich-stat-label">Analyzing</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value enrich-stat-value--failed" id="af-failed">–</span>
+                            <span class="enrich-stat-label">Failed</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value" id="af-unresolved">–</span>
+                            <span class="enrich-stat-label">Unresolved</span>
+                        </div>
+                    </div>
+
+                    <div class="enrich-progress-wrap">
+                        <div class="enrich-progress-bar" aria-hidden="true">
+                            <div id="af-progress-bar" class="enrich-progress-fill"></div>
+                        </div>
+                        <div class="enrich-progress-meta">
+                            <span id="af-progress-text"></span>
+                            <span id="af-worker-state" class="enrich-worker-badge"></span>
+                        </div>
+                    </div>
+
+                    <div class="enrich-actions">
+                        <button id="af-start-btn" class="btn btn-primary btn-sm">Start / Resume</button>
+                        <button id="af-pause-btn" class="btn btn-outline btn-sm">Pause</button>
+                        <button id="af-rescan-btn" class="btn btn-outline btn-sm">Rescan Paths</button>
+                    </div>
+                    <div id="af-action-result" class="enrich-result"></div>
                 </section>
 
                 <section class="settings-section library-stats" id="library-stats-section" style="display: none;">

@@ -3361,6 +3361,234 @@ async def verify_track_match(
 
 
 # ---------------------------------------------------------------------------
+# Audio feature analysis tools (BPM, key, energy, DJ-set builder)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_audio_features_status() -> str:
+    """Return the status of the audio feature analysis subsystem.
+
+    Reports the queue counts (pending, analyzing, complete, failed, unresolved),
+    whether the worker is running, and whether the analyser library (librosa)
+    is available. Use this to check if audio-feature-based filters (BPM, key,
+    energy) are actually populated for the library before relying on them.
+    """
+    logger.info("GET_AUDIO_FEATURES_STATUS called")
+    result = await _api_call("GET", "/api/audio-features/status")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def get_track_audio_features(item_key: str) -> str:
+    """Fetch the stored BPM / key / energy features for one track by item_key.
+
+    Returns null fields for tracks that have not yet been analysed. Useful
+    before building a hand-tuned set or to inspect what the analyser found.
+
+    Args:
+        item_key: Roon item key (returned by filter_tracks / search_library).
+    """
+    logger.info("GET_TRACK_AUDIO_FEATURES: %s", item_key)
+    result = await _api_call("GET", f"/api/audio-features/{item_key}")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def filter_tracks_by_audio(
+    bpm_min: float | None = None,
+    bpm_max: float | None = None,
+    camelot_keys: list[str] | None = None,
+    energy_min: float | None = None,
+    energy_max: float | None = None,
+    danceability_min: float | None = None,
+    valence_min: float | None = None,
+    valence_max: float | None = None,
+    instrumentalness_min: float | None = None,
+    genres: list[str] | None = None,
+    decades: list[str] | None = None,
+    exclude_live: bool = True,
+    max_tracks: int = 500,
+    artist_limit: int = 2,
+) -> str:
+    """Filter tracks by audio features (BPM, musical key, energy, etc.).
+
+    Same return shape as filter_tracks (compact mode): numbered list + session_id
+    ready for curate_and_play. Tracks without analysed features are excluded.
+
+    Only tracks where the audio_features worker has finished are returned. Check
+    coverage first with get_audio_features_status — if "complete" is low,
+    fall back to plain filter_tracks for now.
+
+    Args:
+        bpm_min, bpm_max:        Tempo window in BPM.
+        camelot_keys:            Restrict to these Camelot codes, e.g. ["8A","8B","9A"]
+                                 for harmonic compatibility with A-minor (8A).
+        energy_min, energy_max:  0.0–1.0 energy range (0.7+ = workout, ≤0.5 = chill).
+        danceability_min:        0.5+ for dancefloor sets.
+        valence_min, valence_max: 0.0 (sad) – 1.0 (happy).
+        instrumentalness_min:    0.5+ to bias towards instrumental music (focus).
+        genres, decades, exclude_live, max_tracks, artist_limit:
+                                 Same semantics as filter_tracks.
+    """
+    logger.info(
+        "FILTER_TRACKS_BY_AUDIO: bpm=[%s,%s] energy=[%s,%s] camelot=%s",
+        bpm_min, bpm_max, energy_min, energy_max, camelot_keys,
+    )
+    body: dict = {
+        "exclude_live": exclude_live,
+        "max_tracks": max_tracks,
+        "artist_limit": artist_limit,
+    }
+    if bpm_min is not None:
+        body["bpm_min"] = bpm_min
+    if bpm_max is not None:
+        body["bpm_max"] = bpm_max
+    if camelot_keys:
+        body["camelot_keys"] = camelot_keys
+    if energy_min is not None:
+        body["energy_min"] = energy_min
+    if energy_max is not None:
+        body["energy_max"] = energy_max
+    if danceability_min is not None:
+        body["danceability_min"] = danceability_min
+    if valence_min is not None:
+        body["valence_min"] = valence_min
+    if valence_max is not None:
+        body["valence_max"] = valence_max
+    if instrumentalness_min is not None:
+        body["instrumentalness_min"] = instrumentalness_min
+    if genres:
+        body["genres"] = genres
+    if decades:
+        body["decades"] = decades
+
+    try:
+        response = await _get_client().post(f"{ROONSAGE_URL}/api/library/filter", json=body)
+        response.raise_for_status()
+        data = response.json()
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.HTTPStatusError as exc:
+        return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    tracks = data.get("tracks", [])
+    total = data.get("total_matching", 0)
+    returned = data.get("returned", len(tracks))
+
+    key_map = _build_key_map(tracks)
+    lines = [_format_compact_line(i, t) for i, t in enumerate(tracks, start=1)]
+    session_id = await _store_session(key_map, total, returned)
+
+    result: dict = {
+        "total_matching": total,
+        "returned": returned,
+        "tracks": "\n".join(lines),
+        "session_id": session_id,
+        "note": "Audio-feature filter. Use session_id with curate_and_play.",
+    }
+    if not session_id:
+        result["key_map"] = key_map
+    if total > returned:
+        result["pool_note"] = (
+            f"Library bevat {total} matching tracks; {returned} geretourneerd."
+        )
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def build_dj_set(
+    duration_minutes: int = 60,
+    start_bpm: float = 110.0,
+    end_bpm: float = 128.0,
+    energy_curve: str = "ramp_up",
+    track_count: int | None = None,
+    genres: list[str] | None = None,
+    decades: list[str] | None = None,
+    seed_item_key: str | None = None,
+    exclude_live: bool = True,
+) -> str:
+    """Build a beatmatched, harmonically-mixed DJ set.
+
+    Constructs an ordered playlist that follows a BPM curve (linear ramp
+    from start_bpm → end_bpm) and respects Camelot wheel compatibility
+    between consecutive tracks. Returns a numbered list + session_id ready
+    for curate_and_play, just like filter_tracks.
+
+    Requires the audio_features worker to have analysed enough tracks —
+    check get_audio_features_status first.
+
+    Args:
+        duration_minutes:   Target duration; ignored when track_count is set.
+        start_bpm, end_bpm: Tempo at the start and end of the set.
+        energy_curve:       "flat" | "ramp_up" | "ramp_down" | "peak" | "valley".
+        track_count:        Override the auto-computed track count.
+        genres, decades:    Restrict the candidate pool.
+        seed_item_key:      Optional first track (must be in the candidate pool).
+        exclude_live:       Skip live recordings (default True).
+    """
+    logger.info(
+        "BUILD_DJ_SET: %d min, %.0f→%.0f BPM, curve=%s",
+        duration_minutes, start_bpm, end_bpm, energy_curve,
+    )
+    body: dict = {
+        "duration_minutes": duration_minutes,
+        "start_bpm": start_bpm,
+        "end_bpm": end_bpm,
+        "energy_curve": energy_curve,
+        "exclude_live": exclude_live,
+    }
+    if track_count is not None:
+        body["track_count"] = track_count
+    if genres:
+        body["genres"] = genres
+    if decades:
+        body["decades"] = decades
+    if seed_item_key:
+        body["seed_item_key"] = seed_item_key
+
+    try:
+        response = await _get_client().post(f"{ROONSAGE_URL}/api/audio-features/dj-set", json=body)
+        response.raise_for_status()
+        data = response.json()
+    except httpx.ConnectError:
+        return _unavailable_msg()
+    except httpx.HTTPStatusError as exc:
+        return f"RoonSage API error: {exc.response.status_code} — {exc.response.text}"
+
+    tracks = data.get("tracks", [])
+    curve = data.get("curve", [])
+    total = data.get("total_matching", 0)
+
+    if not tracks:
+        return (
+            "DJ-set builder returned no tracks. Either no library tracks have "
+            "been analysed yet (check get_audio_features_status) or no tracks "
+            f"matched the BPM/genre window (pool of {total} candidates)."
+        )
+
+    lines = []
+    for i, t in enumerate(tracks, start=1):
+        # tracks come back from the route as Track models; render with BPM/key if curve aligned.
+        meta = curve[i - 1] if i - 1 < len(curve) else {}
+        bpm_str = f"  [{meta.get('bpm', '?'):.0f} BPM]" if meta else ""
+        lines.append(f"{i}. {t.get('artist', '?')} — {t.get('title', '?')}{bpm_str}")
+
+    result: dict = {
+        "total_matching": total,
+        "returned": data.get("returned", len(tracks)),
+        "tracks": "\n".join(lines),
+        "session_id": data.get("session_id", ""),
+        "curve": curve,
+        "note": (
+            "DJ-set ordered by BPM ramp and Camelot compatibility. "
+            "Use session_id with curate_and_play to start the set."
+        ),
+    }
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

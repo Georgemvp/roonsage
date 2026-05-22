@@ -14,6 +14,7 @@ import { initDiscoveryView } from './discovery.js';
 import { initWatchlistView } from './watchlist.js';
 import { initSchedulerSection } from './scheduler.js';
 import { initAutomationsView } from './automations.js';
+import { initDJSetView } from './dj-set.js';
 
 export const HASH_TO_VIEW = {
     'home': 'home',
@@ -27,6 +28,7 @@ export const HASH_TO_VIEW = {
     'discovery': 'discovery',
     'watchlist': 'watchlist',
     'automations': 'automations',
+    'dj-set': 'dj-set',
     // Backward compat
     'make-playlist': 'create',
 };
@@ -45,6 +47,7 @@ export const VIEW_TO_HASH = {
     'discovery': 'discovery',
     'watchlist': 'watchlist',
     'automations': 'automations',
+    'dj-set': 'dj-set',
 };
 
 export function hashForCurrentState() {
@@ -109,6 +112,8 @@ export function navigateTo(view, mode) {
         initWatchlistView();
     } else if (view === 'automations') {
         initAutomationsView();
+    } else if (view === 'dj-set') {
+        initDJSetView();
     }
 }
 

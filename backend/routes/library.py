@@ -255,6 +255,15 @@ async def filter_library_tracks(request: FilterLibraryRequest) -> FilterLibraryR
         decades=decades,
         exclude_live=request.exclude_live,
         limit=0,
+        bpm_min=request.bpm_min,
+        bpm_max=request.bpm_max,
+        camelot_keys=request.camelot_keys,
+        energy_min=request.energy_min,
+        energy_max=request.energy_max,
+        danceability_min=request.danceability_min,
+        valence_min=request.valence_min,
+        valence_max=request.valence_max,
+        instrumentalness_min=request.instrumentalness_min,
     )
 
     # --- Wijziging 3: exclude-keywords filter ---

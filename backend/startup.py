@@ -240,6 +240,51 @@ async def start_background_tasks(app: FastAPI) -> None:
     get_worker().start()
     logger.info("Metadata enrichment worker started")
 
+    # Audio features worker (BPM / key / energy) — opt-in via env var.
+    if os.environ.get("AUDIO_FEATURES_ENABLED", "").lower() in ("1", "true", "yes"):
+        try:
+            from pathlib import Path  # noqa: PLC0415
+
+            from backend.audio_features.path_resolver import (
+                resolve_paths_for_tracks,  # noqa: PLC0415
+            )
+            from backend.audio_features.worker import (  # noqa: PLC0415
+                get_features_worker,
+                populate_audio_features_queue,
+            )
+            music_root = Path(os.environ.get("MUSIC_LIBRARY_PATH", "/music"))
+
+            async def _audio_features_bootstrap() -> None:
+                """Resolve filesystem paths + populate queue on first boot.
+
+                Runs in a thread because the filesystem walk + tag read can
+                take several minutes on a large library. Worker is started
+                immediately after so it can begin processing as soon as the
+                first rows land in the queue.
+                """
+                from backend.db import get_db_connection as _gdc  # noqa: PLC0415
+                try:
+                    def _bootstrap_sync() -> dict:
+                        _c = _gdc()
+                        try:
+                            resolved = resolve_paths_for_tracks(_c, music_root)
+                            queued = populate_audio_features_queue(_c)
+                            return {**resolved, "queued": queued}
+                        finally:
+                            _c.close()
+                    result = await asyncio.to_thread(_bootstrap_sync)
+                    logger.info("Audio features bootstrap complete: %s", result)
+                except Exception as exc:
+                    logger.warning("Audio features bootstrap failed: %s", exc)
+
+            _add_task(_audio_features_bootstrap(), "audio_features_bootstrap")
+            get_features_worker().start()
+            logger.info("Audio features worker started (music_root=%s)", music_root)
+        except Exception as exc:
+            logger.warning("Could not start audio features worker: %s", exc)
+    else:
+        logger.info("Audio features disabled (set AUDIO_FEATURES_ENABLED=true to enable)")
+
     # Automation Engine
     from backend.automation_engine import init_engine  # noqa: PLC0415
     init_engine()
@@ -247,6 +292,7 @@ async def start_background_tasks(app: FastAPI) -> None:
     # Periodic DB backup (every 4 hours)
     async def _db_backup_loop() -> None:
         import shutil  # noqa: PLC0415
+
         from backend.db import DB_PATH  # noqa: PLC0415
         while True:
             await asyncio.sleep(4 * 3600)

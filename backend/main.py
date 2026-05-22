@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.dependencies import ROONSAGE_PASSWORD, limiter
 from backend.routes import config_routes, generate, library, recommend, results, roon, setup
+from backend.routes.audio_features import router as audio_features_router
 from backend.routes.automations import router as automations_router
 from backend.routes.discovery import router as discovery_router
 from backend.routes.enrichment import router as enrichment_router
@@ -175,6 +176,7 @@ app.include_router(scheduler_router)
 app.include_router(enrichment_router)
 app.include_router(automations_router)
 app.include_router(verify_router)
+app.include_router(audio_features_router)
 
 
 # =============================================================================

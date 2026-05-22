@@ -535,6 +535,52 @@ def init_schema(conn: sqlite3.Connection) -> bool:
             ON enrichment_queue(status);
     """)
 
+    # -----------------------------------------------------------------------
+    # Audio Feature Analysis (v13.0)
+    # Stores BPM, musical key (Camelot notation), energy/loudness/danceability
+    # extracted from the actual audio files via librosa / essentia.
+    # See backend/audio_features/ for the worker that populates these tables.
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS track_audio_features (
+            item_key TEXT PRIMARY KEY,
+            file_path TEXT,
+            bpm REAL,
+            bpm_confidence REAL,
+            key_root TEXT,            -- "C", "C#", "D", ...
+            key_mode TEXT,            -- "major" | "minor"
+            camelot TEXT,             -- "8A", "5B", ... for harmonic mixing
+            energy REAL,              -- 0.0 (calm) – 1.0 (intense)
+            danceability REAL,        -- 0.0 – 1.0
+            valence REAL,             -- 0.0 (sad) – 1.0 (happy)
+            acousticness REAL,        -- 0.0 (electric) – 1.0 (acoustic)
+            instrumentalness REAL,    -- 0.0 (vocal) – 1.0 (instrumental)
+            loudness_lufs REAL,       -- integrated LUFS, typically -30…-5
+            analyzed_at TEXT NOT NULL DEFAULT (datetime('now')),
+            analysis_version INTEGER DEFAULT 1,
+            error_message TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_audio_features_bpm
+            ON track_audio_features(bpm);
+        CREATE INDEX IF NOT EXISTS idx_audio_features_camelot
+            ON track_audio_features(camelot);
+        CREATE INDEX IF NOT EXISTS idx_audio_features_energy
+            ON track_audio_features(energy);
+
+        CREATE TABLE IF NOT EXISTS audio_features_queue (
+            item_key TEXT PRIMARY KEY,
+            file_path TEXT,
+            status TEXT DEFAULT 'pending',
+                -- pending | resolving | analyzing | complete | failed | unresolved
+            attempts INTEGER DEFAULT 0,
+            error_message TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            processed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_audio_features_queue_status
+            ON audio_features_queue(status);
+    """)
+
     conn.commit()
     return migrated
 

@@ -39,7 +39,8 @@ export function updateView() {
                          (hash === 'taste' && state.view === 'taste') ||
                          (hash === 'discovery' && state.view === 'discovery') ||
                          (hash === 'watchlist' && state.view === 'watchlist') ||
-                         (hash === 'automations' && state.view === 'automations');
+                         (hash === 'automations' && state.view === 'automations') ||
+                         (hash === 'dj-set' && state.view === 'dj-set');
         btn.classList.toggle('active', isActive);
         btn.setAttribute('aria-current', isActive ? 'true' : 'false');
     });

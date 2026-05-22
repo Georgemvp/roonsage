@@ -227,3 +227,14 @@ websockets==15.0.1
     # via
     #   google-genai
     #   uvicorn
+
+# ---------------------------------------------------------------------------
+# Audio feature analysis (manually appended — not produced by uv compile yet)
+# Pulls librosa + transitive numpy/scipy/numba via pip at install time.
+# Used by backend/audio_features/* — fully lazy-imported so absence of the
+# packages at runtime only disables the audio-features worker, not the app.
+# ---------------------------------------------------------------------------
+librosa==0.10.2.post1
+mutagen==1.47.0
+soundfile==0.12.1
+pyloudnorm==0.1.1

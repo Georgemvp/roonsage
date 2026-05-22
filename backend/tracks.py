@@ -60,18 +60,42 @@ def get_tracks_by_filters(
     decades: list[str] | None = None,
     exclude_live: bool = True,
     limit: int = 0,
+    bpm_min: float | None = None,
+    bpm_max: float | None = None,
+    camelot_keys: list[str] | None = None,
+    energy_min: float | None = None,
+    energy_max: float | None = None,
+    danceability_min: float | None = None,
+    valence_min: float | None = None,
+    valence_max: float | None = None,
+    instrumentalness_min: float | None = None,
 ) -> list[dict[str, Any]]:
-    """Return tracks matching the given genre / decade / live-exclusion filters.
+    """Return tracks matching the given filters.
 
     Args:
         genres:       Genre names to include (OR matching). None = all genres.
         decades:      Decade strings like "1990s" (OR matching). None = all.
         exclude_live: Exclude tracks flagged as live recordings (default True).
         limit:        Maximum rows to return; 0 means no limit.
+        bpm_min, bpm_max:        Tempo range (joins track_audio_features).
+        camelot_keys:            Restrict to these Camelot codes (joins).
+        energy_min, energy_max:  0..1 energy range.
+        danceability_min:        Lower bound on heuristic danceability.
+        valence_min, valence_max: 0..1 valence (positivity) range.
+        instrumentalness_min:    Lower bound on instrumentalness.
+
+    Any audio-feature filter triggers an INNER JOIN on track_audio_features
+    so tracks without analysis are silently skipped. Without audio-feature
+    params the legacy fast path is taken (no JOIN).
 
     Returns:
         List of track dicts with genres parsed to a Python list.
     """
+    audio_filters_active = any(v is not None for v in [
+        bpm_min, bpm_max, energy_min, energy_max,
+        danceability_min, valence_min, valence_max, instrumentalness_min,
+    ]) or bool(camelot_keys)
+
     with get_connection() as conn:
         conditions: list[str] = []
         params: list[Any] = []
@@ -92,6 +116,43 @@ def get_tracks_by_filters(
             if decade_conditions:
                 conditions.append(f"({' OR '.join(decade_conditions)})")
 
+        # Audio-feature conditions — only emitted when at least one param is set,
+        # and require an INNER JOIN to be added by the caller branches below.
+        if audio_filters_active:
+            if bpm_min is not None:
+                conditions.append("af.bpm >= ?")
+                params.append(bpm_min)
+            if bpm_max is not None:
+                conditions.append("af.bpm <= ?")
+                params.append(bpm_max)
+            if camelot_keys:
+                ph = ",".join("?" for _ in camelot_keys)
+                conditions.append(f"af.camelot IN ({ph})")
+                params.extend(camelot_keys)
+            if energy_min is not None:
+                conditions.append("af.energy >= ?")
+                params.append(energy_min)
+            if energy_max is not None:
+                conditions.append("af.energy <= ?")
+                params.append(energy_max)
+            if danceability_min is not None:
+                conditions.append("af.danceability >= ?")
+                params.append(danceability_min)
+            if valence_min is not None:
+                conditions.append("af.valence >= ?")
+                params.append(valence_min)
+            if valence_max is not None:
+                conditions.append("af.valence <= ?")
+                params.append(valence_max)
+            if instrumentalness_min is not None:
+                conditions.append("af.instrumentalness >= ?")
+                params.append(instrumentalness_min)
+
+        audio_join = (
+            " JOIN track_audio_features af ON af.item_key = t.item_key"
+            if audio_filters_active else ""
+        )
+
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 
         if genres:
@@ -104,7 +165,8 @@ def get_tracks_by_filters(
                 genre_placeholders = ",".join("?" for _ in genres_lower)
                 query = (
                     f"SELECT DISTINCT t.* FROM tracks t "
-                    f"JOIN track_genres tg ON t.item_key = tg.track_key "
+                    f"JOIN track_genres tg ON t.item_key = tg.track_key"
+                    f"{audio_join} "
                     f"WHERE {where_clause} "
                     f"AND LOWER(tg.genre) IN ({genre_placeholders})"
                 )
@@ -127,7 +189,7 @@ def get_tracks_by_filters(
             logger.debug(
                 "track_genres empty, falling back to Python-side genre filtering"
             )
-            base_query = f"SELECT * FROM tracks t WHERE {where_clause}"
+            base_query = f"SELECT t.* FROM tracks t{audio_join} WHERE {where_clause}"
             rows = conn.execute(base_query, params).fetchall()
             tracks = []
             genres_lower_set = {g.lower() for g in genres}
@@ -143,7 +205,7 @@ def get_tracks_by_filters(
             return tracks
 
         # No genre filter
-        query = f"SELECT * FROM tracks t WHERE {where_clause}"
+        query = f"SELECT t.* FROM tracks t{audio_join} WHERE {where_clause}"
         if limit > 0:
             query += " ORDER BY RANDOM() LIMIT ?"
             params.append(limit)

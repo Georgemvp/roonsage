@@ -21,9 +21,13 @@ RUN groupadd -r -g 1000 roonsage && useradd -r -u 1000 -g roonsage roonsage
 # Data directory (SQLite + user config) owned by app user
 RUN mkdir -p /app/data && chown roonsage:roonsage /app/data
 
-# System dependencies (chromaprint for AcoustID fingerprinting)
+# System dependencies:
+#   libchromaprint-tools — AcoustID fingerprinting
+#   libsndfile1, ffmpeg  — audio decoding for librosa/soundfile (audio_features worker)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libchromaprint-tools \
+    libsndfile1 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy pre-built packages from builder stage

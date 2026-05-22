@@ -16,3 +16,8 @@ readability-lxml
 mcp[cli]
 pyacoustid
 slowapi
+# Audio feature analysis (BPM, key, energy) — used by audio_features worker
+librosa
+mutagen
+soundfile
+pyloudnorm

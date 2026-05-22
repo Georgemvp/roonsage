@@ -19,6 +19,7 @@ import {
 import { checkLibraryStatus }             from './modules/library.js';
 import { setupEventListeners }            from './modules/events.js';
 import { loadSettings, loadNotificationSettings, initNotificationButtons, initEnrichmentButtons } from './modules/playlist.js';
+import { initAudioFeaturesButtons } from './modules/audio-features.js';
 import {
     dismissClientPicker, dismissPlayChoice, dismissPlaySuccess, setSaveMode
 } from './modules/instant-queue.js';
@@ -196,6 +197,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTemplates();
     initNotificationButtons();
     initEnrichmentButtons();
+    initAudioFeaturesButtons();
     state.view = viewFromHash();
     state.mode = modeFromHash();
     if (!location.hash) {
