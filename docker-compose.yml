@@ -20,6 +20,9 @@ services:
       # Performance tuning
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
 
+      # Enrichment: skip MusicBrainz, use Last.fm only (~50× faster for large libraries)
+      - ENRICHMENT_SKIP_MB=true
+
       # LLM Provider (anthropic, openai, gemini, ollama, or custom)
       # Defaults to gemini. Can also be configured in the web UI.
       #- LLM_PROVIDER=gemini
