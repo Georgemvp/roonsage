@@ -501,11 +501,15 @@ def dismiss_release(release_id: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
+_SCAN_BATCH_SIZE = 5  # artists checked in parallel per batch
+
+
 async def scan_all_watched() -> list[dict]:
     """Check every watched artist for new Qobuz releases.
 
-    Runs synchronous Qobuz calls in a thread via asyncio.to_thread(),
-    rate-limited to one request per _SCAN_RATE_LIMIT seconds.
+    Runs synchronous Qobuz calls in a thread via asyncio.to_thread().
+    Artists are processed in parallel batches of _SCAN_BATCH_SIZE with
+    _SCAN_RATE_LIMIT seconds between batches (~5× faster than serial).
 
     Returns:
         Flat list of all new release dicts found across all artists.
@@ -523,18 +527,22 @@ async def scan_all_watched() -> list[dict]:
         logger.info("scan_all_watched: watchlist is empty")
         return []
 
-    logger.info("scan_all_watched: checking %d artists", len(artists))
+    logger.info("scan_all_watched: checking %d artists in batches of %d", len(artists), _SCAN_BATCH_SIZE)
     all_new: list[dict] = []
 
-    for i, artist_name in enumerate(artists):
-        if i > 0:
+    for batch_start in range(0, len(artists), _SCAN_BATCH_SIZE):
+        if batch_start > 0:
             await asyncio.sleep(_SCAN_RATE_LIMIT)
 
-        try:
-            new = await asyncio.to_thread(check_artist_releases, artist_name)
-            all_new.extend(new)
-        except Exception as exc:
-            logger.warning("scan_all_watched: error for %s: %s", artist_name, exc)
+        batch = artists[batch_start : batch_start + _SCAN_BATCH_SIZE]
+        tasks = [asyncio.to_thread(check_artist_releases, name) for name in batch]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for artist_name, result in zip(batch, results, strict=True):
+            if isinstance(result, Exception):
+                logger.warning("scan_all_watched: error for %s: %s", artist_name, result)
+            else:
+                all_new.extend(result)
 
     if all_new:
         logger.info(

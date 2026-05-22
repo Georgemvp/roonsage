@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from backend.db import get_connection
@@ -67,6 +68,32 @@ def get_favorites_in_library() -> list[dict]:
         return []
 
 
+_RELEASE_SUFFIXES = (
+    " (remastered)", " (remastered edition)", " (deluxe edition)",
+    " (deluxe)", " (deluxe version)", " (special edition)",
+    " (expanded edition)", " (anniversary edition)",
+)
+
+
+def _build_album_index(conn) -> tuple[dict, dict]:
+    """Load all albums into two lookup dicts (single query).
+
+    Returns:
+        exact_map: (artist_lower, title_lower) → row
+        artist_map: artist_lower → [row, ...]
+    """
+    rows = conn.execute(
+        "SELECT title, artist, item_key, LOWER(artist) AS al, LOWER(title) AS tl FROM albums"
+    ).fetchall()
+    exact_map: dict[tuple[str, str], object] = {}
+    artist_map: dict[str, list] = defaultdict(list)
+    for r in rows:
+        key = (r["al"], r["tl"])
+        exact_map[key] = r
+        artist_map[r["al"]].append(r)
+    return exact_map, artist_map
+
+
 def get_lb_top_releases_in_library() -> list[dict]:
     """LB top_releases matched against the Roon library.
 
@@ -87,62 +114,53 @@ def get_lb_top_releases_in_library() -> list[dict]:
                 return []
 
             releases = json.loads(row[0])
+            # Single query instead of N queries per release
+            exact_map, artist_map = _build_album_index(conn)
 
-            results: list[dict] = []
-            seen_keys: set[str] = set()
+        results: list[dict] = []
+        seen_keys: set[str] = set()
 
-            for rel in releases:
-                artist = rel.get("artist_name", "")
-                title = rel.get("release_name", "")
-                listen_count = rel.get("listen_count", 0)
-                if not artist or not title:
-                    continue
+        for rel in releases:
+            artist = rel.get("artist_name", "")
+            title = rel.get("release_name", "")
+            listen_count = rel.get("listen_count", 0)
+            if not artist or not title:
+                continue
 
-                # Try exact match first, then strip suffix variants
-                candidates = [title]
-                for suffix in [
-                    " (Remastered)", " (Remastered Edition)", " (Deluxe Edition)",
-                    " (Deluxe)", " (Deluxe Version)", " (Special Edition)",
-                    " (Expanded Edition)", " (Anniversary Edition)",
-                ]:
-                    if title.endswith(suffix):
-                        candidates.append(title[: -len(suffix)])
+            al = artist.lower()
+            tl = title.lower()
 
-                match = None
-                for candidate in candidates:
-                    match = conn.execute(
-                        """SELECT title, artist, item_key FROM albums
-                           WHERE LOWER(artist) = LOWER(?)
-                             AND LOWER(title)  = LOWER(?)
-                           LIMIT 1""",
-                        (artist, candidate),
-                    ).fetchone()
-                    if match:
+            candidates = [tl]
+            for suffix in _RELEASE_SUFFIXES:
+                if tl.endswith(suffix):
+                    candidates.append(tl[: -len(suffix)])
+
+            match = None
+            for candidate in candidates:
+                # Exact match
+                match = exact_map.get((al, candidate))
+                if match:
+                    break
+                # Substring match within albums for this artist
+                for album_row in artist_map.get(al, []):
+                    if candidate in album_row["tl"]:
+                        match = album_row
                         break
+                if match:
+                    break
 
-                    # Also try: library title contains candidate
-                    match = conn.execute(
-                        """SELECT title, artist, item_key FROM albums
-                           WHERE LOWER(artist) = LOWER(?)
-                             AND LOWER(title) LIKE ?
-                           LIMIT 1""",
-                        (artist, f"%{candidate.lower()}%"),
-                    ).fetchone()
-                    if match:
-                        break
+            if match and match["item_key"] not in seen_keys:
+                seen_keys.add(match["item_key"])
+                results.append({
+                    "artist": match["artist"],
+                    "album": match["title"],
+                    "parent_item_key": match["item_key"],
+                    "listen_count": listen_count,
+                })
+                if len(results) >= 15:
+                    break
 
-                if match and match["item_key"] not in seen_keys:
-                    seen_keys.add(match["item_key"])
-                    results.append({
-                        "artist": match["artist"],
-                        "album": match["title"],
-                        "parent_item_key": match["item_key"],
-                        "listen_count": listen_count,
-                    })
-                    if len(results) >= 15:
-                        break
-
-            return results
+        return results
 
     except Exception:
         logger.exception("get_lb_top_releases_in_library failed")
@@ -168,36 +186,47 @@ def get_lb_loved_in_library() -> list[dict]:
 
             loved = json.loads(row[0])
 
-            results: list[dict] = []
-            seen_keys: set[str] = set()
+            # Load tracks into a lookup structure (single query replaces per-track queries)
+            track_rows = conn.execute(
+                """SELECT title, artist, item_key,
+                          LOWER(artist) AS al, LOWER(title) AS tl
+                   FROM tracks WHERE is_live IS NULL OR is_live = 0"""
+            ).fetchall()
 
-            for entry in loved:
-                meta = entry.get("track_metadata") or {}
-                artist = meta.get("artist_name", "")
-                title = meta.get("track_name", "")
-                if not artist or not title:
-                    continue
+        # Build: title_lower → [(row, artist_lower), ...]
+        title_map: dict[str, list] = defaultdict(list)
+        for r in track_rows:
+            title_map[r["tl"]].append(r)
 
-                match = conn.execute(
-                    """SELECT title, artist, item_key FROM tracks
-                       WHERE LOWER(artist) LIKE ?
-                         AND LOWER(title)  = LOWER(?)
-                         AND (is_live IS NULL OR is_live = 0)
-                       LIMIT 1""",
-                    (f"%{artist.lower()}%", title),
-                ).fetchone()
+        results: list[dict] = []
+        seen_keys: set[str] = set()
 
-                if match and match["item_key"] not in seen_keys:
-                    seen_keys.add(match["item_key"])
-                    results.append({
-                        "title": match["title"],
-                        "artist": match["artist"],
-                        "item_key": match["item_key"],
-                    })
-                    if len(results) >= 20:
-                        break
+        for entry in loved:
+            meta = entry.get("track_metadata") or {}
+            artist = meta.get("artist_name", "")
+            title = meta.get("track_name", "")
+            if not artist or not title:
+                continue
 
-            return results
+            al = artist.lower()
+            tl = title.lower()
+            match = None
+            for r in title_map.get(tl, []):
+                if al in r["al"]:  # substring match (like original LIKE %artist%)
+                    match = r
+                    break
+
+            if match and match["item_key"] not in seen_keys:
+                seen_keys.add(match["item_key"])
+                results.append({
+                    "title": match["title"],
+                    "artist": match["artist"],
+                    "item_key": match["item_key"],
+                })
+                if len(results) >= 20:
+                    break
+
+        return results
 
     except Exception:
         logger.exception("get_lb_loved_in_library failed")

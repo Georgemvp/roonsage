@@ -17,6 +17,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import random
 from datetime import UTC, datetime
 
 from backend.db import get_connection
@@ -329,7 +330,7 @@ class PlaylistScheduler:
         logger.info("PlaylistScheduler stopped")
 
     async def _loop(self) -> None:
-        """Main polling loop — runs every 60 seconds."""
+        """Main polling loop — runs every ~60 seconds with ±9 s jitter."""
         while self._running:
             try:
                 await self._check_and_fire()
@@ -337,7 +338,7 @@ class PlaylistScheduler:
                 break
             except Exception as exc:
                 logger.error("Scheduler loop error: %s", exc, exc_info=True)
-            await asyncio.sleep(60)
+            await asyncio.sleep(60 + random.uniform(-9, 9))
 
     async def _check_and_fire(self) -> None:
         """Load enabled schedules and fire any that are due right now."""

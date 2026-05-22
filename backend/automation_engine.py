@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import time
 from datetime import UTC, datetime
 from enum import Enum
@@ -297,6 +298,8 @@ class AutomationEngine:
     # ------------------------------------------------------------------ #
 
     async def _loop(self) -> None:
+        # Initial offset so scheduler and automation_engine don't fire simultaneously
+        await asyncio.sleep(30 + random.uniform(0, 10))
         while self._running:
             try:
                 await self._check_schedules()
@@ -304,7 +307,7 @@ class AutomationEngine:
                 break
             except Exception as exc:
                 logger.error("AutomationEngine loop error: %s", exc, exc_info=True)
-            await asyncio.sleep(self._SCHEDULE_INTERVAL)
+            await asyncio.sleep(self._SCHEDULE_INTERVAL + random.uniform(-9, 9))
 
     async def _check_schedules(self) -> None:
         now = datetime.now()

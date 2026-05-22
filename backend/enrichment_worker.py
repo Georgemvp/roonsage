@@ -117,15 +117,17 @@ def get_queue_stats(conn: sqlite3.Connection) -> dict:
     for row in rows:
         stats[row["status"]] = row["cnt"]
 
-    # Also report total enriched (rows in track_metadata_ext)
-    total = conn.execute("SELECT COUNT(*) FROM track_metadata_ext").fetchone()[0]
-    stats["enriched_total"] = total
-    stats["mb_matches"] = conn.execute(
-        "SELECT COUNT(*) FROM track_metadata_ext WHERE musicbrainz_id IS NOT NULL"
-    ).fetchone()[0]
-    stats["lastfm_matches"] = conn.execute(
-        "SELECT COUNT(*) FROM track_metadata_ext WHERE lastfm_tags IS NOT NULL"
-    ).fetchone()[0]
+    # Consolidate the three track_metadata_ext queries into one pass
+    ext_row = conn.execute(
+        """SELECT
+               COUNT(*) AS total,
+               SUM(CASE WHEN musicbrainz_id IS NOT NULL THEN 1 ELSE 0 END) AS mb_matches,
+               SUM(CASE WHEN lastfm_tags   IS NOT NULL THEN 1 ELSE 0 END) AS lf_matches
+           FROM track_metadata_ext"""
+    ).fetchone()
+    stats["enriched_total"] = ext_row["total"] if ext_row else 0
+    stats["mb_matches"] = ext_row["mb_matches"] if ext_row else 0
+    stats["lastfm_matches"] = ext_row["lf_matches"] if ext_row else 0
     return stats
 
 

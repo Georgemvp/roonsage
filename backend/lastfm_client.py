@@ -14,6 +14,7 @@ Last.fm API notes
   where params_without_format means all params except "format".
 """
 
+import asyncio
 import hashlib
 import logging
 from typing import Any
@@ -98,49 +99,45 @@ class LastFmClient:
         params["api_sig"] = self._sign({k: v for k, v in params.items() if k != "format"})
         return params
 
+    async def _request_with_retry(self, method: str, **kwargs) -> Any:
+        """Execute an HTTP request with up to 3 retries on timeout/5xx."""
+        client = self._get_client()
+        for attempt in range(3):
+            try:
+                resp = await getattr(client, method)(**kwargs)
+                if resp.status_code >= 500 and attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                resp.raise_for_status()
+                data = resp.json()
+                if "error" in data:
+                    logger.warning("Last.fm error %s: %s", data.get("error"), data.get("message", ""))
+                    return None
+                return data
+            except httpx.TimeoutException:
+                if attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                logger.warning("Last.fm %s timed out after 3 attempts", kwargs.get("url", ""))
+            except httpx.HTTPStatusError as exc:
+                logger.warning("Last.fm %s HTTP %s", method.upper(), exc.response.status_code)
+                break
+            except Exception as exc:
+                logger.warning("Last.fm %s failed: %s", method.upper(), exc)
+                break
+        return None
+
     async def _get(self, params: dict[str, str]) -> Any:
         """Perform a GET request to the Last.fm API."""
         if not self._api_key:
             return None
-        try:
-            resp = await self._get_client().get(_BASE_URL, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-            if "error" in data:
-                logger.warning(
-                    "Last.fm GET error %s: %s",
-                    data.get("error"),
-                    data.get("message", ""),
-                )
-                return None
-            return data
-        except httpx.HTTPStatusError as exc:
-            logger.warning("Last.fm GET HTTP %s: %s", exc.response.status_code, exc.request.url)
-        except Exception as exc:
-            logger.warning("Last.fm GET failed: %s", exc)
-        return None
+        return await self._request_with_retry("get", url=_BASE_URL, params=params)
 
     async def _post(self, params: dict[str, str]) -> Any:
         """Perform a POST request to the Last.fm API."""
         if not self._api_key or not self._api_secret:
             return None
-        try:
-            resp = await self._get_client().post(_BASE_URL, data=params)
-            resp.raise_for_status()
-            data = resp.json()
-            if "error" in data:
-                logger.warning(
-                    "Last.fm POST error %s: %s",
-                    data.get("error"),
-                    data.get("message", ""),
-                )
-                return None
-            return data
-        except httpx.HTTPStatusError as exc:
-            logger.warning("Last.fm POST HTTP %s: %s", exc.response.status_code, exc.request.url)
-        except Exception as exc:
-            logger.warning("Last.fm POST failed: %s", exc)
-        return None
+        return await self._request_with_retry("post", url=_BASE_URL, data=params)
 
     # ------------------------------------------------------------------
     # Configuration helpers

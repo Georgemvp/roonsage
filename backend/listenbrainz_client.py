@@ -70,39 +70,59 @@ class ListenBrainzClient:
                 await asyncio.sleep(wait + 0.5)
 
     async def _get(self, path: str, params: dict | None = None) -> Any:
-        """Perform a GET request. Returns parsed JSON or None on error."""
+        """Perform a GET request with up to 3 retries on timeout/5xx."""
         if not self._token:
             return None
-        await self._wait_for_rate_limit()
-        try:
-            resp = await self._get_client().get(
-                f"{self.BASE_URL}{path}", params=params
-            )
-            self._update_rate_limit(resp.headers)
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPStatusError as exc:
-            logger.warning("ListenBrainz GET %s → HTTP %s", path, exc.response.status_code)
-        except Exception as exc:
-            logger.warning("ListenBrainz GET %s failed: %s", path, exc)
+        url = f"{self.BASE_URL}{path}"
+        for attempt in range(3):
+            await self._wait_for_rate_limit()
+            try:
+                resp = await self._get_client().get(url, params=params)
+                self._update_rate_limit(resp.headers)
+                if resp.status_code >= 500 and attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.TimeoutException:
+                if attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                logger.warning("ListenBrainz GET %s timed out after 3 attempts", path)
+            except httpx.HTTPStatusError as exc:
+                logger.warning("ListenBrainz GET %s → HTTP %s", path, exc.response.status_code)
+                break
+            except Exception as exc:
+                logger.warning("ListenBrainz GET %s failed: %s", path, exc)
+                break
         return None
 
     async def _post(self, path: str, payload: dict) -> Any:
-        """Perform a POST request. Returns parsed JSON or None on error."""
+        """Perform a POST request with up to 3 retries on timeout/5xx."""
         if not self._token:
             return None
-        await self._wait_for_rate_limit()
-        try:
-            resp = await self._get_client().post(
-                f"{self.BASE_URL}{path}", json=payload
-            )
-            self._update_rate_limit(resp.headers)
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPStatusError as exc:
-            logger.warning("ListenBrainz POST %s → HTTP %s", path, exc.response.status_code)
-        except Exception as exc:
-            logger.warning("ListenBrainz POST %s failed: %s", path, exc)
+        url = f"{self.BASE_URL}{path}"
+        for attempt in range(3):
+            await self._wait_for_rate_limit()
+            try:
+                resp = await self._get_client().post(url, json=payload)
+                self._update_rate_limit(resp.headers)
+                if resp.status_code >= 500 and attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.TimeoutException:
+                if attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                logger.warning("ListenBrainz POST %s timed out after 3 attempts", path)
+            except httpx.HTTPStatusError as exc:
+                logger.warning("ListenBrainz POST %s → HTTP %s", path, exc.response.status_code)
+                break
+            except Exception as exc:
+                logger.warning("ListenBrainz POST %s failed: %s", path, exc)
+                break
         return None
 
     # ------------------------------------------------------------------
