@@ -294,6 +294,16 @@ export function setupEventListeners() {
         updateFilterPreview();
     });
 
+    // Use taste profile checkbox (playlist filters)
+    document.getElementById('use-taste-profile')?.addEventListener('change', e => {
+        state.useTasteProfile = e.target.checked;
+    });
+
+    // Use taste profile checkbox (recommend filters)
+    document.getElementById('rec-use-taste-profile')?.addEventListener('change', e => {
+        state.rec.useTasteProfile = e.target.checked;
+    });
+
     // Minimum rating buttons
     document.querySelectorAll('.rating-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -736,7 +746,7 @@ export async function handleAnalyzePrompt() {
     ]);
 
     // Fire filter analysis in parallel (cached as a promise for the refine→filters transition)
-    state.filterAnalysisPromise = analyzePrompt(prompt).catch(() => null);
+    state.filterAnalysisPromise = analyzePrompt(prompt, state.useTasteProfile).catch(() => null);
 
     try {
         // Fire question generation (reuse recommend endpoint)
@@ -1012,6 +1022,7 @@ export async function handleGenerate() {
         max_tracks_to_ai: state.maxTracksToAI,
         source_mode: state.sourceMode,
         qobuz_percentage: state.qobuzPercentage,
+        use_taste_profile: state.useTasteProfile,
     };
 
     if (state.mode === 'prompt') {

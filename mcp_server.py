@@ -300,6 +300,23 @@ def _format_ultra_line(i: int, track: dict) -> str:
     return f"{i}. {track.get('artist', '?')} — {track.get('title', '?')}"
 
 
+async def _fetch_taste_hint() -> str:
+    """Fetch the compact taste profile summary from the backend.
+
+    Returns an empty string when the backend is unreachable or has no profile —
+    so the caller can simply skip the hint without error handling.
+    """
+    try:
+        response = await _get_client().get(
+            f"{ROONSAGE_URL}/api/intelligence/taste-profile/summary"
+        )
+        response.raise_for_status()
+        return (response.json() or {}).get("summary", "") or ""
+    except Exception as exc:
+        logger.debug("taste-profile summary fetch failed: %s", exc)
+        return ""
+
+
 @mcp.tool()
 async def filter_tracks(
     genres: list[str] | None = None,
@@ -309,6 +326,7 @@ async def filter_tracks(
     output_format: str = "json",
     artist_limit: int = 2,
     exclude_keywords: list[str] | None = None,
+    include_taste_profile: bool = True,
 ) -> str:
     """Filter the Roon library by genre, decade, and/or live-version exclusion.
 
@@ -348,6 +366,13 @@ async def filter_tracks(
                           Use 1 to force maximum artist diversity.
         exclude_keywords: Exclude tracks whose title or album contains any of these
                           words (case-insensitive). E.g. ["christmas", "live", "karaoke"].
+        include_taste_profile: When True (default), the response includes a
+                          `taste_hint` field with a compact summary of the user's
+                          listening profile (top genres/artists, recent activity,
+                          dislikes, skip signals). USE THIS as the primary curation
+                          signal — it removes the need for a separate
+                          get_taste_profile call. Set to False for raw filtering
+                          without taste bias.
     """
     logger.info("FILTER_TRACKS: genres=%s decades=%s format=%s max=%d", genres, decades, output_format, max_tracks)
     # Default max_tracks for compact/ultra modes
@@ -379,6 +404,8 @@ async def filter_tracks(
     total = data.get("total_matching", 0)
     returned = data.get("returned", len(tracks))
 
+    taste_hint = await _fetch_taste_hint() if include_taste_profile else ""
+
     # -----------------------------------------------------------------------
     # Ultra-compact output: only "nr. Artist — Title" per line
     # -----------------------------------------------------------------------
@@ -397,6 +424,8 @@ async def filter_tracks(
                 "Gebruik session_id met curate_and_play."
             ),
         }
+        if taste_hint:
+            result["taste_hint"] = taste_hint
         if not session_id:
             result["key_map"] = key_map
         if total > returned:
@@ -422,6 +451,8 @@ async def filter_tracks(
             "tracks": "\n".join(lines),
             "session_id": session_id,
         }
+        if taste_hint:
+            result["taste_hint"] = taste_hint
         if session_id:
             result["note"] = (
                 "Selecteer tracks op nummer. Gebruik session_id met curate_and_play "
@@ -459,6 +490,9 @@ async def filter_tracks(
         )
     else:
         data["note"] = "Use the item_key of each track as item_key for play_tracks / queue_tracks."
+
+    if taste_hint:
+        data["taste_hint"] = taste_hint
 
     return json.dumps(data, ensure_ascii=False, indent=2)
 

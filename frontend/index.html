@@ -568,6 +568,11 @@
                                 <input type="checkbox" id="exclude-live" checked>
                                 <span>Exclude live versions</span>
                             </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="use-taste-profile" checked>
+                                <span>Use my taste profile</span>
+                            </label>
+                            <p class="filter-hint">When enabled, the AI biases the selection toward your top genres, recent listening, and dislikes. Disable for a neutral pick.</p>
                         </div>
 
                         <div class="filter-section">
@@ -784,6 +789,13 @@
                                 <button class="chip" data-familiarity="hidden_gems" role="radio" aria-checked="false">Hidden gems</button>
                             </div>
                             <p class="rec-familiarity-hint">Influences which albums are suggested</p>
+                        </div>
+                        <div class="filter-section">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="rec-use-taste-profile" checked>
+                                <span>Use my taste profile</span>
+                            </label>
+                            <p class="filter-hint">When enabled, the AI biases the selection toward your top genres, recent listening, and dislikes. Disable for a neutral pick.</p>
                         </div>
                         <button id="rec-setup-next" class="btn btn-primary">Next</button>
                     </div>

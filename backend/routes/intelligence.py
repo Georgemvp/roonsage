@@ -772,6 +772,22 @@ async def get_detailed_taste_profile() -> dict:
     return profile
 
 
+@router.get("/intelligence/taste-profile/summary")
+async def get_taste_profile_summary() -> dict:
+    """Return a compact text summary of the taste profile (~150-200 tokens).
+
+    Used by the MCP filter_tracks tool so Claude Desktop always sees the user's
+    listening profile inline with filter results, without an extra round-trip.
+    """
+    from backend.taste_profile import build_profile_summary  # noqa: PLC0415
+    try:
+        summary = await asyncio.to_thread(build_profile_summary)
+    except Exception as exc:
+        logger.warning("build_profile_summary failed: %s", exc)
+        summary = ""
+    return {"summary": summary}
+
+
 @router.post("/intelligence/listenbrainz/sync")
 async def trigger_listenbrainz_sync() -> dict:
     """Manually trigger a ListenBrainz stats sync.

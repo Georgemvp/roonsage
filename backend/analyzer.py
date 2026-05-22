@@ -54,11 +54,13 @@ Return a JSON object with:
 Return ONLY valid JSON, no markdown formatting."""
 
 
-async def analyze_prompt(prompt: str) -> AnalyzePromptResponse:
+async def analyze_prompt(prompt: str, use_taste_profile: bool = True) -> AnalyzePromptResponse:
     """Analyze a natural language prompt to suggest filters.
 
     Args:
         prompt: User's playlist description
+        use_taste_profile: When True (default), bias suggestions toward the user's
+            stored taste profile (top genres, currently active, dislikes).
 
     Returns:
         AnalyzePromptResponse with suggested and available filters
@@ -91,23 +93,24 @@ Available decades in their library:
 
 Suggest genres and decades from the available options that best match the user's request."""
 
-    # Add taste profile context
-    try:
-        profile = TasteProfile.get()
-        preferred_genres = sorted(
-            profile.get("genres", {}).items(), key=lambda x: -x[1]
-        )[:10]
-        if preferred_genres:
-            analysis_prompt += "\n\nUser's most-listened genres (prioritize these when the request is ambiguous):\n"
-            analysis_prompt += ", ".join(f"{g} ({s:.0%})" for g, s in preferred_genres)
-        recent = profile.get("recently_active", {})
-        if recent.get("top_genres"):
-            analysis_prompt += f"\n\nCurrently active genres (last 7 days): {', '.join(recent['top_genres'][:5])}"
-        dislikes = profile.get("dislikes", [])
-        if dislikes:
-            analysis_prompt += f"\n\nUser dislikes (never suggest these): {', '.join(dislikes)}"
-    except Exception:
-        pass  # Profile unavailable — continue without it
+    # Add taste profile context (gated by use_taste_profile flag)
+    if use_taste_profile:
+        try:
+            profile = TasteProfile.get()
+            preferred_genres = sorted(
+                profile.get("genres", {}).items(), key=lambda x: -x[1]
+            )[:10]
+            if preferred_genres:
+                analysis_prompt += "\n\nUser's most-listened genres (prioritize these when the request is ambiguous):\n"
+                analysis_prompt += ", ".join(f"{g} ({s:.0%})" for g, s in preferred_genres)
+            recent = profile.get("recently_active", {})
+            if recent.get("top_genres"):
+                analysis_prompt += f"\n\nCurrently active genres (last 7 days): {', '.join(recent['top_genres'][:5])}"
+            dislikes = profile.get("dislikes", [])
+            if dislikes:
+                analysis_prompt += f"\n\nUser dislikes (never suggest these): {', '.join(dislikes)}"
+        except Exception:
+            pass  # Profile unavailable — continue without it
 
     # Call LLM (async)
     response = await llm_client.analyze(analysis_prompt, PROMPT_ANALYSIS_SYSTEM)

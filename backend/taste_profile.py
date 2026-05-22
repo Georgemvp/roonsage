@@ -818,6 +818,72 @@ def _empty_profile() -> dict:
     }
 
 
+def build_profile_summary(profile: dict | None = None) -> str:
+    """Build a compact taste profile summary (~150-200 tokens) for LLM prompts.
+
+    Reused across generator, analyzer, recommender and the MCP filter_tracks tool
+    so that taste injection is consistent everywhere. Pass an existing *profile*
+    dict to avoid an extra DB read; otherwise loads via TasteProfile.get().
+    Returns an empty string when no usable signal exists.
+    """
+    if profile is None:
+        try:
+            profile = TasteProfile.get()
+        except Exception:
+            return ""
+    parts: list[str] = []
+
+    genres = profile.get("genres", {})
+    if genres:
+        top = sorted(genres.items(), key=lambda x: -x[1])[:8]
+        parts.append("Top genres: " + ", ".join(f"{g} ({s:.0%})" for g, s in top))
+
+    recent = profile.get("recently_active", {})
+    if recent.get("top_genres"):
+        parts.append("Currently active (7d): " + ", ".join(recent["top_genres"][:5]))
+
+    artists = profile.get("artists", {})
+    if artists:
+        top_artists = sorted(artists.items(), key=lambda x: -x[1])[:8]
+        parts.append("Favorite artists: " + ", ".join(a for a, _ in top_artists))
+
+    streaks = profile.get("artist_streaks", [])
+    if streaks:
+        parts.append("Currently binging: " + ", ".join(
+            f"{s['artist']} ({s['plays_7d']} plays this week)" for s in streaks[:3]
+        ))
+
+    moods = profile.get("moods", {})
+    if moods:
+        top_moods = sorted(moods.items(), key=lambda x: -x[1])[:4]
+        parts.append("Preferred moods: " + ", ".join(f"{m} ({s:.0%})" for m, s in top_moods))
+
+    patterns = profile.get("listening_patterns", {})
+    if patterns.get("evening_genres"):
+        parts.append("Evening favorites: " + ", ".join(patterns["evening_genres"][:3]))
+    if patterns.get("weekend_genres"):
+        parts.append("Weekend favorites: " + ", ".join(patterns["weekend_genres"][:3]))
+
+    dislikes = profile.get("dislikes", [])
+    if dislikes:
+        parts.append("Dislikes (avoid these): " + ", ".join(dislikes))
+
+    skips = profile.get("skip_signals", {})
+    skip_genres = skips.get("genres", [])
+    if skip_genres:
+        parts.append("High skip-rate genres (avoid): " + ", ".join(
+            f"{s['genre']} ({s['skip_rate']:.0%} skipped)" for s in skip_genres[:5]
+        ))
+
+    notes = profile.get("notes", [])
+    if notes:
+        parts.append("User preferences: " + "; ".join(notes[:5]))
+
+    if not parts:
+        return ""
+    return "User's listening profile:\n" + "\n".join(f"- {p}" for p in parts)
+
+
 def _group_genre_by_hour(genre_activity: list) -> dict:
     """Group LB genre_activity data by hour bucket.
 

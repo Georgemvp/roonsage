@@ -383,6 +383,7 @@ async def recommend_generate(request: RecommendGenerateRequest, raw_request: Req
                     session_id=request.session_id,
                     previously_recommended=_previously_recommended,
                     max_exclusion_albums=request.max_albums if request.max_albums > 0 else 2500,
+                    use_taste_profile=request.use_taste_profile,
                 )
             else:
                 recommendations = await asyncio.to_thread(
@@ -395,6 +396,7 @@ async def recommend_generate(request: RecommendGenerateRequest, raw_request: Req
                     familiarity_pref=request.familiarity_pref,
                     familiarity_data=familiarity_data,
                     previously_recommended=_previously_recommended,
+                    use_taste_profile=request.use_taste_profile,
                 )
 
             if not recommendations:

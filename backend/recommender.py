@@ -521,6 +521,7 @@ class RecommendationPipeline:
         familiarity_pref: str = "any",
         familiarity_data: dict[str, dict] | None = None,
         previously_recommended: list[str] | None = None,
+        use_taste_profile: bool = True,
     ) -> list[AlbumRecommendation]:
         """Select 1 primary + 2 secondary albums from the candidate pool.
 
@@ -598,10 +599,21 @@ class RecommendationPipeline:
         else:
             time_context = f"Het is {day_name}nacht ({hour}:00)"
 
+        taste_block = ""
+        if use_taste_profile:
+            try:
+                from backend.taste_profile import build_profile_summary  # noqa: PLC0415
+                summary = build_profile_summary()
+                if summary:
+                    taste_block = f"\n\n{summary}"
+            except Exception as exc:
+                logger.debug("Taste profile injection skipped: %s", exc)
+
         user_prompt = (
             f"Context: {time_context}. Houd hier subtiel rekening mee bij de sfeer van de aanbeveling.\n\n"
             f"User wants: \"{prompt}\"\n\n"
-            f"Clarifying answers:\n{answers_text}\n\n"
+            f"Clarifying answers:\n{answers_text}"
+            f"{taste_block}\n\n"
             f"Available albums ({len(album_candidates)} total):\n{album_text}\n\n"
             f"Pick 3 albums: 1 primary + 2 secondary.{small_pool_note}"
         )
@@ -1004,22 +1016,31 @@ class RecommendationPipeline:
         session_id: str,
         previously_recommended: list[str] | None = None,
         max_exclusion_albums: int = 2500,
+        use_taste_profile: bool = True,
     ) -> list[AlbumRecommendation]:
         """Select 1 primary + 2 secondary albums NOT in the user's library.
 
         Uses taste profile as context and owned_albums as exclusion list.
         Returns list of AlbumRecommendation (without pitches or item_keys).
         """
-        # Build taste summary
+        # Build taste summary. The library-derived taste profile (from album
+        # candidates) is used for exclusion regardless, but the LLM-facing
+        # narrative summary can be opted out via use_taste_profile.
         top_genres = sorted(taste_profile.genre_distribution, key=taste_profile.genre_distribution.get, reverse=True)[:10]
         top_decades = sorted(taste_profile.decade_distribution, key=taste_profile.decade_distribution.get, reverse=True)[:5]
 
-        taste_text = (
-            f"Top genres: {', '.join(top_genres)}\n"
-            f"Top decades: {', '.join(top_decades)}\n"
-            f"Top artists: {', '.join(taste_profile.top_artists[:10])}\n"
-            f"Library size: {taste_profile.total_albums} albums"
-        )
+        if use_taste_profile:
+            taste_text = (
+                f"Top genres: {', '.join(top_genres)}\n"
+                f"Top decades: {', '.join(top_decades)}\n"
+                f"Top artists: {', '.join(taste_profile.top_artists[:10])}\n"
+                f"Library size: {taste_profile.total_albums} albums"
+            )
+        else:
+            taste_text = (
+                f"Library size: {taste_profile.total_albums} albums "
+                f"(taste signals withheld per user request)"
+            )
 
         # Build exclusion list — send owned albums so the LLM avoids them.
         # Capped at max_exclusion_albums to stay within context windows.

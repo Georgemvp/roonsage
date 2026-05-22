@@ -188,6 +188,7 @@ class AnalyzePromptRequest(BaseModel):
     """Request to analyze a natural language prompt."""
 
     prompt: str = Field(..., min_length=1, max_length=2000)
+    use_taste_profile: bool = True
 
 
 class AnalyzePromptResponse(BaseModel):
@@ -290,6 +291,7 @@ class GenerateRequest(BaseModel):
     max_tracks_to_ai: int = 500  # 0 = no limit
     source_mode: str = "library"  # "library", "hybrid", or "qobuz"
     qobuz_percentage: int = 30    # % of Qobuz tracks in "hybrid" mode (10-70)
+    use_taste_profile: bool = True
 
     @model_validator(mode="after")
     def check_flow(self) -> "GenerateRequest":
@@ -936,6 +938,7 @@ class RecommendGenerateRequest(BaseModel):
     decades: list[str] = []
     familiarity_pref: Literal["any", "comfort", "rediscover", "hidden_gems"] = "any"
     max_albums: int = 2500
+    use_taste_profile: bool = True
 
     @field_validator("max_albums")
     @classmethod

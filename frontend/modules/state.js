@@ -30,6 +30,7 @@ export const state = {
     selectedDecades: [],
     trackCount: 25,
     excludeLive: true,
+    useTasteProfile: true,  // Bias AI toward stored taste profile
     maxTracksToAI: 500,  // 0 = no limit
     minRating: 0,  // 0 = any, 2/4/6/8 = 1/2/3/4 stars minimum
 
@@ -96,6 +97,7 @@ export const state = {
         researchWarning: null,
         resultId: null,
         maxAlbumsToAI: 2500,
+        useTasteProfile: true,  // Bias AI toward stored taste profile
         loading: false,
         filterAnalysisPromise: null,
     },

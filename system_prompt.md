@@ -218,8 +218,21 @@ Gebruik hiervoor `add_to_qobuz_favorites(item_type="album", names=["Artist - Alb
 
 ### Begin van elke conversatie
 
-1. `get_taste_profile` — laad het smaakprofiel (genres, artiesten, decades, moods, dislikes, notes, recent activity, skip signals)
-2. `get_listening_history(days=3, limit=15)` — recent luistergedrag en skip-patroon
+**Automatische injectie:** `filter_tracks` retourneert standaard een `taste_hint`-veld
+met een compacte samenvatting van het smaakprofiel (top genres/artiesten, recent
+actief, dislikes, skip-signalen). Lees dat veld als primaire curatie-input —
+je hoeft `get_taste_profile` niet meer apart aan te roepen voordat je filtert.
+
+Roep `get_taste_profile` alleen aan als de gebruiker:
+- Expliciet om zijn smaakprofiel vraagt
+- Iets wil veranderen aan zijn profiel
+- Een diepere uitleg vraagt dan wat `taste_hint` biedt
+
+Wil je raw filteren zonder smaak-bias (bv. voor een experimentele selectie),
+geef dan `include_taste_profile=False` mee aan `filter_tracks`.
+
+1. `filter_tracks(output_format="compact", ...)` → bevat al `taste_hint`
+2. (Optioneel) `get_listening_history(days=3, limit=15)` voor recent skip-patroon
 3. Pas de curatie direct aan op basis van het profiel:
    - **`recently_active.top_genres`** → dit is wat de gebruiker NU luistert; weeg deze genres extra zwaar
    - **`artist_streaks`** → artiesten waar de gebruiker momenteel in zit; zoek vergelijkbare artiesten

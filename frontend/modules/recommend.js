@@ -723,6 +723,7 @@ export async function handleRecGenerate() {
                 decades: (state.availableDecades.length > 0 && state.rec.selectedDecades.length === state.availableDecades.length) ? [] : state.rec.selectedDecades,
                 familiarity_pref: state.rec.familiarityPref,
                 max_albums: state.rec.maxAlbumsToAI,
+                use_taste_profile: state.rec.useTasteProfile,
             }),
         });
 

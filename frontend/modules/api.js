@@ -81,10 +81,10 @@ export async function completeSetup() {
     return apiCall('/setup/complete', { method: 'POST' });
 }
 
-export async function analyzePrompt(prompt) {
+export async function analyzePrompt(prompt, useTasteProfile = true) {
     return apiCall('/analyze/prompt', {
         method: 'POST',
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, use_taste_profile: useTasteProfile }),
     });
 }
 

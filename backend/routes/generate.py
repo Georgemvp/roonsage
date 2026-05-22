@@ -68,6 +68,7 @@ async def generate_playlist_sse(
             max_tracks_to_ai=body.max_tracks_to_ai,
             source_mode=body.source_mode,
             qobuz_percentage=body.qobuz_percentage,
+            use_taste_profile=body.use_taste_profile,
         ):
             yield chunk
 
@@ -97,7 +98,7 @@ async def analyze_prompt(
         raise HTTPException(status_code=503, detail="LLM not configured")
 
     try:
-        return await do_analyze_prompt(body.prompt)
+        return await do_analyze_prompt(body.prompt, use_taste_profile=body.use_taste_profile)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:

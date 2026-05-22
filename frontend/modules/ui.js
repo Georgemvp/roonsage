@@ -259,6 +259,10 @@ export function updateFilters() {
 
     // Update checkboxes
     document.getElementById('exclude-live').checked = state.excludeLive;
+    const useTasteEl = document.getElementById('use-taste-profile');
+    if (useTasteEl) useTasteEl.checked = state.useTasteProfile;
+    const recUseTasteEl = document.getElementById('rec-use-taste-profile');
+    if (recUseTasteEl) recUseTasteEl.checked = state.rec.useTasteProfile;
 
     // Update rating buttons
     document.querySelectorAll('.rating-btn').forEach(btn => {
