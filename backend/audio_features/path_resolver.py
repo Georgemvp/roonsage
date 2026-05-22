@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -28,6 +29,12 @@ from unidecode import unidecode
 if TYPE_CHECKING:
     import sqlite3
     from collections.abc import Iterator
+
+# Guard against concurrent scans (bootstrap + manual rescan + worker triggers).
+# scan_library + resolve_paths_for_tracks share the lock so only one walk
+# of the filesystem runs at a time. Held during the entire scan; callers
+# that find it busy back off and return empty results.
+_scan_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -175,78 +182,93 @@ def resolve_paths_for_tracks(
         )
         return {"scanned": 0, "matched": 0, "unresolved": 0}
 
-    # Build index once.
-    index = scan_library(music_root)
-    if not index:
+    # Only one scan at a time. The walk is multi-minute and SQLite would
+    # deadlock if two writers fought over the queue / features tables.
+    if not _scan_lock.acquire(blocking=False):
+        logger.info("Another path-resolution scan is already running — skipping")
         return {"scanned": 0, "matched": 0, "unresolved": 0}
 
-    rows = conn.execute("""
-        SELECT t.item_key, t.artist, t.album, t.title
-        FROM tracks t
-        LEFT JOIN track_audio_features af ON af.item_key = t.item_key
-        WHERE af.item_key IS NULL OR af.file_path IS NULL
-    """).fetchall()
+    try:
+        # Build index once.
+        index = scan_library(music_root)
+        if not index:
+            return {"scanned": 0, "matched": 0, "unresolved": 0}
 
-    scanned = 0
-    matched = 0
-    unresolved = 0
-    now_inserts: list[tuple[Any, ...]] = []
-    unresolved_inserts: list[tuple[str, str]] = []
+        rows = conn.execute("""
+            SELECT t.item_key, t.artist, t.album, t.title
+            FROM tracks t
+            LEFT JOIN track_audio_features af ON af.item_key = t.item_key
+            WHERE af.item_key IS NULL OR af.file_path IS NULL
+        """).fetchall()
 
-    for row in rows:
-        scanned += 1
-        item_key = row["item_key"]
-        artist = _normalise(_primary_artist(row["artist"] or ""))
-        album = _normalise(row["album"] or "")
-        title = _normalise(row["title"] or "")
-        path = index.get((artist, album, title))
-        # Fallback: same artist/title, any album (handles re-releases).
-        if path is None:
-            for (a, _b, t), p in index.items():
-                if a == artist and t == title:
-                    path = p
-                    break
+        scanned = 0
+        matched = 0
+        unresolved = 0
+        now_inserts: list[tuple[Any, ...]] = []
+        unresolved_inserts: list[tuple[str, str]] = []
 
-        if path is None:
-            unresolved += 1
-            unresolved_inserts.append((item_key, "unresolved"))
-            continue
+        for row in rows:
+            scanned += 1
+            item_key = row["item_key"]
+            artist = _normalise(_primary_artist(row["artist"] or ""))
+            album = _normalise(row["album"] or "")
+            title = _normalise(row["title"] or "")
+            path = index.get((artist, album, title))
+            # Fallback: same artist/title, any album (handles re-releases).
+            if path is None:
+                for (a, _b, t), p in index.items():
+                    if a == artist and t == title:
+                        path = p
+                        break
 
-        matched += 1
-        now_inserts.append((item_key, path))
+            if path is None:
+                unresolved += 1
+                unresolved_inserts.append((item_key, "unresolved"))
+                continue
 
-    # Bulk-insert resolved tracks: feature row + queue row.
-    if now_inserts:
-        conn.executemany("""
-            INSERT INTO track_audio_features (item_key, file_path)
-            VALUES (?, ?)
-            ON CONFLICT(item_key) DO UPDATE SET file_path = excluded.file_path
-        """, now_inserts)
-        conn.executemany("""
-            INSERT INTO audio_features_queue (item_key, file_path, status)
-            VALUES (?, ?, 'pending')
-            ON CONFLICT(item_key) DO UPDATE SET
-                file_path = excluded.file_path,
-                status = CASE
-                    WHEN audio_features_queue.status IN ('complete', 'processing')
-                    THEN audio_features_queue.status
-                    ELSE 'pending'
-                END
-        """, now_inserts)
+            matched += 1
+            now_inserts.append((item_key, path))
 
-    if unresolved_inserts:
-        conn.executemany("""
-            INSERT INTO audio_features_queue (item_key, status)
-            VALUES (?, ?)
-            ON CONFLICT(item_key) DO NOTHING
-        """, unresolved_inserts)
+        # Bulk-insert resolved tracks in batches so the SQLite write lock is
+        # never held for the entire run. Each commit releases the lock and
+        # lets the worker / API endpoints make progress between batches.
+        BATCH = 1000
+        for i in range(0, len(now_inserts), BATCH):
+            chunk = now_inserts[i:i + BATCH]
+            conn.executemany("""
+                INSERT INTO track_audio_features (item_key, file_path)
+                VALUES (?, ?)
+                ON CONFLICT(item_key) DO UPDATE SET file_path = excluded.file_path
+            """, chunk)
+            conn.executemany("""
+                INSERT INTO audio_features_queue (item_key, file_path, status)
+                VALUES (?, ?, 'pending')
+                ON CONFLICT(item_key) DO UPDATE SET
+                    file_path = excluded.file_path,
+                    status = CASE
+                        WHEN audio_features_queue.status IN ('complete', 'processing')
+                        THEN audio_features_queue.status
+                        ELSE 'pending'
+                    END
+            """, chunk)
+            conn.commit()
 
-    conn.commit()
-    logger.info(
-        "Path resolution: scanned=%d matched=%d unresolved=%d",
-        scanned, matched, unresolved,
-    )
-    return {"scanned": scanned, "matched": matched, "unresolved": unresolved}
+        for i in range(0, len(unresolved_inserts), BATCH):
+            chunk = unresolved_inserts[i:i + BATCH]
+            conn.executemany("""
+                INSERT INTO audio_features_queue (item_key, status)
+                VALUES (?, ?)
+                ON CONFLICT(item_key) DO NOTHING
+            """, chunk)
+            conn.commit()
+
+        logger.info(
+            "Path resolution: scanned=%d matched=%d unresolved=%d",
+            scanned, matched, unresolved,
+        )
+        return {"scanned": scanned, "matched": matched, "unresolved": unresolved}
+    finally:
+        _scan_lock.release()
 
 
 def apply_path_mapping(roon_path: str) -> str:

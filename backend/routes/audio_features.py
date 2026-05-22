@@ -121,23 +121,33 @@ async def get_status() -> AudioFeaturesStatusResponse:
 
 @router.post("/start", response_model=AudioFeaturesActionResponse)
 async def start_worker() -> AudioFeaturesActionResponse:
-    """Re-populate the queue and start (or resume) the worker."""
+    """Re-populate the queue and start (or resume) the worker.
+
+    The queue population runs on a worker thread so the request handler
+    never blocks on the SQLite write lock (the bootstrap scan can hold it
+    for several seconds during commits).
+    """
     if not _enabled():
         raise HTTPException(
             status_code=400,
             detail="AUDIO_FEATURES_ENABLED=true is required in the environment.",
         )
 
+    import asyncio  # noqa: PLC0415
+
     from backend.audio_features.worker import (  # noqa: PLC0415
         get_features_worker,
         populate_audio_features_queue,
     )
 
-    conn = get_db_connection()
-    try:
-        queued = populate_audio_features_queue(conn)
-    finally:
-        conn.close()
+    def _populate() -> int:
+        conn = get_db_connection()
+        try:
+            return populate_audio_features_queue(conn)
+        finally:
+            conn.close()
+
+    queued = await asyncio.to_thread(_populate)
 
     worker = get_features_worker()
     if worker.is_paused():
@@ -169,29 +179,36 @@ async def resume_worker() -> AudioFeaturesActionResponse:
 
 @router.post("/rescan-paths", response_model=AudioFeaturesActionResponse)
 async def rescan_paths() -> AudioFeaturesActionResponse:
-    """Re-walk the music library and queue any newly matched tracks."""
+    """Re-walk the music library and queue any newly matched tracks.
+
+    The scan is dispatched to a background thread so the request returns
+    immediately. Progress is observable via /status. Concurrent scans are
+    guarded by an internal lock — calling this while a scan is running
+    is a no-op.
+    """
     if not _enabled():
         raise HTTPException(
             status_code=400,
             detail="AUDIO_FEATURES_ENABLED=true is required in the environment.",
         )
 
+    import asyncio  # noqa: PLC0415
+
     from backend.audio_features.path_resolver import resolve_paths_for_tracks  # noqa: PLC0415
 
-    conn = get_db_connection()
-    try:
-        result = resolve_paths_for_tracks(conn, _music_root())
-    finally:
-        conn.close()
+    def _run_scan() -> None:
+        conn = get_db_connection()
+        try:
+            resolve_paths_for_tracks(conn, _music_root())
+        finally:
+            conn.close()
+
+    # Fire-and-forget — the scan is multi-minute, the client polls /status.
+    asyncio.create_task(asyncio.to_thread(_run_scan))
 
     return AudioFeaturesActionResponse(
         success=True,
-        message=(
-            f"Scanned {result['scanned']} tracks, matched {result['matched']}, "
-            f"unresolved {result['unresolved']}."
-        ),
-        matched=result["matched"],
-        unresolved=result["unresolved"],
+        message="Path-resolution scan started in the background. Poll /status for progress.",
     )
 
 
