@@ -1281,10 +1281,6 @@
                                         </optgroup>
                                     </select>
                                 </div>
-                                <div class="auto-form-row">
-                                    <label for="dj-zone">Roon zone</label>
-                                    <select id="dj-zone" class="auto-form-select"></select>
-                                </div>
                             </div>
                         </div>
 
@@ -1297,7 +1293,6 @@
 
                         <div class="auto-form-actions">
                             <button id="dj-build-btn" type="submit" class="btn btn-primary">Build set</button>
-                            <button id="dj-play-btn" type="button" class="btn btn-secondary" disabled>Play on zone</button>
                         </div>
                     </form>
                 </section>
@@ -1305,10 +1300,12 @@
                 <section class="auto-section">
                     <canvas id="dj-curve-chart" style="max-height:200px;"></canvas>
                     <div id="dj-result" class="auto-list"></div>
-                    <div id="dj-save-row" style="display:none;margin-top:var(--spacing-sm);display:none;">
-                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                            <input id="dj-set-name" type="text" class="auto-form-input" style="flex:1;min-width:180px;" placeholder="Naam voor deze set…" />
-                            <button id="dj-save-btn" class="btn btn-secondary">Opslaan</button>
+                    <div id="dj-result-actions" style="display:none;margin-top:var(--spacing-sm);">
+                        <input id="dj-set-name" type="text" class="auto-form-input" style="width:100%;margin-bottom:8px;" placeholder="Naam voor deze set…" />
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button id="dj-play-btn" type="button" class="btn btn-primary">▶ Speel af op zone</button>
+                            <button id="dj-save-btn" type="button" class="btn btn-secondary">Opslaan</button>
+                            <button id="dj-arc-btn" type="button" class="btn btn-secondary">Opslaan in Arc ↗</button>
                         </div>
                     </div>
                     <div id="dj-status" class="enrich-result"></div>
@@ -1875,6 +1872,15 @@
         </div>
 
         <!-- Save for Arc Modal -->
+        <!-- DJ Set Zone Picker Modal -->
+        <div id="dj-zone-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="dj-zone-modal-title">
+            <div class="modal-card">
+                <button class="modal-close" id="dj-zone-modal-close" aria-label="Sluiten">&times;</button>
+                <h2 id="dj-zone-modal-title">Kies een zone om af te spelen</h2>
+                <div id="dj-zone-list" class="client-list" role="listbox" aria-label="Beschikbare zones"></div>
+            </div>
+        </div>
+
         <div id="arc-global-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="arc-modal-title">
             <div class="modal-card">
                 <button class="modal-close" id="arc-global-close" aria-label="Close">&times;</button>

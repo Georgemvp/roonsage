@@ -181,21 +181,100 @@ async function _loadGenres() {
     }
 }
 
-async function _populateZones() {
-    const select = document.getElementById('dj-zone');
-    if (!select) return;
+async function _openZoneModal() {
+    if (!_lastResult?.tracks?.length) return;
+    const modal = document.getElementById('dj-zone-modal');
+    const list  = document.getElementById('dj-zone-list');
+    if (!modal || !list) return;
+    list.innerHTML = '<div style="color:var(--text-muted);padding:1rem 0;">Laden…</div>';
+    modal.classList.remove('hidden');
     try {
         const zones = await apiCall('/roon/zones');
-        select.innerHTML = '';
-        for (const z of zones) {
-            const opt = document.createElement('option');
-            opt.value = z.zone_id;
-            opt.textContent = z.display_name;
-            select.appendChild(opt);
+        if (!zones.length) {
+            list.innerHTML = '<div style="color:var(--text-muted);padding:1rem 0;">Geen zones gevonden.</div>';
+            return;
         }
+        list.innerHTML = zones.map(z => `
+            <div class="client-item" data-zone-id="${_esc(z.zone_id)}" role="option" tabindex="0"
+                 aria-label="${_esc(z.display_name)}">
+                <div class="client-status-dot ${z.state === 'playing' ? 'playing' : ''}" aria-hidden="true"></div>
+                <div class="client-info">
+                    <div class="client-name">${_esc(z.display_name)}</div>
+                    <div class="client-status-text">${z.state === 'playing' ? 'Speelt af' : 'Inactief'}</div>
+                </div>
+            </div>
+        `).join('');
+        list.querySelectorAll('.client-item').forEach(item => {
+            const handler = () => {
+                modal.classList.add('hidden');
+                _playOnZone(item.dataset.zoneId);
+            };
+            item.addEventListener('click', handler);
+            item.addEventListener('keydown', e => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); }
+            });
+        });
     } catch (err) {
-        select.innerHTML = '<option value="">— No zones —</option>';
+        list.innerHTML = `<div style="color:var(--error);padding:1rem 0;">Fout: ${_esc(err.message)}</div>`;
     }
+}
+
+async function _playOnZone(zoneId) {
+    const itemKeys = _lastResult.tracks.map(t => t.item_key);
+    const status = document.getElementById('dj-status');
+    if (status) { status.textContent = 'Versturen naar Roon…'; status.style.color = ''; }
+    try {
+        await apiCall('/queue', {
+            method: 'POST',
+            body: JSON.stringify({ item_keys: itemKeys, zone_id: zoneId, mode: 'replace' }),
+        });
+        if (!_savedId) await _save(_defaultSetName(_lastPayload || {}));
+        if (status) status.textContent = '';
+        showSuccess(`▶ DJ set van ${itemKeys.length} tracks gestart.`);
+    } catch (err) {
+        if (status) {
+            status.textContent = '✗ ' + (err.message || 'Playback mislukt');
+            status.style.color = '#f44336';
+        }
+    }
+}
+
+function _openArcModal() {
+    if (!_lastResult?.tracks?.length) return;
+    const modal    = document.getElementById('arc-global-modal');
+    const nameEl   = document.getElementById('arc-global-name');
+    const resultEl = document.getElementById('arc-global-result');
+    const saveBtn  = document.getElementById('arc-global-save');
+    if (!modal) return;
+    const name = document.getElementById('dj-set-name')?.value?.trim() || _defaultSetName(_lastPayload || {});
+    if (nameEl)   nameEl.value = name;
+    if (resultEl) { resultEl.textContent = ''; resultEl.className = 'arc-modal-result hidden'; }
+    if (saveBtn)  { saveBtn.disabled = false; saveBtn.textContent = 'Opslaan op Qobuz'; }
+    modal.classList.remove('hidden');
+    const tracks = _lastResult.tracks;
+    saveBtn?.addEventListener('click', async function _handler() {
+        const n      = nameEl?.value.trim() || name;
+        const addFav = document.getElementById('arc-global-favorites')?.checked ?? true;
+        saveBtn.disabled = true; saveBtn.textContent = 'Bezig…';
+        resultEl.className = 'arc-modal-result'; resultEl.textContent = '';
+        try {
+            const resp = await apiCall('/qobuz/prepare-for-arc', {
+                method: 'POST',
+                body: JSON.stringify({
+                    playlist_name: n,
+                    track_items: tracks.map(t => ({ title: t.title, artist: t.artist })),
+                    add_to_favorites: addFav,
+                }),
+            });
+            resultEl.className = 'arc-modal-result arc-modal-result--success';
+            resultEl.textContent = `✓ Opgeslagen op Qobuz (${resp.saved || 0} tracks, ${resp.skipped || 0} overgeslagen)`;
+            saveBtn.textContent = 'Opgeslagen';
+        } catch (e) {
+            resultEl.className = 'arc-modal-result arc-modal-result--error';
+            resultEl.textContent = 'Fout: ' + e.message;
+            saveBtn.disabled = false; saveBtn.textContent = 'Opslaan op Qobuz';
+        }
+    }, { once: true });
 }
 
 function _renderTracks(tracks, curve) {
@@ -261,7 +340,6 @@ async function _build(ev) {
     ev?.preventDefault();
     const status = document.getElementById('dj-status');
     const playBtn = document.getElementById('dj-play-btn');
-    if (playBtn) playBtn.disabled = true;
     if (status) { status.textContent = 'Bouw set…'; status.style.color = ''; }
 
     const genres = Array.from(_selectedGenres);
@@ -292,8 +370,7 @@ async function _build(ev) {
             status.textContent = `Set van ${data.returned} tracks (pool: ${data.total_matching}).`;
             status.style.color = '#4caf50';
         }
-        if (playBtn && data.tracks?.length) playBtn.disabled = false;
-        _showSaveRow(payload);
+        _showResultActions(payload);
     } catch (err) {
         if (status) {
             status.textContent = '✗ ' + (err.message || 'Onbekende fout');
@@ -311,12 +388,14 @@ function _defaultSetName(payload) {
     return 'DJ Set · ' + parts.join(' · ');
 }
 
-function _showSaveRow(payload) {
-    const row = document.getElementById('dj-save-row');
+function _showResultActions(payload) {
+    const el = document.getElementById('dj-result-actions');
     const nameInput = document.getElementById('dj-set-name');
-    if (!row) return;
+    if (!el) return;
     if (nameInput && !nameInput.value) nameInput.value = _defaultSetName(payload);
-    row.style.display = 'block';
+    el.style.display = 'block';
+    const saveBtn = document.getElementById('dj-save-btn');
+    if (saveBtn) { saveBtn.textContent = 'Opslaan'; saveBtn.disabled = false; }
 }
 
 async function _save(autoName) {
@@ -348,42 +427,15 @@ async function _save(autoName) {
     }
 }
 
-async function _play() {
-    if (!_lastResult?.tracks?.length) return;
-    const zoneId = document.getElementById('dj-zone')?.value;
-    if (!zoneId) {
-        const status = document.getElementById('dj-status');
-        if (status) {
-            status.textContent = '✗ Kies een zone.';
-            status.style.color = '#f44336';
-        }
-        return;
-    }
-    const itemKeys = _lastResult.tracks.map(t => t.item_key);
-    const status = document.getElementById('dj-status');
-    if (status) { status.textContent = 'Versturen naar Roon…'; status.style.color = ''; }
-    try {
-        await apiCall('/queue', {
-            method: 'POST',
-            body: JSON.stringify({ item_keys: itemKeys, zone_id: zoneId, mode: 'replace' }),
-        });
-        // Auto-save on first play if not saved yet
-        if (!_savedId) await _save(_defaultSetName(_lastPayload || {}));
-        showSuccess(`▶ DJ set van ${itemKeys.length} tracks gestart.`);
-        if (status) { status.textContent = ''; }
-    } catch (err) {
-        if (status) {
-            status.textContent = '✗ ' + (err.message || 'Playback mislukt');
-            status.style.color = '#f44336';
-        }
-    }
-}
-
 export async function initDJSetView() {
     if (!_initialized) {
         document.getElementById('dj-form')?.addEventListener('submit', _build);
-        document.getElementById('dj-play-btn')?.addEventListener('click', _play);
+        document.getElementById('dj-play-btn')?.addEventListener('click', _openZoneModal);
         document.getElementById('dj-save-btn')?.addEventListener('click', () => _save());
+        document.getElementById('dj-arc-btn')?.addEventListener('click', _openArcModal);
+        document.getElementById('dj-zone-modal-close')?.addEventListener('click', () => {
+            document.getElementById('dj-zone-modal')?.classList.add('hidden');
+        });
 
         // Filter end moods + BPM auto-suggest when mood or curve changes
         ['dj-start-mood', 'dj-curve'].forEach(id => {
@@ -409,5 +461,5 @@ export async function initDJSetView() {
         _initialized = true;
     }
     _filterEndMoods();
-    await Promise.all([_populateZones(), _loadGenres()]);
+    await _loadGenres();
 }
