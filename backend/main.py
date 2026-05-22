@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.dependencies import ROONSAGE_PASSWORD, limiter
@@ -108,7 +108,14 @@ app.add_middleware(
 #   - GET /api/art/*     (album art images used in the UI after login)
 #   - GET /api/external-art  (proxied external cover art)
 
-_AUTH_EXEMPT_EXACT = {"/api/health", "/api/external-art"}
+_AUTH_EXEMPT_EXACT = {
+    "/api/health",
+    "/api/external-art",
+    # PWA assets must load before the user authenticates so the browser can
+    # register the service worker and read the manifest.
+    "/sw.js",
+    "/manifest.json",
+}
 _AUTH_EXEMPT_PREFIX = "/api/art/"
 
 
@@ -199,5 +206,46 @@ async def serve_index():
         v = get_version()
         html = html.replace("/static/style.css", f"/static/style.css?v={v}")
         html = html.replace("/static/app.js", f"/static/app.js?v={v}")
+        # Expose the build version to JS so the service worker URL and cache
+        # bust use the same identifier across page loads.
+        html = html.replace(
+            "</head>",
+            f'<script>window.ROONSAGE_VERSION={_json.dumps(v)};</script></head>',
+            1,
+        )
         return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
     return {"message": "RoonSage API is running. Frontend not found."}
+
+
+@app.get("/sw.js")
+async def serve_service_worker():
+    """Serve the service worker from the root so its scope covers the whole app.
+
+    The ``Service-Worker-Allowed`` header is harmless from root scope but kept
+    for parity if the file ever moves. ``?v=<version>`` is forwarded to the
+    SW as a build tag so a new deploy invalidates the shell cache.
+    """
+    sw_path = frontend_path / "sw.js"
+    if not sw_path.exists():
+        return Response(status_code=404)
+    return FileResponse(
+        sw_path,
+        media_type="application/javascript",
+        headers={
+            "Cache-Control": "no-cache, must-revalidate",
+            "Service-Worker-Allowed": "/",
+        },
+    )
+
+
+@app.get("/manifest.json")
+async def serve_manifest():
+    """Serve the PWA manifest from root (matches the link in index.html)."""
+    manifest_path = frontend_path / "manifest.json"
+    if not manifest_path.exists():
+        return Response(status_code=404)
+    return FileResponse(
+        manifest_path,
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )

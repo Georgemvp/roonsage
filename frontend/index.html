@@ -2,22 +2,31 @@
 <html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>RoonSage</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
-    <link rel="manifest" href="/static/manifest.json">
-    <meta name="theme-color" content="#e5a00d">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#e5a00d" media="(prefers-color-scheme: light)">
+    <meta name="color-scheme" content="dark light">
     <!-- Apple PWA meta tags -->
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="RoonSage">
     <link rel="apple-touch-icon" href="/static/icon-192.svg">
+    <link rel="apple-touch-icon" sizes="192x192" href="/static/icon-192.svg">
+    <link rel="apple-touch-icon" sizes="512x512" href="/static/icon-512.svg">
+    <link rel="icon" type="image/svg+xml" href="/static/icon-192.svg">
+    <link rel="mask-icon" href="/static/icon-192.svg" color="#e5a00d">
     <!-- Microsoft Tiles -->
     <meta name="msapplication-TileColor" content="#1a1a1a">
     <meta name="msapplication-TileImage" content="/static/icon-192.svg">
+    <meta name="msapplication-tap-highlight" content="no">
+    <meta name="format-detection" content="telephone=no">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
 </head>
 <body>
@@ -1670,6 +1679,18 @@
 
         <!-- Now Playing Bar -->
         <div id="now-playing-bar" class="now-playing-bar now-playing-bar--hidden" role="region" aria-label="Now playing"></div>
+
+        <!-- PWA Install / Update Toast -->
+        <div id="pwa-toast" class="pwa-toast hidden" role="status" aria-live="polite">
+            <div class="pwa-toast-text">
+                <strong id="pwa-toast-title">Install RoonSage</strong>
+                <span id="pwa-toast-msg">Add to your home screen for a faster, full-screen experience.</span>
+            </div>
+            <div class="pwa-toast-actions">
+                <button type="button" class="btn btn-primary btn-sm" id="pwa-toast-accept">Install</button>
+                <button type="button" class="btn-ghost btn-sm" id="pwa-toast-dismiss" aria-label="Dismiss">Not now</button>
+            </div>
+        </div>
 
         <!-- Mobile Bottom Tab Bar (hidden on desktop via CSS) -->
         <nav class="mobile-bottom-nav" role="navigation" aria-label="Mobile navigation">

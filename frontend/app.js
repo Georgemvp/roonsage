@@ -31,6 +31,7 @@ import { initTasteView }                  from './modules/taste.js';
 import { initTemplates }                  from './modules/templates.js';
 import { initSchedulerSection }           from './modules/scheduler.js';
 import { startActivityMonitor }           from './modules/activity.js';
+import { initPWA }                        from './modules/pwa.js';
 
 // =============================================================================
 // Theme Toggle
@@ -184,6 +185,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initialize theme toggle first (before any rendering)
     initThemeToggle();
+
+    // Register the service worker and wire install/update toasts. Safe to call
+    // unconditionally — bails out on insecure contexts and unsupported browsers.
+    initPWA();
 
     setupEventListeners();
     setupRecEventListeners();

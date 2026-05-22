@@ -7377,3 +7377,117 @@ body.no-scroll {
         padding: var(--spacing-md);
     }
 }
+
+/* =============================================================================
+   PWA — safe-area handling, install/update toast, standalone polish
+   ============================================================================= */
+
+/* Honour the iPhone notch / Android cutouts on the app container left + right. */
+.app {
+    padding-left: max(var(--spacing-md), env(safe-area-inset-left));
+    padding-right: max(var(--spacing-md), env(safe-area-inset-right));
+}
+
+/* Sticky header sits flush against the status bar in standalone mode — push it
+   down by the top safe-area inset so the title isn't under the notch. */
+.header {
+    padding-top: calc(18px + env(safe-area-inset-top, 0px));
+}
+
+/* Disable elastic overscroll in standalone mode so the chrome doesn't reveal
+   white pull-to-refresh background. Keep the normal scroll feel in browser. */
+@media (display-mode: standalone) {
+    html, body {
+        overscroll-behavior-y: none;
+    }
+    body {
+        background-color: var(--bg-root);
+    }
+}
+
+/* Disable text selection on UI chrome elements so taps don't accidentally
+   highlight text on mobile (still allowed inside content). */
+.header, .mobile-bottom-nav, .now-playing-bar, .pwa-toast {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* PWA install / update toast — slides up from the bottom on mobile, anchors
+   bottom-right on desktop. Sits above the mobile bottom-nav. */
+.pwa-toast {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%) translateY(120%);
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    width: min(420px, calc(100vw - 24px));
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 12px 14px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    z-index: 300;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: transform 220ms ease, opacity 220ms ease;
+    opacity: 0;
+}
+
+.pwa-toast.pwa-toast--visible {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+.pwa-toast-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: var(--font-size-sm);
+}
+
+.pwa-toast-text strong {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+}
+
+.pwa-toast-text span {
+    color: var(--text-secondary);
+}
+
+.pwa-toast-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.pwa-toast-actions .btn-sm {
+    padding: 8px 14px;
+    font-size: var(--font-size-sm);
+    min-height: 36px;
+    border-radius: var(--radius-md);
+}
+
+/* Above mobile bottom-nav (56px) when present. */
+@media (max-width: 768px) {
+    .pwa-toast {
+        bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px);
+        width: calc(100vw - 24px);
+    }
+}
+
+/* Hide install/update toast in fullscreen photo viewers etc. — they may set
+   no-scroll on body which would still allow the toast to peek. */
+body.no-scroll .pwa-toast {
+    pointer-events: none;
+}
+
+/* Tap-highlight removal for all interactive controls on touch devices. */
+@media (pointer: coarse) {
+    button, a, [role="button"], [data-nav] {
+        -webkit-tap-highlight-color: transparent;
+    }
+}
+

@@ -1,12 +1,18 @@
 {
+    "id": "/?source=pwa",
     "name": "RoonSage",
     "short_name": "RoonSage",
     "description": "AI-powered playlist generator for Roon",
-    "start_url": "/",
+    "start_url": "/?source=pwa",
+    "scope": "/",
     "display": "standalone",
+    "display_override": ["standalone", "minimal-ui"],
     "background_color": "#1a1a1a",
     "theme_color": "#e5a00d",
-    "orientation": "portrait-primary",
+    "orientation": "any",
+    "lang": "en",
+    "dir": "ltr",
+    "categories": ["music", "entertainment", "lifestyle"],
     "icons": [
         {
             "src": "/static/icon-192.svg",
@@ -19,6 +25,35 @@
             "sizes": "512x512",
             "type": "image/svg+xml",
             "purpose": "any"
+        },
+        {
+            "src": "/static/icon-maskable.svg",
+            "sizes": "512x512",
+            "type": "image/svg+xml",
+            "purpose": "maskable"
+        }
+    ],
+    "shortcuts": [
+        {
+            "name": "Make Playlist",
+            "short_name": "Make",
+            "description": "Generate a new playlist from a prompt",
+            "url": "/#playlist-prompt",
+            "icons": [{ "src": "/static/icon-192.svg", "sizes": "192x192" }]
+        },
+        {
+            "name": "Discover",
+            "short_name": "Discover",
+            "description": "Find undiscovered albums in your library",
+            "url": "/#discovery",
+            "icons": [{ "src": "/static/icon-192.svg", "sizes": "192x192" }]
+        },
+        {
+            "name": "My Taste",
+            "short_name": "Taste",
+            "description": "View your taste profile",
+            "url": "/#taste",
+            "icons": [{ "src": "/static/icon-192.svg", "sizes": "192x192" }]
         }
     ]
 }
