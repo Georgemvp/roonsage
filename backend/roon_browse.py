@@ -643,9 +643,14 @@ class RoonBrowseMixin:
 
                         for t in track_items:
                             track_title = (t.get("title") or "").strip()
-                            if track_title:
-                                # First occurrence wins (studio album before compilations)
-                                result.setdefault(track_title, album_title)
+                            # Per-album browse prefixes tracks with "N. " (e.g. "4. Simple Man").
+                            # Flat browse stores bare titles — strip the prefix to match.
+                            track_title = re.sub(r"^\d+\.\s+", "", track_title)
+                            # Skip Roon navigation items ("Play Album", "Queue Album", etc.)
+                            if not track_title or not t.get("subtitle"):
+                                continue
+                            # First occurrence wins (studio album before compilations)
+                            result.setdefault(track_title, album_title)
 
                     except Exception as exc:
                         logger.debug(
