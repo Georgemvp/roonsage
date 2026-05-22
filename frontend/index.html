@@ -1600,6 +1600,16 @@
                         Audio-features uitgeschakeld. Zet <code>AUDIO_FEATURES_ENABLED=true</code> en mount je muziek in <code>MUSIC_LIBRARY_PATH</code>.
                     </div>
 
+                    <!-- Scan banner — visible while the filesystem walk is running -->
+                    <div id="af-scan-banner" class="enrich-result" style="display:none;background:#1f2933;border-left:3px solid #e5a00d;padding:10px 12px;border-radius:4px;">
+                        <strong id="af-scan-phase">Library scan…</strong>
+                        <div id="af-scan-detail" style="margin-top:4px;font-size:0.9em;opacity:0.85;"></div>
+                        <div class="enrich-progress-bar" aria-hidden="true" style="margin-top:8px;">
+                            <div id="af-scan-bar" class="enrich-progress-fill" style="width:0%"></div>
+                        </div>
+                        <div id="af-scan-eta" style="margin-top:4px;font-size:0.85em;opacity:0.7;"></div>
+                    </div>
+
                     <div class="enrich-stats-grid" id="af-stats">
                         <div class="enrich-stat">
                             <span class="enrich-stat-value" id="af-analysed">–</span>

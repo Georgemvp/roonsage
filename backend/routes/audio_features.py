@@ -33,6 +33,16 @@ router = APIRouter(prefix="/api/audio-features", tags=["audio-features"])
 # ---------------------------------------------------------------------------
 
 
+class AudioFeaturesScanProgress(BaseModel):
+    active: bool = False
+    phase: str = "idle"               # idle | walking | matching | complete
+    files_seen: int = 0
+    files_indexed: int = 0
+    started_at: str | None = None
+    finished_at: str | None = None
+    last_result: dict | None = None   # {"scanned", "matched", "unresolved"}
+
+
 class AudioFeaturesStatusResponse(BaseModel):
     enabled: bool
     analyzer_available: bool
@@ -46,6 +56,7 @@ class AudioFeaturesStatusResponse(BaseModel):
     worker_running: bool = False
     worker_paused: bool = False
     full_features: bool = True
+    scan: AudioFeaturesScanProgress = AudioFeaturesScanProgress()
 
 
 class AudioFeaturesActionResponse(BaseModel):
@@ -88,8 +99,9 @@ def _music_root() -> Path:
 
 @router.get("/status", response_model=AudioFeaturesStatusResponse)
 async def get_status() -> AudioFeaturesStatusResponse:
-    """Queue counts, worker state, and feature flags."""
+    """Queue counts, worker state, scan progress, and feature flags."""
     from backend.audio_features.analyzer import ANALYZER_AVAILABLE  # noqa: PLC0415
+    from backend.audio_features.path_resolver import get_scan_progress  # noqa: PLC0415
     from backend.audio_features.worker import (  # noqa: PLC0415
         AUDIO_FEATURES_FULL,
         get_features_worker,
@@ -103,6 +115,7 @@ async def get_status() -> AudioFeaturesStatusResponse:
         conn.close()
 
     worker = get_features_worker()
+    scan_dict = get_scan_progress()
     return AudioFeaturesStatusResponse(
         enabled=_enabled(),
         analyzer_available=ANALYZER_AVAILABLE,
@@ -116,6 +129,7 @@ async def get_status() -> AudioFeaturesStatusResponse:
         worker_running=worker.is_running(),
         worker_paused=worker.is_paused(),
         full_features=AUDIO_FEATURES_FULL,
+        scan=AudioFeaturesScanProgress(**scan_dict),
     )
 
 

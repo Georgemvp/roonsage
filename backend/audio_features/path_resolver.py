@@ -36,6 +36,31 @@ if TYPE_CHECKING:
 # that find it busy back off and return empty results.
 _scan_lock = threading.Lock()
 
+# Live progress for the running scan, mirrored to /api/audio-features/status
+# so the UI can render a progress banner during the multi-minute walk.
+_progress_lock = threading.Lock()
+_scan_progress: dict[str, Any] = {
+    "active": False,
+    "files_seen": 0,
+    "files_indexed": 0,
+    "phase": "idle",        # idle | walking | matching | complete
+    "started_at": None,     # ISO timestamp
+    "finished_at": None,
+    "last_result": None,    # {"scanned", "matched", "unresolved"} from last run
+}
+
+
+def _set_progress(**fields: Any) -> None:
+    """Thread-safe update of the live scan progress dict."""
+    with _progress_lock:
+        _scan_progress.update(fields)
+
+
+def get_scan_progress() -> dict[str, Any]:
+    """Snapshot the current scan progress (safe to call from any thread)."""
+    with _progress_lock:
+        return dict(_scan_progress)
+
 logger = logging.getLogger(__name__)
 
 # File extensions supported by mutagen + librosa (via ffmpeg).
@@ -134,6 +159,10 @@ def scan_library(music_root: Path) -> dict[tuple[str, str, str], str]:
 
     for path in _iter_audio_files(music_root):
         files_seen += 1
+        if files_seen % 500 == 0:
+            # Update the shared progress every 500 files so the UI sees movement
+            # without paying the lock cost on every file.
+            _set_progress(files_seen=files_seen, files_indexed=files_indexed)
         if files_seen % 1000 == 0:
             logger.info("Scanned %d files (%d tagged)", files_seen, files_indexed)
         tags = _read_tags(path)
@@ -143,6 +172,7 @@ def scan_library(music_root: Path) -> dict[tuple[str, str, str], str]:
         index.setdefault(key, str(path))
         files_indexed += 1
 
+    _set_progress(files_seen=files_seen, files_indexed=files_indexed)
     logger.info(
         "Library scan complete: %d files seen, %d uniquely tagged",
         files_seen, files_indexed,
@@ -188,6 +218,17 @@ def resolve_paths_for_tracks(
         logger.info("Another path-resolution scan is already running — skipping")
         return {"scanned": 0, "matched": 0, "unresolved": 0}
 
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    _set_progress(
+        active=True,
+        files_seen=0,
+        files_indexed=0,
+        phase="walking",
+        started_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        finished_at=None,
+    )
+
     try:
         # Build index once.
         index = scan_library(music_root)
@@ -200,6 +241,8 @@ def resolve_paths_for_tracks(
             LEFT JOIN track_audio_features af ON af.item_key = t.item_key
             WHERE af.item_key IS NULL OR af.file_path IS NULL
         """).fetchall()
+
+        _set_progress(phase="matching")
 
         scanned = 0
         matched = 0
@@ -266,8 +309,15 @@ def resolve_paths_for_tracks(
             "Path resolution: scanned=%d matched=%d unresolved=%d",
             scanned, matched, unresolved,
         )
-        return {"scanned": scanned, "matched": matched, "unresolved": unresolved}
+        result = {"scanned": scanned, "matched": matched, "unresolved": unresolved}
+        _set_progress(
+            phase="complete",
+            last_result=result,
+            finished_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        return result
     finally:
+        _set_progress(active=False)
         _scan_lock.release()
 
 

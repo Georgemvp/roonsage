@@ -14,11 +14,80 @@ function _setText(id, value) {
     if (el) el.textContent = value;
 }
 
+function _renderScanProgress(scan) {
+    const banner = document.getElementById('af-scan-banner');
+    if (!banner) return;
+
+    const active = scan?.active === true;
+    const justFinished = scan?.phase === 'complete' && !active && scan?.last_result;
+
+    if (!active && !justFinished) {
+        banner.style.display = 'none';
+        return;
+    }
+
+    banner.style.display = 'block';
+    const phase = scan?.phase || 'idle';
+    const seen  = scan?.files_seen ?? 0;
+    const indexed = scan?.files_indexed ?? 0;
+
+    let phaseLabel = '';
+    let detail = '';
+    if (phase === 'walking') {
+        phaseLabel = '🔎 Library scannen…';
+        detail = `${seen.toLocaleString()} bestanden gescand · ${indexed.toLocaleString()} getagged`;
+    } else if (phase === 'matching') {
+        phaseLabel = '🔗 Tracks matchen aan bestanden…';
+        detail = `${seen.toLocaleString()} bestanden geïndexeerd — koppelen aan je Roon library`;
+    } else if (phase === 'complete' && justFinished) {
+        const r = scan.last_result;
+        phaseLabel = '✓ Scan voltooid';
+        detail = `${r.matched ?? 0} tracks gematched · ${r.unresolved ?? 0} niet gevonden · queue gevuld.`;
+    }
+    _setText('af-scan-phase', phaseLabel);
+    _setText('af-scan-detail', detail);
+
+    // Indeterminate-ish progress bar: pulse during walking, full when complete.
+    // We don't know total files up-front, so we cap at ~80k (typical large library).
+    const bar = document.getElementById('af-scan-bar');
+    if (bar) {
+        if (phase === 'complete') {
+            bar.style.width = '100%';
+        } else if (phase === 'matching') {
+            bar.style.width = '95%';
+        } else {
+            const pct = Math.min(95, Math.round(seen / 80000 * 100));
+            bar.style.width = pct + '%';
+        }
+    }
+
+    // ETA: simple linear extrapolation based on elapsed time + an 80k cap.
+    const eta = document.getElementById('af-scan-eta');
+    if (eta) {
+        if (phase === 'complete') {
+            eta.textContent = `Klaar om ${new Date(scan.finished_at + 'Z').toLocaleTimeString()}.`;
+        } else if (scan?.started_at && seen > 1000) {
+            const started = new Date(scan.started_at + 'Z').getTime();
+            const elapsedMs = Date.now() - started;
+            const rate = seen / (elapsedMs / 1000); // files per second
+            const estimatedTotal = Math.max(seen + 1000, 80000);
+            const remainingSec = Math.max(0, (estimatedTotal - seen) / rate);
+            const min = Math.round(remainingSec / 60);
+            eta.textContent =
+                `~${Math.round(rate)} bestanden/s — geschat nog ${min} min over (op basis van 80k library).`;
+        } else {
+            eta.textContent = 'Starten… (eerste paar duizend bestanden tellen)';
+        }
+    }
+}
+
 function _renderStatus(data) {
     if (!data) return;
 
     const banner = document.getElementById('af-disabled-banner');
     if (banner) banner.style.display = data.enabled ? 'none' : 'block';
+
+    _renderScanProgress(data.scan);
 
     _setText('af-analysed',   data.analysed_total ?? 0);
     _setText('af-pending',    data.pending ?? 0);
@@ -71,7 +140,10 @@ function _startPolling(intervalMs = 5000) {
     _stopPolling();
     _pollTimer = setInterval(async () => {
         const data = await loadAudioFeaturesStatus();
-        if (!data || (!data.worker_running && !data.worker_paused)) _stopPolling();
+        if (!data) return;
+        // Keep polling while a scan is active OR worker is busy.
+        const scanActive = data.scan?.active === true;
+        if (!scanActive && !data.worker_running && !data.worker_paused) _stopPolling();
     }, intervalMs);
 }
 
@@ -122,6 +194,7 @@ export function initAudioFeaturesButtons() {
     document.getElementById('af-rescan-btn')?.addEventListener('click', _rescan);
 
     loadAudioFeaturesStatus().then(data => {
-        if (data?.worker_running && !data?.worker_paused) _startPolling();
+        const scanActive = data?.scan?.active === true;
+        if ((data?.worker_running && !data?.worker_paused) || scanActive) _startPolling();
     });
 }
