@@ -5,17 +5,29 @@ All notable changes to RoonSage are documented here.
 ## [12.0] - 2026-05-22
 
 ### Added
-- **63 MCP tools** — expanded template engine with category tabs in the UI
+- **Audio feature analysis** — new `backend/audio_features/` subsystem (analyzer, worker, camelot mapper, DJ set generator, path resolver). Background worker extracts BPM, musical key (Camelot wheel), energy, danceability, valence, instrumentalness, acousticness, tempo confidence per track using librosa. Stored in `track_audio_features` table; queue table `audio_features_queue` drives processing
+- **DJ set builder** — beatmatched, harmonically mixed playlist generator with configurable BPM curve (flat / ramp_up / ramp_down / peak / valley), Camelot-compatible transitions, and optional seed track. Frontend "DJ Set" view + MCP tool `build_dj_set`
+- **Audio-feature filters** — `filter_tracks_by_audio` MCP tool (BPM range, Camelot keys, energy/valence/danceability/instrumentalness windows) returns same session-based shape as `filter_tracks`
+- **Live scan progress in UI** — Audio Features view shows a phase banner (walking / matching / complete) with file-count, throughput, and ETA while the filesystem walk runs
+- **67 MCP tools** (up from 62) — adds `get_audio_features_status`, `get_track_audio_features`, `filter_tracks_by_audio`, `build_dj_set`, plus expanded template engine with category tabs in the UI
+- **63 playlist templates** with category tabs in the UI
 - **PWA support** — installable on mobile and desktop (manifest + service worker + SVG icons)
 - **Taste profile everywhere** — `use_taste_profile` toggle applied across all generation flows
 - **125 new tests** — covering 7 previously untested subsystems (coverage gate ≥ 40 %)
 - **Enrichment speed options** — `ENRICHMENT_SKIP_MB=true` for Last.fm-only mode (~50× faster on large libraries); persistent dedup cache across batches; MB tag-fetch skipped when Last.fm is active
+- **Self-healing SQLite** — `repair_corrupt_indexes()` runs `PRAGMA integrity_check` on every startup and rebuilds affected tables when uvicorn-reload or container kills leave broken indexes; orphaned `processing` / `analyzing` rows in the enrichment + audio-features queues are reset to `pending`
+- **`NUMBA_CACHE_DIR` + `MPLCONFIGDIR`** mapped to `/app/data/.numba_cache` / `.mpl_cache` so librosa's numba JIT can cache inside the container
+
+### Changed
+- **Discovery / polling / retries / watchlist** — discovery queries refactored (caching + smaller fan-out), polling intervals tuned, retry/back-off normalized in `lastfm_client` + `listenbrainz_client`, watchlist scan made more conservative
+- **Audio-features worker concurrency** raised from 2 → 4 (analysis is CPU-bound; tune down if the host saturates)
+- **Path resolver** is now single-flight (thread lock) and non-blocking from the REST API; concurrent scan attempts back off
 
 ### Fixed
 - `closeBottomSheet` moved to `window`; raw `fetch` calls migrated to `apiCall`
 - Track number prefix stripping and navigation-item filtering in album browse
 - Exact title match instead of `LOWER()` for album enrichment
-- Track→album matching on `(title, artist)` instead of `item_key`
+- Track→album matching on `(title, artist)` instead of `item_key` (Phase 4 sync); subsequent fix narrows the match to title-only when the artist column has been normalised differently
 - Discovery deep-cuts + forgotten-favorites capped at 2 tracks/artist, randomised
 
 ---

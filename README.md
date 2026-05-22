@@ -30,7 +30,7 @@ _automate your listening, and let Claude Desktop control every aspect of Roon �
 
 ## What is RoonSage?
 
-RoonSage is a **self-hosted web app** that connects to your Roon Core as an Extension. It syncs your library into a local SQLite cache and wraps everything in a full **MCP server** (62 tools) so Claude Desktop can search, curate, discover, and control Roon through natural conversation.
+RoonSage is a **self-hosted web app** that connects to your Roon Core as an Extension. It syncs your library into a local SQLite cache and wraps everything in a full **MCP server** (67 tools) so Claude Desktop can search, curate, discover, build DJ sets, and control Roon through natural conversation.
 
 Key design principles:
 
@@ -67,7 +67,7 @@ graph TB
         NOTIF("📣 Notifications\nDiscord · Telegram · Webhook")
     end
 
-    CD("💬 Claude Desktop\n62 MCP tools")
+    CD("💬 Claude Desktop\n67 MCP tools")
 
     RC  <-->|"WebSocket\nExtension API"| RS
     RS  <-->|"Browse API\nsync + playback"| RC
@@ -195,7 +195,7 @@ flowchart TD
 
 ## Full MCP Tool List
 
-RoonSage exposes **62 tools** to Claude Desktop, grouped by function.
+RoonSage exposes **67 tools** to Claude Desktop, grouped by function.
 
 ### Library & Search
 
@@ -329,6 +329,15 @@ RoonSage exposes **62 tools** to Claude Desktop, grouped by function.
 |------|-------------|
 | `verify_track_match` | Fingerprint-verify that a Qobuz search result matches the intended track |
 
+### Audio Features & DJ Sets
+
+| Tool | Description |
+|------|-------------|
+| `get_audio_features_status` | Queue counts, worker state, scan progress, analyser availability |
+| `get_track_audio_features` | BPM / key / energy / valence / danceability for a single track |
+| `filter_tracks_by_audio` | Filter by BPM range, Camelot keys, energy / valence / danceability / instrumentalness — returns the same numbered list + `session_id` as `filter_tracks` |
+| `build_dj_set` | Beatmatched, Camelot-compatible DJ set with a configurable BPM curve (flat / ramp_up / ramp_down / peak / valley) and optional seed track |
+
 ---
 
 ## Features
@@ -343,6 +352,8 @@ RoonSage exposes **62 tools** to Claude Desktop, grouped by function.
 | **My Taste** | Chart.js visualizations of genre scores, era distribution, listening heatmap, ListenBrainz + Last.fm stats with time range filters |
 | **Watchlist** | Artist monitoring with Qobuz new-release detection and dismiss/play controls |
 | **Automations** | Trigger-action workflow builder with presets, activity log, and enable/disable toggles |
+| **Audio Features** | Worker status, queue counts, and live scan progress (walking → matching → complete) for the librosa-based BPM/key/energy analysis |
+| **DJ Set** | Beatmatched playlist builder — pick duration, BPM curve, and energy shape; sends a Camelot-compatible queue straight to a Roon zone |
 | **Settings** | Roon, LLM, Qobuz, ListenBrainz, Last.fm, Notifications, Scheduled Playlists, Enrichment status, AcoustID |
 
 ### Discovery Engine
@@ -431,6 +442,18 @@ Audio fingerprint verification for Qobuz search results using the free [AcoustID
 - `verify_track_match` fingerprints the local library file and compares against the Qobuz result's MBID
 - Optional `auto_verify_qobuz` mode verifies every Qobuz search result automatically (adds minor latency)
 - Requires `libchromaprint-tools` (included in the Docker image) and a free AcoustID API key
+
+### Audio Features & DJ Set Builder
+
+Per-track audio analysis with [librosa](https://librosa.org) + a beatmatched DJ set generator:
+
+- **What's extracted** — BPM, musical key + Camelot wheel code, energy, danceability, valence, instrumentalness, acousticness, tempo confidence
+- **Background worker** — drains `audio_features_queue` (4 concurrent analyses, CPU-bound). Pause/resume from the Audio Features view
+- **Path resolver** — walks `MUSIC_LIBRARY_PATH` once, builds a `(artist, album, title)` → file path index from mutagen tags, then matches it back to Roon tracks. Single-flight: only one scan runs at a time
+- **Live scan progress** — UI shows phase (walking / matching / complete), files seen, throughput, and ETA while the multi-minute walk runs
+- **DJ Set view + `build_dj_set` tool** — pick a duration, start/end BPM, and an energy curve (`flat`, `ramp_up`, `ramp_down`, `peak`, `valley`) and RoonSage emits a Camelot-compatible playlist with smooth tempo transitions
+- **Filter by feature** — `filter_tracks_by_audio` slices by BPM window, Camelot keys, energy/valence/danceability/instrumentalness, with the same `session_id` shape as `filter_tracks`
+- Config: `AUDIO_FEATURES_ENABLED`, `AUDIO_FEATURES_FULL`, `MUSIC_LIBRARY_PATH`, optional `MUSIC_PATH_MAP_FROM` / `MUSIC_PATH_MAP_TO` for Roon-path → container-path remapping. The Docker image ships `librosa` + `libchromaprint-tools` and mounts `NUMBA_CACHE_DIR=/app/data/.numba_cache` for the JIT cache
 
 ### Notifications
 
@@ -791,6 +814,12 @@ roonsage/
 │   ├── listenbrainz_sync.py     # ListenBrainz stats sync service
 │   ├── lastfm_client.py         # ★ Last.fm API client
 │   ├── lastfm_sync.py           # ★ Last.fm stats sync service
+│   ├── audio_features/          # ★ Audio analysis subsystem
+│   │   ├── analyzer.py          #    librosa-based BPM/key/energy extraction
+│   │   ├── worker.py            #    Background asyncio worker (CONCURRENCY=4)
+│   │   ├── path_resolver.py     #    Roon track → on-disk file index (single-flight)
+│   │   ├── camelot.py           #    Musical key → Camelot wheel mapping
+│   │   └── dj_generator.py      #    Beatmatched, harmonic DJ set builder
 │   └── routes/
 │       ├── library.py           # Library cache, sync, search, filter endpoints
 │       ├── generate.py          # Playlist generation + analysis endpoints
@@ -808,6 +837,7 @@ roonsage/
 │       ├── automations.py       # ★ Automation CRUD + run endpoints
 │       ├── enrichment.py        # ★ Enrichment status + control endpoints
 │       ├── verify.py            # ★ AcoustID verification endpoints
+│       ├── audio_features.py    # ★ Audio features + DJ set endpoints
 │       └── notifications.py     # ★ Notification config + history endpoints
 ├── frontend/
 │   ├── index.html               # Single-page app shell
@@ -833,6 +863,9 @@ roonsage/
 │       ├── watchlist.js         # ★ Watchlist view
 │       ├── automations.js       # ★ Automations view
 │       ├── scheduler.js         # ★ Scheduled playlists view
+│       ├── audio-features.js    # ★ Audio Features view (status + scan progress)
+│       ├── dj-set.js            # ★ DJ Set builder view
+│       ├── pwa.js               # ★ PWA install + service worker glue
 │       ├── nowplaying.js        # Now Playing view
 │       ├── instant-queue.js     # Instant queue controls
 │       ├── focus.js             # Focus mode
@@ -1167,7 +1200,26 @@ docker-compose up -d --build
 
 ## Changelog
 
-### v12.0 — AcoustID Verification (2026-05-20)
+### v12.0 — Audio Features, DJ Set Builder, PWA, 67 Tools (2026-05-22)
+
+- **Audio feature analysis** — new `backend/audio_features/` subsystem extracts BPM, Camelot key, energy, danceability, valence, instrumentalness, acousticness per track via librosa. Worker drains `audio_features_queue` with `CONCURRENCY=4` (CPU-bound).
+- **DJ set builder** — `build_dj_set` MCP tool + frontend view generate beatmatched, Camelot-compatible playlists with configurable BPM curves (`flat`, `ramp_up`, `ramp_down`, `peak`, `valley`).
+- **Audio-feature filter** — `filter_tracks_by_audio` slices the library by BPM window, Camelot keys, energy/valence/danceability/instrumentalness; returns the same `session_id` shape as `filter_tracks`.
+- **Path resolver** — single-flight scan of `MUSIC_LIBRARY_PATH`, maps Roon tracks → on-disk files via mutagen tags. UI shows live scan progress (phase + file count + ETA).
+- **5 new MCP tools** for a total of **67** (was 62).
+- **63 playlist templates** with category tabs in the UI (was ~30).
+- **PWA** — installable on iOS / Android / desktop (manifest + service worker + SVG icons).
+- **Taste profile everywhere** — `use_taste_profile` toggle wired into generate / recommend / templates / scheduler flows.
+- **125 new tests** covering 7 previously untested subsystems; coverage gate ≥ 40 %.
+- **Enrichment ~50× faster** via `ENRICHMENT_SKIP_MB=true` (Last.fm-only mode) + persistent dedup cache across batches.
+- **Self-healing SQLite** — `repair_corrupt_indexes()` at startup runs `PRAGMA integrity_check` and REINDEXes affected tables (fixes uvicorn-reload corruption). Orphaned `processing` / `analyzing` rows are reset to `pending`.
+- **`NUMBA_CACHE_DIR` + `MPLCONFIGDIR`** mapped inside the container so librosa's JIT can cache.
+- **Sync fixes** — track→album matching uses `(title, artist)` (then title-only) instead of fragile `item_key`; exact title match (not `LOWER()`) for album enrichment; track-number prefix stripped + navigation items filtered in album browse.
+- **Discovery / polling / retries / watchlist** tuned — smaller fan-out, normalized back-off, lighter watchlist scan.
+- **Frontend cleanup** — `closeBottomSheet` on `window`; raw `fetch` calls migrated to `apiCall`.
+- New `.env.example`, `CONTRIBUTING.md`, and `CHANGELOG.md` at repo root; GitHub issue templates added.
+
+### v11.5 — AcoustID Verification (2026-05-20)
 
 - New module `backend/acoustid_client.py`: audio fingerprinting via the free AcoustID service and `pyacoustid`/`libchromaprint`.
 - New endpoint `POST /api/verify/track`: fingerprint a local library track, resolve its MusicBrainz recording ID, and compare against a Qobuz search result's MBID — catches wrong versions (live vs. studio, remix vs. original, wrong-decade remaster) before playback.

@@ -141,7 +141,7 @@ async function _play() {
     const status = document.getElementById('dj-status');
     if (status) { status.textContent = 'Versturen naar Roon…'; status.style.color = ''; }
     try {
-        await apiCall('/roon/play-tracks', {
+        await apiCall('/queue', {
             method: 'POST',
             body: JSON.stringify({ item_keys: itemKeys, zone_id: zoneId, mode: 'replace' }),
         });

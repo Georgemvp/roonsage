@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RoonSage is a self-hosted FastAPI web app + MCP server that connects to a Roon Core as an Extension, mirrors the library into a local SQLite cache, and exposes ~62 tools so Claude Desktop can curate playlists, discover music, monitor releases, automate workflows, and control Roon through natural language. The constitution principle is **library-first**: every suggested track must exist either in the user's Roon library or on Qobuz — nothing is hallucinated.
+RoonSage is a self-hosted FastAPI web app + MCP server that connects to a Roon Core as an Extension, mirrors the library into a local SQLite cache, and exposes ~67 tools so Claude Desktop can curate playlists, discover music, monitor releases, automate workflows, analyse audio features, build DJ sets, and control Roon through natural language. The constitution principle is **library-first**: every suggested track must exist either in the user's Roon library or on Qobuz — nothing is hallucinated.
 
 Current version: **v12.0** (see `pyproject.toml`, `backend/version.py` auto-detects via `git describe`).
 
@@ -41,14 +41,15 @@ CI (`.github/workflows/test.yml`) runs ruff + pytest with coverage gate ≥40% o
 ### Backend layout (`backend/`)
 
 - **`main.py`** — FastAPI app, lifespan, JSON-line logging, optional HTTP Basic Auth middleware, CORS, slowapi rate-limiter wiring, static file serving. Lifespan logic is split out to **`startup.py`** (`init_clients`, `start_background_tasks`, `shutdown`).
-- **`routes/`** — every feature has its own router (library, generate, recommend, roon, intelligence, qobuz_playlist, discovery, templates, watchlist, scheduler, automations, enrichment, verify, notifications, results, setup, config_routes). New endpoints go into the matching router; don't add to `main.py`.
+- **`routes/`** — every feature has its own router (library, generate, recommend, roon, intelligence, qobuz_playlist, discovery, templates, watchlist, scheduler, automations, enrichment, verify, notifications, results, setup, config_routes, **audio_features**). New endpoints go into the matching router; don't add to `main.py`.
 - **`db.py`** — SQLite schema, WAL-mode connections, migration flag, `needs_resync()`. All other cache modules use `get_db_connection()` or the `get_connection()` context manager from here.
 - **`library_cache.py`** — orchestrates library sync into SQLite and exposes the read queries used by filters/discovery.
 - **`roon_client.py`** — thin re-export. The real implementation is the **mixin pattern** across `roon_connection.py`, `roon_browse.py`, `roon_playback.py`, `roon_search.py`, `roon_intelligence.py`. `RoonClient` inherits all of them. Browse calls are serialized via `_browse_lock` (single-session API constraint, see below).
 - **LLM/AI**: `llm_client.py` (multi-provider — anthropic, openai, gemini, ollama, custom), `analyzer.py` (prompt → genre/decade filter), `generator.py` (filtered track list → playlist), `recommender.py` (album recommendations), `music_research.py` (web research helper for albums).
 - **Intelligence**: `roon_intelligence.py` (zone monitor + listening history + scrobble dispatch to LB/LF), `taste_profile.py` (combines local + LB + Last.fm into a unified profile with `lb_` / `lf_` prefixed keys), `scrobble_import.py` (one-time backfill from LB/LF).
 - **External services**: `listenbrainz_client.py` + `listenbrainz_sync.py`, `lastfm_client.py` + `lastfm_sync.py`, `musicbrainz_client.py`, `acoustid_client.py`, `qobuz_browser.py` (search/playback via Roon), `qobuz_api.py` (direct Qobuz JSON API for playlist save).
-- **Workflow subsystems**: `discovery.py` (4 cache-only discovery sections), `watchlist.py` (artist new-release scanner), `scheduler.py` (cron-based playlist regeneration), `automation_engine.py` (trigger-action workflows), `enrichment_worker.py` (background MusicBrainz + Last.fm enrichment), `templates.py` (playlist template engine), `notifications.py` (event bus → Discord/Telegram/webhook).
+- **Workflow subsystems**: `discovery.py` (4 cache-only discovery sections), `watchlist.py` (artist new-release scanner), `scheduler.py` (cron-based playlist regeneration), `automation_engine.py` (trigger-action workflows), `enrichment_worker.py` (background MusicBrainz + Last.fm enrichment — `ENRICHMENT_SKIP_MB=true` switches to Last.fm-only for ~50× speed), `templates.py` (playlist template engine, 63 built-ins with category tabs), `notifications.py` (event bus → Discord/Telegram/webhook).
+- **Audio features** (`backend/audio_features/`): `analyzer.py` runs librosa to extract BPM, Camelot key, energy, danceability, valence, instrumentalness, acousticness; `worker.py` is a managed asyncio worker (CONCURRENCY=4, CPU-bound) that drains `audio_features_queue`; `path_resolver.py` walks `MUSIC_LIBRARY_PATH` once to map library tracks → on-disk files (single-flight via thread lock, exposes live progress via `get_scan_progress()`); `dj_generator.py` builds beatmatched, Camelot-compatible DJ sets with configurable BPM curves; `camelot.py` maps musical keys to wheel positions. Routes in `routes/audio_features.py`. Tables: `track_audio_features`, `audio_features_queue`.
 - **`filter_sessions.py`** — server-side `session_id` → `key_map` storage so the MCP client doesn't have to hold the full track list in context (saves 10–20k tokens per curation flow).
 - **`models.py`** — Pydantic models for all API contracts. Every request/response uses these.
 
@@ -61,11 +62,12 @@ Vanilla HTML/CSS/JS, no build step. Single-page app shell `index.html` + `app.js
 1. **Sync** — `library_cache.sync_library()` walks Roon Browse hierarchy (Root → Library → Albums → tracks per album) and writes into `tracks` + `track_genres` + `albums` tables.
 2. **Query** — `filter_tracks` runs SQL against the local cache (genre IN (...), decade, keywords, optional artist-cap, live-version exclusion); never re-hits Roon.
 3. **Curate** — Claude Desktop (or the backend LLM for the web UI) picks track numbers from the numbered list; `curate_and_play` translates them back to Roon item keys via the stored session and calls Play Now.
-4. **Background** — listening monitor, LB/LF sync (every 6h), watchlist scan (every 12h), scheduler (60s tick), enrichment worker, automation engine, periodic DB backup (every 4h) all run as managed asyncio tasks; cancelled cleanly in `shutdown()`.
+4. **Background** — listening monitor, LB/LF sync (every 6h), watchlist scan (every 12h), scheduler (60s tick), enrichment worker, audio-features worker, automation engine, periodic DB backup (every 4h) all run as managed asyncio tasks; cancelled cleanly in `shutdown()`.
+5. **Self-heal at startup** — `repair_corrupt_indexes()` runs `PRAGMA integrity_check` and rebuilds any corrupt indexes (caused by uvicorn-reload mid-write or container kills). Orphaned `processing` / `analyzing` rows in `enrichment_queue` + `audio_features_queue` are reset to `pending` so workers don't leave items stuck.
 
 ### MCP Server (`mcp_server.py`, single file at repo root)
 
-Wraps the RoonSage REST API as **~62 tools** for Claude Desktop using `mcp[cli]` (FastMCP) + httpx over stdio. Contains **no LLM logic** — Claude Desktop does the thinking. When you change a backend endpoint in `routes/`, update the corresponding tool here too. It runs locally on the user's machine (not in Docker); `scripts/install_mcp.py` configures `claude_desktop_config.json`. The system prompt that ships to Claude Desktop is `system_prompt.md` at repo root.
+Wraps the RoonSage REST API as **~67 tools** for Claude Desktop using `mcp[cli]` (FastMCP) + httpx over stdio. Contains **no LLM logic** — Claude Desktop does the thinking. When you change a backend endpoint in `routes/`, update the corresponding tool here too. It runs locally on the user's machine (not in Docker); `scripts/install_mcp.py` configures `claude_desktop_config.json`. The system prompt that ships to Claude Desktop is `system_prompt.md` at repo root.
 
 ## Key Conventions and Gotchas
 
@@ -137,6 +139,15 @@ LASTFM_API_KEY= / LASTFM_API_SECRET= / LASTFM_SESSION_KEY= / LASTFM_USERNAME=
 ACOUSTID_API_KEY= / ACOUSTID_ENABLED=false / ACOUSTID_AUTO_VERIFY_QOBUZ=false
 DISCORD_WEBHOOK_URL= / TELEGRAM_BOT_TOKEN= / TELEGRAM_CHAT_ID= / WEBHOOK_URL=
 WATCHLIST_SCAN_INTERVAL_HOURS=12
+# Enrichment
+ENRICHMENT_SKIP_MB=true          # Last.fm-only mode (~50× faster than MB+LF)
+# Audio features
+AUDIO_FEATURES_ENABLED=true      # toggles the analyzer worker + DJ-set endpoints
+AUDIO_FEATURES_FULL=true         # false = BPM + key only (faster); true = full Spotify-style vector
+MUSIC_LIBRARY_PATH=/music        # filesystem root for audio analysis (must be readable)
+MUSIC_PATH_MAP_FROM= / MUSIC_PATH_MAP_TO=   # remap Roon-reported paths to container paths
+NUMBA_CACHE_DIR=/app/data/.numba_cache   # required for librosa's JIT inside Docker
+MPLCONFIGDIR=/app/data/.mpl_cache
 APP_VERSION=                     # injected by Docker build; falls back to git describe
 ```
 
@@ -180,15 +191,15 @@ The MCP system prompt (`system_prompt.md`) instructs Claude Desktop to **curate 
 - **Library search misses** → fall back to `search_qobuz`
 - **Save curated playlist to Qobuz** → `save_to_qobuz` (after `curate_and_play` or `play_tracks`)
 
-### Tool categories (~62 total)
+### Tool categories (~67 total)
 
-Library & search · Discovery · Playlist generation · Claude-native curation · Album recommendations · Roon playback & control · Intelligence & taste · ListenBrainz · Last.fm · Qobuz · Watchlist · Scheduled playlists · Metadata enrichment · Automation · AcoustID verification.
+Library & search · Discovery · Playlist generation · Claude-native curation · Album recommendations · Roon playback & control · Intelligence & taste · ListenBrainz · Last.fm · Qobuz · Watchlist · Scheduled playlists · Metadata enrichment · Automation · AcoustID verification · **Audio features & DJ sets** (`get_audio_features_status`, `get_track_audio_features`, `filter_tracks_by_audio`, `build_dj_set`).
 
 The full per-tool table is maintained in **README.md** under "Full MCP Tool List".
 
 ## When Editing
 
 - **Adding a backend endpoint**: add to the correct `routes/*.py`, add the Pydantic request/response models to `models.py`, expose to MCP by adding a tool in `mcp_server.py`, and update `system_prompt.md` if the tool affects Claude Desktop's flows.
-- **Changing the DB schema**: edit `backend/db.py` — `init_schema` handles incremental `ALTER TABLE` migrations and flips `_migration_applied`, which triggers auto-resync in `startup.start_background_tasks`. Tables: `tracks`, `track_genres`, `albums`, `listening_history`, `lb_stats_cache`, `lf_stats_cache`, `track_metadata_ext`, `enrichment_queue`, `artist_watchlist`, `artist_releases_cache`, `scheduled_playlists`, `automations`, `automation_log`, `scrobble_import_state`, plus the results history.
+- **Changing the DB schema**: edit `backend/db.py` — `init_schema` handles incremental `ALTER TABLE` migrations and flips `_migration_applied`, which triggers auto-resync in `startup.start_background_tasks`. Tables: `tracks`, `track_genres`, `albums`, `listening_history`, `lb_stats_cache`, `lf_stats_cache`, `track_metadata_ext`, `enrichment_queue`, `track_audio_features`, `audio_features_queue`, `artist_watchlist`, `artist_releases_cache`, `scheduled_playlists`, `automations`, `automation_log`, `scrobble_import_state`, plus the results history.
 - **Touching Roon Browse code**: respect `_browse_lock` and the synthetic-key convention for Qobuz global-search results. Test that browse → search → browse sequences don't corrupt session state.
 - **Working on the frontend**: changes are picked up live without a rebuild (Docker mounts `frontend/` as a volume); HTML asset URLs are cache-busted with `?v={version}` in `serve_index`.
