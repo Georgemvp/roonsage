@@ -573,6 +573,50 @@ export function renderCamelotWheel(containerId, activeKeys = []) {
     `;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Energy curve grid — visual buttons with SVG previews
+// ─────────────────────────────────────────────────────────────────────────
+const ENERGY_CURVES = [
+    { id:'flat',         label:'Gelijkmatig',  path:'M 2,50 L 98,50' },
+    { id:'ramp_up',      label:'Oplopend',     path:'M 2,85 C 40,70 65,35 98,12' },
+    { id:'ramp_down',    label:'Aflopend',     path:'M 2,12 C 35,18 68,58 98,85' },
+    { id:'peak',         label:'Piek',         path:'M 2,62 C 25,20 42,12 52,12 C 68,12 82,38 98,52' },
+    { id:'valley',       label:'Dal',          path:'M 2,20 C 25,25 40,70 52,80 C 65,70 80,25 98,20' },
+    { id:'crescendo',    label:'Crescendo',    path:'M 2,80 C 55,75 75,40 98,5' },
+    { id:'sunrise',      label:'Zonsopgang',   path:'M 2,90 C 30,85 55,50 70,25 C 82,8 92,10 98,15' },
+    { id:'explosion',    label:'Explosie',     path:'M 2,70 C 15,65 30,20 45,5 C 55,5 70,50 98,70' },
+    { id:'afterparty',   label:'Afterparty',   path:'M 2,15 C 20,12 38,18 55,40 C 70,60 85,72 98,80' },
+    { id:'wave',         label:'Golf',         path:'M 2,50 C 20,20 40,80 60,20 C 78,5 90,30 98,50' },
+    { id:'marathon',     label:'Marathon',     path:'M 2,35 C 20,32 40,38 60,33 C 78,28 90,35 98,32' },
+    { id:'rollercoaster',label:'Achtbaan',     path:'M 2,60 L 20,15 L 38,60 L 56,15 L 74,60 L 92,15 L 98,30' },
+];
+
+function _renderCurveGrid() {
+    const grid = document.getElementById('dj-curve-grid');
+    const hidden = document.getElementById('dj-curve');
+    if (!grid || !hidden) return;
+
+    const current = hidden.value || 'ramp_up';
+    grid.innerHTML = ENERGY_CURVES.map(c => `
+        <button type="button" class="dj-curve-btn${c.id === current ? ' active' : ''}" data-curve-id="${c.id}">
+            <svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px">
+                <path d="${c.path}" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>${c.label}</span>
+        </button>
+    `).join('');
+
+    grid.querySelectorAll('.dj-curve-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.dataset.curveId;
+            hidden.value = id;
+            grid.querySelectorAll('.dj-curve-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            hidden.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+    });
+}
+
 export async function initDJSetView() {
     if (!_initialized) {
         document.getElementById('dj-form')?.addEventListener('submit', _build);
@@ -621,6 +665,7 @@ export async function initDJSetView() {
 
         _initialized = true;
     }
+    _renderCurveGrid();
     _filterEndMoods();
     await _loadGenres();
 }

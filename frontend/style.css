@@ -8402,3 +8402,44 @@ body.no-scroll .pwa-toast {
     border-color: var(--text-primary) !important;
     outline-color: var(--border) !important;
 }
+
+/* ── DJ energy curve visual grid ─────────────────────────────────────── */
+.dj-curve-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 7px;
+}
+@media (max-width: 720px) {
+    .dj-curve-grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 480px) {
+    .dj-curve-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+.dj-curve-btn {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 9px 6px 7px;
+    cursor: pointer;
+    transition: all 140ms;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-align: center;
+    line-height: 1.2;
+}
+.dj-curve-btn:hover {
+    border-color: var(--border-accent);
+    color: var(--text-secondary);
+    background: var(--bg-hover);
+}
+.dj-curve-btn.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent-bright);
+}
+.dj-curve-btn span {
+    display: block;
+}

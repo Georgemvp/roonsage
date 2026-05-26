@@ -1267,28 +1267,11 @@
                                 <div id="dj-bpm-hint" style="font-size:0.78rem;color:var(--text-muted);margin-top:2px;min-height:1.2em;"></div>
                             </div>
                             <div>
-                                <div class="rs-form-group">
-                                    <label class="rs-form-label" for="dj-curve">Energy curve</label>
-                                    <select id="dj-curve" class="auto-form-select">
-                                        <optgroup label="Opbouwend">
-                                            <option value="ramp_up">Oplopend (warm-up naar piek)</option>
-                                            <option value="crescendo">Crescendo (langzaam opbouwen, explosief einde)</option>
-                                            <option value="sunrise">Zonsopgang (heel geleidelijke opbouw)</option>
-                                            <option value="explosion">Explosie (lang rustig, dan knaller)</option>
-                                            <option value="marathon">Marathon (lang gelijkmatig, sprint aan het eind)</option>
-                                        </optgroup>
-                                        <optgroup label="Afbouwend">
-                                            <option value="ramp_down">Aflopend (piek naar cool-down)</option>
-                                            <option value="afterparty">Afterparty (hoog begin, rustig afsluiten)</option>
-                                        </optgroup>
-                                        <optgroup label="Vrij">
-                                            <option value="flat">Gelijkmatig</option>
-                                            <option value="peak">Piek (opbouw dan dip)</option>
-                                            <option value="valley">Dal (rustig midden)</option>
-                                            <option value="wave">Golf (afwisseling hoog-laag)</option>
-                                            <option value="rollercoaster">Achtbaan (meerdere pieken en dalen)</option>
-                                        </optgroup>
-                                    </select>
+                                <div class="form-group">
+                                    <label style="display:block;font-size:0.7rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px">Energiecurve</label>
+                                    <div id="dj-curve-grid" class="dj-curve-grid"></div>
+                                    <!-- Hidden input that existing form code reads -->
+                                    <input type="hidden" id="dj-curve" value="ramp_up">
                                 </div>
                                 <div class="rs-form-group">
                                     <label class="rs-form-label" for="dj-start-mood">Start mood</label>
