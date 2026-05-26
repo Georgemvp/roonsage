@@ -518,6 +518,17 @@
 .rs-nav-icon { opacity: 0.6; transition: opacity 120ms; flex-shrink: 0; line-height: 0; }
 .rs-nav-item:hover .rs-nav-icon,
 .rs-nav-item.active .rs-nav-icon { opacity: 1; }
+.rs-nav-tasks-dot {
+    margin-left: auto;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--color-accent, #e5a00d);
+    animation: tasks-pulse 1.8s ease-in-out infinite;
+}
+@keyframes tasks-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
 
 /* ── Main content ── */
 .rs-main {

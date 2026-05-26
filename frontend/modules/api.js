@@ -14,9 +14,17 @@ export async function apiCall(endpoint, options = {}) {
     });
 
     if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        const detail = Array.isArray(error.detail) ? error.detail.map(e => e.msg).join('; ') : error.detail;
-        throw new Error(detail || error.error || 'Request failed');
+        const text = await response.text().catch(() => '');
+        let detail;
+        try {
+            const error = JSON.parse(text);
+            detail = Array.isArray(error.detail) ? error.detail.map(e => e.msg).join('; ') : error.detail || error.error;
+        } catch {
+            detail = text || null;
+        }
+        const err = new Error(detail || `HTTP ${response.status}`);
+        err.status = response.status;
+        throw err;
     }
 
     if (response.status === 204) return null;

@@ -64,15 +64,25 @@ def get_model():
             return None
 
         try:
+            from backend.config import get_clap_cache_dir  # noqa: PLC0415
             model = laion_clap.CLAP_Module(enable_fusion=False)
             ckpt = get_clap_model()
-            # laion_clap accepts a local path or an HF model id; ``load_ckpt``
-            # with no arg downloads the default checkpoint. Passing the env
-            # value as ``model_id`` keeps things explicit when overridden.
             if ckpt and ckpt != "laion/larger_clap_music_and_speech":
                 model.load_ckpt(ckpt)
             else:
-                model.load_ckpt()
+                # laion_clap always downloads to its own site-packages dir, which
+                # is not writable by the non-root app user. Download the checkpoint
+                # ourselves to the writable cache dir and pass the local path.
+                cache_dir = get_clap_cache_dir()
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                weight_name = "630k-audioset-best.pt"
+                local_ckpt = cache_dir / weight_name
+                if not local_ckpt.exists():
+                    import urllib.request  # noqa: PLC0415
+                    url = f"https://huggingface.co/lukewys/laion_clap/resolve/main/{weight_name}"
+                    logger.info("Downloading CLAP checkpoint to %s", local_ckpt)
+                    urllib.request.urlretrieve(url, local_ckpt)
+                model.load_ckpt(str(local_ckpt))
             _model = model
             logger.info("CLAP model loaded (%s)", ckpt)
             return _model
@@ -248,7 +258,7 @@ def batch_analyze_clap(conn: sqlite3.Connection) -> dict[str, Any]:
             except Exception as exc:
                 logger.warning("CLAP analyze failed for %s: %s", r["item_key"], exc)
                 n_failed += 1
-            if (n_done + n_failed) % 25 == 0:
+            if (n_done + n_failed) % 5 == 0:
                 _set_state(conn, "running", n_done=n_done, n_failed=n_failed)
                 conn.commit()
 

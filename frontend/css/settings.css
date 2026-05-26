@@ -762,6 +762,8 @@
 .atb-toggle:hover,
 .atb-close:hover { background: var(--bg-hover); color: var(--text-primary); }
 
+.atb-pin-active { color: var(--color-accent) !important; }
+
 .atb-body {
     padding: 8px 10px 10px;
     display: flex;

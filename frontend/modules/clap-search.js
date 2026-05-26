@@ -55,18 +55,22 @@ async function refreshStatus() {
 async function startAnalysis() {
     try {
         await apiCall('/clap/analyze', { method: 'POST' });
-        await refreshStatus();
-        if (_pollTimer) clearInterval(_pollTimer);
-        _pollTimer = setInterval(async () => {
-            const s = await refreshStatus();
-            if (!s || s.status !== 'running') {
-                clearInterval(_pollTimer);
-                _pollTimer = null;
-            }
-        }, 3000);
     } catch (err) {
-        alert(`CLAP analysis failed to start: ${err.message}`);
+        if (err.status !== 409) {
+            alert(`CLAP analysis failed to start: ${err.message}`);
+            return;
+        }
+        // 409 = already running; fall through to start polling
     }
+    await refreshStatus();
+    if (_pollTimer) clearInterval(_pollTimer);
+    _pollTimer = setInterval(async () => {
+        const s = await refreshStatus();
+        if (!s || s.status !== 'running') {
+            clearInterval(_pollTimer);
+            _pollTimer = null;
+        }
+    }, 3000);
 }
 
 function renderResults(data) {
@@ -147,5 +151,14 @@ export async function initClapSearchView() {
         }
     });
 
-    await refreshStatus();
+    const s = await refreshStatus();
+    if (s && s.status === 'running' && !_pollTimer) {
+        _pollTimer = setInterval(async () => {
+            const ps = await refreshStatus();
+            if (!ps || ps.status !== 'running') {
+                clearInterval(_pollTimer);
+                _pollTimer = null;
+            }
+        }, 3000);
+    }
 }

@@ -58,6 +58,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /install /usr/local/lib/python3.11/site-packages/
 COPY --from=builder /install/bin/ /usr/local/bin/
 
+# PyTorch 2.6+ defaults weights_only=True; laion-clap's checkpoint contains
+# numpy scalars so torch.load rejects it. Patch the one call-site in factory.py.
+RUN sed -i 's/torch\.load(checkpoint_path, map_location=map_location)/torch.load(checkpoint_path, map_location=map_location, weights_only=False)/' \
+    /usr/local/lib/python3.11/site-packages/laion_clap/clap_module/factory.py
+
 # Copy application source
 COPY --chown=roonsage:roonsage backend/ ./backend/
 COPY --chown=roonsage:roonsage frontend/ ./frontend/

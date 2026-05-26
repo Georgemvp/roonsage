@@ -219,7 +219,7 @@ def batch_embed_lyrics(conn: sqlite3.Connection) -> dict[str, Any]:
                 logger.warning("lyrics pipeline failed for %s: %s", ikey, exc)
                 n_failed += 1
 
-            if (n_extracted + n_no_lyrics + n_failed) % 25 == 0:
+            if (n_extracted + n_no_lyrics + n_failed) % 5 == 0:
                 _set_state(
                     conn, "running",
                     n_extracted=n_extracted,

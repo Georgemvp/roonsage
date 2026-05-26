@@ -244,17 +244,30 @@ def resolve_paths_for_tracks(
     )
 
     try:
-        # Build index once.
-        index = scan_library(music_root)
-        if not index:
-            return {"scanned": 0, "matched": 0, "unresolved": 0}
-
+        # Check upfront how many tracks actually need resolution so we can
+        # skip the expensive filesystem walk when everything is already matched.
         rows = conn.execute("""
             SELECT t.item_key, t.artist, t.album, t.title
             FROM tracks t
             LEFT JOIN track_audio_features af ON af.item_key = t.item_key
             WHERE af.item_key IS NULL OR af.file_path IS NULL
         """).fetchall()
+
+        if not rows:
+            logger.info("All tracks already have resolved paths — skipping filesystem scan")
+            result = {"scanned": 0, "matched": 0, "unresolved": 0}
+            _set_progress(
+                active=False,
+                phase="complete",
+                last_result=result,
+                finished_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            return result
+
+        # Build the in-memory file index (expensive walk, only when needed).
+        index = scan_library(music_root)
+        if not index:
+            return {"scanned": 0, "matched": 0, "unresolved": 0}
 
         _set_progress(phase="matching")
 

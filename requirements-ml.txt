@@ -3,10 +3,11 @@
 # Install with:
 #   pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-ml.txt
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.3.1+cpu
-torchaudio==2.3.1+cpu
+torch==2.11.0+cpu
+torchaudio==2.11.0+cpu
+torchvision==0.26.0+cpu
 laion-clap==1.1.6
-transformers>=4.40.0
+transformers>=4.40.0,<5.0.0
 umap-learn>=0.5.6
 hdbscan>=0.8.33
 onnxruntime>=1.18.0

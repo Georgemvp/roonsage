@@ -15,21 +15,28 @@ let _collapsed = false;
 let _dismissed = false;
 
 function _anyActive(statuses) {
-    return statuses.some(s => s?.status === 'running' || s?.status === 'analyzing' || s?.is_running);
+    return statuses.some(s =>
+        s?.status === 'running' ||
+        s?.status === 'analyzing' ||
+        s?.is_running ||
+        (s?.worker_running && (s?.pending ?? 0) > 0) ||
+        s?.scan?.active
+    );
 }
 
 async function _poll() {
-    const [af, cl, clap, lyr] = await Promise.allSettled([
+    const [af, cl, clap, lyr, enrich] = await Promise.allSettled([
         apiCall('/audio-features/status').catch(() => null),
         apiCall('/clustering/status').catch(() => null),
         apiCall('/clap/status').catch(() => null),
         apiCall('/lyrics/status').catch(() => null),
+        apiCall('/enrichment/status').catch(() => null),
     ]).then(rs => rs.map(r => r.value ?? null));
 
-    _updateTaskBar(af, cl, clap, lyr);
+    _updateTaskBar(af, cl, clap, lyr, enrich);
     _updateSettingsSections(cl, clap, lyr);
 
-    const interval = _anyActive([af, cl, clap, lyr]) ? POLL_INTERVAL_ACTIVE : POLL_INTERVAL_IDLE;
+    const interval = _anyActive([af, cl, clap, lyr, enrich]) ? POLL_INTERVAL_ACTIVE : POLL_INTERVAL_IDLE;
     _pollTimer = setTimeout(_poll, interval);
 }
 
@@ -65,7 +72,7 @@ function _setTask(id, pct, badgeText, badgeState, label) {
     if (lbl)   lbl.textContent = label;
 }
 
-function _updateTaskBar(af, cl, clap, lyr) {
+function _updateTaskBar(af, cl, clap, lyr, enrich) {
     const bar = document.getElementById('analysis-task-bar');
     if (!bar) return;
 
@@ -97,19 +104,45 @@ function _updateTaskBar(af, cl, clap, lyr) {
 
     // Lyrics
     if (lyr) {
-        const done = lyr.n_done ?? 0;
+        const done = lyr.n_embedded ?? 0;
         const total = lyr.n_total ?? 0;
         const pct = total > 0 ? (done / total) * 100 : 0;
         const { state, label } = _badge(lyr.status);
         _setTask('lyrics', pct, label, state, total > 0 ? `${done.toLocaleString()} / ${total.toLocaleString()}` : (!lyr.enabled ? 'Uitgeschakeld' : ''));
     }
 
+    // Path resolver scan (from AF status)
+    if (af?.scan) {
+        const scan = af.scan;
+        const scanActive = scan.active || scan.phase === 'walking' || scan.phase === 'matching';
+        const pct = scan.files_seen > 0 ? (scan.files_indexed / scan.files_seen) * 100 : (scan.phase === 'complete' ? 100 : 0);
+        const phaseLabel = { idle: 'Inactief', walking: 'Bezig…', matching: 'Koppelen…', complete: 'Klaar' }[scan.phase] || '—';
+        const badgeState = scanActive ? 'running' : (scan.phase === 'complete' ? 'complete' : 'idle');
+        const label = scan.files_seen > 0 ? `${(scan.files_indexed ?? 0).toLocaleString()} / ${scan.files_seen.toLocaleString()} bestanden` : '';
+        _setTask('scan', pct, phaseLabel, badgeState, label);
+    }
+
+    // Enrichment
+    if (enrich) {
+        const total = (enrich.pending ?? 0) + (enrich.complete ?? 0) + (enrich.failed ?? 0);
+        const done = enrich.complete ?? 0;
+        const pct = total > 0 ? (done / total) * 100 : 0;
+        const activelyRunning = enrich.worker_running && (enrich.pending ?? 0) > 0;
+        const badgeState = activelyRunning ? 'running' : (done > 0 ? 'complete' : 'idle');
+        const badgeText = activelyRunning ? 'Bezig…' : (done > 0 ? 'Klaar' : 'Inactief');
+        _setTask('enrich', pct, badgeText, badgeState, total > 0 ? `${done.toLocaleString()} / ${total.toLocaleString()}` : '');
+    }
+
     // Auto-show when something is active (unless user dismissed)
-    const active = _anyActive([af, cl, clap, lyr]);
+    const active = _anyActive([af, cl, clap, lyr, enrich]);
     if (active && _dismissed) _dismissed = false;
     if (!_dismissed) {
         bar.classList.toggle('hidden', !active && !_alwaysVisible());
     }
+
+    // Sidebar dot indicator
+    const dot = document.getElementById('sidebar-tasks-dot');
+    if (dot) dot.style.display = active ? '' : 'none';
 }
 
 function _alwaysVisible() {
@@ -280,7 +313,7 @@ function _restartPoll(immediate = false) {
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 export function initAnalysisTasks() {
-    // Task bar toggle / close
+    // Task bar toggle / close / pin
     document.getElementById('atb-toggle-btn')?.addEventListener('click', () => {
         _collapsed = !_collapsed;
         const body = document.getElementById('atb-body');
@@ -291,8 +324,45 @@ export function initAnalysisTasks() {
 
     document.getElementById('atb-close-btn')?.addEventListener('click', () => {
         _dismissed = true;
+        localStorage.setItem('atb-pinned', '0');
         document.getElementById('analysis-task-bar')?.classList.add('hidden');
+        document.getElementById('atb-pin-btn')?.classList.remove('atb-pin-active');
     });
+
+    document.getElementById('atb-pin-btn')?.addEventListener('click', () => {
+        const pinned = _alwaysVisible();
+        localStorage.setItem('atb-pinned', pinned ? '0' : '1');
+        const btn = document.getElementById('atb-pin-btn');
+        if (btn) btn.classList.toggle('atb-pin-active', !pinned);
+        if (!pinned) {
+            _dismissed = false;
+            document.getElementById('analysis-task-bar')?.classList.remove('hidden');
+        }
+    });
+
+    // Sidebar "Taken" button — shows + pins the task bar
+    document.getElementById('sidebar-tasks-btn')?.addEventListener('click', () => {
+        const bar = document.getElementById('analysis-task-bar');
+        if (!bar) return;
+        const isHidden = bar.classList.contains('hidden');
+        if (isHidden) {
+            _dismissed = false;
+            bar.classList.remove('hidden');
+            localStorage.setItem('atb-pinned', '1');
+            document.getElementById('atb-pin-btn')?.classList.add('atb-pin-active');
+        } else {
+            localStorage.setItem('atb-pinned', '0');
+            bar.classList.add('hidden');
+            _dismissed = true;
+            document.getElementById('atb-pin-btn')?.classList.remove('atb-pin-active');
+        }
+    });
+
+    // Apply persisted pin state on load
+    if (_alwaysVisible()) {
+        document.getElementById('analysis-task-bar')?.classList.remove('hidden');
+        document.getElementById('atb-pin-btn')?.classList.add('atb-pin-active');
+    }
 
     // Settings section buttons
     document.getElementById('cl-run-btn')?.addEventListener('click', _runClustering);
