@@ -9366,24 +9366,306 @@ body.no-scroll .pwa-toast {
     display: block;
 }
 
-/* ── DJ Set builder: 2-column with Camelot wheel on right ───────────── */
+/* ── DJ Set builder: card-based redesign ───────────────────────────── */
 #dj-builder-pane {
+    display: block;
+}
+
+/* Shared card style */
+.dj-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+}
+.dj-card--full {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Card section label */
+.dj-card-label {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+}
+.dj-card-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+.dj-card-label-row .dj-card-label {
+    margin-bottom: 0;
+}
+
+/* Row 1: BPM + Duration + Camelot */
+.dj-top-row {
     display: grid;
-    grid-template-columns: 1fr 220px;
-    gap: 16px;
-    align-items: start;
+    grid-template-columns: 1fr 1fr 280px;
+    gap: 12px;
+    margin-bottom: 12px;
 }
-.dj-camelot-card {
-    position: sticky;
-    top: 20px;
+@media (max-width: 860px) {
+    .dj-top-row { grid-template-columns: 1fr 1fr; }
+    .dj-card--camelot { grid-column: 1 / -1; }
 }
-@media (max-width: 900px) {
-    #dj-builder-pane {
-        grid-template-columns: 1fr;
-    }
-    .dj-camelot-card {
-        position: static;
-    }
+@media (max-width: 520px) {
+    .dj-top-row { grid-template-columns: 1fr; }
+}
+
+/* BPM range inputs */
+.dj-bpm-range {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.dj-bpm-input {
+    width: 72px;
+    text-align: center;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    font-family: inherit;
+    transition: border-color 120ms;
+}
+.dj-bpm-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+.dj-bpm-sep {
+    font-size: 1.1rem;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+.dj-bpm-unit {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+/* Duration pills */
+.dj-duration-pills {
+    display: flex;
+    gap: 6px;
+}
+.dj-duration-pill {
+    flex: 1;
+    padding: 8px 4px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 130ms;
+    text-align: center;
+}
+.dj-duration-pill:hover {
+    border-color: var(--border-accent);
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+.dj-duration-pill.active {
+    background: var(--accent, #2563eb);
+    color: #fff;
+    border-color: transparent;
+}
+
+/* Camelot card */
+.dj-card--camelot {
+    display: flex;
+    flex-direction: column;
+}
+.dj-camelot-hint {
+    font-size: 0.67rem;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1.5;
+    margin: 6px 0 0;
+}
+
+/* Tooltip */
+.dj-tooltip-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+.dj-tooltip-trigger {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    cursor: help;
+    flex-shrink: 0;
+}
+.dj-tooltip-box {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    width: 230px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 12px 13px;
+    font-size: 0.74rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    z-index: 100;
+    box-shadow: var(--shadow-elevated);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 150ms;
+    white-space: normal;
+}
+.dj-tooltip-wrap:hover .dj-tooltip-box {
+    opacity: 1;
+}
+
+/* Row 2: Energy curve (full width) */
+.dj-card--full {
+    margin-bottom: 12px;
+}
+
+/* Row 3: Mix Style + Options */
+.dj-bottom-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+@media (max-width: 600px) {
+    .dj-bottom-row { grid-template-columns: 1fr; }
+}
+
+/* Mix style radio list */
+.dj-mix-style-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.dj-mix-style-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background 120ms, border-color 120ms;
+}
+.dj-mix-style-item:hover {
+    background: var(--bg-elevated);
+    border-color: var(--border);
+}
+.dj-mix-style-item input[type="radio"] {
+    flex-shrink: 0;
+    accent-color: var(--accent, #2563eb);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+}
+.dj-mix-style-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.dj-mix-style-name {
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.dj-mix-style-help {
+    display: inline-flex;
+    align-items: center;
+}
+.dj-mix-style-sub {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+/* Options checkboxes */
+.dj-options-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.dj-option-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    line-height: 1.4;
+}
+.dj-option-item input[type="checkbox"] {
+    flex-shrink: 0;
+    accent-color: var(--accent, #2563eb);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+/* Action buttons row */
+.dj-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 4px;
+    margin-bottom: 16px;
+}
+.dj-btn-primary {
+    padding: 10px 22px;
+    border-radius: 9px;
+    border: none;
+    background: var(--accent, #2563eb);
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 130ms, background 130ms;
+}
+.dj-btn-primary:hover { opacity: 0.88; }
+.dj-btn-secondary {
+    padding: 10px 20px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 130ms, border-color 130ms;
+}
+.dj-btn-secondary:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-accent);
+    color: var(--text-primary);
 }
 
 /* ═══════════════════════════════════════════════════════

@@ -350,8 +350,6 @@ async function _build(ev) {
     if (status) { status.textContent = 'Bouw set…'; status.style.color = ''; }
 
     const genres = Array.from(_selectedGenres);
-    const startMood = document.getElementById('dj-start-mood')?.value || null;
-    const endMood   = document.getElementById('dj-end-mood')?.value   || null;
 
     const payload = {
         duration_minutes: parseInt(document.getElementById('dj-duration').value, 10) || 60,
@@ -359,8 +357,14 @@ async function _build(ev) {
         end_bpm: parseFloat(document.getElementById('dj-end-bpm').value) || 128,
         energy_curve: document.getElementById('dj-curve').value || 'ramp_up',
         genres,
-        start_mood: startMood || null,
-        end_mood:   (endMood && endMood !== startMood) ? endMood : null,
+        start_mood: document.getElementById('dj-start-mood')?.value || null,
+        end_mood:   document.getElementById('dj-end-mood')?.value   || null,
+        mix_style:  document.querySelector('input[name="dj-mix-style"]:checked')?.value || 'harmonic',
+        allow_half_step: document.getElementById('dj-opt-halfstep')?.checked ?? true,
+        max_per_artist: document.getElementById('dj-opt-max-artist')?.checked ? 2 : null,
+        analyzed_only: document.getElementById('dj-opt-analyzed')?.checked ?? false,
+        exclude_live: document.getElementById('dj-opt-no-live')?.checked ?? true,
+        skip_recent: document.getElementById('dj-opt-no-recent')?.checked ?? false,
     };
 
     try {
@@ -579,18 +583,18 @@ export function renderCamelotWheel(containerId, activeKeys = []) {
 // Energy curve grid — visual buttons with SVG previews
 // ─────────────────────────────────────────────────────────────────────────
 const ENERGY_CURVES = [
-    { id:'flat',         label:'Gelijkmatig',  path:'M 2,50 L 98,50' },
-    { id:'ramp_up',      label:'Oplopend',     path:'M 2,85 C 40,70 65,35 98,12' },
-    { id:'ramp_down',    label:'Aflopend',     path:'M 2,12 C 35,18 68,58 98,85' },
-    { id:'peak',         label:'Piek',         path:'M 2,62 C 25,20 42,12 52,12 C 68,12 82,38 98,52' },
-    { id:'valley',       label:'Dal',          path:'M 2,20 C 25,25 40,70 52,80 C 65,70 80,25 98,20' },
+    { id:'flat',         label:'Flat',         path:'M 2,50 L 98,50' },
+    { id:'ramp_up',      label:'Build',        path:'M 2,85 C 40,70 65,35 98,12' },
+    { id:'ramp_down',    label:'Wind Down',    path:'M 2,12 C 35,18 68,58 98,85' },
+    { id:'peak',         label:'Peak Hour',    path:'M 2,62 C 25,20 42,12 52,12 C 68,12 82,38 98,52' },
     { id:'crescendo',    label:'Crescendo',    path:'M 2,80 C 55,75 75,40 98,5' },
-    { id:'sunrise',      label:'Zonsopgang',   path:'M 2,90 C 30,85 55,50 70,25 C 82,8 92,10 98,15' },
-    { id:'explosion',    label:'Explosie',     path:'M 2,70 C 15,65 30,20 45,5 C 55,5 70,50 98,70' },
-    { id:'afterparty',   label:'Afterparty',   path:'M 2,15 C 20,12 38,18 55,40 C 70,60 85,72 98,80' },
-    { id:'wave',         label:'Golf',         path:'M 2,50 C 20,20 40,80 60,20 C 78,5 90,30 98,50' },
+    { id:'wave',         label:'Wave',         path:'M 2,50 C 20,20 40,80 60,20 C 78,5 90,30 98,50' },
+    { id:'sunrise',      label:'Sunrise',      path:'M 2,90 C 30,85 55,50 70,25 C 82,8 92,10 98,15' },
     { id:'marathon',     label:'Marathon',     path:'M 2,35 C 20,32 40,38 60,33 C 78,28 90,35 98,32' },
-    { id:'rollercoaster',label:'Achtbaan',     path:'M 2,60 L 20,15 L 38,60 L 56,15 L 74,60 L 92,15 L 98,30' },
+    { id:'rollercoaster',label:'Intervals',    path:'M 2,60 L 20,15 L 38,60 L 56,15 L 74,60 L 92,15 L 98,30' },
+    { id:'explosion',    label:'Explosion',    path:'M 2,70 C 15,65 30,20 45,5 C 55,5 70,50 98,70' },
+    { id:'afterparty',   label:'Afterparty',   path:'M 2,15 C 20,12 38,18 55,40 C 70,60 85,72 98,80' },
+    { id:'valley',       label:'Valley',       path:'M 2,20 C 25,25 40,70 52,80 C 65,70 80,25 98,20' },
 ];
 
 function _renderCurveGrid() {
@@ -635,23 +639,27 @@ export async function initDJSetView() {
             document.getElementById('dj-zone-modal')?.classList.add('hidden');
         });
 
+        // Template shortcut button
+        document.getElementById('dj-template-shortcut-btn')?.addEventListener('click', () => {
+            switchDJTab('templates');
+        });
+
+        // Duration pills
+        document.querySelectorAll('.dj-duration-pill').forEach(pill => {
+            pill.addEventListener('click', () => {
+                const dur = pill.dataset.dur;
+                const hidden = document.getElementById('dj-duration');
+                if (hidden) hidden.value = dur;
+                document.querySelectorAll('.dj-duration-pill').forEach(p => p.classList.remove('active'));
+                pill.classList.add('active');
+            });
+        });
+
         // Tabs
         document.querySelectorAll('#dj-set-view .rs-tab[data-dj-tab]').forEach(btn => {
             btn.addEventListener('click', () => switchDJTab(btn.dataset.djTab));
         });
 
-        // Filter end moods + BPM auto-suggest when mood or curve changes
-        ['dj-start-mood', 'dj-curve'].forEach(id => {
-            document.getElementById(id)?.addEventListener('change', () => {
-                _filterEndMoods();
-                _bpmUserEdited = false;
-                _suggestBpm();
-            });
-        });
-        document.getElementById('dj-end-mood')?.addEventListener('change', () => {
-            _bpmUserEdited = false;
-            _suggestBpm();
-        });
         // Track manual BPM edits
         ['dj-start-bpm', 'dj-end-bpm'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', () => {
@@ -674,6 +682,5 @@ export async function initDJSetView() {
         _initialized = true;
     }
     _renderCurveGrid();
-    _filterEndMoods();
     await _loadGenres();
 }

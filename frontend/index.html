@@ -1345,143 +1345,157 @@
                 </div>
 
                 <div id="dj-builder-pane" class="dj-tab-pane">
-                <div> <!-- Left: form + results -->
-                <section class="auto-section">
-                    <form id="dj-form" class="auto-form" autocomplete="off">
-                        <div class="auto-form-grid">
-                            <div>
-                                <div class="rs-form-group">
-                                    <label class="rs-form-label" for="dj-duration">Duration (minutes)</label>
-                                    <input id="dj-duration" type="number" class="auto-form-input" min="10" max="240" value="60" />
+                    <form id="dj-form" autocomplete="off">
+
+                        <!-- Row 1: BPM Range + Duration + Camelot Wheel -->
+                        <div class="dj-top-row">
+
+                            <!-- BPM Range card -->
+                            <div class="dj-card">
+                                <div class="dj-card-label">BPM Range</div>
+                                <div class="dj-bpm-range">
+                                    <input id="dj-start-bpm" type="number" class="dj-bpm-input" min="40" max="220" step="1" value="110" />
+                                    <span class="dj-bpm-sep">–</span>
+                                    <input id="dj-end-bpm" type="number" class="dj-bpm-input" min="40" max="220" step="1" value="128" />
+                                    <span class="dj-bpm-unit">BPM</span>
                                 </div>
-                                <div class="rs-form-group">
-                                    <label class="rs-form-label" for="dj-start-bpm">Start BPM</label>
-                                    <input id="dj-start-bpm" type="number" class="auto-form-input" min="40" max="220" step="1" value="110" />
-                                </div>
-                                <div class="rs-form-group">
-                                    <label class="rs-form-label" for="dj-end-bpm">Eind BPM</label>
-                                    <input id="dj-end-bpm" type="number" class="auto-form-input" min="40" max="220" step="1" value="128" />
-                                </div>
-                                <div id="dj-bpm-hint" style="font-size:0.78rem;color:var(--text-muted);margin-top:2px;min-height:1.2em;"></div>
+                                <div id="dj-bpm-hint" style="font-size:0.72rem;color:var(--text-muted);margin-top:6px;min-height:1.1em;"></div>
                             </div>
-                            <div>
-                                <div class="form-group">
-                                    <label style="display:block;font-size:0.7rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px">Energiecurve</label>
-                                    <div id="dj-curve-grid" class="dj-curve-grid"></div>
-                                    <!-- Hidden input that existing form code reads -->
-                                    <input type="hidden" id="dj-curve" value="ramp_up">
-                                </div>
-                                <div class="rs-form-group">
-                                    <label class="rs-form-label" for="dj-start-mood">Start mood</label>
-                                    <select id="dj-start-mood" class="auto-form-select">
-                                        <option value="">— Geen voorkeur —</option>
-                                        <optgroup label="Hoog energie">
-                                            <option value="euforisch">Euforisch</option>
-                                            <option value="feestelijk">Feestelijk</option>
-                                            <option value="opgewonden">Opgewonden</option>
-                                            <option value="energiek">Energiek</option>
-                                            <option value="vrolijk">Vrolijk</option>
-                                            <option value="blij">Blij</option>
-                                        </optgroup>
-                                        <optgroup label="Krachtig">
-                                            <option value="krachtig">Krachtig</option>
-                                            <option value="intens">Intens</option>
-                                            <option value="serieus">Serieus</option>
-                                        </optgroup>
-                                        <optgroup label="Midden">
-                                            <option value="nostalgisch">Nostalgisch</option>
-                                            <option value="romantisch">Romantisch</option>
-                                        </optgroup>
-                                        <optgroup label="Ontspannen">
-                                            <option value="chill">Chill</option>
-                                            <option value="zacht">Zacht</option>
-                                            <option value="dromerig">Dromerig</option>
-                                            <option value="rustig">Rustig</option>
-                                            <option value="meditatief">Meditatief</option>
-                                        </optgroup>
-                                        <optgroup label="Donker">
-                                            <option value="melancholisch">Melancholisch</option>
-                                            <option value="donker">Donker</option>
-                                        </optgroup>
-                                    </select>
-                                </div>
-                                <div class="rs-form-group">
-                                    <label class="rs-form-label" for="dj-end-mood">Eindmood <span style="font-size:0.8em;color:var(--text-muted);">(optioneel overgang)</span></label>
-                                    <select id="dj-end-mood" class="auto-form-select">
-                                        <option value="">— Zelfde als start —</option>
-                                        <optgroup label="Hoog energie">
-                                            <option value="euforisch">Euforisch</option>
-                                            <option value="feestelijk">Feestelijk</option>
-                                            <option value="opgewonden">Opgewonden</option>
-                                            <option value="energiek">Energiek</option>
-                                            <option value="vrolijk">Vrolijk</option>
-                                            <option value="blij">Blij</option>
-                                        </optgroup>
-                                        <optgroup label="Krachtig">
-                                            <option value="krachtig">Krachtig</option>
-                                            <option value="intens">Intens</option>
-                                            <option value="serieus">Serieus</option>
-                                        </optgroup>
-                                        <optgroup label="Midden">
-                                            <option value="nostalgisch">Nostalgisch</option>
-                                            <option value="romantisch">Romantisch</option>
-                                        </optgroup>
-                                        <optgroup label="Ontspannen">
-                                            <option value="chill">Chill</option>
-                                            <option value="zacht">Zacht</option>
-                                            <option value="dromerig">Dromerig</option>
-                                            <option value="rustig">Rustig</option>
-                                            <option value="meditatief">Meditatief</option>
-                                        </optgroup>
-                                        <optgroup label="Donker">
-                                            <option value="melancholisch">Melancholisch</option>
-                                            <option value="donker">Donker</option>
-                                        </optgroup>
-                                    </select>
+
+                            <!-- Duration card -->
+                            <div class="dj-card">
+                                <div class="dj-card-label">Duur</div>
+                                <div class="dj-duration-pills">
+                                    <button type="button" class="dj-duration-pill" data-dur="30">30m</button>
+                                    <button type="button" class="dj-duration-pill active" data-dur="60">60m</button>
+                                    <button type="button" class="dj-duration-pill" data-dur="90">90m</button>
+                                    <button type="button" class="dj-duration-pill" data-dur="120">120m</button>
                                 </div>
                             </div>
+
+                            <!-- Camelot Wheel card -->
+                            <div class="dj-card dj-card--camelot">
+                                <div class="dj-card-label-row">
+                                    <span class="dj-card-label">Camelot Wiel</span>
+                                    <div class="dj-tooltip-wrap">
+                                        <div class="dj-tooltip-trigger">?</div>
+                                        <div class="dj-tooltip-box">
+                                            <strong style="color:var(--text-primary);display:block;margin-bottom:6px">Wat is het Camelot Wiel?</strong>
+                                            Elke toonsoort heeft een nummer (1–12) en letter (A of B). Nummers die naast elkaar staan klinken goed op elkaar. Zo kiest RoonSage tracks die muzikaal vloeiend in elkaar overlopen.
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="dj-camelot-wheel"></div>
+                                <p class="dj-camelot-hint">Aaneengesloten en naburige nummers zijn harmonisch compatibel</p>
+                            </div>
+
+                        </div><!-- /dj-top-row -->
+
+                        <!-- Row 2: Energy Curve (full width) -->
+                        <div class="dj-card dj-card--full">
+                            <div class="dj-card-label">Energiecurve</div>
+                            <div id="dj-curve-grid" class="dj-curve-grid"></div>
+                            <input type="hidden" id="dj-curve" value="ramp_up">
                         </div>
 
-                        <div class="rs-form-group" style="margin-top:var(--spacing-sm);">
-                            <label class="rs-form-label">Genres <span id="dj-genre-selected-count" style="font-size:0.8em;color:var(--text-muted);">(optioneel — alles als niets geselecteerd)</span></label>
-                            <div id="dj-genre-cloud" class="rs-chips" style="margin-top:6px;min-height:32px;">
-                                <span style="color:var(--text-muted);font-size:0.85em;">Laden…</span>
+                        <!-- Row 3: Mix Style + Options -->
+                        <div class="dj-bottom-row">
+
+                            <!-- Mix Style card -->
+                            <div class="dj-card">
+                                <div class="dj-card-label">Mix Stijl</div>
+                                <div class="dj-mix-style-list">
+                                    <label class="dj-mix-style-item">
+                                        <input type="radio" name="dj-mix-style" id="dj-mix-style-harmonic" value="harmonic" checked>
+                                        <div class="dj-mix-style-info">
+                                            <span class="dj-mix-style-name">Harmonisch
+                                                <span class="dj-mix-style-help dj-tooltip-wrap">
+                                                    <span class="dj-tooltip-trigger">?</span>
+                                                    <span class="dj-tooltip-box">Tracks worden geselecteerd op basis van Camelot-compatibele toonsoorten voor vloeiende overgangen.</span>
+                                                </span>
+                                            </span>
+                                            <span class="dj-mix-style-sub">Camelot-compatible keys</span>
+                                        </div>
+                                    </label>
+                                    <label class="dj-mix-style-item">
+                                        <input type="radio" name="dj-mix-style" id="dj-mix-style-energy" value="energy">
+                                        <div class="dj-mix-style-info">
+                                            <span class="dj-mix-style-name">Energie
+                                                <span class="dj-mix-style-help dj-tooltip-wrap">
+                                                    <span class="dj-tooltip-trigger">?</span>
+                                                    <span class="dj-tooltip-box">BPM en energie staan centraal; harmonische compatibiliteit is secundair.</span>
+                                                </span>
+                                            </span>
+                                            <span class="dj-mix-style-sub">BPM en energie centraal</span>
+                                        </div>
+                                    </label>
+                                    <label class="dj-mix-style-item">
+                                        <input type="radio" name="dj-mix-style" id="dj-mix-style-groove" value="groove">
+                                        <div class="dj-mix-style-info">
+                                            <span class="dj-mix-style-name">Groove
+                                                <span class="dj-mix-style-help dj-tooltip-wrap">
+                                                    <span class="dj-tooltip-trigger">?</span>
+                                                    <span class="dj-tooltip-box">Ritme en feel staan centraal; gestuurd op dansbaarheidsscore.</span>
+                                                </span>
+                                            </span>
+                                            <span class="dj-mix-style-sub">Ritme en feel gestuurd</span>
+                                        </div>
+                                    </label>
+                                </div>
                             </div>
+
+                            <!-- Options card -->
+                            <div class="dj-card">
+                                <div class="dj-card-label">Opties</div>
+                                <div class="dj-options-list">
+                                    <label class="dj-option-item">
+                                        <input type="checkbox" id="dj-opt-halfstep" checked>
+                                        <span>Halveertoonswijzigingen toestaan</span>
+                                    </label>
+                                    <label class="dj-option-item">
+                                        <input type="checkbox" id="dj-opt-max-artist" checked>
+                                        <span>Max 2 tracks per artiest</span>
+                                    </label>
+                                    <label class="dj-option-item">
+                                        <input type="checkbox" id="dj-opt-analyzed">
+                                        <span>Alleen audio-geanalyseerde tracks</span>
+                                    </label>
+                                    <label class="dj-option-item">
+                                        <input type="checkbox" id="dj-opt-no-live" checked>
+                                        <span>Live versies overslaan</span>
+                                    </label>
+                                    <label class="dj-option-item">
+                                        <input type="checkbox" id="dj-opt-no-recent" checked>
+                                        <span>Recent gespeeld overslaan</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                        </div><!-- /dj-bottom-row -->
+
+                        <!-- Genre cloud (hidden, kept for JS) -->
+                        <div id="dj-genre-cloud" class="rs-chips" style="display:none;"></div>
+                        <input type="hidden" id="dj-duration" value="60">
+
+                        <!-- Action buttons -->
+                        <div class="dj-form-actions">
+                            <button id="dj-build-btn" type="submit" class="dj-btn-primary">&#9835; Set bouwen</button>
+                            <button id="dj-template-shortcut-btn" type="button" class="dj-btn-secondary">&#8801; Kies template</button>
+                            <button id="dj-play-btn" type="button" class="dj-btn-primary" style="display:none;">&#9654; Speel af op zone</button>
+                            <button id="dj-save-btn" type="button" class="dj-btn-secondary" style="display:none;">Opslaan</button>
+                            <button id="dj-arc-btn" type="button" class="dj-btn-secondary" style="display:none;">Opslaan in Arc &#8599;</button>
                         </div>
 
-                        <div class="auto-form-actions">
-                            <button id="dj-build-btn" type="submit" class="rs-btn rs-btn--primary">Build set</button>
-                            <button id="dj-play-btn" type="button" class="rs-btn rs-btn--primary" style="display:none;">▶ Speel af op zone</button>
-                            <button id="dj-save-btn" type="button" class="rs-btn rs-btn--secondary" style="display:none;">Opslaan</button>
-                            <button id="dj-arc-btn" type="button" class="rs-btn rs-btn--secondary" style="display:none;">Opslaan in Arc ↗</button>
-                        </div>
                     </form>
-                </section>
 
-                <section class="auto-section">
-                    <canvas id="dj-curve-chart" style="max-height:200px;"></canvas>
+                    <!-- Result area (outside form) -->
+                    <canvas id="dj-curve-chart" style="max-height:200px;display:none;"></canvas>
                     <div id="dj-result" class="auto-list"></div>
                     <div id="dj-result-actions" style="display:none;margin-top:var(--spacing-sm);">
                         <input id="dj-set-name" type="text" class="auto-form-input" style="width:100%;" placeholder="Naam voor deze set…" />
                     </div>
                     <div id="dj-status" class="enrich-result"></div>
-                </section>
-                </div> <!-- End left column -->
 
-                <!-- Camelot Wheel (right column) -->
-                <div class="dj-camelot-card" style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-                        <span style="font-size:0.62rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted)">Camelot Wiel</span>
-                        <div class="dj-tooltip-wrap" style="position:relative">
-                            <div style="width:16px;height:16px;border-radius:50%;background:var(--bg-elevated);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;color:var(--text-muted);cursor:help">?</div>
-                            <div class="dj-tooltip-box" style="position:absolute;right:0;bottom:calc(100% + 8px);width:230px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:9px;padding:12px 13px;font-size:0.74rem;color:var(--text-secondary);line-height:1.6;z-index:100;box-shadow:var(--shadow-elevated);pointer-events:none;opacity:0;transition:opacity 150ms;white-space:normal">
-                                <strong style="color:var(--text-primary);display:block;margin-bottom:6px">Wat is het Camelot Wiel?</strong>
-                                Elke toonsoort heeft een nummer (1–12) en letter (A of B). Nummers die naast elkaar staan klinken goed op elkaar. Zo kiest RoonSage tracks die muzikaal vloeiend in elkaar overlopen.
-                            </div>
-                        </div>
-                    </div>
-                    <div id="dj-camelot-wheel"></div>
-                </div>
                 </div> <!-- End #dj-builder-pane grid -->
 
                 <div id="dj-templates-pane" class="dj-tab-pane" style="display:none;">
