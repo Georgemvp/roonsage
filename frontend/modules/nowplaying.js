@@ -75,6 +75,8 @@ function _removeZonePicker() {
     document.removeEventListener('click', _onDocClick);
 }
 
+export function getCurrentZoneId() { return _currentZoneId; }
+
 export function startNowPlaying() {
     if (_pollTimer) return; // already running
     _poll();

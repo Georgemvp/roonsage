@@ -4,6 +4,7 @@
 
 import { apiCall } from './api.js';
 import { escapeHtml } from './utils.js';
+import { getCurrentZoneId } from './nowplaying.js';
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -420,13 +421,13 @@ async function _playItem(btn) {
     btn.textContent = '…';
 
     try {
-        // Resolve active zone from state (if available) or fall back to first zone
-        let zoneId = window._roonState?.selectedZone || null;
+        // Use zone currently active in the now-playing bar; fall back to first available
+        let zoneId = getCurrentZoneId();
         if (!zoneId) {
             try {
-                const zonesResp = await apiCall('/roon/zones');
-                const zones = zonesResp?.zones || zonesResp || [];
-                if (zones.length) zoneId = zones[0].zone_id;
+                const zones = await apiCall('/roon/zones');
+                const list = Array.isArray(zones) ? zones : (zones?.zones || []);
+                if (list.length) zoneId = list[0].zone_id;
             } catch (_) { /* ignore */ }
         }
 
@@ -436,17 +437,17 @@ async function _playItem(btn) {
             return;
         }
 
-        const payload = {
-            zone_id: zoneId,
-            item_keys: [key],
-        };
-
         if (type === 'album') {
-            // For albums, use the search + play approach via the existing queue endpoint
-            payload.replace_queue = true;
+            await apiCall('/roon/play-album', {
+                method: 'POST',
+                body: JSON.stringify({ album_item_key: key, zone_id: zoneId }),
+            });
+        } else {
+            await apiCall('/queue', {
+                method: 'POST',
+                body: JSON.stringify({ zone_id: zoneId, item_keys: [key] }),
+            });
         }
-
-        await apiCall('/queue', { method: 'POST', body: JSON.stringify(payload) });
         btn.textContent = '✓';
         setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
     } catch (e) {
