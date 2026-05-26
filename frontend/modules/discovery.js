@@ -59,6 +59,9 @@ function _render(view, data) {
         <h2 class="rs-view-title">Discover</h2>
         <p class="discovery-subtitle">Gevoed door je Last.fm &amp; ListenBrainz luistergeschiedenis.</p>
 
+        ${_renderStatsBar(data)}
+        ${_renderFeaturedGem(favorites, lbReleases)}
+
         ${_renderLbTopReleases(lbReleases)}
         ${_renderLbLoved(lbLoved)}
         ${_renderFavoritesInLibrary(favorites)}
@@ -91,6 +94,65 @@ function _render(view, data) {
 }
 
 // ── Section: LB Top Releases in Library ──────────────────────────────────────
+
+// ── Discovery stats bar ──────────────────────────────────────────────────
+function _renderStatsBar(data) {
+    const stats = [
+        {
+            value: data.stats?.unplayed_albums ?? data.unplayed_albums ?? (data.favorites_in_library?.length || 0),
+            label: 'Onbespeelde albums',
+        },
+        {
+            value: data.stats?.unplayed_tracks ?? data.unplayed_tracks ?? (data.deep_cuts?.length || 0),
+            label: 'Onbespeelde tracks',
+        },
+        {
+            value: data.stats?.forgotten ?? data.forgotten_favorites?.length ?? 0,
+            label: 'Vergeten favorieten',
+        },
+        {
+            value: data.stats?.new_additions ?? data.lb_loved_in_library?.length ?? 0,
+            label: 'Recent toegevoegd',
+        },
+    ];
+    return `
+        <div class="rs-disc-stats">
+            ${stats.map(s => `
+                <div class="rs-disc-stat">
+                    <span class="rs-disc-stat-value">${s.value}</span>
+                    <span class="rs-disc-stat-label">${escapeHtml(s.label)}</span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+// ── Featured Hidden Gem ──────────────────────────────────────────────────
+function _renderFeaturedGem(favorites, lbReleases) {
+    const album = favorites?.[0] || lbReleases?.[0];
+    if (!album) return '';
+
+    const artHtml = album.image_key
+        ? `<img src="/api/art/${album.image_key}?width=400&height=400" alt="" onerror="this.style.display='none'">`
+        : '';
+
+    return `
+        <div class="rs-disc-featured">
+            <div class="rs-disc-featured-art">${artHtml}</div>
+            <div class="rs-disc-featured-content">
+                <div class="rs-disc-featured-label">Uitgelicht: Hidden Gem</div>
+                <div class="rs-disc-featured-title">${escapeHtml(album.album || album.title || '—')}</div>
+                <div class="rs-disc-featured-meta">${escapeHtml([album.artist, album.year, album.genre].filter(Boolean).join(' · '))}</div>
+                ${album.parent_item_key ? `
+                <button class="btn btn-primary btn-sm"
+                    data-play-key="${escapeHtml(album.parent_item_key)}"
+                    data-play-type="album">
+                    ▶ Speel album
+                </button>` : ''}
+            </div>
+        </div>
+    `;
+}
 
 function _renderLbTopReleases(albums) {
     if (!albums.length) return '';
