@@ -25,21 +25,39 @@ export function initPlaylistsView() {
 }
 
 function _bindTabs() {
-    document.querySelectorAll('.rs-tab').forEach(btn => {
+    document.querySelectorAll('.rs-playlist-tab').forEach(btn => {
         btn.addEventListener('click', () => {
             const tab = btn.dataset.tab;
             if (tab === _activeTab) return;
             _activeTab = tab;
-            document.querySelectorAll('.rs-tab').forEach(b => {
-                b.classList.toggle('active', b.dataset.tab === tab);
+            document.querySelectorAll('.rs-playlist-tab').forEach(b => {
+                b.classList.toggle('on', b.dataset.tab === tab);
                 b.setAttribute('aria-selected', b.dataset.tab === tab ? 'true' : 'false');
             });
-            document.getElementById('playlists-tab-content').style.display = tab === 'playlists' ? '' : 'none';
-            document.getElementById('dj-sets-tab-content').style.display  = tab === 'dj-sets'   ? '' : 'none';
-            if (tab === 'dj-sets') loadDJSets();
-            else { renderFilters(); loadPlaylists(); bindSearch(); }
+            const playlistsPane = document.getElementById('playlists-tab-content');
+            const djPane        = document.getElementById('dj-sets-tab-content');
+            if (tab === 'all') {
+                if (playlistsPane) playlistsPane.style.display = '';
+                if (djPane)        djPane.style.display        = '';
+                renderFilters(); loadPlaylists(); bindSearch(); loadDJSets();
+            } else if (tab === 'dj-sets') {
+                if (playlistsPane) playlistsPane.style.display = 'none';
+                if (djPane)        djPane.style.display        = '';
+                loadDJSets();
+            } else {
+                if (playlistsPane) playlistsPane.style.display = '';
+                if (djPane)        djPane.style.display        = 'none';
+                renderFilters(); loadPlaylists(); bindSearch();
+            }
         });
     });
+}
+
+function _updatePlaylistCounts() {
+    const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    setText('pl-count-all', _playlists.length + _djSets.length);
+    setText('pl-count-playlist', _playlists.length);
+    setText('pl-count-djset', _djSets.length);
 }
 
 // ── API helpers ──────────────────────────────────────────────────────────────
@@ -234,6 +252,7 @@ function renderPlaylists() {
         return;
     }
     container.innerHTML = list.map(p => playlistCardHtml(p)).join('');
+    _updatePlaylistCounts();
 
     // Bind card events
     container.querySelectorAll('.pl-card').forEach(card => {
@@ -651,6 +670,7 @@ function renderDJSets() {
         return;
     }
     grid.innerHTML = _djSets.map(_djSetCardHtml).join('');
+    _updatePlaylistCounts();
 
     grid.querySelectorAll('.pl-card[data-dj-id]').forEach(card => {
         const id = parseInt(card.dataset.djId, 10);

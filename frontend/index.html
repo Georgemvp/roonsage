@@ -936,9 +936,20 @@
 
             <!-- Playlists Library View -->
             <div id="playlists-view" class="view">
-                <div class="pl-view-tabs" role="tablist">
-                    <button class="pl-view-tab pl-view-tab--active" data-tab="playlists" role="tab" aria-selected="true">Playlists</button>
-                    <button class="pl-view-tab" data-tab="dj-sets" role="tab" aria-selected="false">DJ Sets</button>
+                <!-- Tabs -->
+                <div class="rs-playlist-tabs" role="tablist" aria-label="Playlist filter">
+                    <button class="rs-playlist-tab on" data-tab="all" role="tab" aria-selected="true">
+                        Alles
+                        <span class="rs-playlist-tab-count" id="pl-count-all">—</span>
+                    </button>
+                    <button class="rs-playlist-tab" data-tab="playlists" role="tab" aria-selected="false">
+                        Playlists
+                        <span class="rs-playlist-tab-count" id="pl-count-playlist">—</span>
+                    </button>
+                    <button class="rs-playlist-tab" data-tab="dj-sets" role="tab" aria-selected="false">
+                        DJ Sets
+                        <span class="rs-playlist-tab-count" id="pl-count-djset">—</span>
+                    </button>
                 </div>
 
                 <!-- Playlists tab -->

@@ -8978,3 +8978,69 @@ body.no-scroll .pwa-toast {
 .rs-quick-btn svg {
     display: block;
 }
+
+/* ── Playlists view: filter tabs ─────────────────────────────────────── */
+.rs-playlist-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+}
+.rs-playlist-tab {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 16px 11px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 0.86rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 140ms;
+}
+.rs-playlist-tab:hover {
+    color: var(--text-secondary);
+}
+.rs-playlist-tab.on {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+}
+.rs-playlist-tab-count {
+    font-size: 0.69rem;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-weight: 500;
+}
+.rs-playlist-tab.on .rs-playlist-tab-count {
+    background: var(--accent-dim);
+    color: var(--accent-bright);
+}
+
+/* DJ Set badge on cards */
+.rs-djset-badge {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: #fff;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    z-index: 2;
+}
