@@ -1,0 +1,716 @@
+
+
+/* =============================================================================
+   MY TASTE — base card + typography
+   ============================================================================= */
+.taste-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+.taste-section-title {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    margin-bottom: var(--spacing-md);
+    color: var(--accent);
+}
+.taste-status { color: var(--text-muted); font-size: var(--font-size-sm); margin-bottom: var(--spacing-md); }
+.taste-empty { color: var(--text-muted); text-align: center; padding: var(--spacing-lg) 0; }
+.taste-empty-inline { color: var(--text-muted); font-size: var(--font-size-sm); }
+
+/* ── Intelligence Banner ── */
+.taste-intel-banner { margin-bottom: var(--spacing-lg); }
+.taste-intel-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+}
+.taste-intel-text { flex: 1; min-width: 0; }
+.taste-intel-headline {
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0 0 4px;
+}
+.taste-intel-subtitle {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    margin: 0;
+}
+.taste-intel-chips {
+    display: flex;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+    align-items: flex-start;
+    flex-shrink: 0;
+}
+.taste-intel-chip {
+    background: var(--amber-dim);
+    border: 1px solid var(--amber-glow);
+    border-radius: 100px;
+    color: var(--accent);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    padding: 4px 14px;
+    white-space: nowrap;
+}
+
+/* ── 2-Column Grid ── */
+.taste-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--spacing-lg);
+    margin-bottom: 0; /* spacing handled by child .taste-section margin-bottom */
+}
+.taste-grid-col {
+    display: flex;
+    flex-direction: column;
+    /* gap comes from .taste-section margin-bottom */
+}
+/* Sections inside grid columns don't double-margin at bottom */
+.taste-grid-col .taste-section:last-child { margin-bottom: 0; }
+
+/* Radar fills its column */
+.taste-radar-wrap {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+}
+
+/* ── History ── */
+.taste-history-list {}
+.taste-hist-event {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) 0;
+    border-bottom: 1px solid rgba(58,58,58,.5);
+}
+.taste-hist-event:last-child { border-bottom: none; }
+.taste-hist-event--skipped { opacity: .6; }
+.taste-hist-art {
+    width: 40px;
+    height: 40px;
+    border-radius: 4px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+.taste-hist-art--placeholder {
+    background: var(--bg-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    color: var(--text-muted);
+}
+.taste-hist-info { flex: 1; min-width: 0; }
+.taste-hist-title {
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.taste-hist-artist { font-size: 0.75rem; color: var(--text-secondary); }
+.taste-hist-meta { text-align: right; flex-shrink: 0; font-size: 0.75rem; color: var(--text-muted); }
+.taste-hist-skip { color: var(--error); font-size: 0.7rem; display: block; }
+.taste-hist-time { display: block; }
+
+/* ── Voorkeuren — compact likes/dislikes row ── */
+.taste-prefs-row {
+    display: flex;
+    gap: var(--spacing-xl);
+    flex-wrap: wrap;
+}
+.taste-prefs-row .taste-notes-block {
+    flex: 1;
+    min-width: 180px;
+    margin-bottom: 0;
+}
+
+/* Notes chips */
+.taste-notes-block { margin-bottom: var(--spacing-md); }
+.taste-notes-block h3 { font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: var(--spacing-sm); }
+.taste-chips-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.taste-chip {
+    background: var(--amber-dim);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-full);
+    color: var(--accent);
+    font-size: var(--font-size-sm);
+    padding: 4px 12px;
+}
+.taste-chip--dislike {
+    background: rgba(233,92,89,.1);
+    border-color: var(--error);
+    color: var(--error);
+}
+
+/* =============================================================================
+   LISTENBRAINZ — bar charts, heatmap, lists
+   ============================================================================= */
+
+.lb-status-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--spacing-md);
+}
+.lb-status-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+.lb-status-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    align-items: center;
+}
+.lb-stat-chip {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 2px 10px;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+}
+.lb-profile-link {
+    color: var(--accent);
+    font-size: var(--font-size-xs);
+    text-decoration: none;
+}
+.lb-profile-link:hover { text-decoration: underline; }
+
+/* ── LB details element (collapsed status card) ── */
+.taste-lb-details {
+    margin-bottom: var(--spacing-lg);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md) var(--spacing-lg);
+}
+.taste-lb-summary {
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    list-style: none;
+    user-select: none;
+    padding: 2px 0;
+}
+.taste-lb-summary::-webkit-details-marker { display: none; }
+.taste-lb-details[open] .taste-lb-summary { margin-bottom: var(--spacing-md); }
+.lb-actions {
+    margin-top: 0.75rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+/* ── Bar charts ── */
+.lb-bar-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.lb-bar-row {
+    display: grid;
+    grid-template-columns: 110px 1fr 36px;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-size-sm);
+}
+.lb-bar-label {
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.lb-bar-track {
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    height: 8px;
+    overflow: hidden;
+}
+.lb-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+.lb-bar-value {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    text-align: right;
+}
+
+/* ── Heatmap (20px cells) ── */
+.lb-heatmap-container {
+    overflow-x: auto;
+}
+.lb-heatmap {
+    display: grid;
+    gap: 3px;
+}
+.lb-heatmap-cell {
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    background: var(--bg-tertiary);
+}
+.lb-heatmap-labels {
+    display: flex;
+    gap: 3px;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    padding-left: 48px;
+}
+.lb-heatmap-day-label {
+    width: 44px;
+    font-size: 10px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+}
+
+/* ── Lists ── */
+.lb-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.lb-list-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px var(--spacing-sm);
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+}
+.lb-list-item-name {
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    margin-right: var(--spacing-sm);
+}
+.lb-list-item-meta {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+}
+
+.lb-no-data {
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+    padding: var(--spacing-md) 0;
+    margin: 0;
+}
+
+/* =============================================================================
+   MY TASTE — Chart.js enhanced additions (v2)
+   ============================================================================= */
+
+/* ── Section group headers (Activity / Taste Profile / Patterns) ── */
+.taste-group-header {
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin: var(--spacing-xl) 0 var(--spacing-md);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+.taste-group-header:first-of-type { margin-top: 0; }
+
+/* ── Time range filter row ── */
+.taste-filter-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: var(--spacing-lg);
+}
+.taste-filter-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    font-family: inherit;
+    padding: 5px 14px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.taste-filter-btn:hover {
+    border-color: var(--amber-hover);
+    color: var(--text-primary);
+}
+.taste-filter-btn--active {
+    background: var(--amber-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+/* ── Full-width section variant ── */
+.taste-section--full {
+    grid-column: 1 / -1;
+}
+
+/* ── Canvas chart wrappers ── */
+.taste-chart-wrap {
+    position: relative;
+    width: 100%;
+}
+.taste-chart-wrap--timeline {
+    height: 180px;
+}
+.taste-chart-wrap--hbar {
+    height: 280px;
+}
+.taste-chart-wrap--doughnut {
+    height: 300px;
+}
+
+/* ── Era + Artists side-by-side grid ── */
+.taste-grid--era {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+/* ── Empty chart message ── */
+.chart-empty-msg {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    margin: 0;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* ── Heatmap canvas sizing ── */
+#taste-heatmap-canvas {
+    display: block;
+    max-width: 100%;
+    height: auto;
+}
+
+/* ---- Taste Snapshot Banner ---- */
+.taste-snapshot {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 24px;
+    align-items: center;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px 24px;
+    margin-top: 20px;
+}
+
+.taste-snap-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--teal);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.taste-snap-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--teal);
+    display: inline-block;
+}
+
+.taste-snap-genres {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.taste-snap-genre-row {
+    display: grid;
+    grid-template-columns: 100px 1fr 36px;
+    align-items: center;
+    gap: 10px;
+}
+
+.taste-snap-genre-name {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.taste-snap-genre-bar {
+    height: 4px;
+    background: var(--bg-elevated);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+}
+
+.taste-snap-genre-fill {
+    height: 100%;
+    background: var(--teal);
+    border-radius: var(--radius-full);
+    transition: width 0.6s ease;
+}
+
+.taste-snap-genre-pct {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-align: right;
+}
+
+.taste-snap-right {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.taste-snap-ring {
+    position: relative;
+    width: 80px; height: 80px;
+}
+
+.taste-snap-ring svg {
+    width: 80px; height: 80px;
+    transform: rotate(-90deg);
+}
+
+.taste-snap-ring .ring-bg {
+    fill: none;
+    stroke: var(--bg-elevated);
+    stroke-width: 6;
+}
+
+.taste-snap-ring .ring-fill {
+    fill: none;
+    stroke: var(--teal);
+    stroke-width: 6;
+    stroke-linecap: round;
+    stroke-dasharray: 226;
+    stroke-dashoffset: 113; /* 50% default */
+    transition: stroke-dashoffset 1s ease;
+}
+
+.taste-snap-value {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.taste-snap-number {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+}
+
+.taste-snap-unit {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.taste-snap-meta {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.taste-snap-meta strong {
+    color: var(--text-secondary);
+}
+
+.taste-snap-link {
+    background: transparent;
+    border: none;
+    color: var(--teal);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family);
+    transition: background var(--transition-fast);
+}
+
+.taste-snap-link:hover {
+    background: var(--teal-dim);
+}
+
+/* ---- Teal accent overrides for intelligence areas ---- */
+.taste-section-title { color: var(--teal) !important; }
+
+.lb-bar-fill { background: var(--teal) !important; }
+
+/* =============================================================================
+   ENHANCED TASTE STATS GRID
+   ============================================================================= */
+.taste-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.taste-stat-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    text-align: center;
+    transition: border-color var(--transition);
+}
+
+.taste-stat-card:hover {
+    border-color: var(--teal);
+}
+
+.taste-stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.1;
+    margin-bottom: 4px;
+    font-variant-numeric: tabular-nums;
+}
+
+.taste-stat-value--teal { color: var(--teal); }
+.taste-stat-value--amber { color: var(--amber); }
+
+.taste-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+/* ── Improved Intelligence Banner ── */
+.taste-intel-banner {
+    position: relative;
+    overflow: hidden;
+}
+
+.taste-intel-banner::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--teal), var(--amber), var(--teal));
+    opacity: 0.6;
+}
+
+/* ── Mood Tags ── */
+.taste-mood-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.taste-mood-tag {
+    background: var(--teal-dim);
+    border: 1px solid rgba(0, 212, 170, 0.2);
+    color: var(--teal);
+    font-size: 0.78rem;
+    padding: 4px 14px;
+    border-radius: var(--radius-full);
+    font-weight: 500;
+}
+
+.taste-mood-tag--skip {
+    background: rgba(233, 92, 89, 0.08);
+    border-color: rgba(233, 92, 89, 0.2);
+    color: var(--error);
+}
+
+/* ── Taste view ── */
+.rs-taste-stats { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:32px; }
+.rs-taste-stat { background:var(--bg-surface); border:1px solid var(--border); border-radius:10px; padding:16px; text-align:center; }
+.rs-taste-stat-value { font-size:1.6rem; font-weight:800; color:var(--accent); letter-spacing:-0.02em; }
+.rs-taste-stat-label { font-size:0.68rem; color:var(--text-muted); margin-top:4px; }
+.rs-taste-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+.rs-taste-card { background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; padding:20px; }
+.rs-taste-title { font-size:0.63rem; font-weight:700; letter-spacing:0.09em; text-transform:uppercase; color:var(--text-muted); margin-bottom:16px; }
+
+/* ── My Taste stat cards (large) ──────────────────────────────────────── */
+.rs-taste-stat-value--teal { color: var(--teal, var(--accent)); }
+.rs-taste-stat-value--amber { color: var(--accent); }
+.rs-taste-stat-sub {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* ── Hourly activity bars ─────────────────────────────────────────────── */
+.rs-taste-hourly {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+}
+.rs-taste-hourly-header {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+}
+.rs-taste-hourly-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 72px;
+}
+.rs-taste-hourly-bar {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+}
+.rs-taste-hourly-bar-fill {
+    width: 100%;
+    border-radius: 3px 3px 0 0;
+    background: var(--accent);
+    transition: height 600ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.rs-taste-hourly-bar-label {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    line-height: 1;
+}
+
+/* Taste stat cards */
+.rs-taste-stats {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+}

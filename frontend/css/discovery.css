@@ -1,0 +1,567 @@
+
+
+/* =============================================================================
+   DISCOVERY VIEW
+   ============================================================================= */
+
+.discovery-subtitle {
+    color: var(--text-muted);
+    margin-bottom: var(--spacing-xl);
+    font-size: var(--font-size-sm);
+}
+
+.discovery-empty,
+.discovery-error {
+    color: var(--text-muted);
+    text-align: center;
+    padding: var(--spacing-xl) 0;
+}
+
+/* Section */
+.discovery-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.discovery-section-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-xs);
+}
+
+.discovery-section-title {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.discovery-section-badge {
+    font-size: var(--font-size-xs);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+}
+
+.discovery-section-desc {
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+    margin: 0 0 var(--spacing-md);
+}
+
+/* Album grid */
+.discovery-album-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: var(--spacing-sm);
+}
+
+.discovery-album-card {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--spacing-sm) var(--spacing-md);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+    transition: border-color 0.15s;
+}
+
+.discovery-album-card:hover {
+    border-color: var(--accent);
+}
+
+.discovery-album-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.discovery-album-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.discovery-album-artist {
+    color: var(--accent);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.discovery-album-meta {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
+
+/* Track lists */
+.discovery-track-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.discovery-track-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    transition: background 0.1s;
+}
+
+.discovery-track-row:hover {
+    background: var(--surface-raised);
+}
+
+.discovery-track-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.discovery-track-title {
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.discovery-track-meta {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.discovery-track-right {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-shrink: 0;
+}
+
+.discovery-play-count {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+}
+
+.discovery-forgotten-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+}
+
+.discovery-last-played {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
+
+.discovery-play-btn {
+    padding: 3px 10px;
+    font-size: var(--font-size-xs);
+    flex-shrink: 0;
+}
+
+/* Genre cloud */
+.discovery-genre-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    align-items: baseline;
+}
+
+.discovery-genre-pill {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 14px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.discovery-genre-pill:hover {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.discovery-genre-count {
+    font-size: 0.75em;
+    color: var(--text-muted);
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 1px 6px;
+}
+
+.discovery-genre-pill:hover .discovery-genre-count {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--accent);
+}
+
+.discovery-genre-pill--selected {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.discovery-genre-pill--selected .discovery-genre-count {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--accent);
+}
+
+/* Skeleton */
+.discovery-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    padding: var(--spacing-lg) 0;
+}
+
+.skeleton-block {
+    background: var(--surface);
+    border-radius: var(--radius);
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-title {
+    height: 28px;
+    width: 200px;
+}
+
+.skeleton-row {
+    height: 80px;
+    width: 100%;
+}
+
+.discovery-section-badge {
+    background: var(--teal-dim) !important;
+    color: var(--teal) !important;
+}
+
+/* =============================================================================
+   IMPROVED DISCOVERY CARDS
+   ============================================================================= */
+.discovery-section {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+    position: relative;
+    overflow: hidden;
+}
+
+.discovery-section::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+
+.discovery-section:hover::before { opacity: 1; }
+
+.discovery-section--albums::before   { background: linear-gradient(90deg, var(--amber), transparent); }
+.discovery-section--deep::before     { background: linear-gradient(90deg, var(--teal), transparent); }
+.discovery-section--forgotten::before{ background: linear-gradient(90deg, #e57373, transparent); }
+.discovery-section--genre::before    { background: linear-gradient(90deg, #7e57c2, transparent); }
+
+.discovery-section-icon {
+    font-size: 1.25rem;
+    margin-right: 8px;
+}
+
+.rs-section-label {
+    font-size: 0.61rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 0 8px;
+    margin-bottom: 3px;
+    display: block;
+}
+
+/* ── Sections ── */
+.rs-section { margin-bottom: 40px; }
+.rs-section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.rs-section-title { font-size:0.63rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted); }
+
+/* ── Album row ── */
+.rs-album-row { display:grid; grid-template-columns:repeat(6,1fr); gap:14px; }
+.rs-album-card { cursor:pointer; transition:transform 180ms ease, opacity 180ms ease; }
+.rs-album-card:hover { transform:translateY(-3px); opacity:0.88; }
+.rs-album-art { width:100%; aspect-ratio:1; border-radius:8px; overflow:hidden; margin-bottom:8px; background:var(--bg-surface); }
+.rs-album-title { font-size:0.77rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-primary); margin-bottom:2px; }
+.rs-album-artist { font-size:0.69rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rs-detail-panel { background:var(--bg-surface); border-radius:12px; padding:16px; position:sticky; top:20px; }
+.rs-detail-art { width:100%; aspect-ratio:1; border-radius:8px; overflow:hidden; margin-bottom:12px; background:var(--bg-elevated); }
+.rs-detail-title { font-size:0.95rem; font-weight:700; margin-bottom:3px; }
+.rs-detail-artist { font-size:0.78rem; color:var(--text-muted); margin-bottom:12px; }
+.rs-detail-reason { font-size:0.78rem; color:var(--text-secondary); line-height:1.65; border-top:1px solid var(--border); padding-top:12px; }
+
+/* ── Discovery ── */
+.rs-discovery-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+.rs-disc-card { background:var(--bg-surface); border-radius:12px; overflow:hidden; cursor:pointer; transition:all 180ms ease; border:1px solid var(--border); }
+.rs-disc-card:hover { border-color:var(--border-accent); transform:translateY(-2px); box-shadow:var(--shadow-card); }
+.rs-disc-header { height:100px; overflow:hidden; display:flex; }
+.rs-disc-content { padding:14px 16px; }
+.rs-disc-title { font-size:0.88rem; font-weight:700; margin-bottom:3px; }
+.rs-disc-sub { font-size:0.72rem; color:var(--text-muted); }
+.rs-genre-bar { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.rs-genre-name { font-size:0.78rem; min-width:90px; color:var(--text-secondary); }
+.rs-genre-track { flex:1; height:4px; background:var(--bg-elevated); border-radius:999px; overflow:hidden; }
+.rs-genre-fill { height:100%; background:var(--accent); border-radius:999px; transition:width 700ms cubic-bezier(.4,0,.2,1); }
+.rs-genre-pct { font-size:0.72rem; color:var(--text-muted); min-width:30px; text-align:right; font-family:var(--font-mono); }
+
+/* ── Section titles consistent ───────────────────────────────────────── */
+.rs-section-title {
+    font-size: 0.63rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.rs-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+.rs-section {
+    margin-bottom: 36px;
+}
+
+/* ── Album row cards consistent ──────────────────────────────────────── */
+.rs-album-card {
+    cursor: pointer;
+    transition: transform 180ms ease, opacity 180ms ease;
+}
+.rs-album-card:hover {
+    transform: translateY(-3px);
+    opacity: 0.88;
+}
+.rs-album-art {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 8px;
+    background: var(--bg-elevated);
+    position: relative;
+}
+.rs-album-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.rs-album-title {
+    font-size: 0.77rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+}
+.rs-album-artist {
+    font-size: 0.69rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Discovery: stats bar ─────────────────────────────────────────────── */
+.rs-disc-stats {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+}
+.rs-disc-stat {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 130px;
+}
+.rs-disc-stat-value {
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+    font-family: var(--font-mono);
+}
+.rs-disc-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* ── Discovery: featured hero ────────────────────────────────────────── */
+.rs-disc-featured {
+    display: flex;
+    gap: 24px;
+    align-items: flex-end;
+    border-radius: 14px;
+    padding: 28px;
+    margin-bottom: 32px;
+    background: linear-gradient(140deg, var(--bg-elevated) 0%, var(--bg-primary) 75%);
+    position: relative;
+    overflow: hidden;
+}
+.rs-disc-featured-art {
+    width: 130px;
+    height: 130px;
+    border-radius: 10px;
+    overflow: hidden;
+    flex-shrink: 0;
+    box-shadow: 0 14px 40px rgba(0,0,0,0.45);
+    background: var(--bg-elevated);
+    z-index: 1;
+}
+.rs-disc-featured-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.rs-disc-featured-content {
+    flex: 1;
+    min-width: 0;
+    z-index: 1;
+}
+.rs-disc-featured-label {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+}
+.rs-disc-featured-title {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+.rs-disc-featured-meta {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+}
+
+/* Recently Added section */
+.rs-recently-added { margin-bottom: 36px; }
+.rs-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+.rs-section-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 0;
+}
+.rs-section-more {
+    background: none;
+    border: none;
+    font-size: 0.8rem;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 0;
+    font-weight: 500;
+}
+.rs-section-more:hover { text-decoration: underline; }
+
+.rs-album-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.rs-album-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    cursor: pointer;
+    min-width: 0;
+}
+.rs-album-art {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.rs-album-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.rs-album-art-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 1.5rem;
+}
+.rs-album-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.rs-album-artist {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: -4px;
+}

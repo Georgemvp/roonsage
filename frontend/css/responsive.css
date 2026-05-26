@@ -1,0 +1,891 @@
+
+
+/* Tablet: narrower detail panel */
+@media (min-width: 769px) and (max-width: 1023px) {
+    .results-grid {
+        grid-template-columns: 1fr var(--detail-panel-width-narrow);
+    }
+}
+
+/* Mobile: single column, hide detail panel */
+@media (max-width: 768px) {
+    .results-grid {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "header"
+            "sidebar"
+            "tracks";
+    }
+
+    .results-sidebar {
+        position: static;
+    }
+
+    .track-reason-panel {
+        display: none;
+    }
+
+    .results-header-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--spacing-sm);
+    }
+
+    .results-header-actions > #playlist-start-over {
+        grid-column: 1 / -1;
+        justify-self: center;
+    }
+
+    .playlist-name-input {
+        font-size: var(--font-size-lg);
+    }
+}
+
+/* Footer - Mobile */
+@media (max-width: 600px) {
+    .app-footer {
+        flex-direction: column;
+        gap: var(--spacing-xs);
+        text-align: center;
+        padding: var(--spacing-sm) var(--spacing-md);
+    }
+
+    .footer-left,
+    .footer-right {
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .app-footer .regenerate-link {
+        order: -1;
+    }
+
+    .footer-model {
+        font-size: 0.75rem;
+        max-width: 250px;
+    }
+}
+
+/* Mobile Responsive - Instant Queue */
+@media (max-width: 768px) {
+    .modal-card {
+        width: 100%;
+        max-width: none;
+        margin: var(--spacing-md);
+    }
+}
+
+/* Mobile touch targets — Apple HIG minimum 44px */
+@media (max-width: 768px) {
+    .btn,
+    .btn-ghost {
+        min-height: 44px;
+    }
+
+    .chip {
+        min-height: 44px;
+        padding-left: var(--spacing-md);
+        padding-right: var(--spacing-md);
+    }
+
+    .filter-toggle-all {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .count-btn,
+    .limit-btn,
+    .rating-btn {
+        min-height: 44px;
+    }
+
+    .track-remove {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    .split-button-arrow {
+        min-width: 44px;
+    }
+
+    .save-mode-option {
+        min-height: 44px;
+    }
+
+    .step-circle {
+        width: 44px;
+        height: 44px;
+    }
+
+    .results-back-link {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .checkbox-label {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+        width: 22px;
+        height: 22px;
+    }
+
+    .nav-btn {
+        min-height: 44px;
+    }
+
+    .nav-btn--icon {
+        min-width: 44px;
+        min-height: 44px;
+    }
+}
+
+@media (pointer: coarse) {
+    .nav-dropdown-trigger {
+        min-height: 44px;
+    }
+    .nav-dropdown-item {
+        min-height: 44px;
+    }
+}
+
+/* Compact mobile overrides — narrower than touch-target query */
+@media (max-width: 600px) {
+    /* Hide redundant nav — cards already provide these entry points */
+    .nav-dropdown,
+    .nav-btn[data-nav="recommend-album"] {
+        display: none;
+    }
+
+    /* Compact home spacing to surface history above the fold */
+    .home-content {
+        padding: 16px 0;
+    }
+
+    .home-greeting {
+        font-size: 1.25rem;
+        margin-bottom: 4px;
+    }
+
+    .home-subtitle {
+        font-size: 0.875rem;
+        margin-bottom: 16px;
+        text-wrap: balance;
+    }
+
+    .home-cards {
+        grid-template-columns: 1fr;
+        gap: 8px;
+        margin-bottom: 20px;
+    }
+
+    /* Horizontal compact card layout */
+    .home-card {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 12px 16px;
+        text-align: left;
+    }
+
+    .home-card-icon {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-md);
+        flex-shrink: 0;
+        margin-bottom: 0;
+    }
+
+    .home-card-icon svg {
+        width: 20px;
+        height: 20px;
+        stroke-width: 2;
+    }
+
+    .home-card-text {
+        min-width: 0;
+    }
+
+    .nav-dropdown-trigger {
+        font-size: var(--font-size-sm);
+        padding: var(--spacing-sm);
+    }
+
+    .step-circle {
+        width: 36px;
+        height: 36px;
+    }
+
+    .step-progress {
+        padding: 0;
+        margin-bottom: var(--spacing-md);
+    }
+
+    .step-panel h2 {
+        font-size: var(--font-size-lg);
+    }
+
+    .step-description {
+        margin-bottom: var(--spacing-md);
+    }
+
+    .prompt-textarea {
+        min-height: 80px;
+    }
+
+    .step-label {
+        display: none;
+    }
+
+    .step-connector {
+        margin-bottom: 0;
+    }
+
+    .btn-label-long {
+        display: none;
+    }
+
+    .btn-label-short {
+        display: inline;
+    }
+}
+
+@media (max-width: 767px) {
+    .prompt-pills {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+    }
+
+    .prompt-pills::-webkit-scrollbar {
+        height: 4px;
+    }
+
+    .prompt-pills::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .prompt-pills::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 2px;
+    }
+
+    .prompt-pills .prompt-pill {
+        flex-shrink: 0;
+    }
+}
+
+@media (max-width: 600px) {
+    .rec-primary-art {
+        width: 100%;
+        max-width: 400px;
+    }
+    .rec-pitch-album-title {
+        font-size: var(--font-size-2xl);
+    }
+    .rec-pitch-hook {
+        font-size: var(--font-size-lg);
+        margin: 28px 0;
+    }
+    .rec-primary-actions {
+        flex-direction: column;
+        width: 100%;
+    }
+    .rec-primary-actions .btn,
+    .rec-primary-actions .rec-action-link {
+        width: 100%;
+        text-align: center;
+        justify-content: center;
+    }
+    .rec-secondary-cards {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Mobile overrides */
+@media (max-width: 600px) {
+    .history-filters {
+        margin-bottom: var(--spacing-sm);
+    }
+    .history-card {
+        padding: var(--spacing-sm) 28px var(--spacing-sm) 0;
+        gap: var(--spacing-sm);
+    }
+    .history-card-delete {
+        opacity: 1;
+        right: var(--spacing-xs);
+    }
+    .history-card-time {
+        display: none;
+    }
+}
+
+/* Mobile */
+@media (max-width: 600px) {
+    .setup-wizard {
+        padding: var(--spacing-md) var(--spacing-sm);
+    }
+    .setup-step-body {
+        padding: 0 var(--spacing-sm) var(--spacing-sm);
+    }
+}
+
+/* =============================================================================
+   MOBILE RESPONSIVE
+   ============================================================================= */
+@media (max-width: 768px) {
+    /* Nav — hide text labels on smaller screens, keep icons readable */
+    .nav {
+        gap: 2px;
+    }
+    .nav-btn {
+        font-size: 0.8rem;
+        padding: var(--spacing-sm);
+    }
+
+    /* Main container */
+    .app { padding: var(--spacing-sm); }
+
+    /* Playlist grid → single column */
+    .playlists-grid { grid-template-columns: 1fr; }
+
+    /* Playlist toolbar stacks */
+    .playlists-toolbar { flex-direction: column; }
+
+    /* Home cards → single column on very small */
+    .home-cards { grid-template-columns: 1fr; }
+
+    /* Now playing bar */
+    .now-playing-bar {
+        padding: var(--spacing-sm);
+        gap: var(--spacing-sm);
+    }
+    .np-art { width: 40px; height: 40px; }
+    .np-meta .np-album { display: none; } /* hide album on mobile */
+
+    /* Taste grid → single column on mobile */
+    .taste-grid { grid-template-columns: 1fr; }
+
+    /* Intel banner chips wrap below headline */
+    .taste-intel-content { flex-direction: column; }
+
+    /* Prefs row stacks on mobile */
+    .taste-prefs-row { flex-direction: column; gap: var(--spacing-md); }
+
+    /* Results grid */
+    .results-grid { grid-template-columns: 1fr !important; }
+    .results-sidebar { order: -1; }
+
+    /* Step panels - reduce padding */
+    .step-content { padding: var(--spacing-sm); }
+
+    /* Filter chips — wrap freely */
+    .chip-container { flex-wrap: wrap; }
+
+    /* Ensure tap targets are at least 44px */
+    button, a, select, input[type="checkbox"] + span {
+        min-height: 44px;
+    }
+    .chip { min-height: 44px; display: flex; align-items: center; }
+    .pl-action-play, .pl-action-arc, .pl-action-delete { min-height: 44px; }
+
+    /* Footer padding when now-playing bar is visible */
+    .app-footer { padding-bottom: 80px; }
+
+    /* Header padding so content doesn't clip under bar */
+    .main { padding-bottom: 76px; }
+}
+
+@media (max-width: 480px) {
+    .header { flex-wrap: wrap; gap: var(--spacing-sm); }
+    .logo { font-size: var(--font-size-base); }
+
+    .pl-card-header { flex-direction: column; }
+    .pl-card-side { align-self: flex-start; }
+
+    /* Now playing — hide album art if viewport very narrow */
+    .np-art { display: none; }
+}
+
+@media (max-width: 600px) {
+    .template-tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+    .template-tabs::-webkit-scrollbar { display: none; }
+    .template-tab { flex: 0 0 auto; }
+}
+
+@media (max-width: 600px) {
+    .template-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* ── Responsive: single column on narrow screens ── */
+@media (max-width: 640px) {
+    .taste-grid,
+    .taste-grid--era,
+    .taste-grid--below {
+        grid-template-columns: 1fr;
+    }
+    .taste-chart-wrap--hbar { height: 220px; }
+    .taste-chart-wrap--doughnut { height: 260px; }
+    .taste-chart-wrap--timeline { height: 140px; }
+}
+
+@media (max-width: 768px) {
+    /* Hide the header nav on mobile — bottom bar takes over */
+    .header .nav {
+        display: none;
+    }
+
+    /* Show bottom bar */
+    .mobile-bottom-nav {
+        display: flex;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 56px;
+        background: var(--bg-secondary);
+        border-top: 1px solid var(--border);
+        z-index: 200;
+        /* Safe-area inset for notched phones */
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        height: calc(56px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .mobile-bottom-nav .mbn-btn {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-family: var(--font-family);
+        font-size: 10px;
+        font-weight: 500;
+        cursor: pointer;
+        padding: 6px 4px env(safe-area-inset-bottom, 0px);
+        min-height: 56px;
+        transition: color var(--transition-fast);
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mobile-bottom-nav .mbn-btn:active,
+    .mobile-bottom-nav .mbn-btn.active {
+        color: var(--accent);
+    }
+
+    .mobile-bottom-nav .mbn-btn svg {
+        width: 22px;
+        height: 22px;
+        flex-shrink: 0;
+    }
+
+    /* Push main content above the bottom bar */
+    .main {
+        padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--spacing-md));
+    }
+
+    .app-footer {
+        padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--spacing-md));
+    }
+}
+
+/* =============================================================================
+   TABLET RESPONSIVE  (≤ 768 px)
+   ============================================================================= */
+
+@media (max-width: 768px) {
+    /* Zone selector — full width on mobile */
+    #zone-selector,
+    .zone-selector,
+    select[id*="zone"] {
+        width: 100%;
+    }
+
+    /* Prompt textarea — 48 px min-height for comfortable touch */
+    .prompt-textarea {
+        min-height: 48px;
+    }
+
+    /* Settings — stack form rows */
+    .settings-section .form-group {
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Source mode cards — full-width stacked on mobile */
+    .source-mode-cards {
+        flex-direction: column;
+    }
+
+    .source-card {
+        width: 100%;
+        flex-direction: row;
+        min-height: 56px;
+        gap: var(--spacing-md);
+        justify-content: flex-start;
+        text-align: left;
+    }
+
+    /* Heatmap — horizontal scroll container */
+    .lb-heatmap-container,
+    #lb-heatmap-section {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+    }
+
+    #taste-heatmap-canvas {
+        min-width: 540px; /* enough to show all 24 hours readable */
+    }
+}
+
+/* =============================================================================
+   MOBILE RESPONSIVE  (≤ 480 px)
+   ============================================================================= */
+
+@media (max-width: 480px) {
+    /* App container: remove side padding so content fills screen */
+    .app {
+        padding-left: var(--spacing-sm);
+        padding-right: var(--spacing-sm);
+    }
+
+    /* Header: keep logo only, no extra padding */
+    .header {
+        padding: var(--spacing-sm) 0;
+        margin-bottom: var(--spacing-md);
+    }
+
+    /* Playlist single-column grid */
+    .playlists-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Genre / decade chips — horizontal scroll instead of wrapping grid */
+    .chip-container {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none; /* hide scrollbar on Android */
+        padding-bottom: 4px;
+        gap: var(--spacing-xs);
+    }
+
+    .chip-container::-webkit-scrollbar {
+        display: none;
+    }
+
+    .chip-container .chip {
+        flex-shrink: 0; /* chips don't shrink or wrap */
+        white-space: nowrap;
+    }
+
+    /* Track list — compact for small screens */
+    .playlist-track {
+        padding: 6px var(--spacing-sm);
+        gap: var(--spacing-sm);
+    }
+
+    .playlist-track .track-album {
+        display: none; /* hide album column to save horizontal space */
+    }
+
+    .playlist-track .track-info .track-artist {
+        font-size: 0.75rem;
+    }
+
+    .playlist-track .track-title {
+        font-size: var(--font-size-sm);
+    }
+
+    /* Track art — slightly smaller on very narrow screens */
+    .playlist-track .track-art,
+    .playlist-track .art-placeholder {
+        width: 36px;
+        height: 36px;
+    }
+
+    /* Prompt textarea — taller touch target */
+    .prompt-textarea {
+        min-height: 48px;
+        font-size: var(--font-size-base); /* prevent iOS zoom on focus */
+    }
+
+    /* All text inputs — 16px+ to prevent iOS auto-zoom */
+    input[type="text"],
+    input[type="password"],
+    input[type="number"],
+    input[type="email"],
+    input[type="search"],
+    textarea,
+    select {
+        font-size: 16px;
+    }
+
+    /* Ensure minimum 44px touch targets everywhere (Apple HIG) */
+    .btn,
+    .btn-outline,
+    .btn-ghost,
+    .nav-btn,
+    .chip,
+    .count-btn,
+    .limit-btn,
+    .rating-btn,
+    .filter-toggle-all,
+    .taste-filter-btn {
+        min-height: 44px;
+    }
+
+    /* Volume slider — larger thumb for touch */
+    input[type="range"] {
+        height: 32px;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+        width: 28px;
+        height: 28px;
+    }
+
+    input[type="range"]::-moz-range-thumb {
+        width: 28px;
+        height: 28px;
+    }
+
+    /* Step progress bar — hide labels to save space */
+    .step-label {
+        display: none;
+    }
+
+    .step-connector {
+        min-width: 16px;
+        max-width: 32px;
+    }
+
+    /* Results grid — tighter spacing on small screens */
+    .results-grid {
+        gap: var(--spacing-sm);
+    }
+
+    /* Playlist tracks — no horizontal overflow */
+    .playlist-tracks {
+        overflow: visible;
+    }
+
+    /* Settings section — full width inputs, no horizontal overflow */
+    .settings-section {
+        padding: var(--spacing-md);
+    }
+
+    .settings-section input,
+    .settings-section select {
+        width: 100%;
+    }
+
+    /* Refine panel — full width */
+    .refine-panel {
+        width: 100%;
+    }
+
+    /* Filter preview — stack on very narrow screens */
+    .filter-preview {
+        flex-direction: column;
+        gap: var(--spacing-xs);
+        text-align: center;
+    }
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .auto-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .auto-card-footer {
+        flex-wrap: wrap;
+        gap: var(--spacing-sm);
+    }
+
+    .auto-preset-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .auto-header {
+        flex-direction: column;
+    }
+}
+
+/* ---- Responsive breakpoints ---- */
+@media (max-width: 1100px) {
+    .feature-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .feature-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    .hero-title {
+        font-size: 1.5rem;
+    }
+    .nav .nav-label {
+        display: none;
+    }
+    .taste-snapshot {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .feature-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    .feature-card {
+        flex-direction: row;
+        align-items: center;
+        gap: 14px;
+        min-height: auto;
+        padding: 16px;
+    }
+    .card-icon {
+        margin-bottom: 0;
+        flex-shrink: 0;
+    }
+    .card-desc,
+    .card-preview {
+        display: none;
+    }
+}
+
+@media (max-width: 640px) {
+    .enrich-stats-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+/* =============================================================================
+   RESPONSIVE OVERRIDES — new components
+   ============================================================================= */
+@media (max-width: 768px) {
+    .taste-stats-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: var(--spacing-sm);
+    }
+
+    .taste-stat-value {
+        font-size: 1.5rem;
+    }
+
+    .enrich-stats-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .bg-activity-items {
+        gap: 12px;
+    }
+}
+
+@media (max-width: 480px) {
+    .taste-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .enrich-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .auto-card {
+        padding: var(--spacing-md);
+    }
+}
+
+/* Disable elastic overscroll in standalone mode so the chrome doesn't reveal
+   white pull-to-refresh background. Keep the normal scroll feel in browser. */
+@media (display-mode: standalone) {
+    html, body {
+        overscroll-behavior-y: none;
+    }
+    body {
+        background-color: var(--bg-root);
+    }
+}
+
+/* Above mobile bottom-nav (56px) when present. */
+@media (max-width: 768px) {
+    .pwa-toast {
+        bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px);
+        width: calc(100vw - 24px);
+    }
+}
+
+/* Tap-highlight removal for all interactive controls on touch devices. */
+@media (pointer: coarse) {
+    button, a, [role="button"], [data-nav] {
+        -webkit-tap-highlight-color: transparent;
+    }
+}
+@media (max-width: 720px) {
+    .dj-curve-grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 480px) {
+    .dj-curve-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 720px) {
+    .template-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+    .template-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+    .rs-taste-stats { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 600px) {
+    .rs-taste-stats { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 860px) {
+    .dj-top-row { grid-template-columns: 1fr 1fr; }
+    .dj-card--camelot { grid-column: 1 / -1; }
+}
+@media (max-width: 520px) {
+    .dj-top-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+    .dj-bottom-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+    .rs-album-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 600px) {
+    .rs-album-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 900px) {
+    .rs-taste-stats { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 600px) {
+    .rs-taste-stats { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+    .rs-enrich-sources { grid-template-columns: 1fr; }
+}

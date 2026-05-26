@@ -1,0 +1,405 @@
+/* RoonSage Styles */
+
+/* ============================================================
+   THEME SYSTEM — dual dark / light via [data-theme] on <html>
+   ============================================================ */
+
+:root, [data-theme="dark"] {
+    /* === New surface hierarchy === */
+    --bg-root:     #0a0a0c;
+    --bg-sidebar:  #0d0d10;
+    --bg-primary:  #111114;
+    --bg-surface:  #18181c;
+    --bg-elevated: #1f1f24;
+    --bg-hover:    #28282f;
+    --bg-glass:         rgba(255,255,255,0.04);
+    --bg-glass-hover:   rgba(255,255,255,0.07);
+
+    /* === New accent tokens (fallback = amber) === */
+    --accent-bright: #f0b020;
+    --accent-glow:   rgba(229,160,13,0.18);
+    --border-accent: rgba(229,160,13,0.30);
+
+    /* === Amber accent === */
+    --amber:      #e5a00d;
+    --amber-glow: rgba(229,160,13,0.18);
+    --amber-hover: #f0b020;
+    --amber-dim:  rgba(229,160,13,0.08);
+
+    /* === Teal accent (Intelligence / data) === */
+    --teal:      #00d4aa;
+    --teal-glow: rgba(0,212,170,0.12);
+    --teal-hover: #20e8c0;
+    --teal-dim:  rgba(0,212,170,0.06);
+
+    /* === Text === */
+    --text-primary:   #f0f0f2;
+    --text-secondary: #8e8e96;
+    --text-muted:     #5a5a64;
+    --text-body:      #E0E0E0;
+
+    /* === Borders === */
+    --border:        rgba(255,255,255,0.06);
+    --border-subtle: rgba(255,255,255,0.03);
+
+    /* === Semantic === */
+    --error:         #e95c59;
+    --success:       #43a047;
+    --error-toast:   #c62828;
+    --success-toast: #2e7032;
+    --warning:       #fb8c00;
+
+    /* === Special surfaces === */
+    --header-bg: rgba(10,10,12,0.85);
+    --np-bg:     rgba(17,17,20,0.95);
+    --shadow-card:     0 8px 32px rgba(0,0,0,0.3);
+    --shadow-dropdown: 0 12px 40px rgba(0,0,0,0.5);
+
+    /* === Spacing === */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+
+    /* === Border Radius === */
+    --radius:      6px;
+    --radius-sm:   6px;
+    --radius-md:   10px;
+    --radius-lg:   16px;
+    --radius-xl:   20px;
+    --radius-full: 9999px;
+
+    /* === Typography === */
+    --font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-size-sm:   0.875rem;
+    --font-size-base: 1rem;
+    --font-size-lg:   1.25rem;
+    --font-size-xl:   1.5rem;
+    --font-size-2xl:  2rem;
+    --font-size-3xl:  2.25rem;
+
+    /* === Transitions === */
+    --transition:       200ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    --transition-slow:  400ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    --transition-fast:  150ms ease;   /* legacy alias */
+    --transition-normal: 250ms ease;  /* legacy alias */
+
+    /* === Results layout === */
+    --results-footer-height: 40px;
+    --detail-panel-width: 300px;
+    --detail-panel-width-narrow: 240px;
+
+    /* === Legacy aliases — keep all existing CSS working === */
+    --bg-secondary: var(--bg-surface);
+    --bg-tertiary:  var(--bg-elevated);
+    --accent:       var(--amber);
+    --accent-hover: var(--amber-hover);
+    --accent-dim:   var(--amber-dim);
+}
+
+/* ---- Light theme overrides ---- */
+[data-theme="light"] {
+    --bg-root:     #ebe6dc;
+    --bg-sidebar:  #e3ddd0;
+    --bg-primary:  #f3eee4;
+    --bg-surface:  #ffffff;
+    --bg-elevated: #f7f2e8;
+    --bg-hover:    #ebe6dc;
+    --bg-glass:         rgba(0,0,0,0.03);
+    --bg-glass-hover:   rgba(0,0,0,0.06);
+
+    --amber:       #c98a00;
+    --amber-glow:  rgba(201,138,0,0.12);
+    --amber-hover: #b07800;
+    --amber-dim:   rgba(201,138,0,0.08);
+
+    --teal:       #00a884;
+    --teal-glow:  rgba(0,168,132,0.10);
+    --teal-hover: #008f70;
+    --teal-dim:   rgba(0,168,132,0.06);
+
+    --text-primary:   #1a1a1e;
+    --text-secondary: #6e6e78;
+    --text-muted:     #9e9ea8;
+    --text-body:      #2a2a2e;
+
+    --border:        rgba(0,0,0,0.08);
+    --border-subtle: rgba(0,0,0,0.04);
+
+    --error:         #d32f2f;
+    --success:       #2e7d32;
+    --error-toast:   #c62828;
+    --success-toast: #2e7032;
+    --warning:       #e65100;
+
+    --header-bg: rgba(245,245,247,0.88);
+    --np-bg:     rgba(255,255,255,0.95);
+    --shadow-card:     0 4px 20px rgba(0,0,0,0.08);
+    --shadow-dropdown: 0 8px 32px rgba(0,0,0,0.12);
+
+    /* Legacy aliases */
+    --bg-secondary: var(--bg-surface);
+    --bg-tertiary:  var(--bg-elevated);
+    --accent:       var(--amber);
+    --accent-hover: var(--amber-hover);
+    --accent-dim:   var(--amber-dim);
+}
+
+/* ============================================================
+   VARIATION SYSTEM — 3 accent themes (viola / ember / slate)
+   Each variation overrides --accent and bg/text tokens.
+   Legacy --amber/--teal aliases are remapped so existing
+   components automatically pick up the variation color.
+   ============================================================ */
+
+[data-variation="viola"] {
+    --accent:        #9270d4;
+    --accent-bright: #a988e8;
+    --accent-dim:    rgba(146,112,212,0.10);
+    --accent-glow:   rgba(146,112,212,0.22);
+    --border-accent: rgba(146,112,212,0.30);
+
+    --bg-root:    #0c0b10;
+    --bg-sidebar: #0f0d17;
+    --bg-primary: #13111d;
+    --bg-surface: #1b1929;
+    --bg-elevated:#232034;
+    --bg-hover:   #2d2a42;
+    --bg-glass:   rgba(255,255,255,0.04);
+
+    --text-primary:   #ece8ff;
+    --text-secondary: #9b96b8;
+    --text-muted:     #5f5b78;
+
+    --border:        rgba(255,255,255,0.07);
+    --border-subtle: rgba(255,255,255,0.03);
+
+    --shadow-card:     0 8px 32px rgba(0,0,0,0.45);
+    --shadow-elevated: 0 16px 48px rgba(0,0,0,0.55);
+    --shadow-sidebar:  4px 0 32px rgba(0,0,0,0.45);
+
+    --np-bg: rgba(15,13,23,0.97);
+    --font-mono: "DM Mono", ui-monospace, monospace;
+
+    /* Legacy aliases */
+    --amber:       var(--accent);
+    --amber-hover: var(--accent-bright);
+    --amber-dim:   var(--accent-dim);
+    --amber-glow:  var(--accent-glow);
+}
+
+[data-variation="ember"] {
+    --accent:        #e5a00d;
+    --accent-bright: #f0b530;
+    --accent-dim:    rgba(229,160,13,0.09);
+    --accent-glow:   rgba(229,160,13,0.18);
+    --border-accent: rgba(229,160,13,0.30);
+
+    --bg-root:    #0a0a0c;
+    --bg-sidebar: #0d0d10;
+    --bg-primary: #111114;
+    --bg-surface: #18181c;
+    --bg-elevated:#1f1f26;
+    --bg-hover:   #282830;
+    --bg-glass:   rgba(255,255,255,0.04);
+
+    --text-primary:   #f0f0f3;
+    --text-secondary: #8e8e99;
+    --text-muted:     #5a5a68;
+
+    --border:        rgba(255,255,255,0.06);
+    --border-subtle: rgba(255,255,255,0.03);
+
+    --shadow-card:     0 8px 32px rgba(0,0,0,0.35);
+    --shadow-elevated: 0 16px 48px rgba(0,0,0,0.45);
+    --shadow-sidebar:  4px 0 24px rgba(0,0,0,0.30);
+
+    --np-bg: rgba(13,13,16,0.97);
+    --font-mono: "DM Mono", ui-monospace, monospace;
+
+    --amber:       var(--accent);
+    --amber-hover: var(--accent-bright);
+    --amber-dim:   var(--accent-dim);
+    --amber-glow:  var(--accent-glow);
+}
+
+[data-variation="slate"] {
+    --accent:        #5b8fe8;
+    --accent-bright: #7daff8;
+    --accent-dim:    rgba(91,143,232,0.09);
+    --accent-glow:   rgba(91,143,232,0.18);
+    --border-accent: rgba(91,143,232,0.30);
+
+    --bg-root:    #08090e;
+    --bg-sidebar: #0b0c14;
+    --bg-primary: #10121c;
+    --bg-surface: #171925;
+    --bg-elevated:#1e2030;
+    --bg-hover:   #262840;
+    --bg-glass:   rgba(255,255,255,0.04);
+
+    --text-primary:   #e6e9f8;
+    --text-secondary: #8890b5;
+    --text-muted:     #555870;
+
+    --border:        rgba(255,255,255,0.06);
+    --border-subtle: rgba(255,255,255,0.03);
+
+    --shadow-card:     0 8px 32px rgba(0,0,0,0.40);
+    --shadow-elevated: 0 16px 48px rgba(0,0,0,0.50);
+    --shadow-sidebar:  4px 0 32px rgba(0,0,0,0.35);
+
+    --np-bg: rgba(11,12,20,0.97);
+    --font-mono: "DM Mono", ui-monospace, monospace;
+
+    --amber:       var(--accent);
+    --amber-hover: var(--accent-bright);
+    --amber-dim:   var(--accent-dim);
+    --amber-glow:  var(--accent-glow);
+}
+
+/* Sidebar gets a subtle shadow in light mode (no dark background to separate it) */
+[data-theme="light"] .rs-sidebar {
+    box-shadow: 4px 0 18px rgba(60,52,40,0.05);
+}
+
+/* Light-mode variation accent adjustments */
+/* Restore light bg/text that the plain [data-variation] rules override */
+[data-theme="light"][data-variation] {
+    --bg-root:          #ebe6dc;
+    --bg-sidebar:       #e3ddd0;
+    --bg-primary:       #f3eee4;
+    --bg-surface:       #ffffff;
+    --bg-elevated:      #f7f2e8;
+    --bg-hover:         #ebe6dc;
+    --bg-glass:         rgba(0,0,0,0.03);
+    --bg-glass-hover:   rgba(0,0,0,0.06);
+    --text-primary:     #1a1a1e;
+    --text-secondary:   #6e6e78;
+    --text-muted:       #9e9ea8;
+    --text-body:        #2a2a2e;
+    --border:           rgba(0,0,0,0.08);
+    --border-subtle:    rgba(0,0,0,0.04);
+    --shadow-card:      0 4px 20px rgba(0,0,0,0.08);
+    --shadow-dropdown:  0 8px 32px rgba(0,0,0,0.12);
+    --np-bg:            rgba(255,255,255,0.95);
+}
+[data-theme="light"][data-variation="viola"] {
+    --accent:        #6b4ea0;
+    --accent-bright: #7b5eb5;
+    --accent-dim:    rgba(107,78,160,0.10);
+    --accent-glow:   rgba(107,78,160,0.18);
+    --border-accent: rgba(107,78,160,0.30);
+    --amber:       var(--accent);
+    --amber-hover: var(--accent-bright);
+    --amber-dim:   var(--accent-dim);
+}
+[data-theme="light"][data-variation="ember"] {
+    --accent:        #c98800;
+    --accent-bright: #d99a10;
+    --accent-dim:    rgba(201,136,0,0.09);
+    --accent-glow:   rgba(201,136,0,0.16);
+    --border-accent: rgba(201,136,0,0.30);
+    --amber:       var(--accent);
+    --amber-hover: var(--accent-bright);
+    --amber-dim:   var(--accent-dim);
+}
+[data-theme="light"][data-variation="slate"] {
+    --accent:        #3d6cd0;
+    --accent-bright: #4d7be0;
+    --accent-dim:    rgba(61,108,208,0.08);
+    --accent-glow:   rgba(61,108,208,0.16);
+    --border-accent: rgba(61,108,208,0.30);
+    --amber:       var(--accent);
+    --amber-hover: var(--accent-bright);
+    --amber-dim:   var(--accent-dim);
+}
+
+/* Reset & Base */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    font-family: var(--font-family);
+    font-size: var(--font-size-base);
+    line-height: 1.5;
+    color: var(--text-primary);
+    background-color: var(--bg-root);
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Skip Link */
+.skip-link {
+    position: absolute;
+    top: -9999px;
+    left: var(--spacing-md);
+    background: var(--accent);
+    color: var(--bg-primary);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    text-decoration: none;
+    z-index: 2000;
+    transition: top var(--transition-fast);
+}
+
+.skip-link:focus {
+    top: var(--spacing-sm);
+}
+
+/* Global focus-visible ring for buttons and interactive elements */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+body.no-scroll {
+    overflow: hidden;
+}
+
+[data-theme="light"] .feature-card:hover {
+    border-color: rgba(0,0,0,0.12);
+}
+
+[data-theme="light"] .now-playing-bar {
+    border-top-color: rgba(0, 0, 0, 0.06);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
+}
+
+/* Hide install/update toast in fullscreen photo viewers etc. — they may set
+   no-scroll on body which would still allow the toast to peek. */
+body.no-scroll .pwa-toast {
+    pointer-events: none;
+}
+[data-theme="light"] .rs-ai-pill,
+[data-theme="light"] .rs-ai-badge { color: #fff; }
+
+/* ═══════════════════════════════════════════════════════
+   REDESIGN 2026 — Light theme with dark sidebar
+   ═══════════════════════════════════════════════════════ */
+
+[data-theme="light"] .rs-ai-pill { background: var(--accent); color: #fff; }
+
+/* Blue accent for light theme */
+[data-theme="light"] {
+    --accent: #2563eb;
+    --accent-bright: #3b82f6;
+    --accent-dim: rgba(37,99,235,0.08);
+    --accent-glow: rgba(37,99,235,0.15);
+    --border-accent: rgba(37,99,235,0.30);
+    --amber: #2563eb;
+    --amber-hover: #3b82f6;
+    --amber-dim: rgba(37,99,235,0.08);
+    --teal: #2563eb;
+    --teal-hover: #3b82f6;
+    --teal-dim: rgba(37,99,235,0.06);
+}
