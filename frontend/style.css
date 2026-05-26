@@ -265,6 +265,26 @@
 }
 
 /* Light-mode variation accent adjustments */
+/* Restore light bg/text that the plain [data-variation] rules override */
+[data-theme="light"][data-variation] {
+    --bg-root:          #ebe6dc;
+    --bg-sidebar:       #e3ddd0;
+    --bg-primary:       #f3eee4;
+    --bg-surface:       #ffffff;
+    --bg-elevated:      #f7f2e8;
+    --bg-hover:         #ebe6dc;
+    --bg-glass:         rgba(0,0,0,0.03);
+    --bg-glass-hover:   rgba(0,0,0,0.06);
+    --text-primary:     #1a1a1e;
+    --text-secondary:   #6e6e78;
+    --text-muted:       #9e9ea8;
+    --text-body:        #2a2a2e;
+    --border:           rgba(0,0,0,0.08);
+    --border-subtle:    rgba(0,0,0,0.04);
+    --shadow-card:      0 4px 20px rgba(0,0,0,0.08);
+    --shadow-dropdown:  0 8px 32px rgba(0,0,0,0.12);
+    --np-bg:            rgba(255,255,255,0.95);
+}
 [data-theme="light"][data-variation="viola"] {
     --accent:        #6b4ea0;
     --accent-bright: #7b5eb5;
@@ -8887,7 +8907,7 @@ body.no-scroll .pwa-toast {
     min-height: 200px;
     position: relative;
     overflow: hidden;
-    background: linear-gradient(140deg, var(--bg-elevated) 0%, var(--bg-primary) 75%);
+    background: linear-gradient(140deg, #1e1e24 0%, #13131a 100%);
 }
 .rs-home-hero-art {
     width: 148px;
@@ -8895,8 +8915,8 @@ body.no-scroll .pwa-toast {
     flex-shrink: 0;
     border-radius: 12px;
     overflow: hidden;
-    background: var(--bg-elevated);
-    box-shadow: 0 14px 40px rgba(0,0,0,0.45);
+    background: rgba(255,255,255,0.08);
+    box-shadow: 0 14px 40px rgba(0,0,0,0.55);
     z-index: 1;
 }
 .rs-home-hero-art img {
@@ -8915,7 +8935,7 @@ body.no-scroll .pwa-toast {
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: var(--text-muted);
+    color: rgba(255,255,255,0.4);
     margin-bottom: 8px;
 }
 .rs-home-hero-title {
@@ -8924,18 +8944,17 @@ body.no-scroll .pwa-toast {
     letter-spacing: -0.03em;
     line-height: 1.1;
     margin-bottom: 6px;
-    color: var(--text-primary);
+    color: #f0f0f2;
 }
 .rs-home-hero-meta {
     font-size: 0.88rem;
-    color: var(--text-muted);
+    color: rgba(255,255,255,0.45);
     margin-bottom: 18px;
 }
 .rs-home-hero-actions {
     display: flex;
     gap: 10px;
-    flex-wrap: wrap;
-}
+    flex-wrap: wrap;}
 
 /* Quick action pills */
 .rs-quick-actions {
@@ -9318,29 +9337,7 @@ body.no-scroll .pwa-toast {
    REDESIGN 2026 — Light theme with dark sidebar
    ═══════════════════════════════════════════════════════ */
 
-/* Always-dark sidebar regardless of theme */
-.rs-sidebar {
-    background: #1a1a1e !important;
-}
-[data-theme="light"] .rs-sidebar {
-    --text-primary: #f0f0f2;
-    --text-secondary: #9e9ea8;
-    --text-muted: #5a5a64;
-    --border: rgba(255,255,255,0.06);
-    --border-subtle: rgba(255,255,255,0.03);
-    --bg-hover: rgba(255,255,255,0.07);
-    --accent: #2563eb;
-    --accent-dim: rgba(37,99,235,0.12);
-    color: var(--text-primary);
-}
-[data-theme="light"] .rs-logo { color: #f0f0f2; }
-[data-theme="light"] .rs-section-label { color: rgba(255,255,255,0.35) !important; }
-[data-theme="light"] .rs-nav-item { color: rgba(255,255,255,0.6); }
-[data-theme="light"] .rs-nav-item:hover { background: rgba(255,255,255,0.07); color: #f0f0f2; }
-[data-theme="light"] .rs-nav-item.active { background: rgba(255,255,255,0.12); color: #f0f0f2; }
-[data-theme="light"] .rs-zone-btn { color: rgba(255,255,255,0.6); border-color: rgba(255,255,255,0.1); }
-[data-theme="light"] .rs-zone-btn:hover { background: rgba(255,255,255,0.07); }
-[data-theme="light"] .rs-ai-pill { background: #2563eb; color: #fff; }
+[data-theme="light"] .rs-ai-pill { background: var(--accent); color: #fff; }
 
 /* Blue accent for light theme */
 [data-theme="light"] {
@@ -9388,6 +9385,7 @@ body.no-scroll .pwa-toast {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
     gap: 16px;
+    align-items: start;
 }
 @media (max-width: 900px) {
     .rs-album-grid { grid-template-columns: repeat(3, 1fr); }
@@ -9401,18 +9399,22 @@ body.no-scroll .pwa-toast {
     flex-direction: column;
     gap: 8px;
     cursor: pointer;
+    min-width: 0;
 }
 .rs-album-art {
+    width: 100%;
     aspect-ratio: 1;
     border-radius: 8px;
     overflow: hidden;
     background: var(--bg-surface);
     border: 1px solid var(--border);
+    flex-shrink: 0;
 }
 .rs-album-art img {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    display: block;
 }
 .rs-album-art-placeholder {
     width: 100%;

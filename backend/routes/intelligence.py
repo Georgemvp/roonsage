@@ -144,15 +144,28 @@ async def get_listening_history(
         rows = conn.execute(sql, params).fetchall()
         result = []
         for r in rows:
-            # Try to find art key from library cache
+            # Use the album image_key (from albums table) which is the correct Roon image key.
+            # Fall back to track item_key if no album image_key is found.
             art_key = None
-            if r[3] and r[4]:  # title and artist
+            if r[5] and r[4]:  # album and artist
                 art_row = conn.execute(
-                    "SELECT item_key FROM tracks WHERE title = ? AND artist = ? LIMIT 1",
+                    "SELECT image_key FROM albums WHERE title = ? AND artist = ? LIMIT 1",
+                    (r[5], r[4]),
+                ).fetchone()
+                if art_row and art_row[0]:
+                    art_key = art_row[0]
+            if not art_key and r[3] and r[4]:  # fallback: track item_key
+                art_row = conn.execute(
+                    "SELECT t.parent_item_key FROM tracks t WHERE t.title = ? AND t.artist = ? LIMIT 1",
                     (r[3], r[4]),
                 ).fetchone()
-                if art_row:
-                    art_key = art_row[0]
+                if art_row and art_row[0]:
+                    fallback = conn.execute(
+                        "SELECT image_key FROM albums WHERE item_key = ? LIMIT 1",
+                        (art_row[0],),
+                    ).fetchone()
+                    if fallback and fallback[0]:
+                        art_key = fallback[0]
             result.append({
                 "id":               r[0],
                 "timestamp":        r[1],

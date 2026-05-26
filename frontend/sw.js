@@ -105,6 +105,21 @@ async function staleWhileRevalidate(request) {
     return cached || network;
 }
 
+async function networkFirst(request) {
+    const cache = await caches.open(SHELL_CACHE);
+    try {
+        const resp = await fetch(request);
+        if (resp.ok && resp.type === 'basic') {
+            cache.put(request, resp.clone()).catch(() => {});
+        }
+        return resp;
+    } catch (_) {
+        const cached = await cache.match(request);
+        if (cached) return cached;
+        throw _;
+    }
+}
+
 async function navigationFallback(request) {
     try {
         const resp = await fetch(request);
@@ -141,6 +156,11 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (isShellRequest(req, url)) {
-        event.respondWith(staleWhileRevalidate(req));
+        // JS modules: always fetch fresh so code changes are immediate
+        if (url.pathname.endsWith('.js')) {
+            event.respondWith(networkFirst(req));
+        } else {
+            event.respondWith(staleWhileRevalidate(req));
+        }
     }
 });

@@ -26,7 +26,7 @@ import {
 import { setupRecEventListeners, initRecommendView, renderPromptPills, PLAYLIST_PROMPT_GROUPS } from './modules/recommend.js';
 import { setupHistoryEventListeners }     from './modules/history.js';
 import { enterSetupWizard }               from './modules/setup-wizard.js';
-import { startNowPlaying }                from './modules/nowplaying.js';
+import { startNowPlaying, openZonePicker } from './modules/nowplaying.js';
 import { initPlaylistsView }              from './modules/playlists.js';
 import { initTasteView }                  from './modules/taste.js';
 import { initTemplates }                  from './modules/templates.js';
@@ -409,6 +409,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Start Now Playing polling (persistent — runs on all views)
     startNowPlaying();
+
+    document.getElementById('sidebar-zone-btn')?.addEventListener('click', openZonePicker);
 
     // Start background activity monitor (enrichment, library sync indicator)
     startActivityMonitor();

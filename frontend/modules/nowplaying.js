@@ -11,6 +11,70 @@ let _currentZoneId = null;
 let _zones = [];
 
 // ── Public API ────────────────────────────────────────────────────────────────
+export function openZonePicker() {
+    _removeZonePicker();
+    const allZones = _zones.length ? _zones : [];
+    if (!allZones.length) {
+        _poll(); // try to refresh first
+    }
+
+    const popup = document.createElement('div');
+    popup.id = 'zone-picker-popup';
+    popup.className = 'zone-picker-popup';
+
+    if (!allZones.length) {
+        popup.innerHTML = `<div class="zone-picker-empty">Geen actieve zones gevonden</div>`;
+    } else {
+        popup.innerHTML = allZones.map(z => {
+            const np = z.now_playing;
+            const title  = np?.two_line?.line1 || np?.one_line?.line1 || '—';
+            const artist = np?.two_line?.line2 || np?.one_line?.line2 || '';
+            const isPlaying = z.state === 'playing';
+            const isActive  = z.zone_id === _currentZoneId;
+            return `
+            <button class="zone-picker-item${isActive ? ' zone-picker-item--active' : ''}" data-zone="${escapeHtml(z.zone_id)}">
+                <div class="zone-picker-state">${isPlaying
+                    ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`
+                    : `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`}
+                </div>
+                <div class="zone-picker-info">
+                    <div class="zone-picker-name">${escapeHtml(z.display_name || z.zone_id)}</div>
+                    <div class="zone-picker-track">${escapeHtml(title)}${artist ? ` · ${escapeHtml(artist)}` : ''}</div>
+                </div>
+            </button>`;
+        }).join('');
+    }
+
+    const btn = document.getElementById('sidebar-zone-btn');
+    if (btn) {
+        btn.parentElement.style.position = 'relative';
+        btn.parentElement.appendChild(popup);
+    } else {
+        document.body.appendChild(popup);
+    }
+
+    popup.querySelectorAll('.zone-picker-item').forEach(item => {
+        item.addEventListener('click', () => {
+            _currentZoneId = item.dataset.zone;
+            _poll();
+            _removeZonePicker();
+        });
+    });
+
+    setTimeout(() => document.addEventListener('click', _onDocClick), 0);
+}
+
+function _onDocClick(e) {
+    if (!e.target.closest('#zone-picker-popup') && !e.target.closest('#sidebar-zone-btn')) {
+        _removeZonePicker();
+    }
+}
+
+function _removeZonePicker() {
+    document.getElementById('zone-picker-popup')?.remove();
+    document.removeEventListener('click', _onDocClick);
+}
+
 export function startNowPlaying() {
     if (_pollTimer) return; // already running
     _poll();
@@ -26,7 +90,8 @@ export function stopNowPlaying() {
 async function _poll() {
     try {
         const data = await apiCall('/roon/zones');
-        _zones = (data.zones || []).filter(z => z.now_playing);
+        const zoneList = Array.isArray(data) ? data : (data.zones || []);
+        _zones = zoneList.filter(z => z.now_playing);
         _render(_zones);
     } catch (e) {
         // silently ignore connection errors during polling
@@ -142,7 +207,7 @@ function _render(zones) {
     });
 
     // Transport buttons
-    bar.querySelectorAll('.np-btn[data-action]').forEach(btn => {
+    bar.querySelectorAll('.np-btn-col[data-action]').forEach(btn => {
         btn.addEventListener('click', () => _handleAction(btn.dataset.action, zone, np));
     });
 }
