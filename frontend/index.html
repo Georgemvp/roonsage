@@ -949,6 +949,16 @@
                 <!-- ── ACTIVITY ────────────────────────────────────────────── -->
                 <h3 class="taste-group-header">Activity</h3>
 
+                <!-- Hourly listening bar chart -->
+                <div class="rs-settings-card" style="margin-bottom:16px">
+                    <div style="padding:13px 20px 11px;border-bottom:1px solid var(--border-subtle)">
+                        <span style="font-size:0.62rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted)">Luisteren per uur van de dag</span>
+                    </div>
+                    <div style="padding:16px 20px 4px">
+                        <div id="taste-hourly-bars"></div>
+                    </div>
+                </div>
+
                 <!-- Listening Activity Timeline (full width) -->
                 <section class="taste-section taste-section--full">
                     <h2 class="taste-section-title">Listening Activity</h2>
@@ -1234,6 +1244,7 @@
                 <div class="rs-tab-bar" role="tablist" aria-label="DJ Set tabs">
                     <button class="rs-tab active" data-dj-tab="builder" role="tab" aria-selected="true">Bouwer</button>
                     <button class="rs-tab" data-dj-tab="templates" role="tab" aria-selected="false">Templates</button>
+                    <button class="rs-tab" data-dj-tab="history" role="tab" aria-selected="false">Geschiedenis</button>
                 </div>
 
                 <div id="dj-builder-pane" class="dj-tab-pane">
@@ -1374,6 +1385,21 @@
                     </div>
                     <div id="dj-status" class="enrich-result"></div>
                 </section>
+
+                <!-- Camelot Wheel -->
+                <div class="dj-camelot-card" style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                        <span style="font-size:0.62rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted)">Camelot Wiel</span>
+                        <div class="dj-tooltip-wrap" style="position:relative">
+                            <div style="width:16px;height:16px;border-radius:50%;background:var(--bg-elevated);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;color:var(--text-muted);cursor:help">?</div>
+                            <div class="dj-tooltip-box" style="position:absolute;right:0;bottom:calc(100% + 8px);width:230px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:9px;padding:12px 13px;font-size:0.74rem;color:var(--text-secondary);line-height:1.6;z-index:100;box-shadow:var(--shadow-elevated);pointer-events:none;opacity:0;transition:opacity 150ms;white-space:normal">
+                                <strong style="color:var(--text-primary);display:block;margin-bottom:6px">Wat is het Camelot Wiel?</strong>
+                                Elke toonsoort heeft een nummer (1–12) en letter (A of B). Nummers die naast elkaar staan klinken goed op elkaar. Zo kiest RoonSage tracks die muzikaal vloeiend in elkaar overlopen.
+                            </div>
+                        </div>
+                    </div>
+                    <div id="dj-camelot-wheel"></div>
+                </div>
                 </div>
 
                 <div id="dj-templates-pane" class="dj-tab-pane" style="display:none;">
@@ -1388,6 +1414,12 @@
                             <p class="auto-loading">Laden…</p>
                         </div>
                     </section>
+                </div>
+
+                <div id="dj-history-pane" style="display:none">
+                    <div id="dj-history-list">
+                        <p style="color:var(--text-muted);font-size:0.85rem;padding:24px 0">Nog geen opgeslagen sets.</p>
+                    </div>
                 </div>
 
                 <!-- Modal: schedule daily automation for a DJ template -->
@@ -1428,28 +1460,37 @@
                 <h2>Settings</h2>
 
                 <!-- Appearance -->
-                <section class="rs-settings-card settings-section" id="appearance-settings-section">
-                    <p class="rs-settings-eyebrow">Appearance</p>
-                    <h3 class="rs-settings-card-title">Appearance</h3>
-
-                    <div class="settings-appearance-row">
-                        <span class="settings-appearance-label">Theme</span>
-                        <div class="rs-theme-control" role="group" aria-label="Color theme">
-                            <button class="rs-theme-opt" id="theme-opt-dark" data-theme-opt="dark">Dark</button>
-                            <button class="rs-theme-opt" id="theme-opt-light" data-theme-opt="light">Light</button>
+                <div class="rs-settings-card" style="margin-bottom:16px" id="appearance-settings-section">
+                    <div style="padding:14px 20px 12px;border-bottom:1px solid var(--border-subtle)">
+                        <p class="rs-settings-eyebrow">Verschijning</p>
+                        <h3 class="rs-settings-card-title">Thema en kleuren</h3>
+                    </div>
+                    <div style="padding:4px 20px 16px">
+                        <!-- Theme row -->
+                        <div style="display:flex;align-items:center;padding:14px 0;border-bottom:1px solid var(--border-subtle);gap:20px">
+                            <div style="flex:1">
+                                <div style="font-size:0.86rem;font-weight:500;color:var(--text-primary)">Thema</div>
+                                <div style="font-size:0.75rem;color:var(--text-muted)">Wissel tussen donker en licht</div>
+                            </div>
+                            <div style="display:flex;background:var(--bg-elevated);border-radius:8px;padding:3px;gap:2px">
+                                <button data-theme-opt="dark" style="padding:6px 14px;border-radius:6px;border:none;cursor:pointer;font-family:inherit;font-size:0.78rem;font-weight:500;transition:all 140ms" class="theme-segmented-btn">Donker</button>
+                                <button data-theme-opt="light" style="padding:6px 14px;border-radius:6px;border:none;cursor:pointer;font-family:inherit;font-size:0.78rem;font-weight:500;transition:all 140ms" class="theme-segmented-btn">Licht</button>
+                            </div>
+                        </div>
+                        <!-- Accent color row -->
+                        <div style="display:flex;align-items:center;padding:14px 0;border-bottom:1px solid var(--border-subtle);gap:20px">
+                            <div style="flex:1">
+                                <div style="font-size:0.86rem;font-weight:500;color:var(--text-primary)">Accentkleur</div>
+                                <div style="font-size:0.75rem;color:var(--text-muted)" id="variation-label">Viola</div>
+                            </div>
+                            <div class="rs-variation-swatches" style="display:flex;gap:8px">
+                                <button data-variation="viola" title="Viola" style="width:28px;height:28px;border-radius:50%;background:#9270d4;border:3px solid transparent;cursor:pointer;outline:2px solid transparent;outline-offset:2px;transition:all 140ms"></button>
+                                <button data-variation="ember" title="Ember" style="width:28px;height:28px;border-radius:50%;background:#e5a00d;border:3px solid transparent;cursor:pointer;outline:2px solid transparent;outline-offset:2px;transition:all 140ms"></button>
+                                <button data-variation="slate" title="Slate"  style="width:28px;height:28px;border-radius:50%;background:#5b8fe8;border:3px solid transparent;cursor:pointer;outline:2px solid transparent;outline-offset:2px;transition:all 140ms"></button>
+                            </div>
                         </div>
                     </div>
-
-                    <div class="settings-appearance-row">
-                        <span class="settings-appearance-label">Accent Color</span>
-                        <div class="rs-variation-swatches" role="group" aria-label="Accent color">
-                            <button class="rs-swatch" data-variation="viola" style="background:#9270d4" title="Viola (purple)" aria-label="Viola purple"></button>
-                            <button class="rs-swatch" data-variation="ember" style="background:#e5a00d" title="Ember (amber)" aria-label="Ember amber"></button>
-                            <button class="rs-swatch" data-variation="slate" style="background:#5b8fe8" title="Slate (blue)" aria-label="Slate blue"></button>
-                            <span class="rs-swatch-label" id="variation-label">Viola</span>
-                        </div>
-                    </div>
-                </section>
+                </div>
 
                 <section class="rs-settings-card settings-section">
                     <p class="rs-settings-eyebrow">Roon Connection</p>

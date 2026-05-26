@@ -434,6 +434,35 @@ async function _save(autoName) {
 }
 
 // ---------------------------------------------------------------------------
+// DJ Set history loader
+// ---------------------------------------------------------------------------
+
+async function _loadDJHistory() {
+    const list = document.getElementById('dj-history-list');
+    if (!list) return;
+    list.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem">Laden…</p>';
+    try {
+        const data = await apiCall('/dj-sets');
+        const sets = Array.isArray(data) ? data : (data.sets || []);
+        if (!sets.length) {
+            list.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:24px 0">Nog geen opgeslagen sets.</p>';
+            return;
+        }
+        list.innerHTML = sets.map(s => `
+            <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg-surface);border:1px solid var(--border);border-radius:11px;margin-bottom:8px">
+                <div style="flex:1;min-width:0">
+                    <div style="font-size:0.86rem;font-weight:600;color:var(--text-primary);margin-bottom:3px">${_esc(s.name || 'DJ Set')}</div>
+                    <div style="font-size:0.72rem;color:var(--text-muted)">${s.tracks?.length || 0} tracks · ${s.start_bpm || '?'}–${s.end_bpm || '?'} BPM · ${s.energy_curve || ''}</div>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="document.dispatchEvent(new CustomEvent('dj-history-play', {detail: ${JSON.stringify({id: s.id})}}))">Queue</button>
+            </div>
+        `).join('');
+    } catch (e) {
+        list.innerHTML = `<p style="color:var(--error);font-size:0.85rem">${_esc(e.message)}</p>`;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tab switching (Bouwer | Templates)
 // ---------------------------------------------------------------------------
 
@@ -448,8 +477,12 @@ export function switchDJTab(tab) {
     });
     const builder = document.getElementById('dj-builder-pane');
     const templates = document.getElementById('dj-templates-pane');
+    const history  = document.getElementById('dj-history-pane');
     if (builder)   builder.style.display   = tab === 'builder'   ? '' : 'none';
     if (templates) templates.style.display = tab === 'templates' ? '' : 'none';
+    if (history)   history.style.display   = tab === 'history'   ? '' : 'none';
+
+    if (tab === 'history') _loadDJHistory();
 
     if (tab === 'templates' && !_templatesPaneInitDone) {
         _templatesPaneInitDone = true;
@@ -490,6 +523,52 @@ export function showTemplateBuildResult(data, template) {
     if (nameInput && template) nameInput.value = `DJ Set · ${template.name}`;
 }
 
+// ── Camelot Wheel SVG renderer ────────────────────────────────────────────────
+export function renderCamelotWheel(containerId, activeKeys = []) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const KEY_COLORS = {
+        '1A':'#e57373','1B':'#ef9a9a','2A':'#ff8a65','2B':'#ffab91',
+        '3A':'#ffb74d','3B':'#ffcc80','4A':'#e6ee9c','4B':'#f0f4c3',
+        '5A':'#aed581','5B':'#c5e1a5','6A':'#4db6ac','6B':'#80cbc4',
+        '7A':'#4fc3f7','7B':'#81d4fa','8A':'#7986cb','8B':'#9fa8da',
+        '9A':'#ba68c8','9B':'#ce93d8','10A':'#f06292','10B':'#f48fb1',
+        '11A':'#e53935','11B':'#ef5350','12A':'#ff7043','12B':'#ff8a65',
+    };
+
+    const cx = 110, cy = 110, ro = 90, ri = 52;
+    let paths = '';
+    for (let n = 1; n <= 12; n++) {
+        const startAngle = ((n - 1) / 12) * Math.PI * 2 - Math.PI / 2;
+        const endAngle   = (n       / 12) * Math.PI * 2 - Math.PI / 2;
+        const x1o = cx + ro * Math.cos(startAngle), y1o = cy + ro * Math.sin(startAngle);
+        const x2o = cx + ro * Math.cos(endAngle),   y2o = cy + ro * Math.sin(endAngle);
+        const x1i = cx + ri * Math.cos(startAngle), y1i = cy + ri * Math.sin(startAngle);
+        const x2i = cx + ri * Math.cos(endAngle),   y2i = cy + ri * Math.sin(endAngle);
+        const midA = (startAngle + endAngle) / 2;
+        const rm = (ro + ri) / 2;
+        const tx = cx + rm * Math.cos(midA), ty = cy + rm * Math.sin(midA);
+        const keyA = `${n}A`, keyB = `${n}B`;
+        const isActive = activeKeys.includes(keyA) || activeKeys.includes(keyB);
+        const color = KEY_COLORS[keyA] || '#888';
+        paths += `<path d="M${x1o.toFixed(1)},${y1o.toFixed(1)} A${ro},${ro} 0 0,1 ${x2o.toFixed(1)},${y2o.toFixed(1)} L${x2i.toFixed(1)},${y2i.toFixed(1)} A${ri},${ri} 0 0,0 ${x1i.toFixed(1)},${y1i.toFixed(1)} Z" fill="${color}" opacity="${isActive ? 1 : 0.3}" stroke="var(--bg-primary)" stroke-width="1.5"/>`;
+        paths += `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="7.5" font-weight="700" fill="rgba(0,0,0,0.7)">${n}</text>`;
+    }
+
+    container.innerHTML = `
+        <svg viewBox="0 0 220 220" width="180" height="180" style="display:block;margin:0 auto">
+            ${paths}
+            <circle cx="${cx}" cy="${cy}" r="${ri - 2}" fill="var(--bg-elevated)" stroke="var(--border)" stroke-width="1"/>
+            <text x="${cx}" y="${cy - 6}" text-anchor="middle" font-size="9" fill="var(--text-muted)" font-weight="600">Camelot</text>
+            <text x="${cx}" y="${cy + 6}" text-anchor="middle" font-size="8" fill="var(--text-muted)">Wheel</text>
+        </svg>
+        <p style="font-size:0.69rem;color:var(--text-muted);text-align:center;line-height:1.5;margin-top:8px">
+            Aangrenzende vakjes zijn harmonisch compatibel
+        </p>
+    `;
+}
+
 export async function initDJSetView() {
     if (!_initialized) {
         document.getElementById('dj-form')?.addEventListener('submit', _build);
@@ -524,6 +603,16 @@ export async function initDJSetView() {
                 const hint = document.getElementById('dj-bpm-hint');
                 if (hint) hint.textContent = 'Handmatig ingesteld';
             });
+        });
+
+        // Render Camelot wheel on first load
+        renderCamelotWheel('dj-camelot-wheel');
+
+        // Re-render with active keys after a build
+        document.getElementById('dj-form')?.addEventListener('dj-build-complete', e => {
+            const keys = (e.detail?.tracks || []).map(t => t.key).filter(Boolean);
+            const unique = [...new Set(keys)];
+            renderCamelotWheel('dj-camelot-wheel', unique);
         });
 
         _initialized = true;

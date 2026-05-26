@@ -100,11 +100,12 @@
 
 /* ---- Light theme overrides ---- */
 [data-theme="light"] {
-    --bg-root:     #f5f5f7;
-    --bg-primary:  #ffffff;
-    --bg-surface:  #f0f0f2;
-    --bg-elevated: #e8e8ec;
-    --bg-hover:    #dddde2;
+    --bg-root:     #ebe6dc;
+    --bg-sidebar:  #e3ddd0;
+    --bg-primary:  #f3eee4;
+    --bg-surface:  #ffffff;
+    --bg-elevated: #f7f2e8;
+    --bg-hover:    #ebe6dc;
     --bg-glass:         rgba(0,0,0,0.03);
     --bg-glass-hover:   rgba(0,0,0,0.06);
 
@@ -8378,3 +8379,24 @@ body.no-scroll .pwa-toast {
 .rs-hero-label { font-size:0.64rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.4); margin-bottom:8px; }
 .rs-hero-title { font-size:2rem; font-weight:800; letter-spacing:-0.03em; line-height:1.1; margin-bottom:6px; color:#fff; }
 .rs-hero-meta { font-size:0.85rem; color:rgba(255,255,255,0.45); margin-bottom:18px; }
+
+/* ── DJ Camelot tooltip ── */
+.dj-tooltip-wrap:hover .dj-tooltip-box { opacity: 1 !important; pointer-events: auto !important; }
+
+/* ── Settings segmented theme toggle ── */
+.theme-segmented-btn {
+    background: transparent;
+    color: var(--text-muted);
+    box-shadow: none;
+}
+.theme-segmented-btn.on {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-card);
+}
+
+/* ── Variation swatches ── */
+.rs-variation-swatches [data-variation].on {
+    border-color: var(--text-primary) !important;
+    outline-color: var(--border) !important;
+}

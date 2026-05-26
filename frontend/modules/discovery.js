@@ -65,7 +65,11 @@ function _render(view, data) {
         ${_renderDeepCuts(cuts)}
         ${_renderForgottenFavorites(forgotten)}
         ${_renderGenreExplorer(genres)}
+        <div id="discovery-similar-pane"></div>
     `;
+
+    // Load similar artists async (non-blocking)
+    _renderSimilarArtists();
 
     // Wire up play buttons after render
     view.querySelectorAll('[data-play-key]').forEach(btn => {
@@ -301,6 +305,40 @@ function _renderGenreExplorer(genres) {
                 ${pills}
             </div>
         </section>`;
+}
+
+// ── Similar Artists ───────────────────────────────────────────────────────────
+
+async function _renderSimilarArtists() {
+    const container = document.getElementById('discovery-similar-pane');
+    if (!container) return;
+    container.innerHTML = '<p style="color:var(--text-muted)">Laden…</p>';
+    try {
+        const data = await apiCall('/taste/profile');
+        const artists = data?.recommendations?.similar_artists || data?.similar_artists || [];
+        if (!artists.length) {
+            container.innerHTML = '';
+            return;
+        }
+        container.innerHTML = `
+            <section class="discovery-section">
+                <h2 class="discovery-section-title">Vergelijkbare Artiesten</h2>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">
+                    ${artists.slice(0, 12).map(a => `
+                        <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;gap:14px;align-items:flex-start">
+                            <div style="width:52px;height:52px;border-radius:8px;background:var(--bg-elevated);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.3rem;font-weight:700;color:var(--text-muted)">${escapeHtml((a.artist_name || a.name || '?')[0])}</div>
+                            <div style="flex:1;min-width:0">
+                                <div style="font-size:0.88rem;font-weight:700;color:var(--text-primary);margin-bottom:2px">${escapeHtml(a.artist_name || a.name || '?')}</div>
+                                <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:8px">${escapeHtml(a.genres?.join(', ') || '')}</div>
+                                ${a.reason ? `<div style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5">${escapeHtml(a.reason)}</div>` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </section>`;
+    } catch (e) {
+        container.innerHTML = '';
+    }
 }
 
 // ── Playback helper ───────────────────────────────────────────────────────────

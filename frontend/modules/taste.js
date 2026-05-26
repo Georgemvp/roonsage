@@ -99,6 +99,7 @@ export async function initTasteView() {
 
         _renderIntelBanner(profile, stats, lbStatus);
         _renderTasteStats(profile, stats);
+        _renderHourlyBars(stats);
         _renderTimelineChart(stats);
         _renderGenreDistChart(profile);
         _renderProfile(profile);         // radar chart
@@ -225,6 +226,39 @@ function _renderIntelBanner(profile, stats, lbStatus) {
     if (peakEl) peakEl.textContent = peakLabel;
     const skipEl = document.getElementById('intel-chip-skip');
     if (skipEl) skipEl.textContent = `Skip: ${skipRate}`;
+}
+
+// ── Hourly activity bar chart (custom canvas, no Chart.js) ──────────────────
+function _renderHourlyBars(stats) {
+    const container = document.getElementById('taste-hourly-bars');
+    if (!container) return;
+
+    const hourly = Array(24).fill(0);
+    const raw = stats?.hourly_breakdown || stats?.hour_distribution || [];
+    if (Array.isArray(raw)) {
+        raw.forEach(item => {
+            const h = item.hour ?? item.h;
+            const c = item.count ?? item.listen_count ?? item.plays ?? 0;
+            if (h >= 0 && h < 24) hourly[h] += c;
+        });
+    }
+
+    const max = Math.max(...hourly, 1);
+    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e5a00d';
+
+    container.innerHTML = `
+        <div style="display:flex;align-items:flex-end;gap:3px;height:64px;padding-bottom:18px">
+            ${hourly.map((v, i) => {
+                const h = Math.max(2, Math.round((v / max) * 50));
+                const op = v === 0 ? 0.07 : 0.25 + 0.75 * (v / max);
+                const label = i % 6 === 0 ? `${i}h` : '';
+                return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
+                    <div title="${i}:00 — ${v} tracks" style="width:100%;height:${h}px;border-radius:3px 3px 0 0;background:${accent};opacity:${op.toFixed(2)}"></div>
+                    <div style="font-size:0.55rem;color:var(--text-muted)">${label}</div>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
 }
 
 // ── Taste Stats Grid ──────────────────────────────────────────────────────────
