@@ -373,8 +373,12 @@ body {
     text-transform: uppercase;
     flex-shrink: 0;
 }
+.nav-item-label {
+    flex: 1;
+}
 .nav-dropdown-item .ai-badge {
-    margin-left: auto;
+    margin-left: 4px;
+    flex-shrink: 0;
 }
 .ai-badge--card {
     position: absolute;
