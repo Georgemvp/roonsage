@@ -20,8 +20,9 @@
     align-items: center;
     gap: 16px;
     padding: 10px 12px;
-    background: var(--color-card, #1d1d20);
+    background: var(--bg-surface);
     border-radius: 8px;
+    border: 1px solid var(--border);
 }
 .music-map-toolbar-group { display: flex; align-items: center; gap: 8px; }
 .music-map-toolbar-group--right { margin-left: auto; }
@@ -29,9 +30,10 @@
 .music-map-canvas-wrap {
     grid-area: canvas;
     position: relative;
-    background: #101013;
+    background: var(--bg-root);
     border-radius: 8px;
     overflow: hidden;
+    border: 1px solid var(--border);
 }
 .music-map-canvas-wrap canvas {
     display: block;
@@ -42,15 +44,16 @@
 .music-map-canvas-wrap canvas:active { cursor: grabbing; }
 .music-map-tooltip {
     position: absolute;
-    background: rgba(20, 20, 24, 0.95);
-    color: #fff;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
     padding: 6px 10px;
     font-size: 12px;
     line-height: 1.4;
     border-radius: 6px;
     pointer-events: none;
     max-width: 240px;
-    border: 1px solid #2d2d33;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-dropdown);
 }
 
 .music-map-sidebar {
@@ -61,10 +64,11 @@
     overflow-y: auto;
 }
 .music-map-legend {
-    background: var(--color-card, #1d1d20);
+    background: var(--bg-surface);
     border-radius: 8px;
     padding: 8px 10px;
     font-size: 12px;
+    border: 1px solid var(--border);
 }
 .music-map-legend-row {
     display: flex;
@@ -83,9 +87,10 @@
 
 /* --- Clustering panel --- */
 .clustering-panel {
-    background: var(--color-card, #1d1d20);
+    background: var(--bg-surface);
     border-radius: 8px;
     padding: 12px;
+    border: 1px solid var(--border);
 }
 .clustering-panel-header {
     display: flex;
@@ -97,14 +102,14 @@
     font-size: 12px;
     padding: 6px 8px;
     border-radius: 4px;
-    background: #161618;
+    background: var(--bg-elevated);
     margin-bottom: 8px;
 }
-.cluster-status--running { border-left: 3px solid #e5a00d; }
+.cluster-status--running { border-left: 3px solid var(--accent); }
 .cluster-status--complete { border-left: 3px solid #4caf50; }
-.cluster-status--failed { border-left: 3px solid #d44; }
+.cluster-status--failed { border-left: 3px solid var(--error); }
 .cluster-status-meta { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
-.cluster-error { color: #ff7a7a; }
+.cluster-error { color: var(--error); }
 .cluster-loading, .cluster-empty { color: var(--text-muted); font-style: italic; padding: 8px 4px; }
 .cluster-card-grid {
     display: grid;
@@ -112,32 +117,34 @@
     gap: 8px;
 }
 .cluster-card {
-    background: #161618;
+    background: var(--bg-elevated);
     border-radius: 6px;
     padding: 8px 10px;
-    border: 1px solid #2d2d33;
+    border: 1px solid var(--border);
 }
 .cluster-card-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
-.cluster-card-genre { color: #e5a00d; font-weight: normal; font-style: italic; margin-left: 4px; }
-.cluster-card-stat { font-size: 16px; color: #fff; margin-bottom: 4px; }
+.cluster-card-genre { color: var(--accent); font-weight: normal; font-style: italic; margin-left: 4px; }
+.cluster-card-stat { font-size: 16px; color: var(--text-primary); margin-bottom: 4px; }
 .cluster-card-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--text-muted); }
 .cluster-card--noise { opacity: 0.6; }
 
 /* --- Song Paths --- */
 .song-paths-form {
-    background: var(--color-card, #1d1d20);
+    background: var(--bg-surface);
     border-radius: 8px;
     padding: 12px;
     margin-bottom: 12px;
+    border: 1px solid var(--border);
 }
 .song-paths-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .song-paths-row label { min-width: 90px; font-size: 13px; color: var(--text-muted); }
 .song-paths-row input[type="search"] { flex: 1; }
 .song-paths-row--inline label { min-width: auto; }
 .song-paths-result {
-    background: var(--color-card, #1d1d20);
+    background: var(--bg-surface);
     border-radius: 8px;
     padding: 12px;
+    border: 1px solid var(--border);
 }
 .song-paths-track {
     display: grid;
@@ -145,13 +152,13 @@
     gap: 10px;
     padding: 6px 4px;
     align-items: center;
-    border-bottom: 1px solid #2a2a2e;
+    border-bottom: 1px solid var(--border);
 }
 .song-paths-track-index { color: var(--text-muted); font-family: monospace; }
 .song-paths-track-bars { display: flex; flex-direction: column; gap: 2px; }
 .song-paths-bar {
     height: 4px;
-    background: #2a2a2e;
+    background: var(--border);
     border-radius: 2px;
     position: relative;
     overflow: hidden;
@@ -159,7 +166,7 @@
 .song-paths-bar > span {
     display: block;
     height: 100%;
-    background: #e5a00d;
+    background: var(--accent);
 }
 
 /* --- Alchemy --- */
@@ -169,9 +176,10 @@
     gap: 12px;
 }
 .alchemy-search, .alchemy-mix {
-    background: var(--color-card, #1d1d20);
+    background: var(--bg-surface);
     border-radius: 8px;
     padding: 12px;
+    border: 1px solid var(--border);
 }
 .alchemy-results-list { max-height: 480px; overflow-y: auto; margin-top: 8px; }
 .alchemy-result-row {
@@ -179,7 +187,7 @@
     align-items: center;
     gap: 8px;
     padding: 6px 4px;
-    border-bottom: 1px solid #2a2a2e;
+    border-bottom: 1px solid var(--border);
 }
 .alchemy-result-row .alchemy-meta { flex: 1; font-size: 13px; }
 .alchemy-result-row .btn { padding: 2px 8px; font-size: 12px; }
@@ -200,21 +208,22 @@
     display: flex;
     justify-content: space-between;
     padding: 4px 2px;
-    border-bottom: 1px solid #2a2a2e;
+    border-bottom: 1px solid var(--border);
     font-size: 13px;
 }
 .alchemy-score {
-    color: #e5a00d;
+    color: var(--accent);
     font-family: monospace;
     font-size: 12px;
 }
 
 /* --- CLAP / Lyrics search --- */
 .clap-search-panel {
-    background: var(--color-card, #1d1d20);
+    background: var(--bg-surface);
     border-radius: 8px;
     padding: 12px;
     margin-bottom: 12px;
+    border: 1px solid var(--border);
 }
 .clap-search-panel input[type="search"] { width: 100%; margin-bottom: 8px; }
 .clap-search-suggestions {
@@ -224,23 +233,23 @@
     margin-bottom: 8px;
 }
 .clap-suggest {
-    background: #161618;
-    border: 1px solid #2d2d33;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
     border-radius: 12px;
     padding: 3px 10px;
     font-size: 12px;
     cursor: pointer;
     color: var(--text-muted);
 }
-.clap-suggest:hover { color: #fff; border-color: #e5a00d; }
+.clap-suggest:hover { color: var(--text-primary); border-color: var(--accent); }
 .clap-search-actions { display: flex; gap: 8px; }
 .clap-status { margin-bottom: 12px; }
 .lyrics-result {
     padding: 8px 4px;
-    border-bottom: 1px solid #2a2a2e;
+    border-bottom: 1px solid var(--border);
     cursor: pointer;
 }
-.lyrics-result:hover { background: rgba(255,255,255,0.02); }
+.lyrics-result:hover { background: var(--bg-glass); }
 .lyrics-result-meta { display: flex; align-items: center; gap: 8px; }
 .lyrics-snippet {
     color: var(--text-muted);
@@ -253,10 +262,65 @@
     white-space: pre-wrap;
     margin-top: 8px;
     padding: 8px;
-    background: #161618;
+    background: var(--bg-elevated);
     border-radius: 4px;
-    color: #ddd;
+    color: var(--text-body);
     font-size: 12px;
     line-height: 1.5;
     font-family: inherit;
+}
+
+/* ── Sonic Fingerprint (v13.1) ─────────────────────────────────────────── */
+.sf-layout {
+    display: grid;
+    grid-template-columns: 1fr 220px;
+    gap: 2rem;
+    margin: 1.5rem 0;
+    align-items: start;
+}
+.sf-chart-wrap {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.sf-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+.sf-meta-line { margin: 0 0 0.25rem; font-size: 0.88rem; }
+.sf-actions { display: flex; flex-direction: column; gap: 0.5rem; }
+.sf-results {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+}
+.sf-track {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.55rem 0.75rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    gap: 0.5rem;
+}
+.sf-track-info { flex: 1; min-width: 0; }
+.sf-track-title {
+    font-size: 0.88rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.sf-track-meta { font-size: 0.76rem; color: var(--text-muted); margin-top: 1px; }
+.sf-plays {
+    font-size: 0.76rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    min-width: 2rem;
+    text-align: right;
+}
+@media (max-width: 640px) {
+    .sf-layout { grid-template-columns: 1fr; }
 }

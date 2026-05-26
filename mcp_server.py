@@ -3652,6 +3652,7 @@ async def find_song_path(
     to_track_id: str,
     max_steps: int = 10,
     method: str = "greedy",
+    mood: str = "",
 ) -> str:
     """Find the sonically smoothest bridge playlist between two tracks.
 
@@ -3664,18 +3665,19 @@ async def find_song_path(
         to_track_id:   item_key of the end track.
         max_steps:     Length of the bridge (5–50, default 10).
         method:        "greedy" (fast, biased walk) or "graph" (Dijkstra over k-NN).
+        mood:          Optional mood bias for the path. One of: calm, energetic,
+                       happy, melancholic, aggressive, dreamy, groovy, dark.
     """
-    logger.info("FIND_SONG_PATH: %s → %s (method=%s)", from_track_id, to_track_id, method)
-    result = await _api_call(
-        "POST",
-        "/api/song-path",
-        json={
-            "from_track_id": from_track_id,
-            "to_track_id": to_track_id,
-            "max_steps": max_steps,
-            "method": method,
-        },
-    )
+    logger.info("FIND_SONG_PATH: %s → %s (method=%s, mood=%s)", from_track_id, to_track_id, method, mood)
+    payload: dict = {
+        "from_track_id": from_track_id,
+        "to_track_id": to_track_id,
+        "max_steps": max_steps,
+        "method": method,
+    }
+    if mood:
+        payload["mood"] = mood
+    result = await _api_call("POST", "/api/song-path", json=payload)
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
@@ -3839,6 +3841,29 @@ async def start_lyrics_analysis() -> str:
 async def get_track_lyrics(item_key: str) -> str:
     """Return the stored lyrics for a single track."""
     result = await _api_call("GET", f"/api/lyrics/track/{item_key}")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
+# Sonic Fingerprint (v13.1)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_sonic_fingerprint(top_n: int = 100) -> str:
+    """Return the user's sonic fingerprint — the average audio-feature profile
+    of their most-played tracks, plus library tracks ranked by similarity.
+    Use this to understand a user's musical taste and find new tracks they'll love."""
+    result = await _api_call("GET", "/api/sonic-fingerprint/recommendations", params={"limit": 25, "top_n": top_n})
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def play_sonic_fingerprint(zone_id: str, limit: int = 25) -> str:
+    """Play library tracks that best match the user's sonic fingerprint on a Roon zone.
+    Prefers tracks the user hasn't played much, so it surfaces new discoveries."""
+    result = await _api_call("POST", "/api/sonic-fingerprint/play",
+                             json={"zone_id": zone_id, "limit": limit})
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 

@@ -79,6 +79,7 @@ export async function initSongPathsView() {
     const stepsRange = document.getElementById('song-paths-steps');
     const stepsLabel = document.getElementById('song-paths-steps-value');
     const methodSel = document.getElementById('song-paths-method');
+    const moodSel = document.getElementById('song-paths-mood');
     const findBtn = document.getElementById('song-paths-find');
     const playBtn = document.getElementById('song-paths-play');
 
@@ -104,6 +105,7 @@ export async function initSongPathsView() {
         findBtn.disabled = true;
         findBtn.textContent = 'Finding…';
         try {
+            const mood = moodSel?.value || null;
             const result = await apiCall('/song-path', {
                 method: 'POST',
                 body: JSON.stringify({
@@ -111,6 +113,7 @@ export async function initSongPathsView() {
                     to_track_id: toKey,
                     max_steps: parseInt(stepsRange.value, 10),
                     method: methodSel.value,
+                    mood: mood || undefined,
                 }),
             });
             _lastPath = result;

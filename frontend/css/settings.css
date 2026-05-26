@@ -58,8 +58,8 @@
 
 /* Experimental feature warning */
 .experimental-warning {
-    background: #3d2a00;
-    border: 1px solid #fb8c00;
+    background: var(--accent-dim);
+    border: 1px solid var(--warning);
     border-radius: 8px;
     padding: 12px 16px;
     margin-bottom: 16px;
@@ -68,7 +68,7 @@
 }
 
 .experimental-warning strong {
-    color: #fb8c00;
+    color: var(--warning);
     display: block;
     margin-bottom: 4px;
 }

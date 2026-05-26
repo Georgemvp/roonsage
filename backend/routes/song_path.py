@@ -22,11 +22,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/song-path", tags=["song-path"])
 
 
+VALID_MOODS = frozenset(
+    {"calm", "energetic", "happy", "melancholic", "aggressive", "dreamy", "groovy", "dark"}
+)
+
+
 class SongPathRequest(BaseModel):
     from_track_id: str = Field(..., description="item_key of the start track")
     to_track_id: str = Field(..., description="item_key of the end track")
     max_steps: int = Field(10, ge=2, le=50)
     method: Literal["greedy", "graph"] = "greedy"
+    mood: str | None = Field(None, description="Optional mood bias for the path")
 
 
 class SongPathPlayRequest(SongPathRequest):
@@ -65,14 +71,15 @@ class SongPathPlayResponse(SongPathResponse):
 
 
 def _find_path(req: SongPathRequest) -> list[dict]:
+    mood = req.mood if req.mood and req.mood in VALID_MOODS else None
     conn = get_db_connection()
     try:
         if req.method == "graph":
             return song_path.find_song_path_graph(
-                conn, req.from_track_id, req.to_track_id, req.max_steps
+                conn, req.from_track_id, req.to_track_id, req.max_steps, mood=mood
             )
         return song_path.find_song_path(
-            conn, req.from_track_id, req.to_track_id, req.max_steps
+            conn, req.from_track_id, req.to_track_id, req.max_steps, mood=mood
         )
     finally:
         conn.close()

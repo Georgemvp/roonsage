@@ -14,7 +14,9 @@ model (item_key, title, artist, album, plus audio-feature metadata).
 from __future__ import annotations
 
 import heapq
+import json
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from backend.audio_features.clustering import FEATURE_COLUMNS
@@ -23,6 +25,25 @@ if TYPE_CHECKING:
     import sqlite3
 
 logger = logging.getLogger(__name__)
+
+_MOOD_CENTROIDS: dict[str, list[float]] | None = None
+
+
+def _load_mood_centroid(mood: str) -> list[float] | None:
+    """Return the normalised feature vector for a named mood, or None."""
+    global _MOOD_CENTROIDS
+    if _MOOD_CENTROIDS is None:
+        path = Path(__file__).parent.parent.parent / "data" / "mood_centroids.json"
+        try:
+            raw: dict[str, dict[str, float]] = json.loads(path.read_text())
+            _MOOD_CENTROIDS = {
+                m: [float(v.get(c, 0.5)) for c in FEATURE_COLUMNS]
+                for m, v in raw.items()
+            }
+        except Exception:
+            logger.warning("Could not load mood_centroids.json")
+            _MOOD_CENTROIDS = {}
+    return _MOOD_CENTROIDS.get(mood)
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +132,7 @@ def find_song_path(
     from_track_id: str,
     to_track_id: str,
     max_steps: int = 10,
+    mood: str | None = None,
 ) -> list[dict[str, Any]]:
     """Greedy nearest-neighbor walk biased toward the target track.
 
@@ -118,6 +140,9 @@ def find_song_path(
     distance to ``current_position + alpha * (target - current_position)``;
     ``alpha`` grows from 0.3 → 1.0 as we approach the target so the early
     steps explore freely, while the last few snap toward the destination.
+
+    When ``mood`` is given, a small additional bias (weight 0.15) pulls each
+    step toward the mood centroid, shaping the character of the bridge.
     """
     keys, matrix, key_to_idx, metadata = _load_feature_table(conn)
     if not keys:
@@ -126,14 +151,16 @@ def find_song_path(
 
     n_dim = len(FEATURE_COLUMNS)
     target = matrix[dst_idx]
+    mood_vec = _load_mood_centroid(mood) if mood else None
     visited: set[int] = {src_idx}
     path: list[int] = [src_idx]
     current = matrix[src_idx]
 
     for step in range(max_steps):
-        # alpha goes from 0.3 to ~0.95 over the available steps.
         alpha = 0.3 + 0.65 * (step / max(1, max_steps - 1))
         bias = [current[d] + alpha * (target[d] - current[d]) for d in range(n_dim)]
+        if mood_vec is not None:
+            bias = [bias[d] + 0.15 * (mood_vec[d] - bias[d]) for d in range(n_dim)]
 
         best_idx = -1
         best_d = float("inf")
@@ -154,8 +181,6 @@ def find_song_path(
         if best_idx == dst_idx:
             break
 
-    # If we never reached the destination, append it explicitly so callers
-    # always get a path that ends at the requested target.
     if path[-1] != dst_idx:
         path.append(dst_idx)
 
@@ -225,30 +250,42 @@ def find_song_path_graph(
     max_steps: int = 10,
     *,
     k: int = 10,
+    mood: str | None = None,
 ) -> list[dict[str, Any]]:
     """Build a k-NN graph and walk Dijkstra's shortest path.
 
     If the shortest path has more than ``max_steps + 1`` nodes the result is
     simplified by taking ``max_steps`` evenly-spaced waypoints (including
     the source and destination).
+
+    When ``mood`` is given, edge weights get a small mood-proximity bonus that
+    nudges Dijkstra toward mood-compatible segments.
     """
     keys, matrix, key_to_idx, metadata = _load_feature_table(conn)
     if not keys:
         return []
     src_idx, dst_idx = _validate_endpoints(key_to_idx, from_track_id, to_track_id)
+    mood_vec = _load_mood_centroid(mood) if mood else None
 
     adj = _build_knn_graph(matrix, k=min(k, max(1, len(matrix) - 1)))
+
+    if mood_vec is not None:
+        # Re-weight edges: nodes far from the mood centroid cost more.
+        adj_mood: list[list[tuple[int, float]]] = []
+        for i, neighbors in enumerate(adj):
+            node_mood_dist = _euclid_sq(matrix[i], mood_vec) ** 0.5
+            adj_mood.append([(j, w * (1.0 + 0.2 * node_mood_dist)) for j, w in neighbors])
+        adj = adj_mood
+
     path = _dijkstra(adj, src_idx, dst_idx)
     if not path:
-        # Graph disconnected — fall back to greedy.
-        return find_song_path(conn, from_track_id, to_track_id, max_steps)
+        return find_song_path(conn, from_track_id, to_track_id, max_steps, mood=mood)
 
     target_len = max_steps + 1
     if len(path) > target_len:
         idxs = [
             round(i * (len(path) - 1) / (target_len - 1)) for i in range(target_len)
         ]
-        # Dedupe while preserving order in case the rounding produced repeats.
         seen: set[int] = set()
         path = [path[i] for i in idxs if not (path[i] in seen or seen.add(path[i]))]
     return [metadata[i] for i in path]

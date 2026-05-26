@@ -91,7 +91,7 @@ function makeProjector(canvas, bounds, viewport) {
 function draw(ctx, s) {
     const canvas = ctx.canvas;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#101013';
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-root').trim() || '#101013';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const project = makeProjector(canvas, s.bounds, s.viewport);

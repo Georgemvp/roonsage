@@ -84,3 +84,23 @@ def test_empty_library_returns_empty(tmp_path, monkeypatch):
     db_module.init_schema(conn)
     assert song_path.find_song_path(conn, "a", "b") == []
     conn.close()
+
+
+def test_mood_path_returns_valid_steps(tmp_path, monkeypatch):
+    conn = _seed_db(tmp_path, monkeypatch, n=15)
+    result = song_path.find_song_path(conn, "t000", "t014", max_steps=8, mood="calm")
+    assert result[0]["item_key"] == "t000"
+    assert result[-1]["item_key"] == "t014"
+    conn.close()
+
+
+def test_load_mood_centroid_known_mood():
+    from backend.audio_features.song_path import _load_mood_centroid
+    vec = _load_mood_centroid("happy")
+    assert vec is not None
+    assert len(vec) == 6
+
+
+def test_load_mood_centroid_unknown_mood():
+    from backend.audio_features.song_path import _load_mood_centroid
+    assert _load_mood_centroid("nonexistent_mood_xyz") is None

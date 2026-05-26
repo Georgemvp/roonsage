@@ -1,0 +1,10 @@
+{
+  "calm":        {"bpm": 75,  "energy": 0.25, "danceability": 0.30, "valence": 0.55, "instrumentalness": 0.50, "acousticness": 0.75},
+  "energetic":   {"bpm": 140, "energy": 0.90, "danceability": 0.75, "valence": 0.65, "instrumentalness": 0.15, "acousticness": 0.10},
+  "happy":       {"bpm": 120, "energy": 0.65, "danceability": 0.80, "valence": 0.90, "instrumentalness": 0.10, "acousticness": 0.30},
+  "melancholic": {"bpm": 80,  "energy": 0.35, "danceability": 0.35, "valence": 0.15, "instrumentalness": 0.40, "acousticness": 0.65},
+  "aggressive":  {"bpm": 155, "energy": 0.95, "danceability": 0.55, "valence": 0.25, "instrumentalness": 0.20, "acousticness": 0.05},
+  "dreamy":      {"bpm": 90,  "energy": 0.35, "danceability": 0.45, "valence": 0.60, "instrumentalness": 0.60, "acousticness": 0.70},
+  "groovy":      {"bpm": 110, "energy": 0.70, "danceability": 0.90, "valence": 0.75, "instrumentalness": 0.20, "acousticness": 0.25},
+  "dark":        {"bpm": 95,  "energy": 0.60, "danceability": 0.40, "valence": 0.10, "instrumentalness": 0.55, "acousticness": 0.30}
+}

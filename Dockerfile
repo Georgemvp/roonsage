@@ -1,23 +1,27 @@
 # ── Stage 1: dependency builder ───────────────────────────────────────────────
 FROM python:3.12-slim AS builder
 
-# Install uv (fast resolver) for both compile and install.
-# Using the official standalone binary so we don't pull in a Python toolchain.
+# build-essential: needed to compile hdbscan Cython extensions on aarch64
+# libsndfile1-dev: needed by soundfile/librosa wheel build
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates \
-        build-essential \
-        libsndfile1-dev \
+        curl ca-certificates build-essential libsndfile1-dev \
     && curl -LsSf https://astral.sh/uv/install.sh | sh \
     && cp /root/.local/bin/uv /usr/local/bin/uv \
-    && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+    && apt-get purge -y curl && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-COPY requirements.in requirements.txt ./
+COPY requirements.in requirements-ml.txt ./
 
-# Recompile requirements.txt from requirements.in on every build so the lock
-# stays honest. Then install into /install via uv's --target equivalent.
-RUN uv pip compile requirements.in -o requirements.txt --python-version=3.12 \
-    && uv pip install --target=/install --no-cache -r requirements.txt
+# 1. Compile + install core deps (fast, no C extensions except scikit-learn)
+RUN uv pip compile requirements.in -o requirements-core.txt --python-version=3.12 \
+    && uv pip install --target=/install --no-cache -r requirements-core.txt
+
+# 2. Install heavy ML deps with CPU torch wheel index (separate so Docker can
+#    cache the large ML layer independently of core changes)
+RUN pip install --target=/install --no-cache-dir \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        -r requirements-ml.txt
 
 # ── Stage 2: final image ───────────────────────────────────────────────────────
 FROM python:3.12-slim
@@ -41,7 +45,7 @@ RUN mkdir -p /app/data /app/data/.clap_cache /app/data/.hf_cache \
 
 # System dependencies:
 #   libchromaprint-tools — AcoustID fingerprinting
-#   libsndfile1, ffmpeg  — audio decoding for librosa/soundfile (audio_features worker)
+#   libsndfile1, ffmpeg  — audio decoding for librosa/soundfile
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libchromaprint-tools \
     libsndfile1 \
@@ -56,6 +60,7 @@ COPY --from=builder /install/bin/ /usr/local/bin/
 COPY --chown=roonsage:roonsage backend/ ./backend/
 COPY --chown=roonsage:roonsage frontend/ ./frontend/
 COPY --chown=roonsage:roonsage config.example.yaml ./
+COPY --chown=roonsage:roonsage data/mood_centroids.json ./data/mood_centroids.json
 
 EXPOSE 5765
 

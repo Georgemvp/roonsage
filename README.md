@@ -30,7 +30,7 @@ _automate your listening, and let Claude Desktop control every aspect of Roon �
 
 ## What is RoonSage?
 
-RoonSage is a **self-hosted web app** that connects to your Roon Core as an Extension. It syncs your library into a local SQLite cache and wraps everything in a full **MCP server** (67 tools) so Claude Desktop can search, curate, discover, build DJ sets, and control Roon through natural conversation.
+RoonSage is a **self-hosted web app** that connects to your Roon Core as an Extension. It syncs your library into a local SQLite cache and wraps everything in a full **MCP server** (69 tools) so Claude Desktop can search, curate, discover, build DJ sets, and control Roon through natural conversation.
 
 Key design principles:
 
@@ -195,7 +195,7 @@ flowchart TD
 
 ## Full MCP Tool List
 
-RoonSage exposes **67 tools** to Claude Desktop, grouped by function.
+RoonSage exposes **69 tools** to Claude Desktop, grouped by function.
 
 ### Library & Search
 
@@ -1199,6 +1199,13 @@ docker-compose up -d --build
 ---
 
 ## Changelog
+
+### v13.1 — Sonic Fingerprint, Mood-aware Song Paths, Docker build fix
+
+- **Sonic Fingerprint** — computes the user's musical DNA by averaging the normalised audio-feature profile of their top-played tracks and cosine-ranking the full library. Unplayed tracks are boosted for discovery. Radar chart visualisation (Chart.js). REST: `GET /api/sonic-fingerprint/profile`, `GET /api/sonic-fingerprint/recommendations`, `POST /api/sonic-fingerprint/play`. MCP tools: `get_sonic_fingerprint`, `play_sonic_fingerprint`. Frontend view with nav entry under "Library".
+- **Mood-aware Song Paths** — optional `mood` parameter for `/api/song-path` and the `find_song_path` MCP tool. Eight moods defined in `data/mood_centroids.json` (calm, energetic, happy, melancholic, aggressive, dreamy, groovy, dark) bias the greedy walk and Dijkstra graph toward a mood centroid. Mood dropdown added to the Song Paths frontend.
+- **Docker build** — split requirements into `requirements.txt` (core deps, compiled by uv) and `requirements-ml.txt` (torch/torchaudio CPU wheels + umap-learn, hdbscan, laion-clap, transformers). The builder stage installs them in two separate layers so Docker can cache the large ML layer independently.
+- **Fix** — `sqlite3.Row` does not support `.get()`; fixed `AttributeError` in `backend/discovery.py` (`get_lb_top_releases_in_library`).
 
 ### v13.0 — Sonic Clustering, Music Map, Song Paths, Alchemy, CLAP, Lyrics Search
 

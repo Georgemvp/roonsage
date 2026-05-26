@@ -157,7 +157,7 @@ def get_lb_top_releases_in_library() -> list[dict]:
                     "album": match["title"],
                     "parent_item_key": match["item_key"],
                     "listen_count": listen_count,
-                    "image_key": match.get("image_key") or None,
+                    "image_key": match["image_key"] if "image_key" in match else None,  # noqa: SIM401
                 })
                 if len(results) >= 15:
                     break

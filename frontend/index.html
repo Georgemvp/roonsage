@@ -115,6 +115,10 @@
                         <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2h7l3 3v9H3z"/><path d="M5 6h6M5 8.5h6M5 11h4"/></svg></span>
                         <span>Lyrics Search</span>
                     </button>
+                    <button class="rs-nav-item" data-nav="sonic-fingerprint" aria-label="Sonic Fingerprint">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 1a7 7 0 110 14A7 7 0 018 1z"/><path d="M8 4a4 4 0 110 8A4 4 0 018 4z"/><path d="M8 7a1 1 0 110 2A1 1 0 018 7z"/></svg></span>
+                        <span>Fingerprint</span>
+                    </button>
                 </div>
 
                 <!-- Intelligence -->
@@ -1709,6 +1713,18 @@
                             <option value="greedy" selected>Greedy</option>
                             <option value="graph">Graph (Dijkstra)</option>
                         </select>
+                        <label style="margin-left:1rem;">Mood</label>
+                        <select id="song-paths-mood" class="auto-form-input">
+                            <option value="">— geen —</option>
+                            <option value="calm">Calm</option>
+                            <option value="energetic">Energetic</option>
+                            <option value="happy">Happy</option>
+                            <option value="melancholic">Melancholic</option>
+                            <option value="aggressive">Aggressive</option>
+                            <option value="dreamy">Dreamy</option>
+                            <option value="groovy">Groovy</option>
+                            <option value="dark">Dark</option>
+                        </select>
                         <button id="song-paths-find" class="btn btn-primary btn-sm">Find path</button>
                         <button id="song-paths-play" class="btn btn-secondary btn-sm" disabled>Play path</button>
                     </div>
@@ -1792,6 +1808,32 @@
 
                 <div id="lyrics-status-block" class="clap-status"></div>
                 <div id="lyrics-results"></div>
+            </div>
+
+            <!-- Sonic Fingerprint View (v13.1) -->
+            <div id="sonic-fingerprint-view" class="view">
+                <p class="rs-view-eyebrow">DISCOVER</p>
+                <h2 class="rs-view-title">Sonic Fingerprint</h2>
+                <p class="rs-view-sub">Jouw muzikale DNA — berekend uit je luistergeschiedenis. Ontdek tracks die perfect passen bij jouw smaak die je nog niet kent.</p>
+
+                <div class="sf-layout">
+                    <div class="sf-chart-wrap">
+                        <canvas id="sf-radar" width="300" height="300"></canvas>
+                    </div>
+                    <div class="sf-sidebar">
+                        <div id="sf-meta" class="sf-meta"></div>
+                        <div class="sf-actions">
+                            <label for="sf-limit" style="font-size:0.82rem;color:var(--text-muted);">Aanbevelingen</label>
+                            <select id="sf-limit" class="auto-form-input">
+                                <option value="15">15 tracks</option>
+                                <option value="25" selected>25 tracks</option>
+                                <option value="50">50 tracks</option>
+                            </select>
+                            <button id="sf-play-btn" class="btn btn-primary" disabled>&#9654; Afspelen</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="sf-results" class="sf-results"></div>
             </div>
 
             <!-- Settings View -->

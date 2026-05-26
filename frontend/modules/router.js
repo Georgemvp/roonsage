@@ -25,6 +25,7 @@ const VIEW_MODULES = {
     'alchemy':     () => import('./alchemy.js').then(m => m.initAlchemyView()),
     'clap-search': () => import('./clap-search.js').then(m => m.initClapSearchView()),
     'lyrics-search': () => import('./lyrics-search.js').then(m => m.initLyricsSearchView()),
+    'sonic-fingerprint': () => import('./sonic-fingerprint.js').then(m => m.initSonicFingerprintView()),
 };
 
 export const HASH_TO_VIEW = {
@@ -46,6 +47,7 @@ export const HASH_TO_VIEW = {
     'alchemy': 'alchemy',
     'clap-search': 'clap-search',
     'lyrics-search': 'lyrics-search',
+    'sonic-fingerprint': 'sonic-fingerprint',
     // Backward compat
     'make-playlist': 'create',
 };
@@ -71,6 +73,7 @@ export const VIEW_TO_HASH = {
     'alchemy': 'alchemy',
     'clap-search': 'clap-search',
     'lyrics-search': 'lyrics-search',
+    'sonic-fingerprint': 'sonic-fingerprint',
 };
 
 export function hashForCurrentState() {

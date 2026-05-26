@@ -1,0 +1,13 @@
+# Heavy ML dependencies — installed separately from the core app.
+# torch/torchaudio use CPU-only wheels to keep image size manageable.
+# Install with:
+#   pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-ml.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.3.1+cpu
+torchaudio==2.3.1+cpu
+laion-clap==1.1.6
+transformers>=4.40.0
+umap-learn>=0.5.6
+hdbscan>=0.8.33
+onnxruntime>=1.18.0
+tokenizers>=0.19.0

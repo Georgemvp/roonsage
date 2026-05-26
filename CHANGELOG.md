@@ -2,6 +2,16 @@
 
 All notable changes to RoonSage are documented here.
 
+## [13.1.0] - 2026-05-26
+
+### Added
+- **Sonic Fingerprint** — computes the user's musical DNA from listening history: averages the audio-feature profile of their top-played tracks and ranks the full library by cosine similarity. Unplayed tracks are boosted for discovery. Radar chart visualisation (Chart.js). REST endpoints: `GET /api/sonic-fingerprint/profile`, `GET /api/sonic-fingerprint/recommendations`, `POST /api/sonic-fingerprint/play`. Two new MCP tools: `get_sonic_fingerprint`, `play_sonic_fingerprint`.
+- **Mood-aware Song Paths** — optional `mood` parameter for `/api/song-path` biases the greedy walk and Dijkstra graph toward mood centroids. Eight moods defined in `data/mood_centroids.json`: calm, energetic, happy, melancholic, aggressive, dreamy, groovy, dark. Mood dropdown added to the Song Paths frontend view and `find_song_path` MCP tool.
+
+### Fixed
+- Docker build: split requirements into `requirements.txt` (core, compiled by uv) and `requirements-ml.txt` (torch/torchaudio CPU wheels + umap-learn, hdbscan, laion-clap, transformers). The builder stage now installs them in two separate layers so Docker can cache the large ML layer independently.
+- `sqlite3.Row` does not support `.get()` — fixed `AttributeError` in `backend/discovery.py` (`get_lb_top_releases_in_library`).
+
 ## [12.0] - 2026-05-22
 
 ### Added
