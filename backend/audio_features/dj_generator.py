@@ -5,13 +5,18 @@ harmonic mixing rules (Camelot wheel neighbours). The algorithm is greedy
 with one-step lookahead — fast enough to call from a request handler:
 
   1. Pull a candidate pool from ``tracks`` ⋈ ``track_audio_features`` filtered
-     by (broad) BPM window, genres, exclude-live.
-  2. Compute a per-position target BPM (linear ramp) and target energy.
-  3. For each position, pick the highest-scoring candidate that:
-        - is Camelot-compatible with the previous track,
-        - is within ±4 BPM of target,
-        - hasn't been used yet,
-        - keeps the running artist-diversity invariant (≥80% unique artists).
+     by a ±6 BPM window around [start_bpm, end_bpm], genres, and live exclusion.
+     If a mood is requested, first try a valence SQL pre-filter; fall back to
+     the full pool (valence-only-scored) when the filtered pool is too small.
+  2. Compute per-position target BPM, energy, and valence from the chosen curve
+     and mood profiles.
+  3. For each position:
+        a. Prefer candidates within ±5 BPM of the target (soft BPM pre-filter);
+           fall back to the full remaining pool if fewer than 5 pass.
+        b. Apply the hard artist cap (max 2 per artist; 3 if pool is small).
+        c. Score remaining candidates on BPM, energy, valence, harmonic key,
+           and a sliding-window artist-recency penalty (last 8 tracks).
+        d. Randomise among the top-N best (N scales with pool size, 5–12).
 
 The result mirrors the structure used by ``filter_tracks`` so the existing
 ``curate_and_play`` flow can play it back via a server-side session.
@@ -148,6 +153,9 @@ def _energy_bias(start_mood: str | None, end_mood: str | None, n: int) -> list[f
     return [b_start + (b_end - b_start) * i / (n - 1) for i in range(n)]
 
 
+_ARTIST_RECENCY_WINDOW = 8  # only the last N picks are checked for recency penalty
+
+
 def _score_candidate(
     cand: dict[str, Any],
     *,
@@ -157,13 +165,20 @@ def _score_candidate(
     recent_artists: list[str],
     target_valence: float | None = None,
 ) -> float:
-    """Lower is better — combines BPM/energy/valence distance with diversity penalty."""
+    """Lower is better — combines BPM/energy/valence distance with diversity penalty.
+
+    recent_artists should be a sliding window (last _ARTIST_RECENCY_WINDOW picks)
+    so late-set tracks aren't penalised against artists from the very beginning.
+    """
     bpm = cand.get("bpm") or target_bpm
     energy = cand.get("energy") or 0.5
     cam = cand.get("camelot") or ""
 
     bpm_pen = abs(bpm - target_bpm) / 4.0
     energy_pen = abs(energy - target_energy)
+
+    # Recency penalty uses only a sliding window — tracks from 10+ positions ago
+    # no longer block a good match (the hard artist_cap handles total repeats).
     artist_pen = 0.0
     if cand["artist"] in recent_artists[-3:]:
         artist_pen = 0.6
@@ -173,7 +188,7 @@ def _score_candidate(
     harmonic_bonus = 0.0
     if prev_camelot and cam:
         if cam == prev_camelot:
-            harmonic_bonus = -0.05  # smooth, but slightly penalised to discourage same-key streaks
+            harmonic_bonus = -0.05  # same key: smooth transition but mild penalty to avoid streaks
         elif cam in camelot.compatible(prev_camelot):
             harmonic_bonus = -0.25
 
@@ -181,51 +196,55 @@ def _score_candidate(
     if target_valence is not None:
         v = cand.get("valence")
         if v is not None:
-            valence_pen = abs(v - target_valence) * 0.7
+            # Weight raised to 1.0 so mood is as influential as energy.
+            valence_pen = abs(v - target_valence) * 1.0
 
-    # tighter BPM bias than energy: BPM mismatches are audible immediately.
+    # BPM is strongest (audible immediately), then energy, then valence/mood.
     return 1.2 * bpm_pen + 0.8 * energy_pen + valence_pen + artist_pen + harmonic_bonus
 
 
-def _load_candidates(
+def _run_query(sql: str, params: list[Any]) -> list[dict[str, Any]]:
+    """Execute a candidate query and deduplicate on (title, artist)."""
+    with get_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    seen: set[tuple[str, str]] = set()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        d = dict(row)
+        key = (d["title"].lower(), d["artist"].lower())
+        if key not in seen:
+            seen.add(key)
+            result.append(d)
+    return result
+
+
+def _build_sql_and_params(
     *,
-    start_bpm: float,
-    end_bpm: float,
-    genres: list[str] | None,
+    low: float,
+    high: float,
     exclude_live: bool,
     decades: list[str] | None,
-    start_mood: str | None = None,
-    end_mood: str | None = None,
-) -> list[dict[str, Any]]:
-    """Return all tracks with audio features within the broad BPM window."""
-    low = min(start_bpm, end_bpm) - 8.0
-    high = max(start_bpm, end_bpm) + 8.0
-
+    genres: list[str] | None,
+    with_valence: bool,
+    v_low: float = 0.0,
+    v_high: float = 1.0,
+) -> tuple[str, list[Any]]:
     conditions = ["af.bpm IS NOT NULL", "af.bpm >= ?", "af.bpm <= ?"]
     params: list[Any] = [low, high]
     if exclude_live:
         conditions.append("t.is_live = 0")
-
-    # Broad valence pre-filter: keeps the pool relevant without over-constraining.
-    # Window covers the full range of both start and end moods, plus ±0.2 slack.
-    moods_to_check = [m for m in [start_mood, end_mood] if m and m in MOOD_PROFILES]
-    if moods_to_check:
-        all_mins = [MOOD_PROFILES[m][0] for m in moods_to_check]
-        all_maxs = [MOOD_PROFILES[m][1] for m in moods_to_check]
-        v_low  = max(0.0, min(all_mins) - 0.2)
-        v_high = min(1.0, max(all_maxs) + 0.2)
+    if with_valence:
         conditions.append("af.valence IS NOT NULL")
         conditions.append("af.valence >= ?")
         conditions.append("af.valence <= ?")
         params.extend([v_low, v_high])
-
     if decades:
         decade_conds = []
         for d in decades:
             try:
-                start = int(d.rstrip("s"))
+                start_yr = int(d.rstrip("s"))
                 decade_conds.append("(t.year >= ? AND t.year <= ?)")
-                params.extend([start, start + 9])
+                params.extend([start_yr, start_yr + 9])
             except ValueError:
                 continue
         if decade_conds:
@@ -253,10 +272,64 @@ def _load_candidates(
             JOIN track_audio_features af ON af.item_key = t.item_key
             WHERE {where}
         """
+    return sql, params
 
-    with get_connection() as conn:
-        rows = conn.execute(sql, params).fetchall()
-    return [dict(row) for row in rows]
+
+def _load_candidates(
+    *,
+    start_bpm: float,
+    end_bpm: float,
+    genres: list[str] | None,
+    exclude_live: bool,
+    decades: list[str] | None,
+    start_mood: str | None = None,
+    end_mood: str | None = None,
+    min_pool_size: int = 30,
+) -> list[dict[str, Any]]:
+    """Return tracks with audio features within the broad BPM window.
+
+    Tries a valence pre-filter first when a mood is requested. Falls back to
+    no valence filter when the resulting pool is too small — valence distance
+    is then handled by the scoring function instead, which is more forgiving
+    than a hard SQL cut-off.  This prevents genres whose analysed valence
+    scores cluster low (e.g. Blues ~0.30) from returning near-empty pools for
+    happy moods.
+    """
+    # ±6 BPM margin: tracks further than 6 BPM from the target range score so
+    # badly (bpm_pen > 1.5, × 1.2 = 1.8 penalty) that they almost never win,
+    # so loading them just inflates the pool with noise.
+    low = min(start_bpm, end_bpm) - 6.0
+    high = max(start_bpm, end_bpm) + 6.0
+
+    moods_to_check = [m for m in [start_mood, end_mood] if m and m in MOOD_PROFILES]
+    v_low, v_high = 0.0, 1.0
+    if moods_to_check:
+        all_mins = [MOOD_PROFILES[m][0] for m in moods_to_check]
+        all_maxs = [MOOD_PROFILES[m][1] for m in moods_to_check]
+        # ±0.2 slack so the pre-filter is broad enough to leave room for scoring.
+        v_low  = max(0.0, min(all_mins) - 0.2)
+        v_high = min(1.0, max(all_maxs) + 0.2)
+
+    if moods_to_check:
+        sql, params = _build_sql_and_params(
+            low=low, high=high, exclude_live=exclude_live, decades=decades,
+            genres=genres, with_valence=True, v_low=v_low, v_high=v_high,
+        )
+        pool = _run_query(sql, params)
+        if len(pool) >= min_pool_size:
+            return pool
+        # Pool too small — fall back without valence hard-filter so the scorer
+        # can still prefer happy-sounding tracks over cutting everything off.
+        logger.info(
+            "DJ pool with valence filter has only %d tracks (need %d); retrying without valence pre-filter",
+            len(pool), min_pool_size,
+        )
+
+    sql, params = _build_sql_and_params(
+        low=low, high=high, exclude_live=exclude_live, decades=decades,
+        genres=genres, with_valence=False,
+    )
+    return _run_query(sql, params)
 
 
 def build_dj_set(
@@ -293,6 +366,8 @@ def build_dj_set(
         decades=decades,
         start_mood=start_mood,
         end_mood=end_mood,
+        # Need at least 3× the target track count so the scorer has real choice.
+        min_pool_size=max(30, n_tracks * 3),
     )
     if not pool:
         return {"tracks": [], "total_matching": 0, "returned": 0, "curve": []}
@@ -300,13 +375,19 @@ def build_dj_set(
     bpm_curve = _bpm_targets(start_bpm, end_bpm, n_tracks, energy_curve)
     raw_energy = _curve_values(energy_curve, n_tracks)
     e_bias = _energy_bias(start_mood, end_mood, n_tracks)
-    energy_curve_vals = [max(0.0, min(1.0, e + b)) for e, b in zip(raw_energy, e_bias, strict=False)]
+    energy_curve_vals = [max(0.0, min(1.0, e + b)) for e, b in zip(raw_energy, e_bias, strict=True)]
     valence_targets = _valence_targets(start_mood, end_mood, n_tracks)
 
     used_keys: set[str] = set()
     recent_artists: list[str] = []
     selected: list[dict[str, Any]] = []
     prev_camelot: str | None = None
+    artist_counts: dict[str, int] = {}
+
+    # Hard cap: at most 2 tracks per artist so no single artist dominates.
+    # Relaxed to 3 when the pool is very small (< 2× n_tracks) to avoid
+    # running out of candidates.
+    artist_cap = 2 if len(pool) >= 2 * n_tracks else 3
 
     # Optional seed: lock the first slot if a key is provided and matches.
     if seed_item_key:
@@ -315,13 +396,29 @@ def build_dj_set(
             selected.append(seed)
             used_keys.add(seed["item_key"])
             recent_artists.append(seed["artist"])
+            artist_counts[seed["artist"]] = artist_counts.get(seed["artist"], 0) + 1
             prev_camelot = seed.get("camelot")
+
+    # top-N for randomisation scales with pool size: larger pools deserve more
+    # variety. Capped at 12 to prevent picks that are clearly off-target.
+    top_n_size = max(5, min(12, len(pool) // 20))
+
+    # BPM soft pre-filter tolerance: first try candidates within ±5 BPM of the
+    # per-slot target, fall back to the full remaining pool if fewer than 5 pass.
+    _BPM_SOFT = 5.0
+    _BPM_SOFT_MIN = 5  # minimum candidates before skipping the soft filter
 
     start_idx = len(selected)
     for i in range(start_idx, n_tracks):
         target_bpm = bpm_curve[i]
         target_energy = energy_curve_vals[i]
         target_valence = valence_targets[i] if valence_targets else None
+        # Sliding window: only the most recent picks count for recency penalty.
+        window = recent_artists[-_ARTIST_RECENCY_WINDOW:]
+
+        # Soft BPM pre-filter: prefer tracks close to the per-slot BPM target.
+        bpm_close = [c for c in pool if abs((c.get("bpm") or target_bpm) - target_bpm) <= _BPM_SOFT]
+        candidates = bpm_close if len(bpm_close) >= _BPM_SOFT_MIN else pool
 
         scored = [
             (
@@ -330,30 +427,50 @@ def build_dj_set(
                     target_bpm=target_bpm,
                     target_energy=target_energy,
                     prev_camelot=prev_camelot,
-                    recent_artists=recent_artists,
+                    recent_artists=window,
                     target_valence=target_valence,
                 ),
                 c,
             )
-            for c in pool
+            for c in candidates
             if c["item_key"] not in used_keys
+            and artist_counts.get(c["artist"], 0) < artist_cap
         ]
+
+        if not scored:
+            # Relax artist cap — better a repeat than a short set.
+            scored = [
+                (
+                    _score_candidate(
+                        c,
+                        target_bpm=target_bpm,
+                        target_energy=target_energy,
+                        prev_camelot=prev_camelot,
+                        recent_artists=window,
+                        target_valence=target_valence,
+                    ),
+                    c,
+                )
+                for c in pool
+                if c["item_key"] not in used_keys
+            ]
         if not scored:
             break
 
         # Randomise among the top-N best candidates so two runs with the same
         # filters produce different sets (DJ sets should not be deterministic).
         scored.sort(key=lambda sc: sc[0])
-        top_n = scored[: max(1, min(5, len(scored)))]
+        top_n = scored[: max(1, min(top_n_size, len(scored)))]
         pick = rng.choice(top_n)[1]
         selected.append(pick)
         used_keys.add(pick["item_key"])
         recent_artists.append(pick["artist"])
+        artist_counts[pick["artist"]] = artist_counts.get(pick["artist"], 0) + 1
         prev_camelot = pick.get("camelot")
 
     n = len(selected)
     curve = []
-    for i, (b, e) in enumerate(zip(bpm_curve[:n], energy_curve_vals[:n], strict=False)):
+    for i, (b, e) in enumerate(zip(bpm_curve[:n], energy_curve_vals[:n], strict=True)):
         point: dict[str, Any] = {"bpm": round(b, 1), "energy": round(e, 3)}
         if valence_targets:
             point["valence"] = round(valence_targets[i], 3)
