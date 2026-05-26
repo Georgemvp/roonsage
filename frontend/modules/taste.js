@@ -230,10 +230,10 @@ function _renderIntelBanner(profile, stats, lbStatus) {
 // ── Taste Stats Grid ──────────────────────────────────────────────────────────
 function _renderTasteStats(profile, listeningStats) {
     // Find or create the stats grid, inserted after the intel banner
-    let statsGrid = document.querySelector('.taste-stats-grid');
+    let statsGrid = document.querySelector('.rs-taste-stats');
     if (!statsGrid) {
         statsGrid = document.createElement('div');
-        statsGrid.className = 'taste-stats-grid';
+        statsGrid.className = 'rs-taste-stats';
         const banner = document.querySelector('.taste-intel-banner');
         if (banner) {
             banner.after(statsGrid);
@@ -285,9 +285,9 @@ function _renderTasteStats(profile, listeningStats) {
     ];
 
     statsGrid.innerHTML = stats.map(s => `
-        <div class="taste-stat-card">
-            <div class="taste-stat-value${s.color ? ' taste-stat-value--' + s.color : ''}">${s.value}</div>
-            <div class="taste-stat-label">${s.label}</div>
+        <div class="rs-taste-stat">
+            <div class="rs-taste-stat-value${s.color ? ' rs-taste-stat-value--' + s.color : ''}">${s.value}</div>
+            <div class="rs-taste-stat-label">${s.label}</div>
         </div>
     `).join('');
 }
@@ -944,12 +944,12 @@ function _renderBarChart(containerId, items) {
     }
     const max = Math.max(...items.map(i => i.value), 1);
     container.innerHTML = items.map(item => `
-        <div class="lb-bar-row">
-            <div class="lb-bar-label" title="${escapeHtml(String(item.label))}">${escapeHtml(String(item.label))}</div>
-            <div class="lb-bar-track">
-                <div class="lb-bar-fill" style="width:${Math.round((item.value / max) * 100)}%"></div>
+        <div class="rs-genre-bar">
+            <div class="rs-genre-name" title="${escapeHtml(String(item.label))}">${escapeHtml(String(item.label))}</div>
+            <div class="rs-genre-track">
+                <div class="rs-genre-fill" style="width:${Math.round((item.value / max) * 100)}%"></div>
             </div>
-            <div class="lb-bar-value">${item.value}</div>
+            <div class="rs-genre-pct">${item.value}</div>
         </div>
     `).join('');
 }
@@ -1072,20 +1072,20 @@ function _renderHistory(history) {
         for (const ev of evs) {
             const artKey = ev.image_key || ev.art_key;
             const artHtml = artKey
-                ? `<img src="/api/art/${artKey}?width=40&height=40" class="taste-hist-art" alt="" onerror="this.style.display='none'">`
-                : `<div class="taste-hist-art taste-hist-art--placeholder">♪</div>`;
+                ? `<img src="/api/art/${artKey}?width=40&height=40" alt="" onerror="this.style.display='none'">`
+                : `<span class="taste-hist-art--placeholder">♪</span>`;
             const ts = ev.timestamp
                 ? new Date(ev.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
                 : '';
-            const skippedClass = ev.skipped ? ' taste-hist-event--skipped' : '';
+            const skippedClass = ev.skipped ? ' rs-track-row--skipped' : '';
             html += `
-            <div class="taste-hist-event${skippedClass}">
-                ${artHtml}
-                <div class="taste-hist-info">
-                    <div class="taste-hist-title">${escapeHtml(ev.title || ev.track || '')}</div>
-                    <div class="taste-hist-artist">${escapeHtml(ev.artist || '')}</div>
+            <div class="rs-track-row${skippedClass}">
+                <div class="rs-track-art">${artHtml}</div>
+                <div class="rs-track-info">
+                    <div class="rs-track-title">${escapeHtml(ev.title || ev.track || '')}</div>
+                    <div class="rs-track-artist">${escapeHtml(ev.artist || '')}</div>
                 </div>
-                <div class="taste-hist-meta">
+                <div class="rs-track-dur">
                     ${ts ? `<span class="taste-hist-time">${ts}</span>` : ''}
                     ${ev.skipped ? '<span class="taste-hist-skip">skipped</span>' : ''}
                 </div>

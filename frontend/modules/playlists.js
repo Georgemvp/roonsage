@@ -25,13 +25,13 @@ export function initPlaylistsView() {
 }
 
 function _bindTabs() {
-    document.querySelectorAll('.pl-view-tab').forEach(btn => {
+    document.querySelectorAll('.rs-tab').forEach(btn => {
         btn.addEventListener('click', () => {
             const tab = btn.dataset.tab;
             if (tab === _activeTab) return;
             _activeTab = tab;
-            document.querySelectorAll('.pl-view-tab').forEach(b => {
-                b.classList.toggle('pl-view-tab--active', b.dataset.tab === tab);
+            document.querySelectorAll('.rs-tab').forEach(b => {
+                b.classList.toggle('active', b.dataset.tab === tab);
                 b.setAttribute('aria-selected', b.dataset.tab === tab ? 'true' : 'false');
             });
             document.getElementById('playlists-tab-content').style.display = tab === 'playlists' ? '' : 'none';
@@ -46,7 +46,7 @@ function _bindTabs() {
 async function loadPlaylists() {
     const container = document.getElementById('playlists-grid');
     if (!container) return;
-    container.innerHTML = '<div class="playlists-loading"><div class="spinner"></div></div>';
+    container.innerHTML = '<div class="rs-loading"><div class="rs-spinner"></div><span class="rs-loading-text">Loading…</span></div>';
     try {
         // Fetch saved playlists AND generated-playlist history in parallel
         const [saved, resultsData] = await Promise.all([
@@ -81,7 +81,7 @@ async function loadPlaylists() {
 
         renderPlaylists();
     } catch (e) {
-        container.innerHTML = `<p class="playlists-empty">Could not load playlists: ${escapeHtml(e.message)}</p>`;
+        container.innerHTML = `<p class="rs-empty">Could not load playlists: ${escapeHtml(e.message)}</p>`;
     }
 }
 
@@ -230,7 +230,7 @@ function renderPlaylists() {
     renderTagRow(list);
 
     if (!list.length) {
-        container.innerHTML = '<p class="playlists-empty">No playlists found.</p>';
+        container.innerHTML = '<p class="rs-empty">No playlists found.</p>';
         return;
     }
     container.innerHTML = list.map(p => playlistCardHtml(p)).join('');
@@ -252,7 +252,7 @@ function renderPlaylists() {
             if (isExpanding && !playlist._tracksLoaded) {
                 const tracklistEl = card.querySelector('.pl-tracklist-inner');
                 if (!tracklistEl) return;
-                tracklistEl.innerHTML = '<div class="playlists-loading"><div class="spinner"></div></div>';
+                tracklistEl.innerHTML = '<div class="rs-loading"><div class="rs-spinner"></div><span class="rs-loading-text">Loading tracks…</span></div>';
                 try {
                     let tracks = [];
                     if (playlist._is_result) {
@@ -269,10 +269,10 @@ function renderPlaylists() {
                             `<div class="pl-track-row"><span class="pl-track-num">${i+1}</span><span class="pl-track-title">${escapeHtml(t.artist || '')} — ${escapeHtml(t.title || '')}</span></div>`
                         ).join('');
                     } else {
-                        tracklistEl.innerHTML = '<p class="playlists-empty">No tracks found.</p>';
+                        tracklistEl.innerHTML = '<p class="rs-empty">No tracks found.</p>';
                     }
                 } catch (err) {
-                    tracklistEl.innerHTML = `<p class="playlists-empty">Could not load tracks: ${escapeHtml(err.message)}</p>`;
+                    tracklistEl.innerHTML = `<p class="rs-empty">Could not load tracks: ${escapeHtml(err.message)}</p>`;
                 }
             }
         });
@@ -362,13 +362,13 @@ function playlistCardHtml(p) {
     const subtitle = p._subtitle ? `<div class="pl-card-subtitle">${escapeHtml(p._subtitle)}</div>` : '';
 
     return `
-    <div class="pl-card${isResult ? ' pl-card--history' : ''}" data-id="${escapeHtml(String(p.id))}" data-is-result="${isResult}">
+    <div class="rs-playlist-card pl-card${isResult ? ' pl-card--history' : ''}" data-id="${escapeHtml(String(p.id))}" data-is-result="${isResult}">
         <div class="pl-card-header">
             <div class="pl-card-info">
-                <div class="pl-card-title">${escapeHtml(p.name || 'Untitled Playlist')}</div>
+                <div class="rs-playlist-name pl-card-title">${escapeHtml(p.name || 'Untitled Playlist')}</div>
                 ${p.prompt ? `<div class="pl-card-prompt">"${escapeHtml(p.prompt.slice(0, 100))}${p.prompt.length > 100 ? '…' : ''}"</div>` : ''}
                 ${subtitle}
-                <div class="pl-card-meta">
+                <div class="rs-playlist-meta pl-card-meta">
                     <span>${trackCount} tracks</span>
                     ${sourceBadge}
                     ${date ? `<span>${date}</span>` : ''}
@@ -383,9 +383,9 @@ function playlistCardHtml(p) {
             </div>
         </div>
         <div class="pl-card-actions">
-            <button class="btn btn-secondary pl-action-play">▶ Play</button>
-            ${!isResult ? `<button class="btn btn-outline pl-action-arc">📱 Save for Arc</button>` : ''}
-            <button class="btn-ghost pl-action-delete" title="Delete">🗑</button>
+            <button class="rs-btn rs-btn--secondary pl-action-play">▶ Play</button>
+            ${!isResult ? `<button class="rs-btn rs-btn--secondary pl-action-arc">📱 Save for Arc</button>` : ''}
+            <button class="rs-btn rs-btn--danger pl-action-delete" title="Delete">🗑</button>
         </div>
         <div class="pl-tracklist">
             <div class="pl-tracklist-inner">${tracks.length ? trackList : ''}</div>

@@ -48,7 +48,7 @@ function _render(view, data) {
 
     if (!hasAny) {
         view.innerHTML = `
-            <h2 class="view-title">Discover</h2>
+            <h2 class="rs-view-title">Discover</h2>
             <p class="discovery-empty">
                 No discovery data yet — keep listening and RoonSage will surface hidden gems from your library.
             </p>`;
@@ -56,7 +56,7 @@ function _render(view, data) {
     }
 
     view.innerHTML = `
-        <h2 class="view-title">Discover</h2>
+        <h2 class="rs-view-title">Discover</h2>
         <p class="discovery-subtitle">Gevoed door je Last.fm &amp; ListenBrainz luistergeschiedenis.</p>
 
         ${_renderLbTopReleases(lbReleases)}
@@ -73,7 +73,7 @@ function _render(view, data) {
     });
 
     // Wire up genre pills
-    view.querySelectorAll('.discovery-genre-pill[data-genre]').forEach(pill => {
+    view.querySelectorAll('.rs-tab[data-genre]').forEach(pill => {
         pill.addEventListener('click', () => {
             const genre = pill.dataset.genre;
             // Navigate to home/generate with genre pre-filled
@@ -92,12 +92,11 @@ function _renderLbTopReleases(albums) {
     if (!albums.length) return '';
 
     const cards = albums.map(a => `
-        <div class="discovery-album-card">
-            <div class="discovery-album-info">
-                <span class="discovery-album-title">${escapeHtml(a.album)}</span>
-                <span class="discovery-album-artist">${escapeHtml(a.artist)}</span>
-                <span class="discovery-album-meta">${a.listen_count} keer geluisterd</span>
-            </div>
+        <div class="rs-album-card">
+            <div class="rs-album-art"></div>
+            <div class="rs-album-title">${escapeHtml(a.album)}</div>
+            <div class="rs-album-artist">${escapeHtml(a.artist)}</div>
+            <span class="discovery-album-meta">${a.listen_count} keer geluisterd</span>
             ${a.parent_item_key ? `
             <button class="btn btn-secondary btn-sm discovery-play-btn"
                 data-play-key="${escapeHtml(a.parent_item_key)}" data-play-type="album"
@@ -106,13 +105,13 @@ function _renderLbTopReleases(albums) {
     `).join('');
 
     return `
-        <section class="discovery-section" aria-labelledby="disc-lbreleases-heading">
-            <div class="discovery-section-header">
-                <h3 class="discovery-section-title" id="disc-lbreleases-heading">Jouw meest beluisterde albums</h3>
+        <section class="rs-section" aria-labelledby="disc-lbreleases-heading">
+            <div class="rs-section-header">
+                <h3 class="rs-section-title" id="disc-lbreleases-heading">Jouw meest beluisterde albums</h3>
                 <span class="discovery-section-badge">${albums.length}</span>
             </div>
             <p class="discovery-section-desc">Top albums uit je ListenBrainz geschiedenis die in je library staan.</p>
-            <div class="discovery-album-grid">${cards}</div>
+            <div class="rs-album-row">${cards}</div>
         </section>`;
 }
 
@@ -122,10 +121,10 @@ function _renderLbLoved(tracks) {
     if (!tracks.length) return '';
 
     const rows = tracks.map(t => `
-        <div class="discovery-track-row">
-            <div class="discovery-track-info">
-                <span class="discovery-track-title">${escapeHtml(t.title)}</span>
-                <span class="discovery-track-meta">${escapeHtml(t.artist)}</span>
+        <div class="rs-track-row">
+            <div class="rs-track-info">
+                <span class="rs-track-title">${escapeHtml(t.title)}</span>
+                <span class="rs-track-artist">${escapeHtml(t.artist)}</span>
             </div>
             <div class="discovery-track-right">
                 <span class="discovery-play-count">♥</span>
@@ -138,9 +137,9 @@ function _renderLbLoved(tracks) {
     `).join('');
 
     return `
-        <section class="discovery-section" aria-labelledby="disc-lbloved-heading">
-            <div class="discovery-section-header">
-                <h3 class="discovery-section-title" id="disc-lbloved-heading">Geliefd op ListenBrainz</h3>
+        <section class="rs-section" aria-labelledby="disc-lbloved-heading">
+            <div class="rs-section-header">
+                <h3 class="rs-section-title" id="disc-lbloved-heading">Geliefd op ListenBrainz</h3>
                 <span class="discovery-section-badge">${tracks.length}</span>
             </div>
             <p class="discovery-section-desc">Nummers die je op ListenBrainz hebt geliked en in je library staan.</p>
@@ -154,12 +153,11 @@ function _renderFavoritesInLibrary(albums) {
     if (!albums.length) return '';
 
     const cards = albums.map(a => `
-        <div class="discovery-album-card">
-            <div class="discovery-album-info">
-                <span class="discovery-album-title">${escapeHtml(a.album)}</span>
-                <span class="discovery-album-artist">${escapeHtml(a.artist)}</span>
-                <span class="discovery-album-meta">${a.artist_play_count} plays van deze artiest</span>
-            </div>
+        <div class="rs-album-card">
+            <div class="rs-album-art"></div>
+            <div class="rs-album-title">${escapeHtml(a.album)}</div>
+            <div class="rs-album-artist">${escapeHtml(a.artist)}</div>
+            <span class="discovery-album-meta">${a.artist_play_count} plays van deze artiest</span>
             ${a.parent_item_key ? `
             <button class="btn btn-secondary btn-sm discovery-play-btn"
                 data-play-key="${escapeHtml(a.parent_item_key)}" data-play-type="album"
@@ -168,13 +166,13 @@ function _renderFavoritesInLibrary(albums) {
     `).join('');
 
     return `
-        <section class="discovery-section" aria-labelledby="disc-favorites-heading">
-            <div class="discovery-section-header">
-                <h3 class="discovery-section-title" id="disc-favorites-heading">Meer van je favorieten</h3>
+        <section class="rs-section" aria-labelledby="disc-favorites-heading">
+            <div class="rs-section-header">
+                <h3 class="rs-section-title" id="disc-favorites-heading">Meer van je favorieten</h3>
                 <span class="discovery-section-badge">${albums.length}</span>
             </div>
             <p class="discovery-section-desc">Eén album per artiest uit je top-40, wisselt bij elke refresh.</p>
-            <div class="discovery-album-grid">${cards}</div>
+            <div class="rs-album-row">${cards}</div>
         </section>`;
 }
 
@@ -184,10 +182,10 @@ function _renderDeepCuts(tracks) {
     if (!tracks.length) return '';
 
     const rows = tracks.map(t => `
-        <div class="discovery-track-row">
-            <div class="discovery-track-info">
-                <span class="discovery-track-title">${escapeHtml(t.title)}</span>
-                <span class="discovery-track-meta">${escapeHtml(t.artist)} — ${escapeHtml(t.album || '—')}</span>
+        <div class="rs-track-row">
+            <div class="rs-track-info">
+                <span class="rs-track-title">${escapeHtml(t.title)}</span>
+                <span class="rs-track-artist">${escapeHtml(t.artist)} — ${escapeHtml(t.album || '—')}</span>
             </div>
             <div class="discovery-track-right">
                 <span class="discovery-play-count">${t.play_count === 0 ? 'Unplayed' : `${t.play_count}×`}</span>
@@ -204,9 +202,9 @@ function _renderDeepCuts(tracks) {
     `).join('');
 
     return `
-        <section class="discovery-section" aria-labelledby="discovery-deepcuts-heading">
-            <div class="discovery-section-header">
-                <h3 class="discovery-section-title" id="discovery-deepcuts-heading">
+        <section class="rs-section" aria-labelledby="discovery-deepcuts-heading">
+            <div class="rs-section-header">
+                <h3 class="rs-section-title" id="discovery-deepcuts-heading">
                     Deep Cuts
                 </h3>
                 <span class="discovery-section-badge">${tracks.length}</span>
@@ -231,10 +229,10 @@ function _renderForgottenFavorites(tracks) {
             : '—';
 
         return `
-        <div class="discovery-track-row">
-            <div class="discovery-track-info">
-                <span class="discovery-track-title">${escapeHtml(t.title)}</span>
-                <span class="discovery-track-meta">${escapeHtml(t.artist)} — ${escapeHtml(t.album || '—')}</span>
+        <div class="rs-track-row">
+            <div class="rs-track-info">
+                <span class="rs-track-title">${escapeHtml(t.title)}</span>
+                <span class="rs-track-artist">${escapeHtml(t.artist)} — ${escapeHtml(t.album || '—')}</span>
             </div>
             <div class="discovery-track-right">
                 <span class="discovery-forgotten-meta">
@@ -254,9 +252,9 @@ function _renderForgottenFavorites(tracks) {
     `}).join('');
 
     return `
-        <section class="discovery-section" aria-labelledby="discovery-forgotten-heading">
-            <div class="discovery-section-header">
-                <h3 class="discovery-section-title" id="discovery-forgotten-heading">
+        <section class="rs-section" aria-labelledby="discovery-forgotten-heading">
+            <div class="rs-section-header">
+                <h3 class="rs-section-title" id="discovery-forgotten-heading">
                     Forgotten Favorites
                 </h3>
                 <span class="discovery-section-badge">${tracks.length}</span>
@@ -280,7 +278,7 @@ function _renderGenreExplorer(genres) {
         const size = Math.max(0.75, Math.min(1.4, 0.75 + (g.artist_count / maxCount) * 0.65));
         return `
         <button
-            class="discovery-genre-pill"
+            class="rs-tab"
             data-genre="${escapeHtml(g.genre)}"
             style="font-size: ${size.toFixed(2)}rem;"
             aria-label="${escapeHtml(g.genre)}: ${g.artist_count} artists, ${g.track_count} tracks"
@@ -289,9 +287,9 @@ function _renderGenreExplorer(genres) {
     `}).join('');
 
     return `
-        <section class="discovery-section" aria-labelledby="discovery-genres-heading">
-            <div class="discovery-section-header">
-                <h3 class="discovery-section-title" id="discovery-genres-heading">
+        <section class="rs-section" aria-labelledby="discovery-genres-heading">
+            <div class="rs-section-header">
+                <h3 class="rs-section-title" id="discovery-genres-heading">
                     Genre Explorer
                 </h3>
                 <span class="discovery-section-badge">${genres.length} genres</span>
@@ -299,7 +297,7 @@ function _renderGenreExplorer(genres) {
             <p class="discovery-section-desc">
                 Click a genre to start a playlist. Size reflects how many artists you have.
             </p>
-            <div class="discovery-genre-cloud">
+            <div class="rs-tab-bar discovery-genre-cloud">
                 ${pills}
             </div>
         </section>`;

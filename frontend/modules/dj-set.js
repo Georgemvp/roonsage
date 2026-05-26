@@ -158,20 +158,20 @@ async function _loadGenres() {
         }
         cloud.innerHTML = genres.map(g => `
             <button type="button"
-                class="discovery-genre-pill${_selectedGenres.has(g.name) ? ' discovery-genre-pill--selected' : ''}"
+                class="rs-chip${_selectedGenres.has(g.name) ? ' sel' : ''}"
                 data-dj-genre="${_esc(g.name)}"
                 title="${g.count} tracks"
-            >${_esc(g.name)} <span class="discovery-genre-count">${g.count}</span></button>
+            >${_esc(g.name)} <span class="rs-chip-count">${g.count}</span></button>
         `).join('');
         cloud.querySelectorAll('[data-dj-genre]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const genre = btn.dataset.djGenre;
                 if (_selectedGenres.has(genre)) {
                     _selectedGenres.delete(genre);
-                    btn.classList.remove('discovery-genre-pill--selected');
+                    btn.classList.remove('sel');
                 } else {
                     _selectedGenres.add(genre);
-                    btn.classList.add('discovery-genre-pill--selected');
+                    btn.classList.add('sel');
                 }
                 _updateGenreCountLabel();
             });
@@ -288,11 +288,12 @@ function _renderTracks(tracks, curve) {
         const c = curve[i] || {};
         const bpm = c.bpm ? `${c.bpm.toFixed(0)} BPM` : '';
         return `
-            <div class="auto-row">
-                <span class="auto-row-num">${i + 1}</span>
-                <div class="auto-row-main">
-                    <div class="auto-row-title">${_esc(t.title)}</div>
-                    <div class="auto-row-sub">${_esc(t.artist)} · ${_esc(t.album || '')}</div>
+            <div class="rs-track-row">
+                <span class="rs-track-num">${i + 1}</span>
+                <div class="rs-track-art"></div>
+                <div class="rs-track-info">
+                    <div class="rs-track-title">${_esc(t.title)}</div>
+                    <div class="rs-track-artist">${_esc(t.artist)} · ${_esc(t.album || '')}</div>
                 </div>
                 <span class="auto-badge auto-badge--neutral">${bpm}</span>
             </div>
@@ -439,10 +440,10 @@ async function _save(autoName) {
 let _templatesPaneInitDone = false;
 
 export function switchDJTab(tab) {
-    const tabs = document.querySelectorAll('#dj-set-view .pl-view-tab[data-dj-tab]');
+    const tabs = document.querySelectorAll('#dj-set-view .rs-tab[data-dj-tab]');
     tabs.forEach(t => {
         const active = t.dataset.djTab === tab;
-        t.classList.toggle('pl-view-tab--active', active);
+        t.classList.toggle('active', active);
         t.setAttribute('aria-selected', active ? 'true' : 'false');
     });
     const builder = document.getElementById('dj-builder-pane');
@@ -500,7 +501,7 @@ export async function initDJSetView() {
         });
 
         // Tabs
-        document.querySelectorAll('#dj-set-view .pl-view-tab[data-dj-tab]').forEach(btn => {
+        document.querySelectorAll('#dj-set-view .rs-tab[data-dj-tab]').forEach(btn => {
             btn.addEventListener('click', () => switchDJTab(btn.dataset.djTab));
         });
 

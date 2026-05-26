@@ -158,6 +158,8 @@ export async function loadSavedResult(resultId) {
         }
 
         window.scrollTo(0, 0);
+        const rsMain = document.querySelector('.rs-main');
+        if (rsMain) rsMain.scrollTop = 0;
     } catch (e) {
         // Result not found or deleted — show home with message
         console.warn('Failed to load saved result:', e);

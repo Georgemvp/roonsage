@@ -35,29 +35,73 @@ import { startActivityMonitor }           from './modules/activity.js';
 import { initPWA }                        from './modules/pwa.js';
 
 // =============================================================================
-// Theme Toggle
+// Theme & Variation Init
 // =============================================================================
 
 function initThemeToggle() {
-    let saved = 'dark';
-    try { saved = localStorage.getItem('roonsage-theme') || 'dark'; } catch (e) {}
-    document.documentElement.setAttribute('data-theme', saved);
-    _updateThemeIcon(saved);
+    let savedTheme = 'dark';
+    let savedVariation = 'viola';
+    try {
+        savedTheme = localStorage.getItem('roonsage-theme') || 'dark';
+        savedVariation = localStorage.getItem('roonsage-variation') || 'viola';
+    } catch (e) {}
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    document.documentElement.setAttribute('data-variation', savedVariation);
 
+    // Legacy theme toggle button (may no longer exist in sidebar layout)
     document.getElementById('theme-toggle-btn')?.addEventListener('click', () => {
         const current = document.documentElement.getAttribute('data-theme') || 'dark';
         const next = current === 'dark' ? 'light' : 'dark';
-        document.documentElement.setAttribute('data-theme', next);
-        try { localStorage.setItem('roonsage-theme', next); } catch (e) {}
-        _updateThemeIcon(next);
+        setTheme(next);
     });
 }
 
-function _updateThemeIcon(theme) {
-    const dark  = document.getElementById('theme-icon-dark');
-    const light = document.getElementById('theme-icon-light');
-    if (dark)  dark.style.display  = theme === 'dark'  ? 'block' : 'none';
-    if (light) light.style.display = theme === 'light' ? 'block' : 'none';
+export function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('roonsage-theme', theme); } catch (e) {}
+    _syncAppearanceUI();
+}
+
+export function setVariation(variation) {
+    document.documentElement.setAttribute('data-variation', variation);
+    try { localStorage.setItem('roonsage-variation', variation); } catch (e) {}
+    _syncAppearanceUI();
+}
+
+function _syncAppearanceUI() {
+    const theme     = document.documentElement.getAttribute('data-theme') || 'dark';
+    const variation = document.documentElement.getAttribute('data-variation') || 'viola';
+    const LABELS    = { viola: 'Viola', ember: 'Ember', slate: 'Slate' };
+
+    document.querySelectorAll('[data-theme-opt]').forEach(btn =>
+        btn.classList.toggle('on', btn.dataset.themeOpt === theme));
+    document.querySelectorAll('[data-variation]').forEach(btn =>
+        btn.classList.toggle('on', btn.dataset.variation === variation));
+
+    const labelEl = document.getElementById('variation-label');
+    if (labelEl) labelEl.textContent = LABELS[variation] || variation;
+}
+
+function initAppearanceControls() {
+    _syncAppearanceUI();
+
+    document.addEventListener('click', e => {
+        const themeBtn = e.target.closest('[data-theme-opt]');
+        if (themeBtn) { setTheme(themeBtn.dataset.themeOpt); return; }
+
+        const varBtn = e.target.closest('.rs-variation-swatches [data-variation]');
+        if (varBtn) { setVariation(varBtn.dataset.variation); return; }
+    });
+}
+
+// Update sidebar zone button from now-playing state
+export function updateSidebarZone(zoneName, isActive) {
+    const nameEl = document.getElementById('sidebar-zone-name');
+    const dotEl  = document.getElementById('sidebar-zone-dot');
+    if (nameEl) nameEl.textContent = zoneName || 'No zone active';
+    if (dotEl) {
+        dotEl.classList.toggle('rs-zone-dot--inactive', !isActive);
+    }
 }
 
 // =============================================================================
@@ -201,8 +245,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }).observe(document.body, { childList: true, subtree: true });
 
-    // Initialize theme toggle first (before any rendering)
+    // Initialize theme + variation (before any rendering)
     initThemeToggle();
+    initAppearanceControls();
 
     // Register the service worker and wire install/update toasts. Safe to call
     // unconditionally — bails out on insecure contexts and unsupported browsers.

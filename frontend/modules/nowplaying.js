@@ -69,32 +69,71 @@ function _render(zones) {
            </select>`
         : `<span class="np-zone-name">${escapeHtml(zone.display_name || zone.zone_id)}</span>`;
 
+    const elapsed = dur > 0 ? Math.round(pos) : 0;
+    const eMin = Math.floor(elapsed / 60);
+    const eSec = String(elapsed % 60).padStart(2, '0');
+    const dMin = Math.floor(dur / 60);
+    const dSec = String(Math.round(dur % 60)).padStart(2, '0');
+
     bar.innerHTML = `
-        <div class="np-art">
-            ${artSrc
-                ? `<img src="${artSrc}" alt="" class="np-art-img" onerror="this.style.display='none'">`
-                : `<div class="np-art-placeholder">♪</div>`}
-        </div>
-        <div class="np-track-info">
-            <div class="np-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
-            <div class="np-meta">
-                ${artist ? `<span class="np-artist">${escapeHtml(artist)}</span>` : ''}
-                ${album ? `<span class="np-sep">·</span><span class="np-album">${escapeHtml(album)}</span>` : ''}
-                <span class="np-sep">·</span>
-                ${zoneSwitcher}
+        <!-- Left: track info -->
+        <div class="np-track-col">
+            <div class="np-art-col">
+                ${artSrc
+                    ? `<img src="${artSrc}" alt="" onerror="this.style.display='none'">`
+                    : `<div class="np-art-placeholder">♪</div>`}
             </div>
-            <div class="np-progress" role="progressbar" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Track progress">
-                <div class="np-progress-fill" style="width:${pct}%"></div>
+            <div class="np-info-col">
+                <div class="np-title-col" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+                <div class="np-artist-col">${escapeHtml(artist || album || '')}${zones.length > 1 ? ` · ${zoneSwitcher}` : (zone.display_name ? ` · <span style="opacity:.6">${escapeHtml(zone.display_name)}</span>` : '')}</div>
             </div>
         </div>
-        <div class="np-controls">
-            <button class="np-btn" data-action="previous" aria-label="Previous">⏮</button>
-            <button class="np-btn np-btn--primary" data-action="${isPlaying ? 'pause' : 'play'}" aria-label="${isPlaying ? 'Pause' : 'Play'}">${isPlaying ? '⏸' : '▶'}</button>
-            <button class="np-btn" data-action="next" aria-label="Next">⏭</button>
-            <button class="np-btn np-btn--more" data-action="more_like_this" aria-label="More like this" title="More like this">🎵</button>
+
+        <!-- Centre: transport + progress -->
+        <div class="np-controls-col">
+            <div class="np-buttons-col">
+                <button class="np-btn-col" data-action="previous" aria-label="Previous" title="Previous">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+                </button>
+                <button class="np-btn-col np-btn-col--play" data-action="${isPlaying ? 'pause' : 'play'}" aria-label="${isPlaying ? 'Pause' : 'Play'}">
+                    ${isPlaying
+                        ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`
+                        : `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`}
+                </button>
+                <button class="np-btn-col" data-action="next" aria-label="Next" title="Next">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+                </button>
+                <button class="np-btn-col" data-action="more_like_this" aria-label="More like this" title="More like this" style="opacity:.6;font-size:0.85rem">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4 4 0 01-3-4 4 4 0 01-3 4"/><path d="M17 6.5A3 3 0 1012 5a3 3 0 10-5 1.5"/></svg>
+                </button>
+            </div>
+            <div class="np-progress-col" role="progressbar" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Track progress">
+                <span class="np-time-col">${eMin}:${eSec}</span>
+                <div class="np-bar-col" id="np-seek-bar">
+                    <div class="np-bar-fill-col" style="width:${pct}%"></div>
+                </div>
+                <span class="np-time-col" style="text-align:right">${dMin}:${dSec}</span>
+            </div>
+        </div>
+
+        <!-- Right: volume -->
+        <div class="np-right-col">
+            ${zones.length > 1 ? `<select id="np-zone-select" class="np-zone-select-col" aria-label="Select zone">${zones.map(z => `<option value="${escapeHtml(z.zone_id)}"${z.zone_id === _currentZoneId ? ' selected' : ''}>${escapeHtml(z.display_name || z.zone_id)}</option>`).join('')}</select>` : ''}
+            <button class="np-btn-col" style="opacity:.6;font-size:0.85rem" title="Volume" aria-label="Volume">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/></svg>
+            </button>
+            <div class="np-vol-track-col" id="np-vol-track" title="Volume">
+                <div class="np-vol-fill-col" style="width:80%"></div>
+            </div>
         </div>
     `;
     bar.classList.remove('now-playing-bar--hidden');
+
+    // Update sidebar zone indicator
+    const sidebarZoneName = document.getElementById('sidebar-zone-name');
+    const sidebarZoneDot  = document.getElementById('sidebar-zone-dot');
+    if (sidebarZoneName) sidebarZoneName.textContent = zone.display_name || zone.zone_id || 'Active';
+    if (sidebarZoneDot)  sidebarZoneDot.classList.remove('rs-zone-dot--inactive');
 
     // Zone selector change
     bar.querySelector('#np-zone-select')?.addEventListener('change', e => {

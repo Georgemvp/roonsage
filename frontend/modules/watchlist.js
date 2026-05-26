@@ -25,12 +25,12 @@ export async function initWatchlistView() {
 async function _loadArtists() {
     const container = document.getElementById('watchlist-artists-list');
     if (!container) return;
-    container.innerHTML = '<p class="watchlist-loading">Loading…</p>';
+    container.innerHTML = '<div class="rs-loading"><div class="rs-spinner"></div><span class="rs-loading-text">Loading…</span></div>';
     try {
         const artists = await apiCall('/watchlist');
         _renderArtists(artists);
     } catch (e) {
-        container.innerHTML = '<p class="watchlist-error">Could not load watchlist.</p>';
+        container.innerHTML = '<p class="rs-empty">Could not load watchlist.</p>';
     }
 }
 
@@ -62,7 +62,7 @@ function _renderArtists(artists) {
     const container = document.getElementById('watchlist-artists-list');
     if (!container) return;
     if (!artists || !artists.length) {
-        container.innerHTML = '<p class="watchlist-empty">No artists watched yet. Add artists above or use Auto-populate.</p>';
+        container.innerHTML = '<p class="rs-empty">No artists watched yet. Add artists above or use Auto-populate.</p>';
         return;
     }
     container.innerHTML = artists.map(a => _artistRow(a)).join('');
@@ -127,7 +127,7 @@ function _artistRow(a) {
                 <input type="checkbox" class="watchlist-toggle" data-artist="${_esc(a.artist_name)}" data-flag="monitor_singles" ${a.monitor_singles ? 'checked' : ''}>
                 <span>Singles</span>
             </label>
-            <button class="watchlist-remove-btn btn btn-ghost btn-sm" data-artist="${_esc(a.artist_name)}" aria-label="Remove ${_esc(a.artist_name)}">
+            <button class="watchlist-remove-btn rs-btn rs-btn--secondary" data-artist="${_esc(a.artist_name)}" aria-label="Remove ${_esc(a.artist_name)}">
                 &times;
             </button>
         </div>
@@ -196,21 +196,21 @@ function _releaseCard(r) {
     const typeBadge = `<span class="release-type release-type--${r.release_type || 'album'}">${r.release_type || 'album'}</span>`;
     const artKey = r.item_key;
     const artHtml = artKey
-        ? `<img class="release-art" src="/api/art/${encodeURIComponent(artKey)}" alt="${_esc(r.album_title)}" loading="lazy" onerror="this.style.display='none'">`
-        : `<div class="release-art release-art--placeholder" aria-hidden="true"></div>`;
+        ? `<img class="rs-album-art" src="/api/art/${encodeURIComponent(artKey)}" alt="${_esc(r.album_title)}" loading="lazy" onerror="this.style.display='none'">`
+        : `<div class="rs-album-art rs-album-art--placeholder" aria-hidden="true"></div>`;
     const playBtn = r.item_key
-        ? `<button class="watchlist-play-btn btn btn-primary btn-sm" data-release-id="${r.id}" data-item-key="${_esc(r.item_key || '')}">▶ Play</button>`
+        ? `<button class="watchlist-play-btn rs-btn rs-btn--primary" data-release-id="${r.id}" data-item-key="${_esc(r.item_key || '')}">▶ Play</button>`
         : '';
     return `
-    <div class="release-card">
+    <div class="rs-album-card">
         ${artHtml}
         <div class="release-card-body">
-            <div class="release-card-title">${_esc(r.album_title)}</div>
-            <div class="release-card-artist">${_esc(r.artist_name)}</div>
+            <div class="rs-album-title">${_esc(r.album_title)}</div>
+            <div class="rs-album-artist">${_esc(r.artist_name)}</div>
             <div class="release-card-meta">${typeBadge}${date}</div>
             <div class="release-card-actions">
                 ${playBtn}
-                <button class="watchlist-dismiss-btn btn btn-ghost btn-sm" data-release-id="${r.id}">Dismiss</button>
+                <button class="watchlist-dismiss-btn rs-btn rs-btn--secondary" data-release-id="${r.id}">Dismiss</button>
             </div>
         </div>
     </div>`.trim();

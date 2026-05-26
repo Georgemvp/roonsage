@@ -8,51 +8,65 @@ import { renderSourceModeStep } from './events.js';
 import { loadSettings } from './playlist.js';
 import { updateRecAlbumPreview } from './recommend.js';
 
+// Maps data-nav hash → whether it should be active given current state
+function _navHashIsActive(hash) {
+    switch (hash) {
+        case 'home':            return state.view === 'home';
+        case 'playlist-prompt': return state.view === 'create' && state.mode === 'prompt';
+        case 'playlist-seed':   return state.view === 'create' && state.mode === 'seed';
+        case 'recommend-album': return state.view === 'recommend';
+        case 'playlists':       return state.view === 'playlists';
+        case 'discovery':       return state.view === 'discovery';
+        case 'watchlist':       return state.view === 'watchlist';
+        case 'dj-set':          return state.view === 'dj-set';
+        case 'taste':           return state.view === 'taste';
+        case 'automations':     return state.view === 'automations';
+        case 'settings':        return state.view === 'settings';
+        default:                return false;
+    }
+}
+
 export function updateView() {
     // Update views
     document.querySelectorAll('.view').forEach(view => {
         view.classList.toggle('active', view.id === `${state.view}-view`);
     });
 
-    // Update nav active states
+    // Scroll main content area to top on view change
+    const rsMain = document.querySelector('.rs-main');
+    if (rsMain) rsMain.scrollTop = 0;
+
+    // ── Sidebar nav items (new design) ──────────────────────────
+    document.querySelectorAll('.rs-sidebar .rs-nav-item[data-nav]').forEach(btn => {
+        const isActive = _navHashIsActive(btn.dataset.nav);
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-current', isActive ? 'page' : 'false');
+    });
+
+    // ── Legacy header nav (may not exist in new design — guard) ──
     const trigger = document.querySelector('.nav-dropdown-trigger');
     const isPlaylist = state.view === 'create';
-    trigger.classList.toggle('active', isPlaylist);
+    if (trigger) trigger.classList.toggle('active', isPlaylist);
 
-    // Update dropdown checkmarks
     document.querySelectorAll('.nav-dropdown-item').forEach(item => {
         const hash = item.dataset.nav;
         const isSelected = isPlaylist && (
             (hash === 'playlist-prompt' && state.mode === 'prompt') ||
             (hash === 'playlist-seed' && state.mode === 'seed')
         );
-        item.querySelector('.nav-check').textContent = isSelected ? '✓' : '';
+        const check = item.querySelector('.nav-check');
+        if (check) check.textContent = isSelected ? '✓' : '';
         item.classList.toggle('selected', isSelected);
     });
 
-    // Update flat nav buttons
     document.querySelectorAll('.nav-btn[data-nav]').forEach(btn => {
-        const hash = btn.dataset.nav;
-        const isActive = (hash === 'recommend-album' && state.view === 'recommend') ||
-                         (hash === 'settings' && state.view === 'settings') ||
-                         (hash === 'playlists' && state.view === 'playlists') ||
-                         (hash === 'taste' && state.view === 'taste') ||
-                         (hash === 'discovery' && state.view === 'discovery') ||
-                         (hash === 'watchlist' && state.view === 'watchlist') ||
-                         (hash === 'automations' && state.view === 'automations') ||
-                         (hash === 'dj-set' && state.view === 'dj-set');
+        const isActive = _navHashIsActive(btn.dataset.nav);
         btn.classList.toggle('active', isActive);
         btn.setAttribute('aria-current', isActive ? 'true' : 'false');
     });
 
-    // Sync mobile bottom nav active states
     document.querySelectorAll('.mobile-bottom-nav .mbn-btn[data-nav]').forEach(btn => {
-        const hash = btn.dataset.nav;
-        const isActive = (hash === 'playlist-prompt' && state.view === 'create') ||
-                         (hash === 'playlists' && state.view === 'playlists') ||
-                         (hash === 'taste' && state.view === 'taste') ||
-                         (hash === 'discovery' && state.view === 'discovery') ||
-                         (hash === 'settings' && state.view === 'settings');
+        const isActive = _navHashIsActive(btn.dataset.nav);
         btn.classList.toggle('active', isActive);
         btn.setAttribute('aria-current', isActive ? 'page' : 'false');
     });
@@ -102,6 +116,8 @@ export function updateMode() {
 
 export function updateStep() {
     window.scrollTo(0, 0);
+    const rsMain = document.querySelector('.rs-main');
+    if (rsMain) rsMain.scrollTop = 0;
 
     const isResults = state.step === 'results';
 

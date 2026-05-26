@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" data-variation="viola">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>RoonSage</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
@@ -31,107 +31,110 @@
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
-    <div class="app">
-        <!-- Header -->
-        <header class="header">
-            <h1 class="logo"><a href="#home" class="logo-link">RoonSage</a></h1>
-            <nav class="nav" role="navigation" aria-label="Main navigation">
-                <!-- Group 1: Create -->
-                <div class="nav-dropdown">
-                    <button class="nav-dropdown-trigger" aria-expanded="false" aria-haspopup="true">
-                        <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V4"/><path d="M10 9a3 3 0 0 1-2-3 3 3 0 0 1-2 3"/><path d="M12 5a2 2 0 1 0-4-1 2 2 0 1 0-4 1"/><path d="M12.5 12a3 3 0 0 0 1.5-5"/><path d="M3.5 12a3 3 0 0 1-1.5-5"/></svg>
-                        <span class="nav-label">Create</span>
-                        <span class="nav-chevron" aria-hidden="true">&#9662;</span>
+    <div class="rs-app">
+        <!-- Sidebar Navigation -->
+        <aside class="rs-sidebar">
+            <!-- Logo -->
+            <div class="rs-logo">
+                <div class="rs-logo-mark">
+                    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M8 14V5"/><path d="M11 11a4 4 0 01-3-4 4 4 0 01-3 4"/>
+                        <path d="M13 6a2.5 2.5 0 10-5-1 2.5 2.5 0 10-5 1"/>
+                        <path d="M14 11a3 3 0 001-5"/><path d="M2 11a3 3 0 00-1-5"/>
+                    </svg>
+                </div>
+                RoonSage
+            </div>
+
+            <!-- Scrollable nav -->
+            <nav class="rs-sidebar-scroll" role="navigation" aria-label="Main navigation">
+                <!-- Home -->
+                <div class="rs-sidebar-section">
+                    <button class="rs-nav-item" data-nav="home" aria-label="Home">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6.5L8 2l6 4.5V14H2z"/><path d="M6 14V9h4v5"/></svg></span>
+                        <span>Home</span>
                     </button>
-                    <div class="nav-dropdown-menu" role="menu">
-                        <button class="nav-dropdown-item" role="menuitem" data-nav="playlist-prompt">
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V4"/><path d="M10 9a3 3 0 0 1-2-3 3 3 0 0 1-2 3"/></svg>
-                            <span class="nav-check" aria-hidden="true"></span>
-                            <span class="nav-item-label">Playlist from Prompt</span>
-                            <span class="ai-badge" aria-label="AI-powered">AI</span>
-                        </button>
-                        <button class="nav-dropdown-item" role="menuitem" data-nav="playlist-seed">
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6V4a3 3 0 0 1 3-3h1a.4.4 0 0 1 .4.4V3a3 3 0 0 1-3 3 3 3 0 0 0-3 3c0 1.5.8 2.2.8 3.8a4 4 0 0 1-.8 2.2"/><path d="M3 6a3.5 3.5 0 0 1 6 2.8 3.5 3.5 0 0 1-6-2.8"/></svg>
-                            <span class="nav-check" aria-hidden="true"></span>
-                            <span class="nav-item-label">From Seed Song</span>
-                            <span class="ai-badge" aria-label="AI-powered">AI</span>
-                        </button>
-                        <button class="nav-dropdown-item" role="menuitem" data-nav="recommend-album">
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="7"/><circle cx="8" cy="8" r="2"/></svg>
-                            <span class="nav-check" aria-hidden="true"></span>
-                            <span class="nav-item-label">Recommend Album</span>
-                            <span class="ai-badge" aria-label="AI-powered">AI</span>
-                        </button>
-                    </div>
                 </div>
 
-                <!-- Group 2: Library -->
-                <div class="nav-dropdown">
-                    <button class="nav-dropdown-trigger" aria-expanded="false" aria-haspopup="true">
-                        <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12V4l5-2 5 2v8"/><path d="M7 14V6"/><path d="M3 6h4M3 9h4"/></svg>
-                        <span class="nav-label">Library</span>
-                        <span class="nav-chevron" aria-hidden="true">&#9662;</span>
+                <!-- Create -->
+                <div class="rs-sidebar-section">
+                    <span class="rs-section-label">Create</span>
+                    <button class="rs-nav-item" data-nav="playlist-prompt" aria-label="Generate Playlist">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 12V4"/><path d="M10 9a3 3 0 01-2-3 3 3 0 01-2 3"/><path d="M12 5a2 2 0 10-4-1 2 2 0 10-4 1"/><path d="M13 10a3 3 0 001-4.5"/><path d="M3 10a3 3 0 00-1-4.5"/></svg></span>
+                        <span>Generate Playlist</span>
+                        <span class="rs-ai-pill" aria-label="AI-powered">AI</span>
                     </button>
-                    <div class="nav-dropdown-menu" role="menu">
-                        <button class="nav-dropdown-item" role="menuitem" data-nav="playlists">
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12M2 8h8M2 12h5"/></svg>
-                            <span class="nav-check" aria-hidden="true"></span>
-                            Playlists
-                        </button>
-                        <button class="nav-dropdown-item" role="menuitem" data-nav="discovery">
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="7"/><polygon points="10.5 5 9 9 5 10.5 6.5 6.5"/></svg>
-                            <span class="nav-check" aria-hidden="true"></span>
-                            Discover
-                        </button>
-                        <button class="nav-dropdown-item" role="menuitem" data-nav="watchlist">
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5Z"/><circle cx="8" cy="8" r="2"/></svg>
-                            <span class="nav-check" aria-hidden="true"></span>
-                            Watchlist
-                        </button>
-                        <button class="nav-dropdown-item" role="menuitem" data-nav="dj-set">
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4l5 2 5-2v8"/><circle cx="4" cy="12" r="1.5"/><circle cx="13" cy="11" r="1.5"/></svg>
-                            <span class="nav-check" aria-hidden="true"></span>
-                            DJ Set
-                        </button>
-                    </div>
+                    <button class="rs-nav-item" data-nav="playlist-seed" aria-label="From Seed Song">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 14c-3 0-5-2.5-5-5 0-1.5.5-3 2-4s2.5-3 3-5c.5 2 1.5 4 3 5s2 2.5 2 4c0 2.5-2 5-5 5z"/></svg></span>
+                        <span>From Seed Song</span>
+                        <span class="rs-ai-pill" aria-label="AI-powered">AI</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="recommend-album" aria-label="Recommend Album">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><circle cx="8" cy="8" r="2"/></svg></span>
+                        <span>Recommend Album</span>
+                        <span class="rs-ai-pill" aria-label="AI-powered">AI</span>
+                    </button>
                 </div>
 
-                <!-- Group 3: Intelligence -->
-                <div class="nav-dropdown">
-                    <button class="nav-dropdown-trigger" aria-expanded="false" aria-haspopup="true">
-                        <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2a5 5 0 0 1 5 5c0 3-5 8-5 8S3 10 3 7a5 5 0 0 1 5-5z"/><circle cx="8" cy="7" r="1.5"/></svg>
-                        <span class="nav-label">Intelligence</span>
-                        <span class="nav-chevron" aria-hidden="true">&#9662;</span>
+                <!-- Library -->
+                <div class="rs-sidebar-section">
+                    <span class="rs-section-label">Library</span>
+                    <button class="rs-nav-item" data-nav="playlists" aria-label="Playlists">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h12M2 8h8M2 12h5"/></svg></span>
+                        <span>Playlists</span>
                     </button>
-                    <div class="nav-dropdown-menu" role="menu">
-                        <button class="nav-dropdown-item" role="menuitem" data-nav="taste">
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2a5 5 0 0 1 5 5c0 3-5 8-5 8S3 10 3 7a5 5 0 0 1 5-5z"/><circle cx="8" cy="7" r="1.5"/></svg>
-                            <span class="nav-check" aria-hidden="true"></span>
-                            My Taste
-                        </button>
-                        <button class="nav-dropdown-item" role="menuitem" data-nav="automations">
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.8 4.2a1 1 0 0 0 0 1l1 1a1 1 0 0 0 1 0l2.5-2.5a4 4 0 0 1-5.3 5.3l-4.5 4.5a1.4 1.4 0 0 1-2-2l4.5-4.5a4 4 0 0 1 5.3-5.3L9.8 4.2z"/></svg>
-                            <span class="nav-check" aria-hidden="true"></span>
-                            Automations
-                        </button>
-                        <button class="nav-dropdown-item" role="menuitem" data-nav="settings">
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8.15 1.33h-.3a1.33 1.33 0 0 0-1.33 1.33v.12a1.33 1.33 0 0 1-.67 1.15l-.28.17a1.33 1.33 0 0 1-1.33 0l-.1-.06a1.33 1.33 0 0 0-1.82.49l-.15.25a1.33 1.33 0 0 0 .49 1.82l.1.07a1.33 1.33 0 0 1 .67 1.15v.34a1.33 1.33 0 0 1-.67 1.15l-.1.06a1.33 1.33 0 0 0-.49 1.82l.15.26a1.33 1.33 0 0 0 1.82.49l.1-.06a1.33 1.33 0 0 1 1.33 0l.29.17a1.33 1.33 0 0 1 .66 1.15v.12a1.33 1.33 0 0 0 1.34 1.33h.29a1.33 1.33 0 0 0 1.34-1.33v-.12a1.33 1.33 0 0 1 .66-1.15l.29-.17a1.33 1.33 0 0 1 1.33 0l.1.06a1.33 1.33 0 0 0 1.82-.49l.15-.26a1.33 1.33 0 0 0-.49-1.82l-.1-.06a1.33 1.33 0 0 1-.67-1.15V7.85a1.33 1.33 0 0 1 .67-1.15l.1-.07a1.33 1.33 0 0 0 .49-1.82l-.15-.25a1.33 1.33 0 0 0-1.82-.49l-.1.06a1.33 1.33 0 0 1-1.33 0l-.29-.17a1.33 1.33 0 0 1-.66-1.15v-.12A1.33 1.33 0 0 0 8.15 1.33z"/><circle cx="8" cy="8" r="2"/></svg>
-                            <span class="nav-check" aria-hidden="true"></span>
-                            Enrichment
-                        </button>
-                    </div>
+                    <button class="rs-nav-item" data-nav="discovery" aria-label="Discover">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><polygon points="10.5 5.5 9.2 9.2 5.5 10.5 6.8 6.8"/></svg></span>
+                        <span>Discover</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="watchlist" aria-label="Watchlist">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5Z"/><circle cx="8" cy="8" r="2"/></svg></span>
+                        <span>Watchlist</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="dj-set" aria-label="DJ Set">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="13" cy="11" r="1.5"/><path d="M6 12.5V5l8-2v6"/></svg></span>
+                        <span>DJ Set</span>
+                    </button>
                 </div>
 
-                <!-- Theme toggle -->
-                <button class="nav-item nav-item--icon" id="theme-toggle-btn" title="Toggle theme" aria-label="Toggle dark/light theme">
-                    <svg id="theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-                    <svg id="theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-                </button>
+                <!-- Intelligence -->
+                <div class="rs-sidebar-section">
+                    <span class="rs-section-label">Intelligence</span>
+                    <button class="rs-nav-item" data-nav="taste" aria-label="My Taste">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2a5 5 0 015 5c0 3-5 8-5 8S3 10 3 7a5 5 0 015-5z"/><circle cx="8" cy="7" r="1.5"/></svg></span>
+                        <span>My Taste</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="automations" aria-label="Automations">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4.2a1 1 0 000 1l1 1a1 1 0 001 0l2.5-2.5a4 4 0 01-5.3 5.3L4.7 13.5a1.4 1.4 0 01-2-2l4.5-4.5A4 4 0 0110 4.2z"/></svg></span>
+                        <span>Automations</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="settings" data-nav-section="enrichment" aria-label="Enrichment">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/></svg></span>
+                        <span>Enrichment</span>
+                    </button>
+                </div>
 
-                <!-- Settings icon -->
-                <button class="nav-btn nav-btn--icon" data-nav="settings" aria-current="false" aria-label="Settings"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                <!-- Settings -->
+                <div class="rs-sidebar-section">
+                    <button class="rs-nav-item" data-nav="settings" aria-label="Settings">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.15 1.33h-.3A1.33 1.33 0 006.52 2.66v.12a1.33 1.33 0 01-.67 1.15l-.28.17a1.33 1.33 0 01-1.33 0l-.1-.06a1.33 1.33 0 00-1.82.49l-.15.25a1.33 1.33 0 00.49 1.82l.1.07a1.33 1.33 0 01.67 1.15v.34a1.33 1.33 0 01-.67 1.15l-.1.06a1.33 1.33 0 00-.49 1.82l.15.26a1.33 1.33 0 001.82.49l.1-.06a1.33 1.33 0 011.33 0l.29.17a1.33 1.33 0 01.66 1.15v.12a1.33 1.33 0 001.34 1.33h.29a1.33 1.33 0 001.34-1.33v-.12a1.33 1.33 0 01.66-1.15l.29-.17a1.33 1.33 0 011.33 0l.1.06a1.33 1.33 0 001.82-.49l.15-.26a1.33 1.33 0 00-.49-1.82l-.1-.06a1.33 1.33 0 01-.67-1.15V7.85a1.33 1.33 0 01.67-1.15l.1-.07a1.33 1.33 0 00.49-1.82l-.15-.25a1.33 1.33 0 00-1.82-.49l-.1.06a1.33 1.33 0 01-1.33 0l-.29-.17a1.33 1.33 0 01-.66-1.15v-.12A1.33 1.33 0 008.15 1.33z"/><circle cx="8" cy="8" r="2"/></svg></span>
+                        <span>Settings</span>
+                    </button>
+                </div>
             </nav>
-        </header>
+
+            <!-- Zone selector -->
+            <div class="rs-zone-area">
+                <button class="rs-zone-btn" id="sidebar-zone-btn" aria-label="Active zone">
+                    <div class="rs-zone-dot rs-zone-dot--inactive" id="sidebar-zone-dot"></div>
+                    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h12M2 8h9"/><circle cx="13" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg>
+                    <span class="rs-zone-name" id="sidebar-zone-name">No zone active</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="rs-main" id="main-content">
 
         <!-- Background Activity Bar -->
         <div id="bg-activity-bar" class="bg-activity-bar hidden" role="status" aria-live="polite">
@@ -139,9 +142,6 @@
                 <div class="bg-activity-items" id="bg-activity-items"></div>
             </div>
         </div>
-
-        <!-- Main Content -->
-        <main class="main" id="main-content">
             <!-- Home View -->
             <div id="home-view" class="view">
                 <!-- Initial loading spinner (hidden once app initializes) -->
@@ -171,7 +171,8 @@
                         <div class="setup-step-header">
                             <span class="setup-step-number">1</span>
                             <div class="setup-step-title">
-                                <h3>Connect to Roon</h3>
+                                <p class="rs-settings-eyebrow">Connect to Roon</p>
+                                <h3 class="rs-settings-card-title">Connect to Roon</h3>
                                 <span class="setup-step-status" id="setup-roon-status"></span>
                             </div>
                         </div>
@@ -200,7 +201,8 @@
                         <div class="setup-step-header">
                             <span class="setup-step-number">2</span>
                             <div class="setup-step-title">
-                                <h3>Configure AI Provider</h3>
+                                <p class="rs-settings-eyebrow">Configure AI Provider</p>
+                                <h3 class="rs-settings-card-title">Configure AI Provider</h3>
                                 <span class="setup-step-status" id="setup-ai-status"></span>
                             </div>
                         </div>
@@ -244,7 +246,8 @@
                         <div class="setup-step-header">
                             <span class="setup-step-number">3</span>
                             <div class="setup-step-title">
-                                <h3>Sync Your Library</h3>
+                                <p class="rs-settings-eyebrow">Sync Your Library</p>
+                                <h3 class="rs-settings-card-title">Sync Your Library</h3>
                                 <span class="setup-step-status" id="setup-sync-status"></span>
                             </div>
                         </div>
@@ -272,7 +275,8 @@
                         <div class="setup-step-header">
                             <span class="setup-step-number">4</span>
                             <div class="setup-step-title">
-                                <h3>You're all set!</h3>
+                                <p class="rs-settings-eyebrow">You're all set!</p>
+                                <h3 class="rs-settings-card-title">You're all set!</h3>
                                 <span class="setup-step-status" id="setup-ready-status"></span>
                             </div>
                         </div>
@@ -287,114 +291,114 @@
                 </div>
 
                 <div class="home-content home-content--loading">
-                    <!-- Hero -->
-                    <section class="hero">
-                        <h2 class="hero-title">What do you want to listen to?</h2>
-                        <p class="hero-subtitle">AI-powered playlists, discovery, and intelligence for your Roon library</p>
-                    </section>
+                    <!-- View header -->
+                    <div id="home-dashboard" class="home-dashboard">
+                        <h1 class="rs-view-title" style="margin-bottom:6px">What do you want to listen to?</h1>
+                        <p class="rs-view-sub">AI-powered playlists, discovery, and intelligence for your Roon library</p>
+                    </div>
 
                     <!-- 10-card Feature Grid -->
-                    <div class="feature-grid">
+                    <div class="rs-feature-grid feature-grid">
                         <!-- Card 1: Generate Playlist (amber) -->
-                        <button class="feature-card feature-card--amber" data-nav="playlist-prompt">
-                            <span class="ai-badge ai-badge--card" aria-label="AI-powered">AI</span>
-                            <div class="card-icon card-icon--amber">
+                        <button class="rs-feature-card feature-card feature-card--amber" data-nav="playlist-prompt">
+                            <span class="rs-ai-badge ai-badge ai-badge--card" aria-label="AI-powered">AI</span>
+                            <div class="rs-feature-icon card-icon card-icon--amber">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.6 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.6 1.5"/><path d="M18 18a4 4 0 0 0 2-7.5"/><path d="M6 18a4 4 0 0 1-2-7.5"/></svg>
                             </div>
-                            <div class="card-title">Generate Playlist</div>
-                            <div class="card-desc">Describe a vibe and let AI curate tracks from your library</div>
+                            <div class="rs-feature-title card-title">Generate Playlist</div>
+                            <div class="rs-feature-desc card-desc">Describe a vibe and let AI curate tracks from your library</div>
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span><span id="home-template-count">— templates</span></div>
                         </button>
 
                         <!-- Card 2: From Seed Song (amber) -->
-                        <button class="feature-card feature-card--amber" data-nav="playlist-seed">
-                            <span class="ai-badge ai-badge--card" aria-label="AI-powered">AI</span>
-                            <div class="card-icon card-icon--amber">
+                        <button class="rs-feature-card feature-card feature-card--amber" data-nav="playlist-seed">
+                            <span class="rs-ai-badge ai-badge ai-badge--card" aria-label="AI-powered">AI</span>
+                            <div class="rs-feature-icon card-icon card-icon--amber">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a7 7 0 0 1-7-7c0-2 1-3.9 3-5.5s3.5-4 4-6.5c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a7 7 0 0 1-7 7z"/></svg>
                             </div>
-                            <div class="card-title">From Seed Song</div>
-                            <div class="card-desc">Pick a track and build a playlist around its vibe</div>
+                            <div class="rs-feature-title card-title">From Seed Song</div>
+                            <div class="rs-feature-desc card-desc">Pick a track and build a playlist around its vibe</div>
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span>Mood-matched from your library</div>
                         </button>
 
                         <!-- Card 3: Recommend Album (amber) -->
-                        <button class="feature-card feature-card--amber" data-nav="recommend-album">
-                            <span class="ai-badge ai-badge--card" aria-label="AI-powered">AI</span>
-                            <div class="card-icon card-icon--amber">
+                        <button class="rs-feature-card feature-card feature-card--amber" data-nav="recommend-album">
+                            <span class="rs-ai-badge ai-badge ai-badge--card" aria-label="AI-powered">AI</span>
+                            <div class="rs-feature-icon card-icon card-icon--amber">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2"/></svg>
                             </div>
-                            <div class="card-title">Recommend Album</div>
-                            <div class="card-desc">Find the perfect album for any moment or mood</div>
+                            <div class="rs-feature-title card-title">Recommend Album</div>
+                            <div class="rs-feature-desc card-desc">Find the perfect album for any moment or mood</div>
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span>Library + Discovery modes</div>
                         </button>
 
                         <!-- Card 4: Playlists (teal) -->
-                        <button class="feature-card feature-card--teal" data-nav="playlists">
-                            <div class="card-icon card-icon--teal">
+                        <button class="rs-feature-card feature-card feature-card--teal" data-nav="playlists">
+                            <div class="rs-feature-icon card-icon card-icon--teal">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                             </div>
-                            <div class="card-title">Playlists</div>
-                            <div class="card-desc">Browse and replay your saved playlists and DJ sets</div>
+                            <div class="rs-feature-title card-title">Playlists</div>
+                            <div class="rs-feature-desc card-desc">Browse and replay your saved playlists and DJ sets</div>
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-playlists-count">—</span></div>
                         </button>
 
                         <!-- Card 5: Discover (teal) -->
-                        <button class="feature-card feature-card--teal" data-nav="discovery">
-                            <div class="card-icon card-icon--teal">
+                        <button class="rs-feature-card feature-card feature-card--teal" data-nav="discovery">
+                            <div class="rs-feature-icon card-icon card-icon--teal">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
                             </div>
-                            <div class="card-title">Discover</div>
-                            <div class="card-desc">Hidden gems, deep cuts, and forgotten favorites in your library</div>
+                            <div class="rs-feature-title card-title">Discover</div>
+                            <div class="rs-feature-desc card-desc">Hidden gems, deep cuts, and forgotten favorites in your library</div>
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-discovery-count">4 discovery sections</span></div>
                         </button>
 
                         <!-- Card 6: Watchlist (teal) -->
-                        <button class="feature-card feature-card--teal" data-nav="watchlist">
-                            <div class="card-icon card-icon--teal">
+                        <button class="rs-feature-card feature-card feature-card--teal" data-nav="watchlist">
+                            <div class="rs-feature-icon card-icon card-icon--teal">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
                             </div>
-                            <div class="card-title">Watchlist</div>
-                            <div class="card-desc">Monitor your favorite artists for new Qobuz releases</div>
+                            <div class="rs-feature-title card-title">Watchlist</div>
+                            <div class="rs-feature-desc card-desc">Monitor your favorite artists for new Qobuz releases</div>
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-watchlist-count">—</span></div>
                         </button>
 
                         <!-- Card 7: DJ Set (amber) -->
-                        <button class="feature-card feature-card--amber" data-nav="dj-set">
-                            <div class="card-icon card-icon--amber">
+                        <button class="rs-feature-card feature-card feature-card--amber" data-nav="dj-set">
+                            <div class="rs-feature-icon card-icon card-icon--amber">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="18" r="3"/><circle cx="16" cy="16" r="3"/><polyline points="11 18 11 5 19 3 19 16"/><line x1="11" y1="9" x2="19" y2="7"/></svg>
                             </div>
-                            <div class="card-title">DJ Set</div>
-                            <div class="card-desc">Build beatmatched Camelot-compatible sets from your library</div>
+                            <div class="rs-feature-title card-title">DJ Set</div>
+                            <div class="rs-feature-desc card-desc">Build beatmatched Camelot-compatible sets from your library</div>
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span>BPM + key harmonic mixing</div>
                         </button>
 
                         <!-- Card 8: My Taste (amber) -->
-                        <button class="feature-card feature-card--amber" data-nav="taste">
-                            <div class="card-icon card-icon--amber">
+                        <button class="rs-feature-card feature-card feature-card--amber" data-nav="taste">
+                            <div class="rs-feature-icon card-icon card-icon--amber">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 4.5-7 13-7 13S5 13.5 5 9a7 7 0 0 1 7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
                             </div>
-                            <div class="card-title">My Taste</div>
-                            <div class="card-desc">Genre radar, listening patterns, and your full taste profile</div>
+                            <div class="rs-feature-title card-title">My Taste</div>
+                            <div class="rs-feature-desc card-desc">Genre radar, listening patterns, and your full taste profile</div>
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span><span id="home-taste-preview">—</span></div>
                         </button>
 
                         <!-- Card 9: Automations (teal) -->
-                        <button class="feature-card feature-card--teal" data-nav="automations">
-                            <div class="card-icon card-icon--teal">
+                        <button class="rs-feature-card feature-card feature-card--teal" data-nav="automations">
+                            <div class="rs-feature-icon card-icon card-icon--teal">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
                             </div>
-                            <div class="card-title">Automations</div>
-                            <div class="card-desc">Trigger-action workflows that run on schedule or events</div>
+                            <div class="rs-feature-title card-title">Automations</div>
+                            <div class="rs-feature-desc card-desc">Trigger-action workflows that run on schedule or events</div>
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-auto-count">—</span></div>
                         </button>
 
                         <!-- Card 10: Enrichment (teal) -->
-                        <button class="feature-card feature-card--teal" data-nav="settings">
-                            <div class="card-icon card-icon--teal">
+                        <button class="rs-feature-card feature-card feature-card--teal" data-nav="settings">
+                            <div class="rs-feature-icon card-icon card-icon--teal">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M8.46 8.46a5 5 0 0 0 0 7.07"/></svg>
                             </div>
-                            <div class="card-title">Enrichment</div>
-                            <div class="card-desc">Enrich your library with MusicBrainz and Last.fm metadata</div>
+                            <div class="rs-feature-title card-title">Enrichment</div>
+                            <div class="rs-feature-desc card-desc">Enrich your library with MusicBrainz and Last.fm metadata</div>
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-enrich-count">—</span></div>
                         </button>
                     </div>
@@ -598,7 +602,8 @@
 
                         <div class="filter-section">
                             <div class="filter-section-header">
-                                <h3>Genres</h3>
+                                <p class="rs-settings-eyebrow">Genres</p>
+                                <h3 class="rs-settings-card-title">Genres</h3>
                                 <button id="genre-toggle-all" class="filter-toggle-all"
                                         aria-label="Select all genres">Select All</button>
                             </div>
@@ -607,7 +612,8 @@
 
                         <div class="filter-section">
                             <div class="filter-section-header">
-                                <h3>Decades</h3>
+                                <p class="rs-settings-eyebrow">Decades</p>
+                                <h3 class="rs-settings-card-title">Decades</h3>
                                 <button id="decade-toggle-all" class="filter-toggle-all"
                                         aria-label="Select all decades">Select All</button>
                             </div>
@@ -615,7 +621,8 @@
                         </div>
 
                         <div class="filter-section">
-                            <h3>Playlist Size</h3>
+                            <p class="rs-settings-eyebrow">Playlist Size</p>
+                            <h3 class="rs-settings-card-title">Playlist Size</h3>
                             <div class="track-count-selector" role="group" aria-label="Playlist size">
                                 <button class="count-btn" data-count="15" aria-pressed="false">15</button>
                                 <button class="count-btn active" data-count="25" aria-pressed="true">25</button>
@@ -637,7 +644,8 @@
                         </div>
 
                         <div class="filter-section">
-                            <h3>Max Tracks to AI</h3>
+                            <p class="rs-settings-eyebrow">Max Tracks to AI</p>
+                            <h3 class="rs-settings-card-title">Max Tracks to AI</h3>
                             <p class="filter-hint">Limit how many tracks are sent to the AI for selection. Higher = better variety but more cost.</p>
                             <div class="track-limit-selector" role="group" aria-label="Maximum tracks to send to AI">
                                 <button class="limit-btn" data-limit="100" aria-pressed="false">100</button>
@@ -816,21 +824,24 @@
                         <div class="rec-filters">
                             <div class="filter-section">
                                 <div class="filter-section-header">
-                                    <h3>Genres</h3>
+                                    <p class="rs-settings-eyebrow">Genres</p>
+                                    <h3 class="rs-settings-card-title">Genres</h3>
                                     <button id="rec-genre-toggle-all" class="filter-toggle-all" aria-label="Select all genres">Select All</button>
                                 </div>
                                 <div id="rec-genre-chips" class="chip-container" role="group" aria-label="Genre filters"></div>
                             </div>
                             <div class="filter-section">
                                 <div class="filter-section-header">
-                                    <h3>Decades</h3>
+                                    <p class="rs-settings-eyebrow">Decades</p>
+                                    <h3 class="rs-settings-card-title">Decades</h3>
                                     <button id="rec-decade-toggle-all" class="filter-toggle-all" aria-label="Select all decades">Select All</button>
                                 </div>
                                 <div id="rec-decade-chips" class="chip-container" role="group" aria-label="Decade filters"></div>
                             </div>
                         </div>
                         <div class="filter-section">
-                            <h3>Max Albums to AI</h3>
+                            <p class="rs-settings-eyebrow">Max Albums to AI</p>
+                            <h3 class="rs-settings-card-title">Max Albums to AI</h3>
                             <p class="filter-hint">Limit how many albums are sent to the AI for selection.</p>
                             <div class="album-limit-selector" role="group" aria-label="Maximum albums to send to AI">
                                 <!-- populated dynamically by updateAlbumLimitButtons() -->
@@ -842,7 +853,8 @@
                             <span id="rec-preview-cost" class="preview-stat">Est. cost: --</span>
                         </div>
                         <div class="filter-section">
-                            <h3>Play History</h3>
+                            <p class="rs-settings-eyebrow">Play History</p>
+                            <h3 class="rs-settings-card-title">Play History</h3>
                             <div id="rec-familiarity-pills" class="chip-container" role="radiogroup" aria-label="Play history preference">
                                 <button class="chip selected" data-familiarity="any" role="radio" aria-checked="true">Any</button>
                                 <button class="chip" data-familiarity="comfort" role="radio" aria-checked="false">Comfort picks</button>
@@ -1202,7 +1214,8 @@
             <div id="auto-preset-overlay" class="auto-preset-overlay hidden" role="dialog" aria-modal="true" aria-label="Automation Presets">
                 <div class="auto-preset-modal">
                     <div class="auto-preset-modal-header">
-                        <h3>Built-in Presets</h3>
+                        <p class="rs-settings-eyebrow">Built-in Presets</p>
+                        <h3 class="rs-settings-card-title">Built-in Presets</h3>
                         <button id="auto-preset-close" class="auto-preset-close" aria-label="Close">✕</button>
                     </div>
                     <div id="auto-preset-grid" class="auto-preset-grid"></div>
@@ -1218,9 +1231,9 @@
                     </div>
                 </div>
 
-                <div class="pl-view-tabs" role="tablist" aria-label="DJ Set tabs">
-                    <button class="pl-view-tab pl-view-tab--active" data-dj-tab="builder" role="tab" aria-selected="true">Bouwer</button>
-                    <button class="pl-view-tab" data-dj-tab="templates" role="tab" aria-selected="false">Templates</button>
+                <div class="rs-tab-bar" role="tablist" aria-label="DJ Set tabs">
+                    <button class="rs-tab active" data-dj-tab="builder" role="tab" aria-selected="true">Bouwer</button>
+                    <button class="rs-tab" data-dj-tab="templates" role="tab" aria-selected="false">Templates</button>
                 </div>
 
                 <div id="dj-builder-pane" class="dj-tab-pane">
@@ -1228,23 +1241,23 @@
                     <form id="dj-form" class="auto-form" autocomplete="off">
                         <div class="auto-form-grid">
                             <div>
-                                <div class="auto-form-row">
-                                    <label for="dj-duration">Duration (minutes)</label>
+                                <div class="rs-form-group">
+                                    <label class="rs-form-label" for="dj-duration">Duration (minutes)</label>
                                     <input id="dj-duration" type="number" class="auto-form-input" min="10" max="240" value="60" />
                                 </div>
-                                <div class="auto-form-row">
-                                    <label for="dj-start-bpm">Start BPM</label>
+                                <div class="rs-form-group">
+                                    <label class="rs-form-label" for="dj-start-bpm">Start BPM</label>
                                     <input id="dj-start-bpm" type="number" class="auto-form-input" min="40" max="220" step="1" value="110" />
                                 </div>
-                                <div class="auto-form-row">
-                                    <label for="dj-end-bpm">Eind BPM</label>
+                                <div class="rs-form-group">
+                                    <label class="rs-form-label" for="dj-end-bpm">Eind BPM</label>
                                     <input id="dj-end-bpm" type="number" class="auto-form-input" min="40" max="220" step="1" value="128" />
                                 </div>
                                 <div id="dj-bpm-hint" style="font-size:0.78rem;color:var(--text-muted);margin-top:2px;min-height:1.2em;"></div>
                             </div>
                             <div>
-                                <div class="auto-form-row">
-                                    <label for="dj-curve">Energy curve</label>
+                                <div class="rs-form-group">
+                                    <label class="rs-form-label" for="dj-curve">Energy curve</label>
                                     <select id="dj-curve" class="auto-form-select">
                                         <optgroup label="Opbouwend">
                                             <option value="ramp_up">Oplopend (warm-up naar piek)</option>
@@ -1266,8 +1279,8 @@
                                         </optgroup>
                                     </select>
                                 </div>
-                                <div class="auto-form-row">
-                                    <label for="dj-start-mood">Start mood</label>
+                                <div class="rs-form-group">
+                                    <label class="rs-form-label" for="dj-start-mood">Start mood</label>
                                     <select id="dj-start-mood" class="auto-form-select">
                                         <option value="">— Geen voorkeur —</option>
                                         <optgroup label="Hoog energie">
@@ -1300,8 +1313,8 @@
                                         </optgroup>
                                     </select>
                                 </div>
-                                <div class="auto-form-row">
-                                    <label for="dj-end-mood">Eindmood <span style="font-size:0.8em;color:var(--text-muted);">(optioneel overgang)</span></label>
+                                <div class="rs-form-group">
+                                    <label class="rs-form-label" for="dj-end-mood">Eindmood <span style="font-size:0.8em;color:var(--text-muted);">(optioneel overgang)</span></label>
                                     <select id="dj-end-mood" class="auto-form-select">
                                         <option value="">— Zelfde als start —</option>
                                         <optgroup label="Hoog energie">
@@ -1337,18 +1350,18 @@
                             </div>
                         </div>
 
-                        <div class="auto-form-row" style="margin-top:var(--spacing-sm);">
-                            <label>Genres <span id="dj-genre-selected-count" style="font-size:0.8em;color:var(--text-muted);">(optioneel — alles als niets geselecteerd)</span></label>
-                            <div id="dj-genre-cloud" class="discovery-genre-cloud" style="margin-top:6px;min-height:32px;">
+                        <div class="rs-form-group" style="margin-top:var(--spacing-sm);">
+                            <label class="rs-form-label">Genres <span id="dj-genre-selected-count" style="font-size:0.8em;color:var(--text-muted);">(optioneel — alles als niets geselecteerd)</span></label>
+                            <div id="dj-genre-cloud" class="rs-chips" style="margin-top:6px;min-height:32px;">
                                 <span style="color:var(--text-muted);font-size:0.85em;">Laden…</span>
                             </div>
                         </div>
 
                         <div class="auto-form-actions">
-                            <button id="dj-build-btn" type="submit" class="btn btn-primary">Build set</button>
-                            <button id="dj-play-btn" type="button" class="btn btn-primary" style="display:none;">▶ Speel af op zone</button>
-                            <button id="dj-save-btn" type="button" class="btn btn-secondary" style="display:none;">Opslaan</button>
-                            <button id="dj-arc-btn" type="button" class="btn btn-secondary" style="display:none;">Opslaan in Arc ↗</button>
+                            <button id="dj-build-btn" type="submit" class="rs-btn rs-btn--primary">Build set</button>
+                            <button id="dj-play-btn" type="button" class="rs-btn rs-btn--primary" style="display:none;">▶ Speel af op zone</button>
+                            <button id="dj-save-btn" type="button" class="rs-btn rs-btn--secondary" style="display:none;">Opslaan</button>
+                            <button id="dj-arc-btn" type="button" class="rs-btn rs-btn--secondary" style="display:none;">Opslaan in Arc ↗</button>
                         </div>
                     </form>
                 </section>
@@ -1414,8 +1427,33 @@
             <div id="settings-view" class="view">
                 <h2>Settings</h2>
 
-                <section class="settings-section">
-                    <h3>Roon Connection</h3>
+                <!-- Appearance -->
+                <section class="rs-settings-card settings-section" id="appearance-settings-section">
+                    <p class="rs-settings-eyebrow">Appearance</p>
+                    <h3 class="rs-settings-card-title">Appearance</h3>
+
+                    <div class="settings-appearance-row">
+                        <span class="settings-appearance-label">Theme</span>
+                        <div class="rs-theme-control" role="group" aria-label="Color theme">
+                            <button class="rs-theme-opt" id="theme-opt-dark" data-theme-opt="dark">Dark</button>
+                            <button class="rs-theme-opt" id="theme-opt-light" data-theme-opt="light">Light</button>
+                        </div>
+                    </div>
+
+                    <div class="settings-appearance-row">
+                        <span class="settings-appearance-label">Accent Color</span>
+                        <div class="rs-variation-swatches" role="group" aria-label="Accent color">
+                            <button class="rs-swatch" data-variation="viola" style="background:#9270d4" title="Viola (purple)" aria-label="Viola purple"></button>
+                            <button class="rs-swatch" data-variation="ember" style="background:#e5a00d" title="Ember (amber)" aria-label="Ember amber"></button>
+                            <button class="rs-swatch" data-variation="slate" style="background:#5b8fe8" title="Slate (blue)" aria-label="Slate blue"></button>
+                            <span class="rs-swatch-label" id="variation-label">Viola</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="rs-settings-card settings-section">
+                    <p class="rs-settings-eyebrow">Roon Connection</p>
+                    <h3 class="rs-settings-card-title">Roon Connection</h3>
                     <div class="status-indicator" id="roon-status">
                         <span class="status-dot"></span>
                         <span class="status-text">Not connected</span>
@@ -1434,8 +1472,9 @@
                     </div>
                 </section>
 
-                <section class="settings-section">
-                    <h3>LLM Provider</h3>
+                <section class="rs-settings-card settings-section">
+                    <p class="rs-settings-eyebrow">LLM Provider</p>
+                    <h3 class="rs-settings-card-title">LLM Provider</h3>
                     <div class="status-indicator" id="llm-status">
                         <span class="status-dot"></span>
                         <span class="status-text">Not configured</span>
@@ -1523,8 +1562,9 @@
                     </div>
                 </section>
 
-                <section class="settings-section">
-                    <h3>Qobuz Playlist Storage</h3>
+                <section class="rs-settings-card settings-section">
+                    <p class="rs-settings-eyebrow">Qobuz Playlist Storage</p>
+                    <h3 class="rs-settings-card-title">Qobuz Playlist Storage</h3>
                     <div class="status-indicator" id="qobuz-settings-status">
                         <span class="status-dot"></span>
                         <span class="status-text">Not configured</span>
@@ -1543,8 +1583,9 @@
                     </div>
                 </section>
 
-                <section class="settings-section">
-                    <h3>ListenBrainz</h3>
+                <section class="rs-settings-card settings-section">
+                    <p class="rs-settings-eyebrow">ListenBrainz</p>
+                    <h3 class="rs-settings-card-title">ListenBrainz</h3>
                     <div class="status-indicator" id="lb-settings-status">
                         <span class="status-dot"></span>
                         <span class="status-text">Not configured</span>
@@ -1569,8 +1610,9 @@
                     </div>
                 </section>
 
-                <section class="settings-section" id="lastfm-settings-section">
-                    <h3>Last.fm</h3>
+                <section class="rs-settings-card settings-section" id="lastfm-settings-section">
+                    <p class="rs-settings-eyebrow">Last.fm</p>
+                    <h3 class="rs-settings-card-title">Last.fm</h3>
                     <div class="status-indicator" id="lastfm-settings-status">
                         <span class="status-dot"></span>
                         <span class="status-text">Not configured</span>
@@ -1610,8 +1652,9 @@
                     </div>
                 </section>
 
-                <section class="settings-section" id="notifications-settings-section">
-                    <h3>Notifications</h3>
+                <section class="rs-settings-card settings-section" id="notifications-settings-section">
+                    <p class="rs-settings-eyebrow">Notifications</p>
+                    <h3 class="rs-settings-card-title">Notifications</h3>
                     <p class="settings-section-desc">Receive notifications via Discord, Telegram, or a custom webhook when events occur in RoonSage.</p>
 
                     <!-- Discord -->
@@ -1675,8 +1718,9 @@
                 </div>
 
                 <!-- Scheduled Playlists -->
-                <section class="settings-section" id="schedules-settings-section">
-                    <h3>Scheduled Playlists</h3>
+                <section class="rs-settings-card settings-section" id="schedules-settings-section">
+                    <p class="rs-settings-eyebrow">Scheduled Playlists</p>
+                    <h3 class="rs-settings-card-title">Scheduled Playlists</h3>
                     <p style="font-size:0.85rem;opacity:0.7;margin:0.25rem 0 0.75rem">Auto-regenerate playlists on a schedule and optionally save them to Qobuz.</p>
 
                     <!-- Schedule list -->
@@ -1744,8 +1788,9 @@
                 </section>
 
                 <!-- Metadata Enrichment Section -->
-                <section class="settings-section" id="enrichment-settings-section">
-                    <h3>Metadata Enrichment</h3>
+                <section class="rs-settings-card settings-section" id="enrichment-settings-section">
+                    <p class="rs-settings-eyebrow">Metadata Enrichment</p>
+                    <h3 class="rs-settings-card-title">Metadata Enrichment</h3>
                     <p class="settings-section-desc">Enriches your library with MusicBrainz and Last.fm tags (e.g., "melancholic", "late night"). Improves mood-based playlist matching. Processes ~1 track/second in the background.</p>
 
                     <div class="enrich-stats-grid" id="enrichment-stats">
@@ -1790,8 +1835,9 @@
                 </section>
 
                 <!-- Audio Feature Analysis Section -->
-                <section class="settings-section" id="audio-features-settings-section">
-                    <h3>Audio Feature Analysis</h3>
+                <section class="rs-settings-card settings-section" id="audio-features-settings-section">
+                    <p class="rs-settings-eyebrow">Audio Feature Analysis</p>
+                    <h3 class="rs-settings-card-title">Audio Feature Analysis</h3>
                     <p class="settings-section-desc">Analyseert je tracks lokaal voor BPM, toonsoort (Camelot), energy, danceability en valence. Vereist een gemounte muziek-library en de <code>AUDIO_FEATURES_ENABLED=true</code> environment variable. CPU-intensief — laat dit ’s nachts draaien.</p>
 
                     <div id="af-disabled-banner" class="enrich-result" style="display:none;color:#f0a000;">
@@ -1849,12 +1895,17 @@
                     <div id="af-action-result" class="enrich-result"></div>
                 </section>
 
-                <section class="settings-section library-stats" id="library-stats-section" style="display: none;">
-                    <h3>Library Statistics</h3>
+                <section class="rs-settings-card settings-section library-stats" id="library-stats-section" style="display: none;">
+                    <p class="rs-settings-eyebrow">Library Statistics</p>
+                    <h3 class="rs-settings-card-title">Library Statistics</h3>
                     <div id="library-stats"></div>
                 </section>
             </div>
+
         </main>
+
+        <!-- Now Playing Bar — must be direct .rs-app child for CSS grid area "nowplaying" -->
+        <div id="now-playing-bar" class="rs-nowplaying now-playing-bar--hidden" role="region" aria-label="Now playing"></div>
 
         <!-- Sync Progress Modal (global – blocks UI for first-time and upgrade syncs) -->
         <div id="sync-modal" class="sync-modal hidden" role="dialog" aria-modal="true" aria-labelledby="sync-modal-title">
@@ -2012,8 +2063,7 @@
         </div>
 
 
-        <!-- Now Playing Bar -->
-        <div id="now-playing-bar" class="now-playing-bar now-playing-bar--hidden" role="region" aria-label="Now playing"></div>
+        <!-- (now-playing-bar is now above modals, as third grid child) -->
 
         <!-- PWA Install / Update Toast -->
         <div id="pwa-toast" class="pwa-toast hidden" role="status" aria-live="polite">
@@ -2027,8 +2077,8 @@
             </div>
         </div>
 
-        <!-- Mobile Bottom Tab Bar (hidden on desktop via CSS) -->
-        <nav class="mobile-bottom-nav" role="navigation" aria-label="Mobile navigation">
+        <!-- Mobile Bottom Tab Bar (hidden — replaced by sidebar) -->
+        <nav class="mobile-bottom-nav" role="navigation" aria-label="Mobile navigation" style="display:none">
             <button class="mbn-btn" data-nav="playlist-prompt" aria-label="Make Playlist">
                 <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/></svg>
                 <span>Make</span>
@@ -2055,8 +2105,8 @@
             </button>
         </nav>
 
-        <!-- Footer -->
-        <footer class="app-footer app-footer--loading">
+        <!-- Footer (hidden — library status info moved to sidebar zone area) -->
+        <footer class="app-footer app-footer--loading" style="display:none">
             <div class="footer-left">
                 <a href="https://github.com/Georgemvp/roonsage" target="_blank" rel="noopener" class="footer-brand">RoonSage <span id="footer-version"></span></a>
                 <span class="footer-separator">·</span>

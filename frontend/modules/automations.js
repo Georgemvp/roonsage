@@ -82,7 +82,7 @@ export async function initAutomationsView() {
 async function _loadAutomations() {
     const container = document.getElementById('automations-list');
     if (!container) return;
-    container.innerHTML = '<p class="auto-loading">Loading…</p>';
+    container.innerHTML = '<div class="rs-loading"><div class="rs-spinner"></div><span class="rs-loading-text">Loading…</span></div>';
     try {
         const list = await apiCall('/automations');
         _renderAutomations(list, container);
@@ -107,7 +107,7 @@ async function _loadLog() {
 function _renderAutomations(list, container) {
     if (!list || !list.length) {
         container.innerHTML = `
-            <div class="auto-empty">
+            <div class="rs-empty">
                 <p>No automations yet.</p>
                 <p>Use <strong>From Preset</strong> to add one in seconds, or create a custom automation below.</p>
             </div>`;
@@ -125,12 +125,12 @@ function _renderAutomations(list, container) {
                     ${_statusBadge(a.last_status)}
                 </div>
                 <div class="auto-card-controls">
-                    <button class="auto-toggle-btn btn btn-sm ${a.enabled ? 'btn-secondary' : 'btn-primary'}"
+                    <button class="auto-toggle-btn rs-toggle ${a.enabled ? 'on' : ''}"
                             data-id="${a.id}" title="${a.enabled ? 'Disable' : 'Enable'}">
                         ${a.enabled ? 'On' : 'Off'}
                     </button>
-                    <button class="auto-run-btn btn btn-sm btn-secondary" data-id="${a.id}" title="Run now">▶</button>
-                    <button class="auto-delete-btn btn btn-sm btn-danger" data-id="${a.id}" title="Delete">✕</button>
+                    <button class="auto-run-btn rs-btn rs-btn--secondary" data-id="${a.id}" title="Run now">▶</button>
+                    <button class="auto-delete-btn rs-btn rs-btn--danger" data-id="${a.id}" title="Delete">✕</button>
                 </div>
             </div>
             <div class="auto-card-meta">
@@ -227,7 +227,7 @@ async function _showPresets() {
     const grid    = document.getElementById('auto-preset-grid');
     if (!overlay || !grid) return;
 
-    grid.innerHTML = '<p class="auto-loading">Loading presets…</p>';
+    grid.innerHTML = '<div class="rs-loading"><div class="rs-spinner"></div><span class="rs-loading-text">Loading presets…</span></div>';
     overlay.classList.remove('hidden');
 
     try {
@@ -240,7 +240,7 @@ async function _showPresets() {
                     <span class="auto-meta-chip auto-meta-chip--trigger">⚡ ${_esc(_triggerLabel(p.trigger.type))}</span>
                     <span class="auto-meta-chip auto-meta-chip--action">▶ ${_esc(_actionLabel(p.action.type))}</span>
                 </div>
-                <button class="btn btn-primary btn-sm auto-preset-install-btn" data-idx="${i}">Install</button>
+                <button class="rs-btn rs-btn--primary auto-preset-install-btn" data-idx="${i}">Install</button>
             </div>`).join('');
 
         // Bind install buttons
@@ -261,7 +261,7 @@ async function _showPresets() {
                         }),
                     });
                     btn.textContent = '✓ Installed';
-                    btn.classList.replace('btn-primary', 'btn-secondary');
+                    btn.classList.replace('rs-btn--primary', 'rs-btn--secondary');
                     await _loadAutomations();
                 } catch (e) {
                     btn.disabled = false;

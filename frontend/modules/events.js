@@ -1092,6 +1092,8 @@ export async function handleGenerate() {
             updateStep();
             updatePlaylist();
             window.scrollTo(0, 0);
+            const rsMain = document.querySelector('.rs-main');
+            if (rsMain) rsMain.scrollTop = 0;
             hideStepLoading();
 
             // Update URL to deep link for this result
