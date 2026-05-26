@@ -23,17 +23,40 @@ import { initAudioFeaturesButtons } from './modules/audio-features.js';
 import {
     dismissClientPicker, dismissPlayChoice, dismissPlaySuccess, setSaveMode
 } from './modules/instant-queue.js';
-import { setupRecEventListeners, initRecommendView, renderPromptPills, PLAYLIST_PROMPT_GROUPS } from './modules/recommend.js';
+import { setupRecEventListeners, renderPromptPills, PLAYLIST_PROMPT_GROUPS } from './modules/recommend.js';
 import { setupHistoryEventListeners }     from './modules/history.js';
 import { enterSetupWizard }               from './modules/setup-wizard.js';
 import { startNowPlaying, openZonePicker } from './modules/nowplaying.js';
-import { initPlaylistsView }              from './modules/playlists.js';
-import { initTasteView }                  from './modules/taste.js';
 import { initTemplates }                  from './modules/templates.js';
-import { initSchedulerSection }           from './modules/scheduler.js';
 import { startActivityMonitor }           from './modules/activity.js';
 import { initPWA }                        from './modules/pwa.js';
-import { initEnrichmentView }             from './modules/enrichment.js';
+
+// View modules are loaded on demand — keeps the initial JS payload small,
+// and view-specific code (e.g. Chart.js use in taste.js) only loads when the
+// user navigates to it. Routes that don't appear here stay eager because
+// their setup must run at startup (event listeners, polling).
+async function initViewModule(view) {
+    switch (view) {
+        case 'recommend': {
+            const { initRecommendView } = await import('./modules/recommend.js');
+            return initRecommendView();
+        }
+        case 'playlists': {
+            const { initPlaylistsView } = await import('./modules/playlists.js');
+            return initPlaylistsView();
+        }
+        case 'taste': {
+            const { initTasteView } = await import('./modules/taste.js');
+            return initTasteView();
+        }
+        case 'enrichment': {
+            const { initEnrichmentView } = await import('./modules/enrichment.js');
+            return initEnrichmentView();
+        }
+        default:
+            return null;
+    }
+}
 
 // =============================================================================
 // Theme & Variation Init
@@ -393,18 +416,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Initialize views AFTER config is loaded
-    if (state.view === 'recommend') {
-        initRecommendView();
-    } else if (state.view === 'home') {
+    if (state.view === 'home') {
         renderHistoryFeed();
         loadHomePreview(); // fire-and-forget; populates feature card previews
         loadHomeHero();
-    } else if (state.view === 'playlists') {
-        initPlaylistsView();
-    } else if (state.view === 'taste') {
-        initTasteView();
-    } else if (state.view === 'enrichment') {
-        initEnrichmentView();
+    } else {
+        initViewModule(state.view);
     }
 
     // Start Now Playing polling (persistent — runs on all views)
@@ -509,7 +526,7 @@ window.dismissArcModal = () => document.getElementById('arc-global-modal')?.clas
 // Refresh button for playlists view
 document.addEventListener('click', e => {
     if (e.target?.id === 'playlists-refresh-btn') {
-        initPlaylistsView();
+        initViewModule('playlists');
     }
 });
 

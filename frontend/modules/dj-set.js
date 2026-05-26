@@ -7,6 +7,7 @@
 // which dispatches the curated set via the standard play_tracks endpoint.
 
 import { apiCall } from './api.js';
+import { ensureChartJS } from './taste.js';
 import { showSuccess } from './ui.js';
 
 let _initialized = false;
@@ -308,9 +309,10 @@ function _renderTracks(tracks, curve) {
     renderCamelotWheel('dj-camelot-wheel', [...new Set(keys)]);
 }
 
-function _renderCurve(curve) {
+async function _renderCurve(curve) {
     const canvas = document.getElementById('dj-curve-chart');
-    if (!canvas || typeof Chart === 'undefined') return;
+    if (!canvas) return;
+    await ensureChartJS();
     if (_curveChart) {
         _curveChart.destroy();
         _curveChart = null;

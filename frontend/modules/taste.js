@@ -5,13 +5,28 @@
 import { apiCall } from './api.js';
 import { escapeHtml } from './utils.js';
 
-// ── Chart.js global defaults (dark theme) ────────────────────────────────────
-if (typeof Chart !== 'undefined') {
-    Chart.defaults.color = '#999';
-    Chart.defaults.borderColor = 'rgba(255,255,255,0.1)';
-    Chart.defaults.animation = false;
-    Chart.defaults.responsive = true;
-    Chart.defaults.maintainAspectRatio = false;
+// ── Chart.js lazy loader ─────────────────────────────────────────────────────
+// Loaded on first view-init instead of as a blocking <script> in index.html so
+// it never costs anything for users who don't open the Taste view.
+let _chartLoading = null;
+export function ensureChartJS() {
+    if (typeof window.Chart !== 'undefined') return Promise.resolve();
+    if (_chartLoading) return _chartLoading;
+    _chartLoading = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+        script.onload = () => {
+            Chart.defaults.color = '#999';
+            Chart.defaults.borderColor = 'rgba(255,255,255,0.1)';
+            Chart.defaults.animation = false;
+            Chart.defaults.responsive = true;
+            Chart.defaults.maintainAspectRatio = false;
+            resolve();
+        };
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
+    return _chartLoading;
 }
 
 // Module-level chart instance registry — destroy before recreating
@@ -71,6 +86,7 @@ export async function initTasteView() {
     const view = document.getElementById('taste-view');
     if (!view) return;
 
+    await ensureChartJS();
     _showSkeleton();
     _setupFilterButtons();
     await _setupZoneFilter();

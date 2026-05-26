@@ -5,17 +5,22 @@
 import { state } from './state.js';
 import { apiCall } from './api.js';
 import { updateView, updateMode, updateStep, resetPlaylistState, updatePlaylist, showError } from './ui.js';
-import { resetRecState, initRecommendView, updateRecStep, renderRecResults } from './recommend.js';
+import { resetRecState, updateRecStep, renderRecResults } from './recommend.js';
 import { loadSettings } from './playlist.js';
 import { renderHistoryFeed } from './history.js';
-import { initPlaylistsView } from './playlists.js';
-import { initTasteView } from './taste.js';
-import { initDiscoveryView } from './discovery.js';
-import { initWatchlistView } from './watchlist.js';
-import { initSchedulerSection } from './scheduler.js';
-import { initAutomationsView } from './automations.js';
-import { initDJSetView } from './dj-set.js';
-import { initEnrichmentView } from './enrichment.js';
+
+// View-init imports are dynamic — each module only loads when the user
+// navigates to that view (see _loadView below).
+const VIEW_MODULES = {
+    'recommend':   () => import('./recommend.js').then(m => m.initRecommendView()),
+    'playlists':   () => import('./playlists.js').then(m => m.initPlaylistsView()),
+    'taste':       () => import('./taste.js').then(m => m.initTasteView()),
+    'discovery':   () => import('./discovery.js').then(m => m.initDiscoveryView()),
+    'watchlist':   () => import('./watchlist.js').then(m => m.initWatchlistView()),
+    'automations': () => import('./automations.js').then(m => m.initAutomationsView()),
+    'dj-set':      () => import('./dj-set.js').then(m => m.initDJSetView()),
+    'enrichment':  () => import('./enrichment.js').then(m => m.initEnrichmentView()),
+};
 
 export const HASH_TO_VIEW = {
     'home': 'home',
@@ -100,25 +105,11 @@ export function navigateTo(view, mode) {
     }
     if (view === 'settings') {
         loadSettings();
-        initSchedulerSection();
-    } else if (view === 'recommend') {
-        initRecommendView();
+        import('./scheduler.js').then(m => m.initSchedulerSection());
     } else if (view === 'home') {
         renderHistoryFeed();
-    } else if (view === 'playlists') {
-        initPlaylistsView();
-    } else if (view === 'taste') {
-        initTasteView();
-    } else if (view === 'discovery') {
-        initDiscoveryView();
-    } else if (view === 'watchlist') {
-        initWatchlistView();
-    } else if (view === 'automations') {
-        initAutomationsView();
-    } else if (view === 'dj-set') {
-        initDJSetView();
-    } else if (view === 'enrichment') {
-        initEnrichmentView();
+    } else if (VIEW_MODULES[view]) {
+        VIEW_MODULES[view]();
     }
 }
 
