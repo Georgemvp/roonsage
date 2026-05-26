@@ -1200,6 +1200,20 @@ docker-compose up -d --build
 
 ## Changelog
 
+### v13.0 — Sonic Clustering, Music Map, Song Paths, Alchemy, CLAP, Lyrics Search
+
+- **Sonic clustering** — UMAP + HDBSCAN over the audio-feature matrix. New `backend/audio_features/clustering.py`, single-row `cluster_runs` metadata table, and three columns added to `track_audio_features`: `cluster_id`, `x_2d`, `y_2d`. REST routes under `/api/clustering/*`.
+- **Music Map** — canvas-based 2D scatter plot of the entire library, colored by cluster or genre, with pan/zoom/hover/click-to-play. Embeds the clustering panel as a side dock so triggering re-clustering refreshes the map. `frontend/modules/music-map.js` + `css/music-map.css`.
+- **Song Paths** — find the smoothest sonic bridge between two tracks. Greedy nearest-neighbor walk biased toward the target *or* Dijkstra over a k-NN graph (`method="graph"`). `backend/audio_features/song_path.py`, `/api/song-path` + `/api/song-path/play`.
+- **Song Alchemy** — vector arithmetic over audio features: `mean(add) − 0.5 × mean(subtract)`, then cosine-rank the library. UI shows a Chart.js radar comparing target vs. realized profile. `backend/audio_features/alchemy.py`, `/api/alchemy/mix` + `/api/alchemy/play`.
+- **CLAP text-to-audio search** — laion-clap embeds the actual audio; natural-language queries are matched directly against those embeddings (no metadata involved). Disabled by default; opt-in via `CLAP_ENABLED=true`. Storage: `clap_embeddings` + `clap_runs`. `backend/audio_features/clap_search.py`, `/api/clap/*`.
+- **Semantic lyrics search** — pulls embedded lyrics from MP3/FLAC/M4A tags via mutagen, embeds them with GTE-multilingual via `transformers`, and ranks queries by cosine similarity over the lyrics index. Disabled by default; opt-in via `LYRICS_SEARCH_ENABLED=true`. Storage: `lyrics_data` + `lyrics_embeddings` + `lyrics_runs`. `backend/lyrics/`, `/api/lyrics/*`.
+- **12+ new MCP tools** — `run_clustering`, `get_clustering_summary`, `get_cluster_tracks`, `find_song_path`, `play_song_path`, `song_alchemy`, `play_alchemy`, `clap_search`, `clap_status`, `start_clap_analysis`, `lyrics_search`, `lyrics_status`, `start_lyrics_analysis`, `get_track_lyrics`.
+- **5 new frontend views** — Music Map, Song Paths, Alchemy, CLAP Search, Lyrics Search — with nav entries under the "Library" sidebar section.
+- **New dependencies** — `scikit-learn`, `umap-learn`, `hdbscan` (clustering); `laion-clap`, `transformers` (CLAP); `onnxruntime`, `tokenizers` (lyrics embedding stack). All are lazy-imported so the app still boots cleanly with the heavy models disabled.
+- **Dockerfile** — pre-creates `/app/data/.clap_cache` and `/app/data/.hf_cache` with the right ownership, and exports `CLAP_CACHE_DIR` / `HF_HOME` / `TRANSFORMERS_CACHE` so the model downloads land on a persistent volume.
+- **Tests** — `test_clustering.py`, `test_song_path.py`, `test_alchemy.py`, `test_clap_search.py`, `test_lyrics.py`; the ML-heavy ones use `pytest.importorskip` so they're inert when deps aren't installed.
+
 ### v12.0 — Audio Features, DJ Set Builder, PWA, 67 Tools (2026-05-22)
 
 - **Audio feature analysis** — new `backend/audio_features/` subsystem extracts BPM, Camelot key, energy, danceability, valence, instrumentalness, acousticness per track via librosa. Worker drains `audio_features_queue` with `CONCURRENCY=4` (CPU-bound).

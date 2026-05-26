@@ -3589,6 +3589,260 @@ async def build_dj_set(
 
 
 # ---------------------------------------------------------------------------
+# Sonic clustering (v13.0)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def run_clustering() -> str:
+    """Trigger a sonic-clustering run (UMAP + HDBSCAN over the audio features).
+
+    Runs in the background on the RoonSage server. Poll
+    ``get_clustering_summary`` afterwards to read the resulting clusters.
+    Requires at least 30 fully-analyzed tracks (energy / valence / etc.).
+    """
+    logger.info("RUN_CLUSTERING called")
+    result = await _api_call("POST", "/api/clustering/run")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def get_clustering_summary() -> str:
+    """Return per-cluster aggregate stats: count, dominant genre, average BPM/energy/valence.
+
+    Use after ``run_clustering`` to see what sonic regions of the library exist.
+    Cluster -1 is the HDBSCAN noise label (outliers that didn't fit any group).
+    """
+    logger.info("GET_CLUSTERING_SUMMARY called")
+    status = await _api_call("GET", "/api/clustering/status")
+    summary = await _api_call("GET", "/api/clustering/summary")
+    return json.dumps(
+        {"status": status, "summary": summary},
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@mcp.tool()
+async def get_cluster_tracks(cluster_id: int, limit: int = 200) -> str:
+    """List the tracks inside a specific sonic cluster.
+
+    Args:
+        cluster_id: Cluster id from get_clustering_summary (use -1 for the
+                    HDBSCAN noise/outlier bucket).
+        limit:      Max tracks to return (default 200).
+    """
+    logger.info("GET_CLUSTER_TRACKS: cluster_id=%d", cluster_id)
+    result = await _api_call(
+        "GET",
+        f"/api/clustering/cluster/{cluster_id}/tracks",
+        params={"limit": limit},
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
+# Song paths (v13.0)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def find_song_path(
+    from_track_id: str,
+    to_track_id: str,
+    max_steps: int = 10,
+    method: str = "greedy",
+) -> str:
+    """Find the sonically smoothest bridge playlist between two tracks.
+
+    Both tracks must already have audio features extracted. Returns an
+    ordered list of tracks transitioning gradually through the feature
+    space (BPM, energy, danceability, valence, instrumentalness, acousticness).
+
+    Args:
+        from_track_id: item_key of the start track.
+        to_track_id:   item_key of the end track.
+        max_steps:     Length of the bridge (5–50, default 10).
+        method:        "greedy" (fast, biased walk) or "graph" (Dijkstra over k-NN).
+    """
+    logger.info("FIND_SONG_PATH: %s → %s (method=%s)", from_track_id, to_track_id, method)
+    result = await _api_call(
+        "POST",
+        "/api/song-path",
+        json={
+            "from_track_id": from_track_id,
+            "to_track_id": to_track_id,
+            "max_steps": max_steps,
+            "method": method,
+        },
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def play_song_path(
+    from_track_id: str,
+    to_track_id: str,
+    zone_id: str,
+    max_steps: int = 10,
+    method: str = "greedy",
+    mode: str = "replace",
+) -> str:
+    """Find a sonic bridge between two tracks and queue it to a Roon zone.
+
+    Args:
+        from_track_id: item_key of the start track.
+        to_track_id:   item_key of the end track.
+        zone_id:       Roon zone to play to (use get_roon_zones).
+        max_steps:     Path length (default 10).
+        method:        "greedy" or "graph".
+        mode:          "replace" or "append".
+    """
+    logger.info("PLAY_SONG_PATH: %s → %s on %s", from_track_id, to_track_id, zone_id)
+    result = await _api_call(
+        "POST",
+        "/api/song-path/play",
+        json={
+            "from_track_id": from_track_id,
+            "to_track_id": to_track_id,
+            "zone_id": zone_id,
+            "max_steps": max_steps,
+            "method": method,
+            "mode": mode,
+        },
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
+# Song Alchemy (v13.0)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def song_alchemy(
+    add_track_ids: list[str],
+    subtract_track_ids: list[str] | None = None,
+    limit: int = 25,
+) -> str:
+    """Find tracks closest to (mean of ADD) − 0.5×(mean of SUBTRACT) in feature space.
+
+    Use this for "more like A and B, less like C" exploration. Returns the
+    top ``limit`` library tracks by cosine similarity to the computed target.
+    Tracks must have audio features analyzed.
+
+    Args:
+        add_track_ids:      item_keys of positive examples (required, ≥1).
+        subtract_track_ids: item_keys of negative examples (optional).
+        limit:              Number of results to return (1–200, default 25).
+    """
+    body = {"add": add_track_ids, "subtract": subtract_track_ids or [], "limit": limit}
+    logger.info("SONG_ALCHEMY: add=%d subtract=%d", len(add_track_ids), len(subtract_track_ids or []))
+    result = await _api_call("POST", "/api/alchemy/mix", json=body)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def play_alchemy(
+    add_track_ids: list[str],
+    zone_id: str,
+    subtract_track_ids: list[str] | None = None,
+    limit: int = 25,
+    mode: str = "replace",
+) -> str:
+    """Compute a Song Alchemy mix and queue it to a Roon zone."""
+    body = {
+        "add": add_track_ids,
+        "subtract": subtract_track_ids or [],
+        "limit": limit,
+        "zone_id": zone_id,
+        "mode": mode,
+    }
+    logger.info("PLAY_ALCHEMY: zone=%s", zone_id)
+    result = await _api_call("POST", "/api/alchemy/play", json=body)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
+# CLAP text-to-audio search (v13.0)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def clap_search(query: str, limit: int = 25) -> str:
+    """Search the library by natural-language description of the audio itself.
+
+    Powered by CLAP (Contrastive Language-Audio Pretraining): the model
+    listened to each track and the query is matched directly against the
+    audio embeddings — no metadata involved. Try things like
+    "calm piano evening", "funky bass groove", "dark atmospheric synths".
+
+    Requires CLAP_ENABLED=true and that ``start_clap_analysis`` has finished.
+    """
+    logger.info("CLAP_SEARCH: q=%s", query)
+    result = await _api_call("POST", "/api/clap/search", json={"query": query, "limit": limit})
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def clap_status() -> str:
+    """Return the progress of the CLAP batch analyzer (analyzed / total)."""
+    result = await _api_call("GET", "/api/clap/status")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def start_clap_analysis() -> str:
+    """Trigger the CLAP batch analyzer (background). Poll clap_status afterwards."""
+    result = await _api_call("POST", "/api/clap/analyze")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
+# Lyrics semantic search (v13.0)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def lyrics_search(query: str, limit: int = 25) -> str:
+    """Search the library by lyrical theme / story / meaning.
+
+    Uses a multilingual sentence-embedding model over the embedded lyrics in
+    each track. Examples:
+      "songs about loss and redemption"
+      "heartbreak and moving on"
+      "revolution and protest"
+
+    Requires LYRICS_SEARCH_ENABLED=true and that ``start_lyrics_analysis``
+    has populated the lyrics index.
+    """
+    logger.info("LYRICS_SEARCH: q=%s", query)
+    result = await _api_call("POST", "/api/lyrics/search", json={"query": query, "limit": limit})
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def lyrics_status() -> str:
+    """Lyrics extraction / embedding progress."""
+    result = await _api_call("GET", "/api/lyrics/status")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def start_lyrics_analysis() -> str:
+    """Trigger lyrics extraction + embedding (background)."""
+    result = await _api_call("POST", "/api/lyrics/analyze")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def get_track_lyrics(item_key: str) -> str:
+    """Return the stored lyrics for a single track."""
+    result = await _api_call("GET", f"/api/lyrics/track/{item_key}")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

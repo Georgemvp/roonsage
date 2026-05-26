@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 import httpx
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     PLAYLIST_GENERATED = "playlist_generated"
     LIBRARY_SYNC_COMPLETE = "library_sync_complete"
     LIBRARY_SYNC_FAILED = "library_sync_failed"
@@ -33,7 +33,7 @@ class EventType(str, Enum):
     LISTENBRAINZ_SYNC_COMPLETE = "lb_sync_complete"
 
 
-class NotificationChannel(str, Enum):
+class NotificationChannel(StrEnum):
     DISCORD = "discord"
     TELEGRAM = "telegram"
     WEBHOOK = "webhook"

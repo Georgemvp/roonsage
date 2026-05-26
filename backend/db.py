@@ -581,6 +581,21 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         CREATE INDEX IF NOT EXISTS idx_audio_features_queue_status
             ON audio_features_queue(status);
 
+        -- Sonic clustering (v13.0): per-run metadata for the UMAP+HDBSCAN
+        -- pipeline. cluster_id / x_2d / y_2d live on track_audio_features.
+        CREATE TABLE IF NOT EXISTS cluster_runs (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            started_at TEXT,
+            finished_at TEXT,
+            status TEXT DEFAULT 'idle',  -- idle | running | complete | failed
+            n_tracks INTEGER DEFAULT 0,
+            n_clusters INTEGER DEFAULT 0,
+            n_noise INTEGER DEFAULT 0,
+            params_json TEXT DEFAULT '{}',
+            error_message TEXT
+        );
+        INSERT OR IGNORE INTO cluster_runs (id, status) VALUES (1, 'idle');
+
         CREATE TABLE IF NOT EXISTS dj_sets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -598,6 +613,91 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         CREATE INDEX IF NOT EXISTS idx_dj_sets_created
             ON dj_sets(created_at DESC);
     """)
+
+    # -----------------------------------------------------------------------
+    # CLAP text-to-audio embeddings (v13.0)
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS clap_embeddings (
+            item_key TEXT PRIMARY KEY,
+            embedding BLOB NOT NULL,
+            model TEXT,
+            analyzed_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_clap_embeddings_analyzed
+            ON clap_embeddings(analyzed_at DESC);
+
+        -- Single-row run state, mirrors cluster_runs / audio_features
+        CREATE TABLE IF NOT EXISTS clap_runs (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            status TEXT DEFAULT 'idle',
+            started_at TEXT,
+            finished_at TEXT,
+            n_total INTEGER DEFAULT 0,
+            n_done INTEGER DEFAULT 0,
+            n_failed INTEGER DEFAULT 0,
+            error_message TEXT
+        );
+        INSERT OR IGNORE INTO clap_runs (id, status) VALUES (1, 'idle');
+    """)
+
+    # -----------------------------------------------------------------------
+    # Lyrics extraction + semantic embeddings (v13.0)
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS lyrics_data (
+            item_key TEXT PRIMARY KEY,
+            lyrics TEXT,
+            language TEXT,
+            source TEXT,        -- "tag" | "external" — currently always "tag"
+            extracted_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_lyrics_data_lang ON lyrics_data(language);
+
+        CREATE TABLE IF NOT EXISTS lyrics_embeddings (
+            item_key TEXT PRIMARY KEY,
+            embedding BLOB NOT NULL,
+            model_version TEXT,
+            embedded_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS lyrics_runs (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            status TEXT DEFAULT 'idle',
+            started_at TEXT,
+            finished_at TEXT,
+            n_total INTEGER DEFAULT 0,
+            n_extracted INTEGER DEFAULT 0,
+            n_embedded INTEGER DEFAULT 0,
+            n_no_lyrics INTEGER DEFAULT 0,
+            n_failed INTEGER DEFAULT 0,
+            error_message TEXT
+        );
+        INSERT OR IGNORE INTO lyrics_runs (id, status) VALUES (1, 'idle');
+    """)
+
+    # -----------------------------------------------------------------------
+    # Sonic clustering migrations (v13.0)
+    # -----------------------------------------------------------------------
+    for col_name, col_type in [
+        ("cluster_id", "INTEGER"),
+        ("x_2d", "REAL"),
+        ("y_2d", "REAL"),
+    ]:
+        try:
+            conn.execute(
+                f"ALTER TABLE track_audio_features ADD COLUMN {col_name} {col_type}"
+            )
+            logger.info(
+                "Migration applied: added %s column to track_audio_features", col_name
+            )
+        except sqlite3.OperationalError:
+            pass
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_audio_features_cluster "
+        "ON track_audio_features(cluster_id)"
+    )
 
     conn.commit()
     return migrated

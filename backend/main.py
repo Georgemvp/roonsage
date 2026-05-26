@@ -16,16 +16,21 @@ from backend.config import get_cors_origins, get_roonsage_password
 from backend.dependencies import limiter
 from backend.exceptions import RoonSageError
 from backend.routes import config_routes, generate, library, recommend, results, roon, setup
+from backend.routes.alchemy import router as alchemy_router
 from backend.routes.audio_features import router as audio_features_router
 from backend.routes.automations import router as automations_router
+from backend.routes.clap_search import router as clap_search_router
+from backend.routes.clustering import router as clustering_router
 from backend.routes.discovery import router as discovery_router
 from backend.routes.dj_sets import router as dj_sets_router
 from backend.routes.dj_templates import router as dj_templates_router
 from backend.routes.enrichment import router as enrichment_router
 from backend.routes.intelligence import router as intelligence_router
+from backend.routes.lyrics import router as lyrics_router
 from backend.routes.notifications import router as notifications_router
 from backend.routes.qobuz_playlist import router as qobuz_playlist_router
 from backend.routes.scheduler import router as scheduler_router
+from backend.routes.song_path import router as song_path_router
 from backend.routes.templates import router as templates_router
 from backend.routes.verify import router as verify_router
 from backend.routes.watchlist import router as watchlist_router
@@ -193,6 +198,11 @@ app.include_router(verify_router)
 app.include_router(audio_features_router)
 app.include_router(dj_sets_router)
 app.include_router(dj_templates_router)
+app.include_router(clustering_router)
+app.include_router(song_path_router)
+app.include_router(alchemy_router)
+app.include_router(clap_search_router)
+app.include_router(lyrics_router)
 
 
 # =============================================================================

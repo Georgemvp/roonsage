@@ -515,3 +515,31 @@ Voor schedule-triggers geldt ook een double-run guard van 55 seconden.
 ### Presets
 
 De frontend heeft een "From Preset"-knop met 7 ingebouwde presets (inclusief ochtend-playlist, vrijdagavond-mix, nachtelijke sync, en watchlist-notificatie).
+
+---
+
+## v13.0 — Sonic exploration tools
+
+Six new MCP tools open up audio-feature-driven discovery:
+
+| Tool | Wat het doet |
+|---|---|
+| `run_clustering` | Trigger UMAP+HDBSCAN over de audio-features. Achtergrond-run. |
+| `get_clustering_summary` | Per-cluster stats: count, dominant genre, gemiddelde BPM/energie/valence. |
+| `get_cluster_tracks(cluster_id)` | Tracks binnen één cluster. -1 = HDBSCAN noise/outliers. |
+| `find_song_path(from_track_id, to_track_id, max_steps, method)` | Smooth sonic bridge tussen twee tracks. `method` = "greedy" of "graph". |
+| `play_song_path(...)` | Zelfde, maar queue het pad direct op een Roon-zone. |
+| `song_alchemy(add_track_ids, subtract_track_ids, limit)` | Vector-arithmetic: meer zoals A en B, minder zoals C. |
+| `play_alchemy(...)` | Compute + queue. |
+| `clap_search(query, limit)` | Natuurlijke-taal zoeken op audio zelf (CLAP). Vereist `CLAP_ENABLED=true`. |
+| `clap_status` / `start_clap_analysis` | Status / trigger van de batch-analyzer. |
+| `lyrics_search(query, limit)` | Semantische zoek op de embedded lyrics. Vereist `LYRICS_SEARCH_ENABLED=true`. |
+| `lyrics_status` / `start_lyrics_analysis` / `get_track_lyrics(item_key)` | Index-status + per-track lyrics. |
+
+Wanneer te gebruiken:
+
+- **"Vind iets dat klinkt als X maar minder zoals Y"** → `song_alchemy`.
+- **"Bouw een mix die van rustig naar uptempo gaat"** → `find_song_path`.
+- **"Wat voor sonische gebieden zitten er in m'n bibliotheek?"** → `get_clustering_summary`.
+- **"Iets met donkere atmosferische synths"** → `clap_search` (als enabled), anders fallback op `filter_tracks` + tags.
+- **"Liedjes over verlies en hoop"** → `lyrics_search` (als enabled).

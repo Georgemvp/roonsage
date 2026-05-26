@@ -238,3 +238,28 @@ librosa==0.10.2.post1
 mutagen==1.47.0
 soundfile==0.12.1
 pyloudnorm==0.1.1
+
+# ---------------------------------------------------------------------------
+# Sonic clustering / Music Map (v13.0) — manually appended, pin loosely
+# Used by backend/audio_features/clustering.py — lazy-imported so absence
+# only disables the cluster pipeline, not the rest of the app.
+# ---------------------------------------------------------------------------
+scikit-learn>=1.4
+umap-learn>=0.5.5
+hdbscan>=0.8.33
+
+# ---------------------------------------------------------------------------
+# CLAP text-to-audio search (v13.0)
+# laion-clap pulls a large model lazily on first use (~600 MB cached to
+# CLAP_CACHE_DIR). Disabled by default via CLAP_ENABLED=false.
+# ---------------------------------------------------------------------------
+laion-clap>=1.1.6
+transformers>=4.40
+
+# ---------------------------------------------------------------------------
+# Lyrics semantic search (v13.0)
+# ONNX-runtime + tokenizers used by backend/lyrics/embedder.py.
+# Disabled by default via LYRICS_SEARCH_ENABLED=false.
+# ---------------------------------------------------------------------------
+onnxruntime>=1.17
+tokenizers>=0.15

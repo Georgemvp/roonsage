@@ -30,6 +30,7 @@ import { startNowPlaying, openZonePicker } from './modules/nowplaying.js';
 import { initTemplates }                  from './modules/templates.js';
 import { startActivityMonitor }           from './modules/activity.js';
 import { initPWA }                        from './modules/pwa.js';
+import { initAnalysisTasks }              from './modules/analysis-tasks.js';
 
 // View modules are loaded on demand — keeps the initial JS payload small,
 // and view-specific code (e.g. Chart.js use in taste.js) only loads when the
@@ -360,6 +361,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initNotificationButtons();
     initEnrichmentButtons();
     initAudioFeaturesButtons();
+    initAnalysisTasks();
     state.view = viewFromHash();
     state.mode = modeFromHash();
     if (!location.hash) {

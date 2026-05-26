@@ -20,6 +20,11 @@ const VIEW_MODULES = {
     'automations': () => import('./automations.js').then(m => m.initAutomationsView()),
     'dj-set':      () => import('./dj-set.js').then(m => m.initDJSetView()),
     'enrichment':  () => import('./enrichment.js').then(m => m.initEnrichmentView()),
+    'music-map':   () => import('./music-map.js').then(m => m.initMusicMapView()),
+    'song-paths':  () => import('./song-paths.js').then(m => m.initSongPathsView()),
+    'alchemy':     () => import('./alchemy.js').then(m => m.initAlchemyView()),
+    'clap-search': () => import('./clap-search.js').then(m => m.initClapSearchView()),
+    'lyrics-search': () => import('./lyrics-search.js').then(m => m.initLyricsSearchView()),
 };
 
 export const HASH_TO_VIEW = {
@@ -36,6 +41,11 @@ export const HASH_TO_VIEW = {
     'automations': 'automations',
     'dj-set': 'dj-set',
     'enrichment': 'enrichment',
+    'music-map': 'music-map',
+    'song-paths': 'song-paths',
+    'alchemy': 'alchemy',
+    'clap-search': 'clap-search',
+    'lyrics-search': 'lyrics-search',
     // Backward compat
     'make-playlist': 'create',
 };
@@ -56,6 +66,11 @@ export const VIEW_TO_HASH = {
     'automations': 'automations',
     'dj-set': 'dj-set',
     'enrichment': 'enrichment',
+    'music-map': 'music-map',
+    'song-paths': 'song-paths',
+    'alchemy': 'alchemy',
+    'clap-search': 'clap-search',
+    'lyrics-search': 'lyrics-search',
 };
 
 export function hashForCurrentState() {

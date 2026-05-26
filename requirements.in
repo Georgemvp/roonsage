@@ -21,3 +21,13 @@ librosa
 mutagen
 soundfile
 pyloudnorm
+# Sonic clustering / music map (v13.0)
+scikit-learn
+umap-learn
+hdbscan
+# CLAP text-to-audio search (v13.0)
+laion-clap
+transformers
+# Lyrics semantic search (v13.0)
+onnxruntime
+tokenizers

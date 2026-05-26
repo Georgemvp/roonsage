@@ -27,7 +27,7 @@ import logging
 import random
 import time
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 from backend.db import get_connection
 from backend.scheduler import matches_cron  # reuse existing cron parser
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class TriggerType(str, Enum):
+class TriggerType(StrEnum):
     SCHEDULE = "schedule"
     TRACK_PLAYED = "track_played"
     ZONE_STARTED = "zone_started"
@@ -49,7 +49,7 @@ class TriggerType(str, Enum):
     WATCHLIST_MATCH = "watchlist_match"
 
 
-class ActionType(str, Enum):
+class ActionType(StrEnum):
     GENERATE_PLAYLIST = "generate_playlist"
     PLAY_TEMPLATE = "play_template"
     SYNC_LIBRARY = "sync_library"

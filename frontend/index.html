@@ -95,6 +95,26 @@
                         <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="13" cy="11" r="1.5"/><path d="M6 12.5V5l8-2v6"/></svg></span>
                         <span>DJ Set</span>
                     </button>
+                    <button class="rs-nav-item" data-nav="music-map" aria-label="Music Map">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4" cy="5" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="12" cy="11" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="8" cy="8" r="1.5"/></svg></span>
+                        <span>Music Map</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="song-paths" aria-label="Song Paths">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="13" cy="13" r="1.5"/><path d="M3 4.5Q3 10 8 8 13 6 13 11.5"/></svg></span>
+                        <span>Song Paths</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="alchemy" aria-label="Song Alchemy">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2v4L3 12a2 2 0 002 2h6a2 2 0 002-2L10 6V2"/><path d="M5 2h6"/></svg></span>
+                        <span>Alchemy</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="clap-search" aria-label="CLAP Search">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6c.5-1.5 2-2.5 4-2.5s3.5 1 4 2.5"/><path d="M8 6v6"/><circle cx="8" cy="13.5" r="1.5"/></svg></span>
+                        <span>CLAP Search</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="lyrics-search" aria-label="Lyrics Search">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2h7l3 3v9H3z"/><path d="M5 6h6M5 8.5h6M5 11h4"/></svg></span>
+                        <span>Lyrics Search</span>
+                    </button>
                 </div>
 
                 <!-- Intelligence -->
@@ -1628,6 +1648,152 @@
                 <div id="enrich2-result" class="enrich-result" style="margin-top:12px"></div>
             </div>
 
+            <!-- Music Map View (v13.0) -->
+            <div id="music-map-view" class="view">
+                <p class="rs-view-eyebrow">DISCOVER</p>
+                <h2 class="rs-view-title">Music Map</h2>
+                <p class="rs-view-sub">Every analyzed track plotted by sonic similarity. Click a dot to play it. Pan with drag, zoom with the wheel.</p>
+
+                <div class="music-map-layout">
+                    <div class="music-map-toolbar">
+                        <div class="music-map-toolbar-group">
+                            <label>Color by:</label>
+                            <select id="music-map-color-mode" class="auto-form-input">
+                                <option value="cluster" selected>Cluster</option>
+                                <option value="genre">Genre</option>
+                            </select>
+                        </div>
+                        <div class="music-map-toolbar-group">
+                            <input id="music-map-search" type="search" class="auto-form-input" placeholder="Highlight tracks…" />
+                        </div>
+                        <div class="music-map-toolbar-group music-map-toolbar-group--right">
+                            <span id="music-map-count" class="music-map-count">—</span>
+                        </div>
+                    </div>
+
+                    <div class="music-map-canvas-wrap">
+                        <canvas id="music-map-canvas" width="900" height="540"></canvas>
+                        <div id="music-map-tooltip" class="music-map-tooltip" hidden></div>
+                    </div>
+
+                    <div class="music-map-sidebar">
+                        <div id="music-map-cluster-panel"></div>
+                        <div id="music-map-legend" class="music-map-legend"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Song Paths View (v13.0) -->
+            <div id="song-paths-view" class="view">
+                <p class="rs-view-eyebrow">DISCOVER</p>
+                <h2 class="rs-view-title">Song Paths</h2>
+                <p class="rs-view-sub">Find the sonically smoothest bridge from one track to another.</p>
+
+                <div class="song-paths-form">
+                    <div class="song-paths-row">
+                        <label>Start track</label>
+                        <input id="song-paths-from" type="search" class="auto-form-input" placeholder="Artist – title…" list="song-paths-from-list" />
+                        <datalist id="song-paths-from-list"></datalist>
+                    </div>
+                    <div class="song-paths-row">
+                        <label>End track</label>
+                        <input id="song-paths-to" type="search" class="auto-form-input" placeholder="Artist – title…" list="song-paths-to-list" />
+                        <datalist id="song-paths-to-list"></datalist>
+                    </div>
+                    <div class="song-paths-row song-paths-row--inline">
+                        <label>Steps</label>
+                        <input id="song-paths-steps" type="range" min="5" max="20" value="10" />
+                        <span id="song-paths-steps-value">10</span>
+                        <label style="margin-left:1rem;">Method</label>
+                        <select id="song-paths-method" class="auto-form-input">
+                            <option value="greedy" selected>Greedy</option>
+                            <option value="graph">Graph (Dijkstra)</option>
+                        </select>
+                        <button id="song-paths-find" class="btn btn-primary btn-sm">Find path</button>
+                        <button id="song-paths-play" class="btn btn-secondary btn-sm" disabled>Play path</button>
+                    </div>
+                </div>
+
+                <div id="song-paths-result" class="song-paths-result"></div>
+            </div>
+
+            <!-- Song Alchemy View (v13.0) -->
+            <div id="alchemy-view" class="view">
+                <p class="rs-view-eyebrow">DISCOVER</p>
+                <h2 class="rs-view-title">Song Alchemy</h2>
+                <p class="rs-view-sub">Add tracks you want more of, subtract tracks you want less of. RoonSage finds the closest match in your library.</p>
+
+                <div class="alchemy-layout">
+                    <div class="alchemy-search">
+                        <input id="alchemy-search" type="search" class="auto-form-input" placeholder="Search library…" />
+                        <div id="alchemy-search-results" class="alchemy-results-list"></div>
+                    </div>
+                    <div class="alchemy-mix">
+                        <div class="alchemy-bucket">
+                            <h4>Add (+)</h4>
+                            <ul id="alchemy-add-list" class="alchemy-bucket-list"></ul>
+                        </div>
+                        <div class="alchemy-bucket">
+                            <h4>Subtract (−)</h4>
+                            <ul id="alchemy-subtract-list" class="alchemy-bucket-list"></ul>
+                        </div>
+                        <div class="alchemy-actions">
+                            <button id="alchemy-mix-btn" class="btn btn-primary btn-sm">Mix</button>
+                            <button id="alchemy-play-btn" class="btn btn-secondary btn-sm" disabled>Play mix</button>
+                        </div>
+                        <div id="alchemy-result" class="alchemy-result"></div>
+                        <canvas id="alchemy-radar" width="320" height="320" hidden></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CLAP Search View (v13.0) -->
+            <div id="clap-search-view" class="view">
+                <p class="rs-view-eyebrow">DISCOVER</p>
+                <h2 class="rs-view-title">CLAP Search</h2>
+                <p class="rs-view-sub">Describe the music you want to hear. The CLAP model matches the description directly against the audio.</p>
+
+                <div class="clap-search-panel">
+                    <input id="clap-search-input" type="search" class="auto-form-input" placeholder="Describe the music you want to hear…" />
+                    <div class="clap-search-suggestions">
+                        <span class="clap-suggest" data-q="energetic guitar rock">energetic guitar rock</span>
+                        <span class="clap-suggest" data-q="calm ambient piano">calm ambient piano</span>
+                        <span class="clap-suggest" data-q="funky bass groove">funky bass groove</span>
+                        <span class="clap-suggest" data-q="dark atmospheric synths">dark atmospheric synths</span>
+                    </div>
+                    <div class="clap-search-actions">
+                        <button id="clap-search-btn" class="btn btn-primary btn-sm">Search</button>
+                        <button id="clap-play-btn" class="btn btn-secondary btn-sm" disabled>Play results</button>
+                    </div>
+                </div>
+
+                <div id="clap-status-block" class="clap-status"></div>
+                <div id="clap-results"></div>
+            </div>
+
+            <!-- Lyrics Search View (v13.0) -->
+            <div id="lyrics-search-view" class="view">
+                <p class="rs-view-eyebrow">DISCOVER</p>
+                <h2 class="rs-view-title">Lyrics Search</h2>
+                <p class="rs-view-sub">Search by theme, story, or meaning — not exact text. Powered by a multilingual sentence-embedding model.</p>
+
+                <div class="clap-search-panel">
+                    <input id="lyrics-search-input" type="search" class="auto-form-input" placeholder="Search by theme, story, or meaning…" />
+                    <div class="clap-search-suggestions">
+                        <span class="clap-suggest" data-target="lyrics-search-input" data-q="songs about traveling">songs about traveling</span>
+                        <span class="clap-suggest" data-target="lyrics-search-input" data-q="heartbreak and moving on">heartbreak and moving on</span>
+                        <span class="clap-suggest" data-target="lyrics-search-input" data-q="revolution and protest">revolution and protest</span>
+                    </div>
+                    <div class="clap-search-actions">
+                        <button id="lyrics-search-btn" class="btn btn-primary btn-sm">Search</button>
+                        <button id="lyrics-play-btn" class="btn btn-secondary btn-sm" disabled>Play results</button>
+                    </div>
+                </div>
+
+                <div id="lyrics-status-block" class="clap-status"></div>
+                <div id="lyrics-results"></div>
+            </div>
+
             <!-- Settings View -->
             <div id="settings-view" class="view">
                 <h2>Settings</h2>
@@ -2112,6 +2278,146 @@
                     <div id="af-action-result" class="enrich-result"></div>
                 </section>
 
+                <!-- ── v13.0: Sonic Clustering ──────────────────────────────── -->
+                <section class="rs-settings-card settings-section" id="clustering-settings-section">
+                    <p class="rs-settings-eyebrow">Sonic Clustering</p>
+                    <h3 class="rs-settings-card-title">Sonic Clustering</h3>
+                    <p class="settings-section-desc">Groepeert tracks automatisch in clusters op basis van audio-eigenschappen (BPM, energy, valence…) via UMAP + HDBSCAN. Vereist dat Audio Feature Analyse al gedraaid is.</p>
+
+                    <div class="enrich-stats-grid" id="clustering-stats" style="margin-bottom:0.75rem;">
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value" id="cl-n-clusters">–</span>
+                            <span class="enrich-stat-label">Clusters</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value" id="cl-n-tracks">–</span>
+                            <span class="enrich-stat-label">Tracks</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value" id="cl-n-noise">–</span>
+                            <span class="enrich-stat-label">Noise</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value" id="cl-last-run">–</span>
+                            <span class="enrich-stat-label">Laatste run</span>
+                        </div>
+                    </div>
+
+                    <div id="cl-status-row" class="settings-analysis-status">
+                        <span class="enrich-worker-badge" id="cl-status-badge"></span>
+                        <span id="cl-status-text" style="font-size:0.85rem;color:var(--text-muted);"></span>
+                    </div>
+
+                    <details class="settings-params-details" style="margin:0.75rem 0;">
+                        <summary style="cursor:pointer;font-size:0.85rem;color:var(--text-muted);">UMAP / HDBSCAN parameters</summary>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem 1rem;margin-top:0.75rem;">
+                            <div class="form-group" style="margin:0;">
+                                <label for="cl-umap-neighbors" style="font-size:0.8rem;">UMAP neighbors</label>
+                                <input type="number" id="cl-umap-neighbors" value="15" min="5" max="100" style="width:100%;">
+                            </div>
+                            <div class="form-group" style="margin:0;">
+                                <label for="cl-umap-min-dist" style="font-size:0.8rem;">UMAP min_dist</label>
+                                <input type="number" id="cl-umap-min-dist" value="0.1" min="0.0" max="1.0" step="0.05" style="width:100%;">
+                            </div>
+                            <div class="form-group" style="margin:0;">
+                                <label for="cl-hdbscan-min-size" style="font-size:0.8rem;">HDBSCAN min_cluster_size</label>
+                                <input type="number" id="cl-hdbscan-min-size" value="10" min="2" max="200" style="width:100%;">
+                            </div>
+                            <div class="form-group" style="margin:0;">
+                                <label for="cl-hdbscan-min-samples" style="font-size:0.8rem;">HDBSCAN min_samples</label>
+                                <input type="number" id="cl-hdbscan-min-samples" value="5" min="1" max="50" style="width:100%;">
+                            </div>
+                        </div>
+                    </details>
+
+                    <div class="enrich-actions">
+                        <button id="cl-run-btn" class="btn btn-primary btn-sm">Run Clustering</button>
+                    </div>
+                    <div id="cl-action-result" class="enrich-result"></div>
+                </section>
+
+                <!-- ── v13.0: CLAP Text-to-Audio Search ────────────────────── -->
+                <section class="rs-settings-card settings-section" id="clap-settings-section">
+                    <p class="rs-settings-eyebrow">CLAP Text-to-Audio Search</p>
+                    <h3 class="rs-settings-card-title">CLAP Text-to-Audio Search</h3>
+                    <p class="settings-section-desc">Indexeert je muziek met het <code>laion/larger_clap_music_and_speech</code> model (~600 MB download). Hierna kun je zoeken op beschrijvingen als "upbeat summer vibes" of "sad rainy piano". Vereist <code>CLAP_ENABLED=true</code>.</p>
+
+                    <div id="clap-disabled-banner" class="enrich-result" style="display:none;color:#f0a000;">
+                        CLAP uitgeschakeld. Zet <code>CLAP_ENABLED=true</code> in je omgeving.
+                    </div>
+
+                    <div class="enrich-stats-grid" id="clap-stats" style="margin-bottom:0.75rem;">
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value" id="clap-n-done">–</span>
+                            <span class="enrich-stat-label">Geïndexeerd</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value enrich-stat-value--pending" id="clap-n-pending">–</span>
+                            <span class="enrich-stat-label">Resterend</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value enrich-stat-value--failed" id="clap-n-failed">–</span>
+                            <span class="enrich-stat-label">Mislukt</span>
+                        </div>
+                    </div>
+
+                    <div class="enrich-progress-wrap">
+                        <div class="enrich-progress-bar">
+                            <div id="clap-progress-fill" class="enrich-progress-fill" style="width:0%"></div>
+                        </div>
+                        <div class="enrich-progress-meta">
+                            <span id="clap-progress-text"></span>
+                            <span id="clap-status-badge" class="enrich-worker-badge"></span>
+                        </div>
+                    </div>
+
+                    <div class="enrich-actions">
+                        <button id="clap-start-btn" class="btn btn-primary btn-sm">Start / Hervatten</button>
+                    </div>
+                    <div id="clap-action-result" class="enrich-result"></div>
+                </section>
+
+                <!-- ── v13.0: Semantic Lyrics Search ───────────────────────── -->
+                <section class="rs-settings-card settings-section" id="lyrics-settings-section">
+                    <p class="rs-settings-eyebrow">Semantisch Teksten Zoeken</p>
+                    <h3 class="rs-settings-card-title">Semantisch Teksten Zoeken</h3>
+                    <p class="settings-section-desc">Extraheert teksten uit je audiobestanden en maakt semantische embeddings met <code>GTE-multilingual</code> (~500 MB download). Zoek op gevoel, thema of woordkeuze — ook taalgrens-overstijgend. Vereist <code>LYRICS_SEARCH_ENABLED=true</code>.</p>
+
+                    <div id="lyrics-disabled-banner" class="enrich-result" style="display:none;color:#f0a000;">
+                        Lyrics-zoeken uitgeschakeld. Zet <code>LYRICS_SEARCH_ENABLED=true</code> in je omgeving.
+                    </div>
+
+                    <div class="enrich-stats-grid" id="lyrics-stats" style="margin-bottom:0.75rem;">
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value" id="lyrics-n-done">–</span>
+                            <span class="enrich-stat-label">Geïndexeerd</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value enrich-stat-value--pending" id="lyrics-n-pending">–</span>
+                            <span class="enrich-stat-label">Resterend</span>
+                        </div>
+                        <div class="enrich-stat">
+                            <span class="enrich-stat-value enrich-stat-value--failed" id="lyrics-n-failed">–</span>
+                            <span class="enrich-stat-label">Mislukt</span>
+                        </div>
+                    </div>
+
+                    <div class="enrich-progress-wrap">
+                        <div class="enrich-progress-bar">
+                            <div id="lyrics-progress-fill" class="enrich-progress-fill" style="width:0%"></div>
+                        </div>
+                        <div class="enrich-progress-meta">
+                            <span id="lyrics-progress-text"></span>
+                            <span id="lyrics-status-badge" class="enrich-worker-badge"></span>
+                        </div>
+                    </div>
+
+                    <div class="enrich-actions">
+                        <button id="lyrics-start-btn" class="btn btn-primary btn-sm">Start / Hervatten</button>
+                    </div>
+                    <div id="lyrics-action-result" class="enrich-result"></div>
+                </section>
+
                 <section class="rs-settings-card settings-section library-stats" id="library-stats-section" style="display: none;">
                     <p class="rs-settings-eyebrow">Library Statistics</p>
                     <h3 class="rs-settings-card-title">Library Statistics</h3>
@@ -2123,6 +2429,61 @@
 
         <!-- Now Playing Bar — must be direct .rs-app child for CSS grid area "nowplaying" -->
         <div id="now-playing-bar" class="rs-nowplaying now-playing-bar--hidden" role="region" aria-label="Now playing"></div>
+
+        <!-- Analysis Task Bar (global floating tray — v13.0) -->
+        <div id="analysis-task-bar" class="analysis-task-bar hidden" aria-label="Analyse taken">
+            <div class="atb-header">
+                <span class="atb-title">Analyse taken</span>
+                <button class="atb-toggle" id="atb-toggle-btn" aria-label="Inklappen">&#9660;</button>
+                <button class="atb-close" id="atb-close-btn" aria-label="Sluiten">&times;</button>
+            </div>
+            <div class="atb-body" id="atb-body">
+                <!-- Audio Features -->
+                <div class="atb-task" id="atb-af">
+                    <div class="atb-task-header">
+                        <span class="atb-task-name">Audio Features</span>
+                        <span class="atb-task-badge" id="atb-af-badge"></span>
+                    </div>
+                    <div class="atb-bar-wrap">
+                        <div class="atb-bar"><div class="atb-bar-fill" id="atb-af-fill"></div></div>
+                        <span class="atb-bar-label" id="atb-af-label"></span>
+                    </div>
+                </div>
+                <!-- Clustering -->
+                <div class="atb-task" id="atb-cl">
+                    <div class="atb-task-header">
+                        <span class="atb-task-name">Clustering</span>
+                        <span class="atb-task-badge" id="atb-cl-badge"></span>
+                    </div>
+                    <div class="atb-bar-wrap">
+                        <div class="atb-bar"><div class="atb-bar-fill" id="atb-cl-fill"></div></div>
+                        <span class="atb-bar-label" id="atb-cl-label"></span>
+                    </div>
+                </div>
+                <!-- CLAP -->
+                <div class="atb-task" id="atb-clap">
+                    <div class="atb-task-header">
+                        <span class="atb-task-name">CLAP Search</span>
+                        <span class="atb-task-badge" id="atb-clap-badge"></span>
+                    </div>
+                    <div class="atb-bar-wrap">
+                        <div class="atb-bar"><div class="atb-bar-fill" id="atb-clap-fill"></div></div>
+                        <span class="atb-bar-label" id="atb-clap-label"></span>
+                    </div>
+                </div>
+                <!-- Lyrics -->
+                <div class="atb-task" id="atb-lyrics">
+                    <div class="atb-task-header">
+                        <span class="atb-task-name">Lyrics Search</span>
+                        <span class="atb-task-badge" id="atb-lyrics-badge"></span>
+                    </div>
+                    <div class="atb-bar-wrap">
+                        <div class="atb-bar"><div class="atb-bar-fill" id="atb-lyrics-fill"></div></div>
+                        <span class="atb-bar-label" id="atb-lyrics-label"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Sync Progress Modal (global – blocks UI for first-time and upgrade syncs) -->
         <div id="sync-modal" class="sync-modal hidden" role="dialog" aria-modal="true" aria-labelledby="sync-modal-title">

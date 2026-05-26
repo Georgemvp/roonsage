@@ -500,6 +500,47 @@ def get_enrichment_skip_mb() -> bool:
     return _env_bool("ENRICHMENT_SKIP_MB", False)
 
 
+# ---------------------------------------------------------------------------
+# CLAP text-to-audio search (v13.0)
+# ---------------------------------------------------------------------------
+
+
+def get_clap_enabled() -> bool:
+    """True when the CLAP text-to-audio search subsystem should run.
+
+    Off by default because the CLAP model is ~600 MB and downloads on first use.
+    """
+    return _env_bool("CLAP_ENABLED", False)
+
+
+def get_clap_model() -> str:
+    return os.environ.get("CLAP_MODEL", "laion/larger_clap_music_and_speech")
+
+
+def get_clap_batch_size() -> int:
+    try:
+        return max(1, int(os.environ.get("CLAP_BATCH_SIZE", "4")))
+    except ValueError:
+        return 4
+
+
+def get_clap_cache_dir() -> Path:
+    return Path(os.environ.get("CLAP_CACHE_DIR", "/app/data/.clap_cache"))
+
+
+# ---------------------------------------------------------------------------
+# Lyrics semantic search (v13.0)
+# ---------------------------------------------------------------------------
+
+
+def get_lyrics_search_enabled() -> bool:
+    return _env_bool("LYRICS_SEARCH_ENABLED", False)
+
+
+def get_lyrics_model() -> str:
+    return os.environ.get("LYRICS_MODEL", "Alibaba-NLP/gte-multilingual-base")
+
+
 def is_llm_provider_from_env() -> bool:
     """True when LLM_PROVIDER is set as an environment variable."""
     return os.environ.get("LLM_PROVIDER") is not None

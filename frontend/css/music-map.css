@@ -1,0 +1,262 @@
+/* ============================================================
+   Music Map + Sonic Clustering + Song Paths + Alchemy (v13.0)
+   ============================================================ */
+
+/* --- Music Map layout --- */
+.music-map-layout {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+        "toolbar toolbar"
+        "canvas  sidebar";
+    gap: 12px;
+    height: calc(100vh - 220px);
+    min-height: 520px;
+}
+.music-map-toolbar {
+    grid-area: toolbar;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 12px;
+    background: var(--color-card, #1d1d20);
+    border-radius: 8px;
+}
+.music-map-toolbar-group { display: flex; align-items: center; gap: 8px; }
+.music-map-toolbar-group--right { margin-left: auto; }
+.music-map-count { color: var(--text-muted); font-size: 13px; }
+.music-map-canvas-wrap {
+    grid-area: canvas;
+    position: relative;
+    background: #101013;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.music-map-canvas-wrap canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+}
+.music-map-canvas-wrap canvas:active { cursor: grabbing; }
+.music-map-tooltip {
+    position: absolute;
+    background: rgba(20, 20, 24, 0.95);
+    color: #fff;
+    padding: 6px 10px;
+    font-size: 12px;
+    line-height: 1.4;
+    border-radius: 6px;
+    pointer-events: none;
+    max-width: 240px;
+    border: 1px solid #2d2d33;
+}
+
+.music-map-sidebar {
+    grid-area: sidebar;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+}
+.music-map-legend {
+    background: var(--color-card, #1d1d20);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+}
+.music-map-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+}
+.music-map-legend-swatch {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.music-map-legend-label { flex: 1; }
+.music-map-legend-count { color: var(--text-muted); }
+.music-map-legend-note { color: var(--text-muted); font-style: italic; }
+
+/* --- Clustering panel --- */
+.clustering-panel {
+    background: var(--color-card, #1d1d20);
+    border-radius: 8px;
+    padding: 12px;
+}
+.clustering-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.cluster-status {
+    font-size: 12px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: #161618;
+    margin-bottom: 8px;
+}
+.cluster-status--running { border-left: 3px solid #e5a00d; }
+.cluster-status--complete { border-left: 3px solid #4caf50; }
+.cluster-status--failed { border-left: 3px solid #d44; }
+.cluster-status-meta { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+.cluster-error { color: #ff7a7a; }
+.cluster-loading, .cluster-empty { color: var(--text-muted); font-style: italic; padding: 8px 4px; }
+.cluster-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+}
+.cluster-card {
+    background: #161618;
+    border-radius: 6px;
+    padding: 8px 10px;
+    border: 1px solid #2d2d33;
+}
+.cluster-card-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.cluster-card-genre { color: #e5a00d; font-weight: normal; font-style: italic; margin-left: 4px; }
+.cluster-card-stat { font-size: 16px; color: #fff; margin-bottom: 4px; }
+.cluster-card-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--text-muted); }
+.cluster-card--noise { opacity: 0.6; }
+
+/* --- Song Paths --- */
+.song-paths-form {
+    background: var(--color-card, #1d1d20);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+.song-paths-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.song-paths-row label { min-width: 90px; font-size: 13px; color: var(--text-muted); }
+.song-paths-row input[type="search"] { flex: 1; }
+.song-paths-row--inline label { min-width: auto; }
+.song-paths-result {
+    background: var(--color-card, #1d1d20);
+    border-radius: 8px;
+    padding: 12px;
+}
+.song-paths-track {
+    display: grid;
+    grid-template-columns: 32px 1fr 200px;
+    gap: 10px;
+    padding: 6px 4px;
+    align-items: center;
+    border-bottom: 1px solid #2a2a2e;
+}
+.song-paths-track-index { color: var(--text-muted); font-family: monospace; }
+.song-paths-track-bars { display: flex; flex-direction: column; gap: 2px; }
+.song-paths-bar {
+    height: 4px;
+    background: #2a2a2e;
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+}
+.song-paths-bar > span {
+    display: block;
+    height: 100%;
+    background: #e5a00d;
+}
+
+/* --- Alchemy --- */
+.alchemy-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.alchemy-search, .alchemy-mix {
+    background: var(--color-card, #1d1d20);
+    border-radius: 8px;
+    padding: 12px;
+}
+.alchemy-results-list { max-height: 480px; overflow-y: auto; margin-top: 8px; }
+.alchemy-result-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 4px;
+    border-bottom: 1px solid #2a2a2e;
+}
+.alchemy-result-row .alchemy-meta { flex: 1; font-size: 13px; }
+.alchemy-result-row .btn { padding: 2px 8px; font-size: 12px; }
+.alchemy-bucket { margin-bottom: 12px; }
+.alchemy-bucket h4 { margin: 0 0 6px 0; font-size: 13px; color: var(--text-muted); }
+.alchemy-bucket-list { list-style: none; margin: 0; padding: 0; }
+.alchemy-bucket-list li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    font-size: 13px;
+}
+.alchemy-bucket-list li button { padding: 0 6px; font-size: 11px; }
+.alchemy-actions { display: flex; gap: 8px; margin: 8px 0; }
+.alchemy-result { margin-top: 8px; }
+.alchemy-result-track {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 2px;
+    border-bottom: 1px solid #2a2a2e;
+    font-size: 13px;
+}
+.alchemy-score {
+    color: #e5a00d;
+    font-family: monospace;
+    font-size: 12px;
+}
+
+/* --- CLAP / Lyrics search --- */
+.clap-search-panel {
+    background: var(--color-card, #1d1d20);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+.clap-search-panel input[type="search"] { width: 100%; margin-bottom: 8px; }
+.clap-search-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.clap-suggest {
+    background: #161618;
+    border: 1px solid #2d2d33;
+    border-radius: 12px;
+    padding: 3px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--text-muted);
+}
+.clap-suggest:hover { color: #fff; border-color: #e5a00d; }
+.clap-search-actions { display: flex; gap: 8px; }
+.clap-status { margin-bottom: 12px; }
+.lyrics-result {
+    padding: 8px 4px;
+    border-bottom: 1px solid #2a2a2e;
+    cursor: pointer;
+}
+.lyrics-result:hover { background: rgba(255,255,255,0.02); }
+.lyrics-result-meta { display: flex; align-items: center; gap: 8px; }
+.lyrics-snippet {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 12px;
+    margin-top: 4px;
+    line-height: 1.4;
+}
+.lyrics-full {
+    white-space: pre-wrap;
+    margin-top: 8px;
+    padding: 8px;
+    background: #161618;
+    border-radius: 4px;
+    color: #ddd;
+    font-size: 12px;
+    line-height: 1.5;
+    font-family: inherit;
+}

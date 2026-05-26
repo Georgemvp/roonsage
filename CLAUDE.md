@@ -6,7 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 RoonSage is a self-hosted FastAPI web app + MCP server that connects to a Roon Core as an Extension, mirrors the library into a local SQLite cache, and exposes ~67 tools so Claude Desktop can curate playlists, discover music, monitor releases, automate workflows, analyse audio features, build DJ sets, and control Roon through natural language. The constitution principle is **library-first**: every suggested track must exist either in the user's Roon library or on Qobuz — nothing is hallucinated.
 
-Current version: **v12.0** (see `pyproject.toml`, `backend/version.py` auto-detects via `git describe`).
+Current version: **v13.0** (see `pyproject.toml`, `backend/version.py` auto-detects via `git describe`).
+v13.0 highlights: sonic clustering (UMAP+HDBSCAN), Music Map 2D visualization,
+Song Paths (bridge playlists), Song Alchemy (ADD/SUBTRACT vector mixing),
+CLAP text-to-audio search, semantic lyrics search.
 
 ## Commands
 
@@ -49,6 +52,11 @@ CI (`.github/workflows/test.yml`) runs ruff + pytest with coverage gate ≥40% o
 - **Intelligence**: `roon_intelligence.py` (zone monitor + listening history + scrobble dispatch to LB/LF), `taste_profile.py` (combines local + LB + Last.fm into a unified profile with `lb_` / `lf_` prefixed keys), `scrobble_import.py` (one-time backfill from LB/LF).
 - **External services**: `listenbrainz_client.py` + `listenbrainz_sync.py`, `lastfm_client.py` + `lastfm_sync.py`, `musicbrainz_client.py`, `acoustid_client.py`, `qobuz_browser.py` (search/playback via Roon), `qobuz_api.py` (direct Qobuz JSON API for playlist save).
 - **Workflow subsystems**: `discovery.py` (4 cache-only discovery sections), `watchlist.py` (artist new-release scanner), `scheduler.py` (cron-based playlist regeneration), `automation_engine.py` (trigger-action workflows), `enrichment_worker.py` (background MusicBrainz + Last.fm enrichment — `ENRICHMENT_SKIP_MB=true` switches to Last.fm-only for ~50× speed), `templates.py` (playlist template engine, 63 built-ins with category tabs), `notifications.py` (event bus → Discord/Telegram/webhook).
+- **Sonic clustering + Music Map** (`backend/audio_features/clustering.py` + `backend/routes/clustering.py`): UMAP→HDBSCAN over the audio-features matrix; persists `cluster_id`/`x_2d`/`y_2d` columns onto `track_audio_features` plus a `cluster_runs` single-row metadata table. Powers the canvas Music Map view in `frontend/modules/music-map.js`.
+- **Song Paths** (`backend/audio_features/song_path.py` + `backend/routes/song_path.py`): smoothest sonic bridge between two tracks — greedy nearest-neighbor walk biased toward the target *or* Dijkstra over a k-NN graph (`method="graph"`).
+- **Song Alchemy** (`backend/audio_features/alchemy.py` + `backend/routes/alchemy.py`): vector arithmetic over the feature matrix — `mean(add) − 0.5 × mean(subtract)` → cosine-rank the library.
+- **CLAP text-to-audio search** (`backend/audio_features/clap_search.py` + `backend/routes/clap_search.py`): laion-clap embeds the audio itself; queries are matched directly against those embeddings. Disabled unless `CLAP_ENABLED=true`. Storage: `clap_embeddings` + `clap_runs`.
+- **Semantic lyrics search** (`backend/lyrics/` + `backend/routes/lyrics.py`): `extractor.py` pulls embedded lyrics from MP3/FLAC/M4A tags via mutagen; `embedder.py` runs GTE-multilingual via `transformers` (lazy-loaded). Disabled unless `LYRICS_SEARCH_ENABLED=true`. Storage: `lyrics_data` + `lyrics_embeddings` + `lyrics_runs`.
 - **Audio features** (`backend/audio_features/`): `analyzer.py` runs librosa to extract BPM, Camelot key, energy, danceability, valence, instrumentalness, acousticness; `worker.py` is a managed asyncio worker (CONCURRENCY=4, CPU-bound) that drains `audio_features_queue`; `path_resolver.py` walks `MUSIC_LIBRARY_PATH` once to map library tracks → on-disk files (single-flight via thread lock, exposes live progress via `get_scan_progress()`); `dj_generator.py` builds beatmatched, Camelot-compatible DJ sets with configurable BPM curves; `camelot.py` maps musical keys to wheel positions. Routes in `routes/audio_features.py`. Tables: `track_audio_features`, `audio_features_queue`.
 - **`filter_sessions.py`** — server-side `session_id` → `key_map` storage so the MCP client doesn't have to hold the full track list in context (saves 10–20k tokens per curation flow).
 - **`models.py`** — Pydantic models for all API contracts. Every request/response uses these.
@@ -143,6 +151,14 @@ WATCHLIST_SCAN_INTERVAL_HOURS=12
 ENRICHMENT_SKIP_MB=true          # Last.fm-only mode (~50× faster than MB+LF)
 # Audio features
 AUDIO_FEATURES_ENABLED=true      # toggles the analyzer worker + DJ-set endpoints
+# v13.0 feature toggles
+CLAP_ENABLED=false               # CLAP text-to-audio search (~600 MB model)
+CLAP_MODEL=laion/larger_clap_music_and_speech
+CLAP_BATCH_SIZE=4
+CLAP_CACHE_DIR=/app/data/.clap_cache
+LYRICS_SEARCH_ENABLED=false      # semantic lyrics search
+LYRICS_MODEL=Alibaba-NLP/gte-multilingual-base
+HF_HOME=/app/data/.hf_cache      # transformers download cache
 AUDIO_FEATURES_FULL=true         # false = BPM + key only (faster); true = full Spotify-style vector
 MUSIC_LIBRARY_PATH=/music        # filesystem root for audio analysis (must be readable)
 MUSIC_PATH_MAP_FROM= / MUSIC_PATH_MAP_TO=   # remap Roon-reported paths to container paths

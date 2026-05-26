@@ -37,6 +37,19 @@ services:
       - NUMBA_CACHE_DIR=/app/data/.numba_cache
       - MPLCONFIGDIR=/app/data/.mpl_cache
 
+      # v13.0 — CLAP text-to-audio search. ~600 MB model downloads to
+      # /app/data/.clap_cache on first use.
+      - CLAP_ENABLED=${CLAP_ENABLED:-true}
+      - CLAP_MODEL=${CLAP_MODEL:-laion/larger_clap_music_and_speech}
+      - CLAP_CACHE_DIR=/app/data/.clap_cache
+
+      # v13.0 — semantic lyrics search. GTE-multilingual (~500 MB) downloads
+      # to /app/data/.hf_cache on first use.
+      - LYRICS_SEARCH_ENABLED=${LYRICS_SEARCH_ENABLED:-true}
+      - LYRICS_MODEL=${LYRICS_MODEL:-Alibaba-NLP/gte-multilingual-base}
+      - HF_HOME=/app/data/.hf_cache
+      - TRANSFORMERS_CACHE=/app/data/.hf_cache
+
       # LLM Provider (anthropic, openai, gemini, ollama, or custom)
       # Defaults to gemini. Can also be configured in the web UI.
       #- LLM_PROVIDER=gemini

@@ -1,9 +1,20 @@
 # ── Stage 1: dependency builder ───────────────────────────────────────────────
 FROM python:3.12-slim AS builder
 
+# Install uv (fast resolver) for both compile and install.
+# Using the official standalone binary so we don't pull in a Python toolchain.
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && cp /root/.local/bin/uv /usr/local/bin/uv \
+    && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build
-COPY requirements.txt .
-RUN pip install --no-cache-dir --target=/install -r requirements.txt
+COPY requirements.in requirements.txt ./
+
+# Recompile requirements.txt from requirements.in on every build so the lock
+# stays honest. Then install into /install via uv's --target equivalent.
+RUN uv pip compile requirements.in -o requirements.txt --python-version=3.12 \
+    && uv pip install --target=/install --no-cache -r requirements.txt
 
 # ── Stage 2: final image ───────────────────────────────────────────────────────
 FROM python:3.12-slim
@@ -11,7 +22,10 @@ FROM python:3.12-slim
 ARG VERSION=dev
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    APP_VERSION=${VERSION}
+    APP_VERSION=${VERSION} \
+    CLAP_CACHE_DIR=/app/data/.clap_cache \
+    HF_HOME=/app/data/.hf_cache \
+    TRANSFORMERS_CACHE=/app/data/.hf_cache
 
 WORKDIR /app
 
@@ -19,7 +33,8 @@ WORKDIR /app
 RUN groupadd -r -g 1000 roonsage && useradd -r -u 1000 -g roonsage roonsage
 
 # Data directory (SQLite + user config) owned by app user
-RUN mkdir -p /app/data && chown roonsage:roonsage /app/data
+RUN mkdir -p /app/data /app/data/.clap_cache /app/data/.hf_cache \
+    && chown -R roonsage:roonsage /app/data
 
 # System dependencies:
 #   libchromaprint-tools — AcoustID fingerprinting
