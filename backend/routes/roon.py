@@ -60,14 +60,10 @@ async def play_album_by_key(request: dict) -> dict:
     if not album_key or not zone_id:
         raise HTTPException(status_code=400, detail="album_item_key and zone_id required")
 
-    track_keys = await asyncio.to_thread(roon_client.get_album_track_keys, album_key)
-    if not track_keys:
-        raise HTTPException(status_code=404, detail="No tracks found for album")
-
-    result = await asyncio.to_thread(roon_client.play_tracks, zone_id, track_keys, "replace")
+    result = await asyncio.to_thread(roon_client.play_album_direct, zone_id, album_key)
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error or "Play failed")
-    return {"success": True, "tracks_queued": result.model_dump().get("tracks_queued", len(track_keys))}
+    return {"success": True}
 
 
 @router.post("/queue", response_model=PlayQueueResponse)

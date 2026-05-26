@@ -342,6 +342,74 @@ class RoonPlaybackMixin:
             logger.warning("Direct-key play failed for key %s: %s", key, e)
             return False
 
+    def play_album_direct(self, zone_id: str, album_item_key: str) -> RoonResponse:
+        """Play a full album via the albums browse hierarchy.
+
+        Browses into the album, then for each track executes Play Now (first)
+        or Queue (rest) within the albums hierarchy session.
+        """
+        if not self.is_connected():
+            return RoonResponse(success=False, error="Not connected to Roon")
+
+        PLAY_KEYWORDS  = {"play now", "play"}
+        QUEUE_KEYWORDS = {"queue", "add to queue"}
+
+        try:
+            with self._albums_browse_lock:
+                # Navigate into album
+                self._api.browse_browse({
+                    "hierarchy": "albums",
+                    "item_key": album_item_key,
+                    "zone_or_output_id": zone_id,
+                })
+                track_items = self._paginate_browse_load("albums")
+
+            playable = [i for i in track_items if i.get("hint") in ("action", "action_list") and i.get("item_key")]
+            if not playable:
+                return RoonResponse(success=False, error="No tracks found in album")
+
+            queued = 0
+            play_now_done = False
+
+            for track in playable:
+                target_kw = PLAY_KEYWORDS if not play_now_done else QUEUE_KEYWORDS
+                try:
+                    with self._albums_browse_lock:
+                        self._api.browse_browse({
+                            "hierarchy": "albums",
+                            "item_key": track["item_key"],
+                            "zone_or_output_id": zone_id,
+                        })
+                        r = self._api.browse_load({
+                            "hierarchy": "albums",
+                            "count": 10,
+                            "zone_or_output_id": zone_id,
+                        })
+                    action_items = (r or {}).get("items", [])
+                    action = next(
+                        (a for a in action_items if (a.get("title") or "").lower().strip() in target_kw and a.get("item_key")),
+                        None,
+                    )
+                    if action:
+                        with self._albums_browse_lock:
+                            self._api.browse_browse({
+                                "hierarchy": "albums",
+                                "item_key": action["item_key"],
+                                "zone_or_output_id": zone_id,
+                            })
+                        queued += 1
+                        if not play_now_done:
+                            play_now_done = True
+                except Exception as e:
+                    logger.debug("play_album_direct: track skip %s: %s", track.get("item_key"), e)
+
+            if not queued:
+                return RoonResponse(success=False, error="Could not queue any tracks")
+            return RoonResponse(success=True)
+        except Exception as e:
+            logger.warning("play_album_direct failed for %s: %s", album_item_key, e)
+            return RoonResponse(success=False, error=str(e))
+
     def play_tracks(
         self, zone_id: str, item_keys: list[str], mode: str = "replace"
     ) -> RoonResponse:

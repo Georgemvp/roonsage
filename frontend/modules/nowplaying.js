@@ -5,7 +5,7 @@
 import { apiCall } from './api.js';
 import { escapeHtml } from './utils.js';
 
-const POLL_INTERVAL = 15000; // ms
+const POLL_INTERVAL = 3000; // ms
 let _pollTimer = null;
 let _currentZoneId = null;
 let _zones = [];
