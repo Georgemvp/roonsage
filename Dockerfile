@@ -3,7 +3,10 @@ FROM python:3.12-slim AS builder
 
 # Install uv (fast resolver) for both compile and install.
 # Using the official standalone binary so we don't pull in a Python toolchain.
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates \
+        build-essential \
+        libsndfile1-dev \
     && curl -LsSf https://astral.sh/uv/install.sh | sh \
     && cp /root/.local/bin/uv /usr/local/bin/uv \
     && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
