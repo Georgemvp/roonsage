@@ -259,6 +259,11 @@
     --amber-glow:  var(--accent-glow);
 }
 
+/* Sidebar gets a subtle shadow in light mode (no dark background to separate it) */
+[data-theme="light"] .rs-sidebar {
+    box-shadow: 4px 0 18px rgba(60,52,40,0.05);
+}
+
 /* Light-mode variation accent adjustments */
 [data-theme="light"][data-variation="viola"] {
     --accent:        #6b4ea0;
