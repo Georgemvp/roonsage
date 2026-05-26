@@ -18,8 +18,10 @@ RUN uv pip compile requirements.in -o requirements-core.txt --python-version=3.1
     && uv pip install --target=/install --no-cache -r requirements-core.txt
 
 # 2. Install heavy ML deps with CPU torch wheel index (separate so Docker can
-#    cache the large ML layer independently of core changes)
-RUN pip install --target=/install --no-cache-dir \
+#    cache the large ML layer independently of core changes).
+#    setuptools is needed as build backend for sdist deps (e.g. numpy pinned by laion-clap).
+RUN pip install --no-cache-dir setuptools \
+    && pip install --target=/install --no-cache-dir \
         --extra-index-url https://download.pytorch.org/whl/cpu \
         -r requirements-ml.txt
 
