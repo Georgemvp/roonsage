@@ -290,7 +290,7 @@
                         <p class="hero-subtitle">AI-powered playlists, discovery, and intelligence for your Roon library</p>
                     </section>
 
-                    <!-- 6-card Feature Grid -->
+                    <!-- 10-card Feature Grid -->
                     <div class="feature-grid">
                         <!-- Card 1: Generate Playlist (amber) -->
                         <button class="feature-card feature-card--amber" data-nav="playlist-prompt">
@@ -302,27 +302,17 @@
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span><span id="home-template-count">— templates</span></div>
                         </button>
 
-                        <!-- Card 2: Discover (teal) -->
-                        <button class="feature-card feature-card--teal" data-nav="discovery">
-                            <div class="card-icon card-icon--teal">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
+                        <!-- Card 2: From Seed Song (amber) -->
+                        <button class="feature-card feature-card--amber" data-nav="playlist-seed">
+                            <div class="card-icon card-icon--amber">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a7 7 0 0 1-7-7c0-2 1-3.9 3-5.5s3.5-4 4-6.5c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a7 7 0 0 1-7 7z"/></svg>
                             </div>
-                            <div class="card-title">Discover</div>
-                            <div class="card-desc">Hidden gems, deep cuts, and forgotten favorites in your library</div>
-                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-discovery-count">4 discovery sections</span></div>
+                            <div class="card-title">From Seed Song</div>
+                            <div class="card-desc">Pick a track and build a playlist around its vibe</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span>Mood-matched from your library</div>
                         </button>
 
-                        <!-- Card 3: My Taste (teal) -->
-                        <button class="feature-card feature-card--teal" data-nav="taste">
-                            <div class="card-icon card-icon--teal">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 4.5-7 13-7 13S5 13.5 5 9a7 7 0 0 1 7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
-                            </div>
-                            <div class="card-title">My Taste</div>
-                            <div class="card-desc">Genre radar, listening patterns, and your full taste profile</div>
-                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-taste-preview">—</span></div>
-                        </button>
-
-                        <!-- Card 4: Recommend Album (amber) -->
+                        <!-- Card 3: Recommend Album (amber) -->
                         <button class="feature-card feature-card--amber" data-nav="recommend-album">
                             <div class="card-icon card-icon--amber">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2"/></svg>
@@ -332,17 +322,57 @@
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span>Library + Discovery modes</div>
                         </button>
 
-                        <!-- Card 5: Watchlist (amber) -->
-                        <button class="feature-card feature-card--amber" data-nav="watchlist">
-                            <div class="card-icon card-icon--amber">
+                        <!-- Card 4: Playlists (teal) -->
+                        <button class="feature-card feature-card--teal" data-nav="playlists">
+                            <div class="card-icon card-icon--teal">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                            </div>
+                            <div class="card-title">Playlists</div>
+                            <div class="card-desc">Browse and replay your saved playlists and DJ sets</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-playlists-count">—</span></div>
+                        </button>
+
+                        <!-- Card 5: Discover (teal) -->
+                        <button class="feature-card feature-card--teal" data-nav="discovery">
+                            <div class="card-icon card-icon--teal">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
+                            </div>
+                            <div class="card-title">Discover</div>
+                            <div class="card-desc">Hidden gems, deep cuts, and forgotten favorites in your library</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-discovery-count">4 discovery sections</span></div>
+                        </button>
+
+                        <!-- Card 6: Watchlist (teal) -->
+                        <button class="feature-card feature-card--teal" data-nav="watchlist">
+                            <div class="card-icon card-icon--teal">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
                             </div>
                             <div class="card-title">Watchlist</div>
                             <div class="card-desc">Monitor your favorite artists for new Qobuz releases</div>
-                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span><span id="home-watchlist-count">—</span></div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-watchlist-count">—</span></div>
                         </button>
 
-                        <!-- Card 6: Automations (teal) -->
+                        <!-- Card 7: DJ Set (amber) -->
+                        <button class="feature-card feature-card--amber" data-nav="dj-set">
+                            <div class="card-icon card-icon--amber">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="18" r="3"/><circle cx="16" cy="16" r="3"/><polyline points="11 18 11 5 19 3 19 16"/><line x1="11" y1="9" x2="19" y2="7"/></svg>
+                            </div>
+                            <div class="card-title">DJ Set</div>
+                            <div class="card-desc">Build beatmatched Camelot-compatible sets from your library</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span>BPM + key harmonic mixing</div>
+                        </button>
+
+                        <!-- Card 8: My Taste (amber) -->
+                        <button class="feature-card feature-card--amber" data-nav="taste">
+                            <div class="card-icon card-icon--amber">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 4.5-7 13-7 13S5 13.5 5 9a7 7 0 0 1 7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+                            </div>
+                            <div class="card-title">My Taste</div>
+                            <div class="card-desc">Genre radar, listening patterns, and your full taste profile</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span><span id="home-taste-preview">—</span></div>
+                        </button>
+
+                        <!-- Card 9: Automations (teal) -->
                         <button class="feature-card feature-card--teal" data-nav="automations">
                             <div class="card-icon card-icon--teal">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
@@ -350,6 +380,16 @@
                             <div class="card-title">Automations</div>
                             <div class="card-desc">Trigger-action workflows that run on schedule or events</div>
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-auto-count">—</span></div>
+                        </button>
+
+                        <!-- Card 10: Enrichment (teal) -->
+                        <button class="feature-card feature-card--teal" data-nav="settings">
+                            <div class="card-icon card-icon--teal">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M8.46 8.46a5 5 0 0 0 0 7.07"/></svg>
+                            </div>
+                            <div class="card-title">Enrichment</div>
+                            <div class="card-desc">Enrich your library with MusicBrainz and Last.fm metadata</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-enrich-count">—</span></div>
                         </button>
                     </div>
 
@@ -1110,6 +1150,7 @@
                                         <option value="run_maintenance">Run maintenance</option>
                                         <option value="volume_set">Set volume</option>
                                         <option value="play_template">Play template</option>
+                                        <option value="build_dj_set_qobuz">Build DJ set → Qobuz playlist</option>
                                     </select>
                                 </div>
                                 <div id="auto-new-action-cfg" class="auto-form-subfields"></div>
@@ -1171,6 +1212,12 @@
                     </div>
                 </div>
 
+                <div class="pl-view-tabs" role="tablist" aria-label="DJ Set tabs">
+                    <button class="pl-view-tab pl-view-tab--active" data-dj-tab="builder" role="tab" aria-selected="true">Bouwer</button>
+                    <button class="pl-view-tab" data-dj-tab="templates" role="tab" aria-selected="false">Templates</button>
+                </div>
+
+                <div id="dj-builder-pane" class="dj-tab-pane">
                 <section class="auto-section">
                     <form id="dj-form" class="auto-form" autocomplete="off">
                         <div class="auto-form-grid">
@@ -1308,6 +1355,53 @@
                     </div>
                     <div id="dj-status" class="enrich-result"></div>
                 </section>
+                </div>
+
+                <div id="dj-templates-pane" class="dj-tab-pane" style="display:none;">
+                    <section class="auto-section">
+                        <div class="dj-templates-header">
+                            <p class="auto-subtitle" style="margin:0;">
+                                Klik een template om direct een DJ set te bouwen op basis van vooraf ingestelde BPM, mood en energy curve.
+                            </p>
+                        </div>
+                        <div id="dj-templates-status" class="enrich-result"></div>
+                        <div id="dj-templates-grid" class="dj-templates-grid">
+                            <p class="auto-loading">Laden…</p>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Modal: schedule daily automation for a DJ template -->
+                <div id="dj-auto-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="dj-auto-modal-title">
+                    <div class="modal-card" style="max-width:520px;text-align:left;">
+                        <button class="modal-close" id="dj-auto-modal-close" aria-label="Sluiten">&times;</button>
+                        <h2 id="dj-auto-modal-title">Plan dagelijkse DJ set</h2>
+                        <p id="dj-auto-modal-tpl" style="color:var(--text-muted);margin-bottom:1rem;"></p>
+                        <div class="auto-form-row">
+                            <label for="dj-auto-name">Naam automation</label>
+                            <input id="dj-auto-name" type="text" class="auto-form-input" />
+                        </div>
+                        <div class="auto-form-row">
+                            <label for="dj-auto-cron">Schema (cron)</label>
+                            <input id="dj-auto-cron" type="text" class="auto-form-input" value="0 6 * * *" />
+                            <small>Standaard: elke dag om 06:00. Bv. <code>0 18 * * 5</code> = elke vrijdag 18:00.</small>
+                        </div>
+                        <div class="auto-form-row">
+                            <label for="dj-auto-playlist-name">Qobuz playlist naam</label>
+                            <input id="dj-auto-playlist-name" type="text" class="auto-form-input" />
+                            <small>Eerste run maakt deze playlist aan, daarna wordt hij elke keer overschreven.</small>
+                        </div>
+                        <div class="auto-form-row">
+                            <label for="dj-auto-zone">Auto-play zone (optioneel)</label>
+                            <input id="dj-auto-zone" type="text" class="auto-form-input" placeholder="Living Room" />
+                        </div>
+                        <div id="dj-auto-result" class="enrich-result"></div>
+                        <div class="modal-actions" style="margin-top:1rem;display:flex;gap:.5rem;justify-content:flex-end;">
+                            <button id="dj-auto-cancel" class="btn btn-secondary">Annuleren</button>
+                            <button id="dj-auto-create" class="btn btn-primary">Plan dagelijks</button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Settings View -->

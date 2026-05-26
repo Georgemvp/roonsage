@@ -5317,6 +5317,69 @@ body.no-scroll {
 }
 
 /* =============================================================================
+   DJ Templates tab — reuses .template-grid / .template-card layout
+   ============================================================================= */
+
+.dj-templates-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.dj-templates-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.dj-templates-category {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0 0 var(--spacing-sm) 0;
+    font-weight: 600;
+}
+
+.dj-template-schedule {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 2px 4px;
+    border-radius: var(--radius-sm);
+    line-height: 1;
+    opacity: 0;
+    transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.template-card:hover .dj-template-schedule {
+    opacity: 1;
+}
+
+.dj-template-schedule:hover {
+    color: var(--accent);
+}
+
+.dj-template-builtin-badge {
+    display: inline-block;
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+/* =============================================================================
    Custom Template Modal
    ============================================================================= */
 
@@ -6685,7 +6748,7 @@ body.no-scroll {
 /* ---- Feature Grid (6 cards, 3×2) ---- */
 .feature-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 12px;
     margin-top: 32px;
 }
@@ -6701,7 +6764,7 @@ body.no-scroll {
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    min-height: 160px;
+    min-height: 148px;
     font-family: var(--font-family);
     color: var(--text-primary);
     text-align: left;
@@ -6783,12 +6846,16 @@ body.no-scroll {
     to   { opacity: 1; transform: translateY(0); }
 }
 .feature-card { animation: fadeUp 0.5s ease both; }
-.feature-card:nth-child(1) { animation-delay: 0.05s; }
-.feature-card:nth-child(2) { animation-delay: 0.1s; }
-.feature-card:nth-child(3) { animation-delay: 0.15s; }
-.feature-card:nth-child(4) { animation-delay: 0.2s; }
-.feature-card:nth-child(5) { animation-delay: 0.25s; }
-.feature-card:nth-child(6) { animation-delay: 0.3s; }
+.feature-card:nth-child(1)  { animation-delay: 0.05s; }
+.feature-card:nth-child(2)  { animation-delay: 0.10s; }
+.feature-card:nth-child(3)  { animation-delay: 0.15s; }
+.feature-card:nth-child(4)  { animation-delay: 0.20s; }
+.feature-card:nth-child(5)  { animation-delay: 0.25s; }
+.feature-card:nth-child(6)  { animation-delay: 0.30s; }
+.feature-card:nth-child(7)  { animation-delay: 0.35s; }
+.feature-card:nth-child(8)  { animation-delay: 0.40s; }
+.feature-card:nth-child(9)  { animation-delay: 0.45s; }
+.feature-card:nth-child(10) { animation-delay: 0.50s; }
 
 /* ---- Taste Snapshot Banner ---- */
 .taste-snapshot {
@@ -6956,9 +7023,15 @@ body.no-scroll {
 .lb-bar-fill { background: var(--teal) !important; }
 
 /* ---- Responsive breakpoints ---- */
+@media (max-width: 1100px) {
+    .feature-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
 @media (max-width: 768px) {
     .feature-grid {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(3, 1fr);
     }
     .hero-title {
         font-size: 1.5rem;
@@ -6973,7 +7046,7 @@ body.no-scroll {
 
 @media (max-width: 480px) {
     .feature-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr 1fr;
         gap: 8px;
     }
     .feature-card {

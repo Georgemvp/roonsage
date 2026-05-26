@@ -146,6 +146,23 @@ async function loadHomePreview() {
             if (el) el.textContent = `${active} active`;
         }
 
+        // Playlists count
+        const playlists = await apiCall('/results').catch(() => null);
+        if (playlists?.results) {
+            const el = document.getElementById('home-playlists-count');
+            if (el) el.textContent = `${playlists.results.length} saved`;
+        }
+
+        // Enrichment status
+        const enrich = await apiCall('/enrichment/status').catch(() => null);
+        if (enrich) {
+            const el = document.getElementById('home-enrich-count');
+            if (el) {
+                const pct = enrich.total > 0 ? Math.round((enrich.enriched / enrich.total) * 100) : 0;
+                el.textContent = `${pct}% enriched`;
+            }
+        }
+
         // Discovery preview
         const discovery = await apiCall('/discovery/sections').catch(() => null);
         if (discovery?.undiscovered_albums) {
