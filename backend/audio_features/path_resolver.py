@@ -185,6 +185,20 @@ def scan_library(music_root: Path) -> dict[tuple[str, str, str], str]:
 # ---------------------------------------------------------------------------
 
 
+async def resolve_paths_async(
+    conn: sqlite3.Connection,
+    music_root: Path | None = None,
+) -> dict[str, int]:
+    """Async wrapper around :func:`resolve_paths_for_tracks`.
+
+    The filesystem walk + tag read can take several minutes on a large
+    library; running it via ``asyncio.to_thread`` keeps the event loop
+    responsive for HTTP requests while the scan runs.
+    """
+    import asyncio  # noqa: PLC0415
+    return await asyncio.to_thread(resolve_paths_for_tracks, conn, music_root)
+
+
 def resolve_paths_for_tracks(
     conn: sqlite3.Connection,
     music_root: Path | None = None,

@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from concurrent.futures import ProcessPoolExecutor
 from typing import Any
 
 from backend.audio_features import camelot
@@ -219,11 +220,28 @@ def _analyze_sync(file_path: str, *, full: bool = True) -> dict[str, Any]:
     return out
 
 
+# Module-level process pool for CPU-bound librosa analysis. ProcessPoolExecutor
+# sidesteps the GIL so 4 workers can actually run on 4 cores. Lazily created
+# on first use so importing this module remains cheap.
+_process_pool: ProcessPoolExecutor | None = None
+
+
+def _get_pool() -> ProcessPoolExecutor:
+    global _process_pool
+    if _process_pool is None:
+        _process_pool = ProcessPoolExecutor(max_workers=4)
+    return _process_pool
+
+
 async def analyze_track(file_path: str, *, full: bool = True) -> dict[str, Any]:
-    """Analyse a track on a worker thread to keep the event loop responsive."""
+    """Analyse a track in a worker process so the event loop stays responsive."""
     if not ANALYZER_AVAILABLE:
         raise RuntimeError(
             "librosa is not installed — the audio_features worker cannot run. "
             "Add librosa to requirements.txt and rebuild the Docker image."
         )
-    return await asyncio.to_thread(_analyze_sync, file_path, full=full)
+    import functools  # noqa: PLC0415
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _get_pool(), functools.partial(_analyze_sync, file_path, full=full)
+    )
