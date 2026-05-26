@@ -203,9 +203,10 @@ class TestPlayTracks:
 
         assert direct_calls == []
 
-    def test_queue_reversal_in_replace_mode(self):
-        """In replace mode with >1 track, tracks 2–N are reversed so Roon's
-        prepend-queue delivers them in the original order."""
+    def test_queue_preserves_original_order(self):
+        """Roon's 'Queue' / 'Add to queue' actions append to the end of the
+        queue, so play_tracks must hand keys to Roon in their original order
+        (DJ sets and other ordered playlists rely on this)."""
         client = _make_client()
         queued_order: list[str] = []
 
@@ -219,6 +220,4 @@ class TestPlayTracks:
         with patch.object(client, "_get_track_metadata_batch", return_value=meta):
             client.play_tracks("zone1", ["k0", "k1", "k2"], mode="replace")
 
-        # First key stays first; remainder reversed
-        assert queued_order[0] == "k0"
-        assert queued_order[1:] == ["k2", "k1"]
+        assert queued_order == ["k0", "k1", "k2"]

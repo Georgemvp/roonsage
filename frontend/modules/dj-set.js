@@ -432,6 +432,63 @@ async function _save(autoName) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Tab switching (Bouwer | Templates)
+// ---------------------------------------------------------------------------
+
+let _templatesPaneInitDone = false;
+
+export function switchDJTab(tab) {
+    const tabs = document.querySelectorAll('#dj-set-view .pl-view-tab[data-dj-tab]');
+    tabs.forEach(t => {
+        const active = t.dataset.djTab === tab;
+        t.classList.toggle('pl-view-tab--active', active);
+        t.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    const builder = document.getElementById('dj-builder-pane');
+    const templates = document.getElementById('dj-templates-pane');
+    if (builder)   builder.style.display   = tab === 'builder'   ? '' : 'none';
+    if (templates) templates.style.display = tab === 'templates' ? '' : 'none';
+
+    if (tab === 'templates' && !_templatesPaneInitDone) {
+        _templatesPaneInitDone = true;
+        // Lazy-load the templates module so initial DJ view load stays slim.
+        import('./dj-templates.js').then(m => m.initDJTemplatesPane());
+    } else if (tab === 'templates') {
+        import('./dj-templates.js').then(m => m.initDJTemplatesPane());
+    }
+}
+
+/**
+ * Hand a build result from the Templates pane into the Builder pane so the
+ * existing render + playback wiring takes over.
+ */
+export function showTemplateBuildResult(data, template) {
+    _lastResult = data;
+    _lastPayload = {
+        duration_minutes: template?.duration_minutes || 60,
+        start_bpm: template?.start_bpm,
+        end_bpm:   template?.end_bpm,
+        energy_curve: template?.energy_curve,
+        genres: template?.genres || [],
+        start_mood: template?.start_mood || null,
+        end_mood:   template?.end_mood   || null,
+    };
+    _savedId = null;
+    _renderTracks(data.tracks, data.curve || []);
+    _renderCurve(data.curve || []);
+    _showResultActions(_lastPayload);
+    const status = document.getElementById('dj-status');
+    if (status) {
+        status.textContent = template
+            ? `Template "${template.name}" → ${data.returned} tracks (pool: ${data.total_matching}).`
+            : `Set van ${data.returned} tracks (pool: ${data.total_matching}).`;
+        status.style.color = '#4caf50';
+    }
+    const nameInput = document.getElementById('dj-set-name');
+    if (nameInput && template) nameInput.value = `DJ Set · ${template.name}`;
+}
+
 export async function initDJSetView() {
     if (!_initialized) {
         document.getElementById('dj-form')?.addEventListener('submit', _build);
@@ -440,6 +497,11 @@ export async function initDJSetView() {
         document.getElementById('dj-arc-btn')?.addEventListener('click', _openArcModal);
         document.getElementById('dj-zone-modal-close')?.addEventListener('click', () => {
             document.getElementById('dj-zone-modal')?.classList.add('hidden');
+        });
+
+        // Tabs
+        document.querySelectorAll('#dj-set-view .pl-view-tab[data-dj-tab]').forEach(btn => {
+            btn.addEventListener('click', () => switchDJTab(btn.dataset.djTab));
         });
 
         // Filter end moods + BPM auto-suggest when mood or curve changes

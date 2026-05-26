@@ -355,8 +355,39 @@ function _getActionFields(actionType) {
                 <label>Zone name</label>
                 <input id="auto-new-zone" type="text" class="auto-form-input" placeholder="Living Room" />
             </div>`;
+        case 'build_dj_set_qobuz':
+            return `<div class="auto-form-row">
+                <label>DJ template ID</label>
+                <select id="auto-new-dj-tpl" class="auto-form-select"><option value="">Laden…</option></select>
+                <small>Eerste run maakt een nieuwe Qobuz playlist; vervolgens wordt diezelfde playlist elke keer overschreven.</small>
+            </div>
+            <div class="auto-form-row">
+                <label>Qobuz playlist naam (alleen 1e run)</label>
+                <input id="auto-new-dj-playlist-name" type="text" class="auto-form-input" placeholder="Daily DJ Set" />
+            </div>
+            <div class="auto-form-row">
+                <label>Bestaande Qobuz playlist ID (optioneel)</label>
+                <input id="auto-new-dj-playlist-id" type="text" class="auto-form-input" placeholder="leeg = nieuw aanmaken" />
+            </div>
+            <div class="auto-form-row">
+                <label>Zone (optioneel auto-play)</label>
+                <input id="auto-new-zone" type="text" class="auto-form-input" placeholder="Living Room" />
+            </div>`;
         default:
             return '<p class="auto-form-hint">No extra configuration needed for this action.</p>';
+    }
+}
+
+async function _populateDJTemplateSelect() {
+    const sel = document.getElementById('auto-new-dj-tpl');
+    if (!sel) return;
+    try {
+        const list = await apiCall('/dj-templates');
+        sel.innerHTML = list.map(t =>
+            `<option value="${t.id}">${t.icon || '🎚️'} ${t.name} — ${t.category}</option>`
+        ).join('') || '<option value="">(geen DJ templates)</option>';
+    } catch {
+        sel.innerHTML = '<option value="">(kon DJ templates niet laden)</option>';
     }
 }
 
@@ -390,6 +421,18 @@ function _buildActionConfig(actionType) {
             const z = (document.getElementById('auto-new-zone')?.value || '').trim();
             if (z) cfg.zone_name = z;
             break;
+        case 'build_dj_set_qobuz': {
+            const tpl = (document.getElementById('auto-new-dj-tpl')?.value || '').trim();
+            if (!tpl) throw new Error('Kies een DJ template.');
+            cfg.dj_template_id = tpl;
+            const plName = (document.getElementById('auto-new-dj-playlist-name')?.value || '').trim();
+            if (plName) cfg.qobuz_playlist_name = plName;
+            const plId = (document.getElementById('auto-new-dj-playlist-id')?.value || '').trim();
+            if (plId) cfg.qobuz_playlist_id = plId;
+            const zn = (document.getElementById('auto-new-zone')?.value || '').trim();
+            if (zn) cfg.zone_name = zn;
+            break;
+        }
     }
     return cfg;
 }
@@ -410,6 +453,7 @@ function _bindEvents() {
     });
     actionSel?.addEventListener('change', () => {
         if (actionCfg) actionCfg.innerHTML = _getActionFields(actionSel.value);
+        if (actionSel.value === 'build_dj_set_qobuz') _populateDJTemplateSelect();
     });
     // Initialise with defaults
     if (triggerCfg && triggerSel) triggerCfg.innerHTML = _getTriggerFields(triggerSel.value);

@@ -1,0 +1,207 @@
+templates:
+  # ===========================================================================
+  # Party — bouwen, pieken, afsluiten
+  # ===========================================================================
+  - id: friday-warmup
+    name: Friday Night Warm-up
+    description: Lekker oplopend van chill naar feest, 90 minuten
+    icon: "🌆"
+    category: Party
+    duration_minutes: 90
+    start_bpm: 108
+    end_bpm: 126
+    energy_curve: ramp_up
+    start_mood: chill
+    end_mood: feestelijk
+    genres: []
+    decades: []
+    exclude_live: true
+
+  - id: saturday-peak
+    name: Saturday Peak Hour
+    description: Strakke hoge-energie set rond peak time — gelijkmatig hoog
+    icon: "🔥"
+    category: Party
+    duration_minutes: 75
+    start_bpm: 126
+    end_bpm: 132
+    energy_curve: flat
+    start_mood: feestelijk
+    end_mood: opgewonden
+    genres: []
+    decades: []
+    exclude_live: true
+
+  - id: dance-crescendo
+    name: Dance Floor Crescendo
+    description: Begint blij, bouwt langzaam op, explosief einde
+    icon: "🎆"
+    category: Party
+    duration_minutes: 75
+    start_bpm: 110
+    end_bpm: 132
+    energy_curve: crescendo
+    start_mood: blij
+    end_mood: euforisch
+    genres: []
+    decades: []
+    exclude_live: true
+
+  - id: afterparty-cooldown
+    name: Afterparty Cooldown
+    description: Hoog begin, geleidelijk afkoelen naar chill — perfect na een feest
+    icon: "🌙"
+    category: Party
+    duration_minutes: 90
+    start_bpm: 126
+    end_bpm: 92
+    energy_curve: ramp_down
+    start_mood: energiek
+    end_mood: chill
+    genres: []
+    decades: []
+    exclude_live: true
+
+  # ===========================================================================
+  # Workout — vaste BPM ranges voor cardio / training
+  # ===========================================================================
+  - id: morning-workout
+    name: Morning Workout
+    description: Oplopende energie voor een ochtendtraining
+    icon: "💪"
+    category: Workout
+    duration_minutes: 45
+    start_bpm: 120
+    end_bpm: 140
+    energy_curve: ramp_up
+    start_mood: energiek
+    end_mood: opgewonden
+    genres: []
+    decades: []
+    exclude_live: true
+
+  - id: running-marathon
+    name: Running Marathon
+    description: Constante 160 BPM cadans voor hardlopen
+    icon: "🏃"
+    category: Workout
+    duration_minutes: 60
+    start_bpm: 158
+    end_bpm: 162
+    energy_curve: marathon
+    start_mood: energiek
+    end_mood: krachtig
+    genres: []
+    decades: []
+    exclude_live: true
+
+  - id: cycling-intervals
+    name: Cycling Intervals
+    description: Achtbaan-energie met pieken en dalen — interval training
+    icon: "🚴"
+    category: Workout
+    duration_minutes: 60
+    start_bpm: 120
+    end_bpm: 140
+    energy_curve: rollercoaster
+    start_mood: krachtig
+    end_mood: intens
+    genres: []
+    decades: []
+    exclude_live: true
+
+  # ===========================================================================
+  # Chill — achtergrond, diner, lounge
+  # ===========================================================================
+  - id: coffee-shop
+    name: Coffee Shop Vibes
+    description: Rustige opbouw van koffie-ochtend naar zachte lounge
+    icon: "☕"
+    category: Chill
+    duration_minutes: 90
+    start_bpm: 74
+    end_bpm: 96
+    energy_curve: ramp_up
+    start_mood: rustig
+    end_mood: chill
+    genres: []
+    decades: []
+    exclude_live: true
+
+  - id: dinner-party
+    name: Dinner Party
+    description: Sophisticated achtergrondmuziek voor een diner
+    icon: "🍷"
+    category: Chill
+    duration_minutes: 120
+    start_bpm: 92
+    end_bpm: 104
+    energy_curve: flat
+    start_mood: chill
+    end_mood: nostalgisch
+    genres: []
+    decades: []
+    exclude_live: true
+
+  - id: acoustic-cafe
+    name: Acoustic Cafe
+    description: Zachte singer-songwriter en akoestiek — café-sfeer
+    icon: "🎻"
+    category: Chill
+    duration_minutes: 90
+    start_bpm: 72
+    end_bpm: 88
+    energy_curve: flat
+    start_mood: zacht
+    end_mood: nostalgisch
+    genres: []
+    decades: []
+    exclude_live: true
+
+  # ===========================================================================
+  # Sfeer — speciale momenten
+  # ===========================================================================
+  - id: sunset-session
+    name: Sunset Session
+    description: Geleidelijke zonsopgang-achtige opbouw — beach / terrace
+    icon: "🌅"
+    category: Sfeer
+    duration_minutes: 90
+    start_bpm: 96
+    end_bpm: 116
+    energy_curve: sunrise
+    start_mood: dromerig
+    end_mood: blij
+    genres: []
+    decades: []
+    exclude_live: true
+
+  - id: late-night-disco
+    name: Late Night Disco
+    description: Feelgood disco-golven, afwisseling hoog-laag
+    icon: "🪩"
+    category: Sfeer
+    duration_minutes: 75
+    start_bpm: 116
+    end_bpm: 122
+    energy_curve: wave
+    start_mood: vrolijk
+    end_mood: feestelijk
+    genres: []
+    decades: []
+    exclude_live: true
+
+  - id: techno-tunnel
+    name: Techno Tunnel
+    description: Donkere, gelijkmatige techno — diepe focus
+    icon: "🛸"
+    category: Sfeer
+    duration_minutes: 90
+    start_bpm: 130
+    end_bpm: 138
+    energy_curve: flat
+    start_mood: donker
+    end_mood: intens
+    genres: []
+    decades: []
+    exclude_live: true
