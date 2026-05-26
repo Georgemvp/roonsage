@@ -1,6 +1,6 @@
 """Tests for setup/onboarding endpoints."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,10 +17,9 @@ def client():
     """
     from backend.main import app
     with (
-        patch("backend.main.get_config", return_value=create_mock_config()),
-        patch("backend.main.init_roon_client"),
-        patch("backend.main.init_llm_client"),
-        patch("backend.main.library_cache"),
+        patch("backend.routes.setup.get_config", return_value=create_mock_config()),
+        patch("backend.startup.init_clients"),
+        patch("backend.startup.start_background_tasks"),
     ):
         return TestClient(app)
 
@@ -155,6 +154,7 @@ class TestSetupValidateRoon:
     def test_validate_roon_success(self, client):
         """Should return success when Roon Core connects and is authorized."""
         mock_temp_client = MagicMock()
+        mock_temp_client.wait_until_ready = AsyncMock()
         mock_temp_client.needs_authorization.return_value = False
         mock_temp_client.is_connected.return_value = True
         mock_temp_client.get_core_name.return_value = "My Roon Core"
@@ -179,6 +179,7 @@ class TestSetupValidateRoon:
     def test_validate_roon_failure(self, client):
         """Should return error when Roon connection fails."""
         mock_temp_client = MagicMock()
+        mock_temp_client.wait_until_ready = AsyncMock()
         mock_temp_client.needs_authorization.return_value = False
         mock_temp_client.is_connected.return_value = False
         mock_temp_client.get_error.return_value = "Connection refused"
