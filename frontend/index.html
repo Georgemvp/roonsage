@@ -1442,36 +1442,39 @@
             <div id="settings-view" class="view">
                 <h2>Settings</h2>
 
-                <!-- Appearance -->
-                <div class="rs-settings-card" style="margin-bottom:16px" id="appearance-settings-section">
-                    <div style="padding:14px 20px 12px;border-bottom:1px solid var(--border-subtle)">
+                <!-- Appearance card -->
+                <div class="rs-settings-card" id="settings-appearance-card">
+                    <div class="rs-settings-card-header">
                         <p class="rs-settings-eyebrow">Verschijning</p>
                         <h3 class="rs-settings-card-title">Thema en kleuren</h3>
                     </div>
-                    <div style="padding:4px 20px 16px">
-                        <!-- Theme row -->
-                        <div style="display:flex;align-items:center;padding:14px 0;border-bottom:1px solid var(--border-subtle);gap:20px">
-                            <div style="flex:1">
-                                <div style="font-size:0.86rem;font-weight:500;color:var(--text-primary)">Thema</div>
-                                <div style="font-size:0.75rem;color:var(--text-muted)">Wissel tussen donker en licht</div>
+                    <div class="rs-settings-card-body">
+
+                        <!-- Theme: Dark / Light -->
+                        <div class="rs-settings-row">
+                            <div class="rs-settings-row-label">
+                                <div class="rs-settings-row-title">Thema</div>
+                                <div class="rs-settings-row-hint">Wissel tussen donker en licht</div>
                             </div>
-                            <div style="display:flex;background:var(--bg-elevated);border-radius:8px;padding:3px;gap:2px">
-                                <button data-theme-opt="dark" style="padding:6px 14px;border-radius:6px;border:none;cursor:pointer;font-family:inherit;font-size:0.78rem;font-weight:500;transition:all 140ms" class="theme-segmented-btn">Donker</button>
-                                <button data-theme-opt="light" style="padding:6px 14px;border-radius:6px;border:none;cursor:pointer;font-family:inherit;font-size:0.78rem;font-weight:500;transition:all 140ms" class="theme-segmented-btn">Licht</button>
-                            </div>
-                        </div>
-                        <!-- Accent color row -->
-                        <div style="display:flex;align-items:center;padding:14px 0;border-bottom:1px solid var(--border-subtle);gap:20px">
-                            <div style="flex:1">
-                                <div style="font-size:0.86rem;font-weight:500;color:var(--text-primary)">Accentkleur</div>
-                                <div style="font-size:0.75rem;color:var(--text-muted)" id="variation-label">Viola</div>
-                            </div>
-                            <div class="rs-variation-swatches" style="display:flex;gap:8px">
-                                <button data-variation="viola" title="Viola" style="width:28px;height:28px;border-radius:50%;background:#9270d4;border:3px solid transparent;cursor:pointer;outline:2px solid transparent;outline-offset:2px;transition:all 140ms"></button>
-                                <button data-variation="ember" title="Ember" style="width:28px;height:28px;border-radius:50%;background:#e5a00d;border:3px solid transparent;cursor:pointer;outline:2px solid transparent;outline-offset:2px;transition:all 140ms"></button>
-                                <button data-variation="slate" title="Slate"  style="width:28px;height:28px;border-radius:50%;background:#5b8fe8;border:3px solid transparent;cursor:pointer;outline:2px solid transparent;outline-offset:2px;transition:all 140ms"></button>
+                            <div class="rs-segmented" role="radiogroup" aria-label="Thema">
+                                <button class="rs-segmented-btn" data-theme-opt="dark" role="radio">Donker</button>
+                                <button class="rs-segmented-btn" data-theme-opt="light" role="radio">Licht</button>
                             </div>
                         </div>
+
+                        <!-- Accent color: Viola / Ember / Slate -->
+                        <div class="rs-settings-row">
+                            <div class="rs-settings-row-label">
+                                <div class="rs-settings-row-title">Accentkleur</div>
+                                <div class="rs-settings-row-hint" id="variation-label">Viola</div>
+                            </div>
+                            <div class="rs-variation-swatches" role="radiogroup" aria-label="Accentkleur">
+                                <button class="rs-swatch" data-variation="viola" title="Viola" style="background:#9270d4" aria-label="Viola"></button>
+                                <button class="rs-swatch" data-variation="ember" title="Ember" style="background:#e5a00d" aria-label="Ember"></button>
+                                <button class="rs-swatch" data-variation="slate" title="Slate" style="background:#5b8fe8" aria-label="Slate"></button>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 

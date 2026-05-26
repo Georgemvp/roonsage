@@ -8091,11 +8091,12 @@ body.no-scroll .pwa-toast {
 /* ── RS chip/button components used in settings ── */
 .rs-variation-swatches { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .rs-swatch {
-    width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+    width: 28px; height: 28px; border-radius: 50%; cursor: pointer; padding: 0;
     border: 3px solid transparent; outline: 2px solid transparent;
-    outline-offset: 2px; transition: all 120ms; flex-shrink: 0;
+    outline-offset: 2px; transition: all 140ms; flex-shrink: 0;
 }
-.rs-swatch.on { border-color: rgba(255,255,255,0.9); }
+.rs-swatch:hover { transform: scale(1.08); }
+.rs-swatch.on { border-color: var(--text-primary); outline-color: var(--border); }
 .rs-swatch-label { font-size: 0.72rem; color: var(--text-secondary); }
 
 /* Settings: theme segmented control */
@@ -8358,12 +8359,16 @@ body.no-scroll .pwa-toast {
 .rs-toggle.on::after { transform:translateX(16px); }
 
 /* ── Settings cards ── */
-.rs-settings-card { background:var(--bg-surface); border:1px solid var(--border); border-radius:14px; padding:24px; margin-bottom:20px; }
-.rs-settings-eyebrow { font-size:0.6rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted); margin-bottom:4px; }
-.rs-settings-card-title { font-size:1rem; font-weight:700; margin-bottom:20px; }
-.rs-settings-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); gap:16px; }
+.rs-settings-card { background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:16px; }
+.rs-settings-card-header { padding:14px 20px 12px; border-bottom:1px solid var(--border-subtle); }
+.rs-settings-card-body { padding:4px 20px 16px; }
+.rs-settings-eyebrow { font-size:0.62rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted); margin:0 0 3px; }
+.rs-settings-card-title { font-size:0.95rem; font-weight:700; color:var(--text-primary); margin:0; }
+.rs-settings-row { display:flex; align-items:center; padding:14px 0; border-bottom:1px solid var(--border-subtle); gap:20px; }
 .rs-settings-row:last-child { border-bottom:none; }
-.rs-settings-row-label { font-size:0.875rem; color:var(--text-primary); }
+.rs-settings-row-label { flex:1; min-width:0; }
+.rs-settings-row-title { font-size:0.86rem; font-weight:500; color:var(--text-primary); margin-bottom:2px; }
+.rs-settings-row-hint { font-size:0.75rem; color:var(--text-muted); line-height:1.45; }
 .rs-settings-row-sub { font-size:0.75rem; color:var(--text-muted); margin-top:2px; }
 .rs-segmented {
     display:flex; background:var(--bg-elevated); border-radius:9px; padding:3px; gap:2px;
