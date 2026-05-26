@@ -159,7 +159,9 @@ function _renderLbTopReleases(albums) {
 
     const cards = albums.map(a => `
         <div class="rs-album-card">
-            <div class="rs-album-art"></div>
+            <div class="rs-album-art">${a.image_key
+                ? `<img src="/api/art/${escapeHtml(a.image_key)}?width=200&height=200" alt="" loading="lazy" onerror="this.parentElement.innerHTML='<div class=rs-album-art-placeholder>&#9835;</div>'">`
+                : `<div class="rs-album-art-placeholder">&#9835;</div>`}</div>
             <div class="rs-album-title">${escapeHtml(a.album)}</div>
             <div class="rs-album-artist">${escapeHtml(a.artist)}</div>
             <span class="discovery-album-meta">${a.listen_count} keer geluisterd</span>
@@ -220,7 +222,9 @@ function _renderFavoritesInLibrary(albums) {
 
     const cards = albums.map(a => `
         <div class="rs-album-card">
-            <div class="rs-album-art"></div>
+            <div class="rs-album-art">${a.image_key
+                ? `<img src="/api/art/${escapeHtml(a.image_key)}?width=200&height=200" alt="" loading="lazy" onerror="this.parentElement.innerHTML='<div class=rs-album-art-placeholder>&#9835;</div>'">`
+                : `<div class="rs-album-art-placeholder">&#9835;</div>`}</div>
             <div class="rs-album-title">${escapeHtml(a.album)}</div>
             <div class="rs-album-artist">${escapeHtml(a.artist)}</div>
             <span class="discovery-album-meta">${a.artist_play_count} plays van deze artiest</span>

@@ -43,7 +43,8 @@ def get_favorites_in_library() -> list[dict]:
                 a.artist,
                 a.title    AS album,
                 a.item_key AS parent_item_key,
-                ap.play_count AS artist_play_count
+                ap.play_count AS artist_play_count,
+                a.image_key
             FROM albums a
             JOIN artist_plays ap ON LOWER(a.artist) = LOWER(ap.artist)
             WHERE a.title IS NOT NULL AND a.title != ''
@@ -53,7 +54,7 @@ def get_favorites_in_library() -> list[dict]:
                 ROW_NUMBER() OVER (PARTITION BY artist ORDER BY RANDOM()) AS rn
             FROM artist_albums
         )
-        SELECT artist, album, parent_item_key, artist_play_count
+        SELECT artist, album, parent_item_key, artist_play_count, image_key
         FROM ranked
         WHERE rn = 1
         ORDER BY artist_play_count DESC
@@ -83,7 +84,7 @@ def _build_album_index(conn) -> tuple[dict, dict]:
         artist_map: artist_lower → [row, ...]
     """
     rows = conn.execute(
-        "SELECT title, artist, item_key, LOWER(artist) AS al, LOWER(title) AS tl FROM albums"
+        "SELECT title, artist, item_key, image_key, LOWER(artist) AS al, LOWER(title) AS tl FROM albums"
     ).fetchall()
     exact_map: dict[tuple[str, str], object] = {}
     artist_map: dict[str, list] = defaultdict(list)
@@ -156,6 +157,7 @@ def get_lb_top_releases_in_library() -> list[dict]:
                     "album": match["title"],
                     "parent_item_key": match["item_key"],
                     "listen_count": listen_count,
+                    "image_key": match.get("image_key") or None,
                 })
                 if len(results) >= 15:
                     break

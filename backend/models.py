@@ -432,6 +432,8 @@ class RoonZoneInfo(BaseModel):
     outputs: list[str] = []
     is_grouped: bool = False
     now_playing: dict | None = None
+    volume: int | None = None
+    is_muted: bool = False
     volume: int | None = None       # 0-100 percent; None if zone has no volume control
     is_muted: bool = False
 
