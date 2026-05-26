@@ -184,11 +184,11 @@ function _render(zones) {
         <!-- Right: volume -->
         <div class="np-right-col">
             ${zones.length > 1 ? `<select id="np-zone-select" class="np-zone-select-col" aria-label="Select zone">${zones.map(z => `<option value="${escapeHtml(z.zone_id)}"${z.zone_id === _currentZoneId ? ' selected' : ''}>${escapeHtml(z.display_name || z.zone_id)}</option>`).join('')}</select>` : ''}
-            <button class="np-btn-col" style="opacity:.6;font-size:0.85rem" title="Volume" aria-label="Volume">
+            <button class="np-btn-col np-mute-btn" id="np-mute-btn" title="${zone.is_muted ? 'Unmute' : 'Mute'}" aria-label="${zone.is_muted ? 'Unmute' : 'Mute'}" style="opacity:${zone.is_muted ? '0.35' : '0.6'}">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/></svg>
             </button>
-            <div class="np-vol-track-col" id="np-vol-track" title="Volume">
-                <div class="np-vol-fill-col" style="width:80%"></div>
+            <div class="np-vol-track-col" id="np-vol-track" title="Volume" role="slider" aria-label="Volume" aria-valuenow="${zone.volume ?? 80}" aria-valuemin="0" aria-valuemax="100">
+                <div class="np-vol-fill-col" style="width:${zone.volume ?? 80}%"></div>
             </div>
         </div>
     `;
@@ -210,6 +210,43 @@ function _render(zones) {
     bar.querySelectorAll('.np-btn-col[data-action]').forEach(btn => {
         btn.addEventListener('click', () => _handleAction(btn.dataset.action, zone, np));
     });
+
+    // Mute toggle
+    bar.querySelector('#np-mute-btn')?.addEventListener('click', () => _setVolume(zone, 'toggle_mute', null));
+
+    // Volume slider — click or drag to set
+    const volTrack = bar.querySelector('#np-vol-track');
+    if (volTrack) {
+        const applyVol = (e) => {
+            const rect = volTrack.getBoundingClientRect();
+            const pct  = Math.round(Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100)));
+            volTrack.querySelector('.np-vol-fill-col').style.width = pct + '%';
+            _setVolume(zone, 'set', pct);
+        };
+        let dragging = false;
+        volTrack.addEventListener('mousedown', e => { dragging = true; applyVol(e); });
+        window.addEventListener('mousemove', e => { if (dragging) applyVol(e); });
+        window.addEventListener('mouseup',   () => { dragging = false; });
+        volTrack.addEventListener('touchstart', e => applyVol(e.touches[0]), { passive: true });
+        volTrack.addEventListener('touchmove',  e => applyVol(e.touches[0]), { passive: true });
+    }
+}
+
+// ── Volume ────────────────────────────────────────────────────────────────────
+let _volDebounce = null;
+async function _setVolume(zone, action, value) {
+    clearTimeout(_volDebounce);
+    _volDebounce = setTimeout(async () => {
+        try {
+            await apiCall('/roon/volume', {
+                method: 'POST',
+                body: JSON.stringify({ zone_name: zone.display_name, action, value }),
+            });
+            setTimeout(_poll, 300);
+        } catch (e) {
+            console.error('Volume error:', e);
+        }
+    }, 80);
 }
 
 // ── Transport ─────────────────────────────────────────────────────────────────

@@ -22,14 +22,22 @@ class RoonPlaybackMixin:
             zones_raw = self._api.zones or {}
             result = []
             for zone_id, zone in zones_raw.items():
-                outputs = [o.get("display_name", "") for o in zone.get("outputs", [])]
+                raw_outputs = zone.get("outputs", [])
+                outputs = [o.get("display_name", "") for o in raw_outputs]
                 state = zone.get("state", "stopped")
+                # Volume from first output (grouped zones share one fader)
+                vol_info = (raw_outputs[0].get("volume") or {}) if raw_outputs else {}
+                vol_value = vol_info.get("value")
+                vol_pct = int(round(vol_value)) if vol_value is not None else None
                 result.append(RoonZoneInfo(
                     zone_id=zone_id,
                     display_name=zone.get("display_name", zone_id),
                     state=state,
                     outputs=outputs,
                     is_grouped=len(outputs) > 1,
+                    now_playing=zone.get("now_playing"),
+                    volume=vol_pct,
+                    is_muted=bool(vol_info.get("is_muted", False)),
                 ))
             return result
         except Exception as e:
