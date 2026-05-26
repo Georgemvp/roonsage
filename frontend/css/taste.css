@@ -88,7 +88,7 @@
     align-items: center;
     gap: var(--spacing-sm);
     padding: var(--spacing-sm) 0;
-    border-bottom: 1px solid rgba(58,58,58,.5);
+    border-bottom: 1px solid var(--border);
 }
 .taste-hist-event:last-child { border-bottom: none; }
 .taste-hist-event--skipped { opacity: .6; }
