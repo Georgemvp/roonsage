@@ -39,6 +39,33 @@ function _destroyChart(key) {
     }
 }
 
+// ── Stat card population ─────────────────────────────────────────────────────
+function _populateStatCards(profile, stats) {
+    const set = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+    };
+
+    const totalHours = profile?.total_hours ?? stats?.total_hours ?? null;
+    if (totalHours != null) set('ts-hours', Math.round(totalHours).toLocaleString());
+
+    const uniqueTracks = profile?.unique_tracks ?? stats?.unique_tracks ?? null;
+    if (uniqueTracks != null) set('ts-tracks', uniqueTracks.toLocaleString());
+
+    const artistCount = profile?.unique_artists ?? stats?.unique_artists ?? null;
+    if (artistCount != null) set('ts-artists', artistCount.toLocaleString());
+
+    const peakHour = profile?.peak_hour ?? profile?.listening_patterns?.peak_hour ?? null;
+    if (peakHour != null) {
+        const h = peakHour;
+        const ampm = h >= 12 ? `${h > 12 ? h - 12 : h}:00` : `${h}:00`;
+        set('ts-peak', ampm);
+    }
+
+    const streak = profile?.day_streak ?? profile?.listening_patterns?.day_streak ?? null;
+    if (streak != null) set('ts-streak', streak);
+}
+
 // ── Public init ──────────────────────────────────────────────────────────────
 export async function initTasteView() {
     const view = document.getElementById('taste-view');
@@ -97,6 +124,7 @@ export async function initTasteView() {
             }
         }
 
+        _populateStatCards(profile, stats);
         _renderIntelBanner(profile, stats, lbStatus);
         _renderTasteStats(profile, stats);
         _renderHourlyBars(stats);

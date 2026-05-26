@@ -22,6 +22,7 @@ function _navHashIsActive(hash) {
         case 'taste':           return state.view === 'taste';
         case 'automations':     return state.view === 'automations';
         case 'settings':        return state.view === 'settings';
+        case 'enrichment':      return state.view === 'enrichment';
         default:                return false;
     }
 }

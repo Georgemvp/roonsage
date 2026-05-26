@@ -33,17 +33,18 @@ import { initTemplates }                  from './modules/templates.js';
 import { initSchedulerSection }           from './modules/scheduler.js';
 import { startActivityMonitor }           from './modules/activity.js';
 import { initPWA }                        from './modules/pwa.js';
+import { initEnrichmentView }             from './modules/enrichment.js';
 
 // =============================================================================
 // Theme & Variation Init
 // =============================================================================
 
 function initThemeToggle() {
-    let savedTheme = 'dark';
-    let savedVariation = 'viola';
+    let savedTheme = 'light';
+    let savedVariation = '';
     try {
-        savedTheme = localStorage.getItem('roonsage-theme') || 'dark';
-        savedVariation = localStorage.getItem('roonsage-variation') || 'viola';
+        savedTheme = localStorage.getItem('roonsage-theme') || 'light';
+        savedVariation = localStorage.getItem('roonsage-variation') || '';
     } catch (e) {}
     document.documentElement.setAttribute('data-theme', savedTheme);
     document.documentElement.setAttribute('data-variation', savedVariation);
@@ -70,7 +71,7 @@ export function setVariation(variation) {
 
 function _syncAppearanceUI() {
     const theme     = document.documentElement.getAttribute('data-theme') || 'dark';
-    const variation = document.documentElement.getAttribute('data-variation') || 'viola';
+    const variation = document.documentElement.getAttribute('data-variation') || '';
     const LABELS    = { viola: 'Viola', ember: 'Ember', slate: 'Slate' };
 
     document.querySelectorAll('[data-theme-opt]').forEach(btn =>
@@ -143,7 +144,48 @@ async function loadHomeHero() {
     }
 }
 
+async function loadRecentlyAdded() {
+    try {
+        const albumGrid = document.getElementById('home-album-grid');
+        const section = document.getElementById('home-recently-added');
+        if (!albumGrid || !section) return;
+
+        const history = await apiCall('/listening/history?days=90&limit=20').catch(() => null);
+        const events = Array.isArray(history) ? history : (history?.events || []);
+
+        // Deduplicate by album
+        const seen = new Set();
+        const albums = [];
+        for (const e of events) {
+            const key = `${e.album || ''}::${e.artist || ''}`;
+            if (!seen.has(key) && e.album) {
+                seen.add(key);
+                albums.push(e);
+                if (albums.length >= 6) break;
+            }
+        }
+
+        if (!albums.length) return;
+        section.style.display = '';
+
+        albumGrid.innerHTML = albums.map(a => `
+            <div class="rs-album-card">
+                <div class="rs-album-art">
+                    ${a.image_key
+                        ? `<img src="/api/art/${a.image_key}?width=200&height=200" alt="" loading="lazy" onerror="this.parentElement.innerHTML='<div class=rs-album-art-placeholder>&#9835;</div>'">`
+                        : `<div class="rs-album-art-placeholder">&#9835;</div>`}
+                </div>
+                <div class="rs-album-title" title="${(a.album || '').replace(/"/g, '&quot;')}">${a.album || 'Unknown Album'}</div>
+                <div class="rs-album-artist">${a.artist || ''}</div>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.warn('Recently added load failed:', e);
+    }
+}
+
 async function loadHomePreview() {
+    loadRecentlyAdded(); // fire-and-forget
     try {
         // Taste preview + snapshot
         let taste = await apiCall('/taste/profile').catch(() => null);
@@ -361,6 +403,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         initPlaylistsView();
     } else if (state.view === 'taste') {
         initTasteView();
+    } else if (state.view === 'enrichment') {
+        initEnrichmentView();
     }
 
     // Start Now Playing polling (persistent — runs on all views)

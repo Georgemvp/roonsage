@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-variation="viola">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -108,7 +108,7 @@
                         <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4.2a1 1 0 000 1l1 1a1 1 0 001 0l2.5-2.5a4 4 0 01-5.3 5.3L4.7 13.5a1.4 1.4 0 01-2-2l4.5-4.5A4 4 0 0110 4.2z"/></svg></span>
                         <span>Automations</span>
                     </button>
-                    <button class="rs-nav-item" data-nav="settings" data-nav-section="enrichment" aria-label="Enrichment">
+                    <button class="rs-nav-item" data-nav="enrichment" aria-label="Enrichment">
                         <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/></svg></span>
                         <span>Enrichment</span>
                     </button>
@@ -297,17 +297,17 @@
                         <div class="rs-home-hero" id="home-hero" style="display:none">
                             <div class="rs-home-hero-art" id="home-hero-art"></div>
                             <div class="rs-home-hero-content">
-                                <div class="rs-home-hero-label">Onlangs gespeeld</div>
+                                <div class="rs-home-hero-label">Recently played</div>
                                 <div class="rs-home-hero-title" id="home-hero-title">—</div>
                                 <div class="rs-home-hero-meta" id="home-hero-meta">—</div>
                                 <div class="rs-home-hero-actions">
                                     <button class="rs-quick-btn rs-quick-btn--primary" id="home-hero-play">
                                         <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                                        Speel nu
+                                        Play Now
                                     </button>
                                     <button class="rs-quick-btn" id="home-hero-queue">
                                         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg>
-                                        Aan wachtrij toevoegen
+                                        Add to Queue
                                     </button>
                                 </div>
                             </div>
@@ -315,8 +315,8 @@
 
                         <!-- Fallback header (shown when hero data missing) -->
                         <div id="home-fallback-header">
-                            <h1 class="rs-view-title" style="margin-bottom:6px">Welkom terug</h1>
-                            <p class="rs-view-sub">AI-gestuurde playlists, ontdekking en intelligentie voor je Roon bibliotheek</p>
+                            <h1 class="rs-view-title" style="margin-bottom:6px">Welcome back</h1>
+                            <p class="rs-view-sub">AI-powered playlists, discovery and intelligence for your Roon library</p>
                         </div>
 
                         <!-- Quick actions -->
@@ -338,6 +338,20 @@
                                 Ontdek
                             </button>
                         </div>
+                    </div>
+
+                    <!-- Recently Added -->
+                    <section class="rs-recently-added" id="home-recently-added" style="display:none">
+                        <div class="rs-section-header">
+                            <h3 class="rs-section-title">Recently Added</h3>
+                            <button class="rs-section-more" data-nav="playlists">More</button>
+                        </div>
+                        <div class="rs-album-grid" id="home-album-grid"></div>
+                    </section>
+
+                    <!-- All Features header -->
+                    <div class="rs-section-header">
+                        <h3 class="rs-section-title">All Features</h3>
                     </div>
 
                     <!-- 10-card Feature Grid -->
@@ -971,8 +985,37 @@
 
             <!-- My Taste View -->
             <div id="taste-view" class="view">
-                <h2 class="view-title">My Taste</h2>
-                <p id="taste-status" class="taste-status"></p>
+                <p class="rs-view-eyebrow">INTELLIGENCE</p>
+                <h2 class="rs-view-title">My Taste</h2>
+                <p class="rs-view-sub">A deep look at your listening habits, genre profile, and audio preferences.</p>
+                <!-- Stat cards -->
+                <div class="rs-taste-stats" id="taste-stat-cards">
+                    <div class="rs-stat-card">
+                        <div class="rs-stat-value" id="ts-hours">—</div>
+                        <div class="rs-stat-label">Hours played</div>
+                        <div class="rs-stat-sub">this year</div>
+                    </div>
+                    <div class="rs-stat-card">
+                        <div class="rs-stat-value" id="ts-tracks">—</div>
+                        <div class="rs-stat-label">Unique tracks</div>
+                        <div class="rs-stat-sub">in library</div>
+                    </div>
+                    <div class="rs-stat-card">
+                        <div class="rs-stat-value" id="ts-artists">—</div>
+                        <div class="rs-stat-label">Artists</div>
+                        <div class="rs-stat-sub">played</div>
+                    </div>
+                    <div class="rs-stat-card">
+                        <div class="rs-stat-value" id="ts-peak">—</div>
+                        <div class="rs-stat-label">Peak time</div>
+                        <div class="rs-stat-sub">most active</div>
+                    </div>
+                    <div class="rs-stat-card">
+                        <div class="rs-stat-value" id="ts-streak">—</div>
+                        <div class="rs-stat-label">Day streak</div>
+                        <div class="rs-stat-sub">consecutive</div>
+                    </div>
+                </div>
 
                 <!-- Intelligence Banner -->
                 <section class="taste-section taste-intel-banner">
@@ -1492,6 +1535,83 @@
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Enrichment View -->
+            <div id="enrichment-view" class="view">
+                <p class="rs-view-eyebrow">LIBRARY</p>
+                <h2 class="rs-view-title">Enrichment</h2>
+                <p class="rs-view-sub">Enrich your Roon library with metadata from MusicBrainz, Last.fm, AcoustID and Qobuz.</p>
+
+                <!-- Overall progress -->
+                <div class="rs-settings-card rs-enrich-overall">
+                    <div class="rs-enrich-overall-top">
+                        <div>
+                            <div class="rs-enrich-overall-label">Overall enrichment</div>
+                            <div class="rs-enrich-overall-bar-wrap">
+                                <div class="rs-enrich-overall-bar" id="enrich2-overall-bar"></div>
+                            </div>
+                            <div class="rs-enrich-overall-sub" id="enrich2-overall-sub">Loading...</div>
+                        </div>
+                        <div class="rs-enrich-pct" id="enrich2-overall-pct">—%</div>
+                        <button class="btn btn-primary" id="enrich2-run-btn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+                            Run Enrichment
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Source cards -->
+                <div class="rs-enrich-sources">
+                    <div class="rs-settings-card rs-enrich-source-card">
+                        <div class="rs-enrich-source-header">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e5700a" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+                            <span class="rs-enrich-source-name">MusicBrainz</span>
+                            <span class="rs-enrich-source-pct" id="enrich2-mb-pct">—%</span>
+                        </div>
+                        <div class="rs-enrich-source-bar-wrap"><div class="rs-enrich-source-bar rs-enrich-source-bar--orange" id="enrich2-mb-bar"></div></div>
+                        <p class="rs-enrich-source-desc">Canonical IDs, release dates, labels, ISRCs</p>
+                    </div>
+                    <div class="rs-settings-card rs-enrich-source-card">
+                        <div class="rs-enrich-source-header">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e5394a" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                            <span class="rs-enrich-source-name">Last.fm</span>
+                            <span class="rs-enrich-source-pct" id="enrich2-lf-pct">—%</span>
+                        </div>
+                        <div class="rs-enrich-source-bar-wrap"><div class="rs-enrich-source-bar rs-enrich-source-bar--red" id="enrich2-lf-bar"></div></div>
+                        <p class="rs-enrich-source-desc">Play counts, tags, similar artists, bios</p>
+                    </div>
+                    <div class="rs-settings-card rs-enrich-source-card">
+                        <div class="rs-enrich-source-header">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+                            <span class="rs-enrich-source-name">AcoustID</span>
+                            <span class="rs-enrich-source-pct" id="enrich2-acid-pct">—%</span>
+                        </div>
+                        <div class="rs-enrich-source-bar-wrap"><div class="rs-enrich-source-bar rs-enrich-source-bar--blue" id="enrich2-acid-bar"></div></div>
+                        <p class="rs-enrich-source-desc">Audio fingerprints for unidentified tracks</p>
+                    </div>
+                    <div class="rs-settings-card rs-enrich-source-card">
+                        <div class="rs-enrich-source-header">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                            <span class="rs-enrich-source-name">Qobuz</span>
+                            <span class="rs-enrich-source-pct" id="enrich2-qobuz-pct">—%</span>
+                        </div>
+                        <div class="rs-enrich-source-bar-wrap"><div class="rs-enrich-source-bar rs-enrich-source-bar--blue" id="enrich2-qobuz-bar"></div></div>
+                        <p class="rs-enrich-source-desc">Hi-res artwork, liner notes, credits</p>
+                    </div>
+                </div>
+
+                <!-- Missing metadata table -->
+                <div class="rs-settings-card">
+                    <div class="rs-settings-card-header" style="display:flex;justify-content:space-between;align-items:center">
+                        <h3 class="rs-settings-card-title">Tracks with Missing Metadata</h3>
+                        <span class="rs-enrich-missing-count" id="enrich2-missing-count"></span>
+                    </div>
+                    <div id="enrich2-missing-list" class="rs-enrich-missing-list">
+                        <p style="color:var(--text-muted);padding:16px">Loading...</p>
+                    </div>
+                </div>
+                <div id="enrich2-result" class="enrich-result" style="margin-top:12px"></div>
             </div>
 
             <!-- Settings View -->
