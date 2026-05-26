@@ -33,9 +33,9 @@ def conn():
     for i in range(10):
         for _ in range(i + 1):
             c.execute(
-                "INSERT INTO listening_history (item_key, title, artist, played_at)"
-                " VALUES (?,?,?,datetime('now'))",
-                (f"k{i}", f"Track {i}", f"Artist {i % 5}"),
+                "INSERT INTO listening_history (track_title, artist)"
+                " VALUES (?,?)",
+                (f"Track {i}", f"Artist {i % 5}"),
             )
     c.commit()
     return c

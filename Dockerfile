@@ -1,5 +1,5 @@
 # ── Stage 1: dependency builder ───────────────────────────────────────────────
-FROM python:3.12-slim AS builder
+FROM python:3.11-slim AS builder
 
 # build-essential: needed to compile hdbscan Cython extensions on aarch64
 # libsndfile1-dev: needed by soundfile/librosa wheel build
@@ -14,7 +14,7 @@ WORKDIR /build
 COPY requirements.in requirements-ml.txt ./
 
 # 1. Compile + install core deps (fast, no C extensions except scikit-learn)
-RUN uv pip compile requirements.in -o requirements-core.txt --python-version=3.12 \
+RUN uv pip compile requirements.in -o requirements-core.txt --python-version=3.11 \
     && uv pip install --target=/install --no-cache -r requirements-core.txt
 
 # 2. Install heavy ML deps with CPU torch wheel index (separate so Docker can
@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir setuptools \
         -r requirements-ml.txt
 
 # ── Stage 2: final image ───────────────────────────────────────────────────────
-FROM python:3.12-slim
+FROM python:3.11-slim
 
 ARG VERSION=dev
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -55,7 +55,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy pre-built packages from builder stage
-COPY --from=builder /install /usr/local/lib/python3.12/site-packages/
+COPY --from=builder /install /usr/local/lib/python3.11/site-packages/
 COPY --from=builder /install/bin/ /usr/local/bin/
 
 # Copy application source

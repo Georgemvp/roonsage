@@ -29,11 +29,15 @@ def get_sonic_fingerprint(
 
     cols = ", ".join(f"taf.{c}" for c in FEATURE_COLUMNS)
     where = " AND ".join(f"taf.{c} IS NOT NULL" for c in FEATURE_COLUMNS)
+    # listening_history has no item_key — join via normalised title+artist
     rows = conn.execute(
         f"""
-        SELECT taf.item_key, {cols}, COUNT(lh.item_key) AS play_count
+        SELECT taf.item_key, {cols}, COUNT(lh.id) AS play_count
         FROM track_audio_features taf
-        JOIN listening_history lh ON taf.item_key = lh.item_key
+        JOIN tracks t ON taf.item_key = t.item_key
+        JOIN listening_history lh
+             ON LOWER(lh.track_title) = LOWER(t.title)
+             AND LOWER(lh.artist) = LOWER(t.artist)
         WHERE {where}
         GROUP BY taf.item_key
         ORDER BY play_count DESC
@@ -94,10 +98,11 @@ def get_fingerprint_recommendations(
         FROM track_audio_features taf
         JOIN tracks t ON taf.item_key = t.item_key
         LEFT JOIN (
-            SELECT item_key, COUNT(*) AS cnt
+            SELECT LOWER(track_title) AS norm_title, LOWER(artist) AS norm_artist,
+                   COUNT(*) AS cnt
             FROM listening_history
-            GROUP BY item_key
-        ) pc ON taf.item_key = pc.item_key
+            GROUP BY LOWER(track_title), LOWER(artist)
+        ) pc ON LOWER(t.title) = pc.norm_title AND LOWER(t.artist) = pc.norm_artist
         WHERE {where}
         """
     ).fetchall()
