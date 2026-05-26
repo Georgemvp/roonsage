@@ -4,13 +4,11 @@ All tests use a temporary SQLite DB populated with minimal fixture data.
 """
 
 import json
-import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 import backend.db as _db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

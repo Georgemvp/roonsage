@@ -1,6 +1,5 @@
 """Tests for the notifications module — message builders, notifiers, and EventBus."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,7 +10,6 @@ from backend.notifications import (
     EventBus,
     EventType,
     GenericWebhookNotifier,
-    NotificationChannel,
     TelegramNotifier,
     _build_description,
     _build_discord_embed,
@@ -19,7 +17,6 @@ from backend.notifications import (
     _format_duration,
     configure_from_settings,
 )
-
 
 # ---------------------------------------------------------------------------
 # _format_duration

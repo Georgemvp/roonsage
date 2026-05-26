@@ -2,8 +2,6 @@
 
 from datetime import datetime
 
-import pytest
-
 from backend.scheduler import _parse_field, matches_cron
 
 

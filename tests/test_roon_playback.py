@@ -4,11 +4,6 @@ and the synthetic qobuz_search:: key detection in play_tracks."""
 import threading
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from backend.models import RoonResponse
-
-
 # ---------------------------------------------------------------------------
 # Minimal concrete class that satisfies the mixin's self.* references
 # ---------------------------------------------------------------------------
@@ -157,7 +152,7 @@ class TestPlayTracks:
         client._play_track_via_search = fake_search
 
         with patch.object(client, "_get_track_metadata_batch", return_value={}):
-            result = client.play_tracks("zone1", [key])
+            client.play_tracks("zone1", [key])
 
         assert len(search_calls) == 1
         zone, query, exp_title, exp_artist = search_calls[0]

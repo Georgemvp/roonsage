@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # _validate_track_selection
 # ---------------------------------------------------------------------------
@@ -112,8 +111,9 @@ class TestValidateTrackSelection:
 
 @pytest.fixture()
 def client():
-    from backend.main import app
     from fastapi.testclient import TestClient
+
+    from backend.main import app
     return TestClient(app, raise_server_exceptions=False)
 
 
