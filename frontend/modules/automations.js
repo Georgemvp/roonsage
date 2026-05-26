@@ -117,30 +117,30 @@ function _renderAutomations(list, container) {
     container.innerHTML = list.map(a => {
         const tCfg = _describeConfig(a.trigger_config);
         const aCfg = _describeConfig(a.action_config);
+        const lastRun = a.last_triggered
+            ? new Date(a.last_triggered).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' })
+            : 'never';
         return `
-        <div class="auto-card${a.enabled ? '' : ' auto-card--disabled'}" data-id="${a.id}">
-            <div class="auto-card-header">
-                <div class="auto-card-title">
-                    <span class="auto-card-name">${_esc(a.name)}</span>
+        <div class="rs-auto-row ${a.enabled ? '' : 'rs-auto-row--disabled'}" data-id="${a.id}">
+            <div class="rs-auto-content">
+                <div class="rs-auto-line">
+                    <span class="rs-auto-pill rs-auto-pill--when">Wanneer</span>
+                    <span class="rs-auto-text">${_esc(_triggerLabel(a.trigger_type))}${tCfg ? ' · ' + _esc(tCfg) : ''}</span>
+                </div>
+                <div class="rs-auto-line">
+                    <span class="rs-auto-pill rs-auto-pill--then">Dan</span>
+                    <span class="rs-auto-text rs-auto-then-text">${_esc(_actionLabel(a.action_type))}${aCfg ? ' · ' + _esc(aCfg) : ''}</span>
+                </div>
+                <div class="rs-auto-meta">
+                    ${a.run_count || 0} runs · last ${_esc(lastRun)}
                     ${_statusBadge(a.last_status)}
                 </div>
-                <div class="auto-card-controls">
-                    <button class="auto-toggle-btn rs-toggle ${a.enabled ? 'on' : ''}"
-                            data-id="${a.id}" title="${a.enabled ? 'Disable' : 'Enable'}">
-                        ${a.enabled ? 'On' : 'Off'}
-                    </button>
-                    <button class="auto-run-btn rs-btn rs-btn--secondary" data-id="${a.id}" title="Run now">▶</button>
-                    <button class="auto-delete-btn rs-btn rs-btn--danger" data-id="${a.id}" title="Delete">✕</button>
-                </div>
             </div>
-            <div class="auto-card-meta">
-                <span class="auto-meta-chip auto-meta-chip--trigger">⚡ ${_esc(_triggerLabel(a.trigger_type))}${tCfg ? ' · ' + _esc(tCfg) : ''}</span>
-                <span class="auto-meta-chip auto-meta-chip--action">▶ ${_esc(_actionLabel(a.action_type))}${aCfg ? ' · ' + _esc(aCfg) : ''}</span>
-            </div>
-            <div class="auto-card-footer">
-                <span>Runs: <strong>${a.run_count || 0}</strong></span>
-                <span>Last: <strong>${_fmt(a.last_triggered)}</strong></span>
-                <span>Cooldown: <strong>${a.cooldown_seconds}s</strong></span>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+                <button class="auto-run-btn rs-btn rs-btn--secondary" data-id="${a.id}" title="Run now" style="font-size:0.8rem;padding:4px 8px">▶</button>
+                <button class="auto-delete-btn rs-btn rs-btn--danger" data-id="${a.id}" title="Delete" style="font-size:0.8rem;padding:4px 8px">✕</button>
+                <button class="rs-auto-toggle auto-toggle-btn ${a.enabled ? 'on' : ''}"
+                        data-id="${a.id}" aria-label="${a.enabled ? 'Disable' : 'Enable'} automation"></button>
             </div>
         </div>`;
     }).join('');

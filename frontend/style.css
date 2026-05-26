@@ -9183,3 +9183,98 @@ body.no-scroll .pwa-toast {
     color: var(--text-muted);
     margin-bottom: 14px;
 }
+
+/* ── Automations: card-styled rows ───────────────────────────────────── */
+.rs-auto-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    margin-bottom: 8px;
+    transition: border-color 140ms, opacity 200ms;
+}
+.rs-auto-row:hover {
+    border-color: var(--border-accent);
+}
+.rs-auto-row--disabled {
+    opacity: 0.55;
+}
+.rs-auto-content {
+    flex: 1;
+    min-width: 0;
+}
+.rs-auto-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+.rs-auto-line:last-of-type {
+    margin-bottom: 6px;
+}
+.rs-auto-pill {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+.rs-auto-pill--when {
+    background: var(--accent-dim);
+    color: var(--accent);
+}
+.rs-auto-pill--then {
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+}
+.rs-auto-text {
+    font-size: 0.84rem;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+.rs-auto-then-text {
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+.rs-auto-meta {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+/* Toggle switch */
+.rs-auto-toggle {
+    width: 38px;
+    height: 22px;
+    border-radius: 999px;
+    border: none;
+    background: var(--bg-hover);
+    cursor: pointer;
+    position: relative;
+    transition: background 180ms;
+    padding: 0;
+    flex-shrink: 0;
+}
+.rs-auto-toggle.on {
+    background: var(--accent);
+}
+.rs-auto-toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    transition: left 180ms;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+.rs-auto-toggle.on::after {
+    left: 18px;
+}
