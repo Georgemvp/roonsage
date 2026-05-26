@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.dependencies import ROONSAGE_PASSWORD, limiter
+from backend.exceptions import RoonSageError
 from backend.routes import config_routes, generate, library, recommend, results, roon, setup
 from backend.routes.audio_features import router as audio_features_router
 from backend.routes.automations import router as automations_router
@@ -88,6 +89,16 @@ from slowapi.errors import RateLimitExceeded  # noqa: E402, PLC0415
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(RoonSageError)
+async def roonsage_exception_handler(request: Request, exc: RoonSageError):
+    """Render any RoonSageError as a structured JSON response."""
+    logger.warning("RoonSageError: %s (%s)", exc.message, type(exc).__name__)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.message, "type": type(exc).__name__},
+    )
 
 # =============================================================================
 # CORS middleware — origins controlled via CORS_ORIGINS env var
