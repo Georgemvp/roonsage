@@ -5,6 +5,7 @@ needs_resync(), and the get_connection() context manager used by all
 other cache modules.
 """
 
+import asyncio
 import logging
 import sqlite3
 import threading
@@ -694,6 +695,28 @@ def clear_migration_flag() -> None:
 # ---------------------------------------------------------------------------
 # Context manager
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Async write serialization
+# ---------------------------------------------------------------------------
+
+# Module-level lock to serialize writes from async callers across the process.
+# SQLite WAL allows concurrent readers + a single writer; this lock keeps the
+# event loop from issuing overlapping writes that would otherwise spin on the
+# busy_timeout retry loop.
+_write_lock = asyncio.Lock()
+
+
+async def execute_write(query: str, params: tuple | list | None = None) -> None:
+    """Run a single write statement under the module-level async write lock."""
+    async with _write_lock:
+        conn = ensure_db_initialized()
+        try:
+            conn.execute(query, params or ())
+            conn.commit()
+        finally:
+            conn.close()
 
 
 @contextmanager
