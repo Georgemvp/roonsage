@@ -9278,3 +9278,38 @@ body.no-scroll .pwa-toast {
 .rs-auto-toggle.on::after {
     left: 18px;
 }
+
+/* ── DJ Set: hide empty result card before a set is built ────────────── */
+#dj-result {
+    min-height: 0;
+}
+#dj-result:empty,
+#dj-result:blank {
+    display: none;
+    padding: 0;
+    border: none;
+    margin: 0;
+}
+#dj-result:not(:empty) {
+    display: block;
+}
+
+/* ── DJ Set builder: 2-column with Camelot wheel on right ───────────── */
+#dj-builder-pane {
+    display: grid;
+    grid-template-columns: 1fr 220px;
+    gap: 16px;
+    align-items: start;
+}
+.dj-camelot-card {
+    position: sticky;
+    top: 20px;
+}
+@media (max-width: 900px) {
+    #dj-builder-pane {
+        grid-template-columns: 1fr;
+    }
+    .dj-camelot-card {
+        position: static;
+    }
+}

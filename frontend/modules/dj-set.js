@@ -280,6 +280,8 @@ function _openArcModal() {
 function _renderTracks(tracks, curve) {
     const target = document.getElementById('dj-result');
     if (!target) return;
+    // Show result area now that we have content
+    target.style.display = '';
     if (!tracks?.length) {
         target.innerHTML = '<p class="auto-loading">Geen tracks gevonden. Heb je AUDIO_FEATURES_ENABLED aan en is de analyse al klaar?</p>';
         return;
@@ -619,6 +621,12 @@ function _renderCurveGrid() {
 
 export async function initDJSetView() {
     if (!_initialized) {
+        // Hide result area until a set is built
+        const resultEl = document.getElementById('dj-result');
+        if (resultEl && !resultEl.textContent.trim()) {
+            resultEl.style.display = 'none';
+        }
+
         document.getElementById('dj-form')?.addEventListener('submit', _build);
         document.getElementById('dj-play-btn')?.addEventListener('click', _openZoneModal);
         document.getElementById('dj-save-btn')?.addEventListener('click', () => _save());
