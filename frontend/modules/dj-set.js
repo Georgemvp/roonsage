@@ -300,6 +300,10 @@ function _renderTracks(tracks, curve) {
         `;
     }).join('');
     target.innerHTML = rows;
+
+    // Update Camelot wheel with the keys used in this set
+    const keys = (tracks || []).map(t => t.camelot_key || t.key).filter(Boolean);
+    renderCamelotWheel('dj-camelot-wheel', [...new Set(keys)]);
 }
 
 function _renderCurve(curve) {

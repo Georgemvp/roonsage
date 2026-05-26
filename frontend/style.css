@@ -8385,9 +8385,6 @@ body.no-scroll .pwa-toast {
 .rs-hero-title { font-size:2rem; font-weight:800; letter-spacing:-0.03em; line-height:1.1; margin-bottom:6px; color:#fff; }
 .rs-hero-meta { font-size:0.85rem; color:rgba(255,255,255,0.45); margin-bottom:18px; }
 
-/* ── DJ Camelot tooltip ── */
-.dj-tooltip-wrap:hover .dj-tooltip-box { opacity: 1 !important; pointer-events: auto !important; }
-
 /* ── Settings segmented theme toggle ── */
 .theme-segmented-btn {
     background: transparent;
