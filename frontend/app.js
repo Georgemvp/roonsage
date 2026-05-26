@@ -108,6 +108,41 @@ export function updateSidebarZone(zoneName, isActive) {
 // Home Preview — live data for feature cards and taste snapshot
 // =============================================================================
 
+// Populate the home hero banner with the most recently played track/album
+async function loadHomeHero() {
+    try {
+        const data = await apiCall('/listening/history?days=30&limit=1').catch(() => null);
+        const events = Array.isArray(data) ? data : (data?.events || []);
+        const event = events[0];
+
+        const hero = document.getElementById('home-hero');
+        const fallback = document.getElementById('home-fallback-header');
+        if (!event || !hero) {
+            if (fallback) fallback.style.display = '';
+            return;
+        }
+
+        // Show hero, hide fallback
+        hero.style.display = 'flex';
+        if (fallback) fallback.style.display = 'none';
+
+        document.getElementById('home-hero-title').textContent =
+            event.album || event.title || '—';
+        document.getElementById('home-hero-meta').textContent =
+            [event.artist, event.year, event.genre].filter(Boolean).join(' · ') || '—';
+
+        // Album art
+        const artEl = document.getElementById('home-hero-art');
+        if (artEl && event.image_key) {
+            artEl.innerHTML = `<img src="/api/art/${event.image_key}?width=300&height=300" alt="" onerror="this.parentElement.innerHTML=''">`;
+        }
+    } catch (e) {
+        console.warn('Hero load failed:', e);
+        const fallback = document.getElementById('home-fallback-header');
+        if (fallback) fallback.style.display = '';
+    }
+}
+
 async function loadHomePreview() {
     try {
         // Taste preview + snapshot
@@ -321,6 +356,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else if (state.view === 'home') {
         renderHistoryFeed();
         loadHomePreview(); // fire-and-forget; populates feature card previews
+        loadHomeHero();
     } else if (state.view === 'playlists') {
         initPlaylistsView();
     } else if (state.view === 'taste') {

@@ -293,8 +293,51 @@
                 <div class="home-content home-content--loading">
                     <!-- View header -->
                     <div id="home-dashboard" class="home-dashboard">
-                        <h1 class="rs-view-title" style="margin-bottom:6px">What do you want to listen to?</h1>
-                        <p class="rs-view-sub">AI-powered playlists, discovery, and intelligence for your Roon library</p>
+                        <!-- Hero banner: recently played -->
+                        <div class="rs-home-hero" id="home-hero" style="display:none">
+                            <div class="rs-home-hero-art" id="home-hero-art"></div>
+                            <div class="rs-home-hero-content">
+                                <div class="rs-home-hero-label">Onlangs gespeeld</div>
+                                <div class="rs-home-hero-title" id="home-hero-title">—</div>
+                                <div class="rs-home-hero-meta" id="home-hero-meta">—</div>
+                                <div class="rs-home-hero-actions">
+                                    <button class="rs-quick-btn rs-quick-btn--primary" id="home-hero-play">
+                                        <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                        Speel nu
+                                    </button>
+                                    <button class="rs-quick-btn" id="home-hero-queue">
+                                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg>
+                                        Aan wachtrij toevoegen
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Fallback header (shown when hero data missing) -->
+                        <div id="home-fallback-header">
+                            <h1 class="rs-view-title" style="margin-bottom:6px">Welkom terug</h1>
+                            <p class="rs-view-sub">AI-gestuurde playlists, ontdekking en intelligentie voor je Roon bibliotheek</p>
+                        </div>
+
+                        <!-- Quick actions -->
+                        <div class="rs-quick-actions">
+                            <button class="rs-quick-btn rs-quick-btn--primary" data-nav="playlist-prompt">
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4 4 0 01-3-4 4 4 0 01-3 4"/><path d="M17.6 6.5A3 3 0 1012 5a3 3 0 10-5.6 1.5"/></svg>
+                                Genereer Playlist
+                            </button>
+                            <button class="rs-quick-btn" data-nav="playlist-seed">
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a7 7 0 01-7-7c0-2 1-3.9 3-5.5s3.5-4 4-6.5c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a7 7 0 01-7 7z"/></svg>
+                                Vanuit een nummer
+                            </button>
+                            <button class="rs-quick-btn" data-nav="dj-set">
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="18" r="3"/><circle cx="16" cy="16" r="3"/><polyline points="11 18 11 5 19 3 19 16"/></svg>
+                                DJ Set
+                            </button>
+                            <button class="rs-quick-btn" data-nav="discovery">
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
+                                Ontdek
+                            </button>
+                        </div>
                     </div>
 
                     <!-- 10-card Feature Grid -->

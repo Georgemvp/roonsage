@@ -8875,3 +8875,106 @@ body.no-scroll .pwa-toast {
     border-width: 3px;
     border-top-color: var(--accent);
 }
+
+/* ── Home hero banner ─────────────────────────────────────────────────── */
+.rs-home-hero {
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
+    border-radius: 14px;
+    padding: 32px;
+    margin-bottom: 24px;
+    min-height: 200px;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(140deg, var(--bg-elevated) 0%, var(--bg-primary) 75%);
+}
+.rs-home-hero-art {
+    width: 148px;
+    height: 148px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+    box-shadow: 0 14px 40px rgba(0,0,0,0.45);
+    z-index: 1;
+}
+.rs-home-hero-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.rs-home-hero-content {
+    flex: 1;
+    min-width: 0;
+    z-index: 1;
+}
+.rs-home-hero-label {
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+.rs-home-hero-title {
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+}
+.rs-home-hero-meta {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-bottom: 18px;
+}
+.rs-home-hero-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+/* Quick action pills */
+.rs-quick-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 36px;
+}
+.rs-quick-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 18px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.835rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 140ms;
+}
+.rs-quick-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-dim);
+}
+.rs-quick-btn--primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+}
+.rs-quick-btn--primary:hover {
+    background: var(--accent-bright);
+    border-color: var(--accent-bright);
+    color: #fff;
+}
+.rs-quick-btn svg {
+    display: block;
+}
