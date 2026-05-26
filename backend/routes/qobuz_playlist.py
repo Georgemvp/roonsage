@@ -4,11 +4,11 @@ import asyncio
 import datetime
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from backend.config import get_qobuz_config
-from backend.dependencies import check_rate_limit
+from backend.dependencies import limiter
 from backend.models import (
     PrepareForArcRequest,
     PrepareForArcResponse,
@@ -164,8 +164,9 @@ async def validate_qobuz_credentials(req: ValidateQobuzRequest):
 # =============================================================================
 
 
-@router.post("/api/qobuz/favorite/add", dependencies=[Depends(check_rate_limit)])
-async def add_qobuz_favorite(req: QobuzFavoriteRequest):
+@router.post("/api/qobuz/favorite/add")
+@limiter.limit("30/hour")
+async def add_qobuz_favorite(request: Request, req: QobuzFavoriteRequest):
     """Add tracks, albums, or artists to Qobuz favorites.
 
     Body: {"type": "track"|"album"|"artist", "ids": ["123", "456"]}
@@ -181,8 +182,9 @@ async def add_qobuz_favorite(req: QobuzFavoriteRequest):
         raise HTTPException(status_code=500, detail=f"Qobuz API error: {exc}") from exc
 
 
-@router.post("/api/qobuz/favorite/remove", dependencies=[Depends(check_rate_limit)])
-async def remove_qobuz_favorite(req: QobuzFavoriteRequest):
+@router.post("/api/qobuz/favorite/remove")
+@limiter.limit("30/hour")
+async def remove_qobuz_favorite(request: Request, req: QobuzFavoriteRequest):
     """Remove tracks, albums, or artists from Qobuz favorites.
 
     Body: {"type": "track"|"album"|"artist", "ids": ["123", "456"]}

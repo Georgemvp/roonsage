@@ -13,10 +13,12 @@ GET  /api/audio-features/{item_key}     fetch the stored features for one track
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
+
+if TYPE_CHECKING:
+    from pathlib import Path
 from pydantic import BaseModel
 
 from backend.db import get_db_connection
@@ -90,11 +92,13 @@ class TrackAudioFeatures(BaseModel):
 
 
 def _enabled() -> bool:
-    return os.environ.get("AUDIO_FEATURES_ENABLED", "").lower() in ("1", "true", "yes")
+    from backend.config import get_audio_features_enabled  # noqa: PLC0415
+    return get_audio_features_enabled()
 
 
 def _music_root() -> Path:
-    return Path(os.environ.get("MUSIC_LIBRARY_PATH", "/music"))
+    from backend.config import get_music_library_path  # noqa: PLC0415
+    return get_music_library_path()
 
 
 @router.get("/status", response_model=AudioFeaturesStatusResponse)

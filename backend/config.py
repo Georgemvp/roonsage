@@ -439,6 +439,72 @@ def save_notifications_config(updates: dict[str, Any]) -> None:
         save_user_config({"notifications": notif_updates})
 
 
+# =============================================================================
+# Runtime settings (env-only — read via these accessors, never os.environ
+# directly in the rest of the codebase).
+# =============================================================================
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    return raw.lower() in ("1", "true", "yes", "on")
+
+
+def get_roonsage_password() -> str | None:
+    """HTTP Basic Auth password (None = auth disabled)."""
+    return os.environ.get("ROONSAGE_PASSWORD") or None
+
+
+def get_cors_origins() -> list[str]:
+    """Allowed CORS origins. Defaults to the local app URL only."""
+    return [
+        o.strip()
+        for o in os.environ.get("CORS_ORIGINS", "http://localhost:5765").split(",")
+        if o.strip()
+    ]
+
+
+def get_watchlist_scan_interval_seconds() -> int:
+    """Interval between watchlist scans (env: WATCHLIST_SCAN_INTERVAL_HOURS)."""
+    return int(os.environ.get("WATCHLIST_SCAN_INTERVAL_HOURS", "12")) * 3600
+
+
+def get_audio_features_enabled() -> bool:
+    """True when the audio-features worker + DJ-set endpoints should run."""
+    return _env_bool("AUDIO_FEATURES_ENABLED", False)
+
+
+def get_audio_features_full() -> bool:
+    """True for full Spotify-style feature vector, False for BPM + key only."""
+    raw = os.environ.get("AUDIO_FEATURES_FULL", "true").lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def get_music_library_path() -> Path:
+    """Filesystem root for audio analysis."""
+    return Path(os.environ.get("MUSIC_LIBRARY_PATH", "/music"))
+
+
+def get_music_path_map() -> tuple[str, str]:
+    """(src, dst) path remap from Roon-reported paths to container paths."""
+    return (
+        os.environ.get("MUSIC_PATH_MAP_FROM", ""),
+        os.environ.get("MUSIC_PATH_MAP_TO", ""),
+    )
+
+
+def get_enrichment_skip_mb() -> bool:
+    """True = skip MusicBrainz, use Last.fm only (~50× speed)."""
+    return _env_bool("ENRICHMENT_SKIP_MB", False)
+
+
+def is_llm_provider_from_env() -> bool:
+    """True when LLM_PROVIDER is set as an environment variable."""
+    return os.environ.get("LLM_PROVIDER") is not None
+
+
 def refresh_config(config_path: Path | None = None) -> AppConfig:
     """Reload configuration from file and environment."""
     global _config

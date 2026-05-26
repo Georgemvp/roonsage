@@ -1,14 +1,14 @@
 """Shared dependency helpers for FastAPI route modules."""
 
-import os
-import time
-from collections import defaultdict
-
-from fastapi import HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from backend.config import get_lastfm_config, get_listenbrainz_config, get_qobuz_config
+from backend.config import (
+    get_lastfm_config,
+    get_listenbrainz_config,
+    get_qobuz_config,
+    is_llm_provider_from_env,
+)
 from backend.llm_client import (
     get_max_albums_for_model,
     get_max_tracks_for_model,
@@ -18,40 +18,10 @@ from backend.models import ConfigResponse
 from backend.version import get_version
 
 # =============================================================================
-# Optional HTTP Basic Auth
-# =============================================================================
-
-# Set ROONSAGE_PASSWORD to enable basic auth on all endpoints.
-# Leave unset (default) for backward-compatible open access.
-ROONSAGE_PASSWORD: str | None = os.environ.get("ROONSAGE_PASSWORD") or None
-
-# =============================================================================
 # slowapi Limiter  (attached to app.state.limiter in main.py)
 # =============================================================================
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
-
-# =============================================================================
-# In-memory rate limiter for LLM endpoints (legacy — kept as belt-and-suspenders)
-# =============================================================================
-
-_rate_limits: dict[str, list[float]] = defaultdict(list)
-_RATE_WINDOW = 3600  # seconds (1 hour)
-_RATE_MAX = 30       # max LLM generations per IP per window
-
-
-def check_rate_limit(request: Request) -> None:
-    """FastAPI dependency: enforce per-IP rate limit for LLM endpoints."""
-    ip = request.client.host if request.client else "unknown"
-    now = time.time()
-    # Evict timestamps outside the current window
-    _rate_limits[ip] = [t for t in _rate_limits[ip] if now - t < _RATE_WINDOW]
-    if len(_rate_limits[ip]) >= _RATE_MAX:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded. Try again later.",
-        )
-    _rate_limits[ip].append(now)
 
 
 def _is_llm_configured(config) -> bool:
@@ -100,7 +70,7 @@ def _build_config_response(config, roon_client) -> ConfigResponse:
         custom_url=config.llm.custom_url,
         custom_context_window=config.llm.custom_context_window,
         is_local_provider=is_local,
-        provider_from_env=os.environ.get("LLM_PROVIDER") is not None,
+        provider_from_env=is_llm_provider_from_env(),
         qobuz_app_id=qobuz_cfg.get("app_id", ""),
         qobuz_email=qobuz_cfg.get("email", ""),
         qobuz_password_set=bool(qobuz_cfg.get("password", "")),

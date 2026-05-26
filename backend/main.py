@@ -3,7 +3,6 @@
 import base64
 import json as _json
 import logging
-import os
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,7 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from backend.dependencies import ROONSAGE_PASSWORD, limiter
+from backend.config import get_cors_origins, get_roonsage_password
+from backend.dependencies import limiter
 from backend.exceptions import RoonSageError
 from backend.routes import config_routes, generate, library, recommend, results, roon, setup
 from backend.routes.audio_features import router as audio_features_router
@@ -106,7 +106,7 @@ async def roonsage_exception_handler(request: Request, exc: RoonSageError):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("CORS_ORIGINS", "http://localhost:5765").split(","),
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -136,7 +136,8 @@ _AUTH_EXEMPT_PREFIX = "/api/art/"
 @app.middleware("http")
 async def optional_basic_auth(request: Request, call_next):
     """Enforce HTTP Basic Auth when ROONSAGE_PASSWORD is configured."""
-    if not ROONSAGE_PASSWORD:
+    expected_password = get_roonsage_password()
+    if not expected_password:
         return await call_next(request)
 
     path = request.url.path
@@ -161,7 +162,7 @@ async def optional_basic_auth(request: Request, call_next):
             content={"detail": "Invalid credentials"},
         )
 
-    if not secrets.compare_digest(password.encode(), ROONSAGE_PASSWORD.encode()):
+    if not secrets.compare_digest(password.encode(), expected_password.encode()):
         return JSONResponse(
             status_code=401,
             headers={"WWW-Authenticate": 'Basic realm="RoonSage"'},

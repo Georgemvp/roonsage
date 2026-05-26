@@ -202,8 +202,8 @@ def resolve_paths_for_tracks(
         ``{"scanned": N, "matched": M, "unresolved": U}`` counts.
     """
     if music_root is None:
-        env_path = os.environ.get("MUSIC_LIBRARY_PATH", "/music")
-        music_root = Path(env_path)
+        from backend.config import get_music_library_path  # noqa: PLC0415
+        music_root = get_music_library_path()
 
     if not music_root.exists():
         logger.info(
@@ -331,8 +331,8 @@ def apply_path_mapping(roon_path: str) -> str:
     future iteration consumes Roon's reported path directly this helper
     handles the host-vs-container split.
     """
-    src = os.environ.get("MUSIC_PATH_MAP_FROM", "")
-    dst = os.environ.get("MUSIC_PATH_MAP_TO", "")
+    from backend.config import get_music_path_map  # noqa: PLC0415
+    src, dst = get_music_path_map()
     if not src or not dst or not roon_path:
         return roon_path
     if roon_path.startswith(src):

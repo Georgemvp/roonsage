@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -234,7 +233,8 @@ async def start_background_tasks(app: FastAPI) -> None:
         logger.info("Last.fm background sync scheduled (every 6 hours)")
 
     # Watchlist background scan (interval configurable via env var)
-    _watchlist_interval = int(os.environ.get("WATCHLIST_SCAN_INTERVAL_HOURS", "12")) * 3600
+    from backend.config import get_watchlist_scan_interval_seconds  # noqa: PLC0415
+    _watchlist_interval = get_watchlist_scan_interval_seconds()
 
     async def _watchlist_scan_loop() -> None:
         from backend.watchlist import scan_all_watched  # noqa: PLC0415
@@ -270,10 +270,12 @@ async def start_background_tasks(app: FastAPI) -> None:
     logger.info("Metadata enrichment worker started")
 
     # Audio features worker (BPM / key / energy) — opt-in via env var.
-    if os.environ.get("AUDIO_FEATURES_ENABLED", "").lower() in ("1", "true", "yes"):
+    from backend.config import (  # noqa: PLC0415
+        get_audio_features_enabled,
+        get_music_library_path,
+    )
+    if get_audio_features_enabled():
         try:
-            from pathlib import Path  # noqa: PLC0415
-
             from backend.audio_features.path_resolver import (
                 resolve_paths_for_tracks,  # noqa: PLC0415
             )
@@ -281,7 +283,7 @@ async def start_background_tasks(app: FastAPI) -> None:
                 get_features_worker,
                 populate_audio_features_queue,
             )
-            music_root = Path(os.environ.get("MUSIC_LIBRARY_PATH", "/music"))
+            music_root = get_music_library_path()
 
             async def _audio_features_bootstrap() -> None:
                 """Resolve filesystem paths + populate queue on first boot.

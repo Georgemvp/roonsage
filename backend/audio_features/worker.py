@@ -35,9 +35,9 @@ CONCURRENCY = 4
 
 # Set AUDIO_FEATURES_FULL=false to compute only BPM + key (fase 1 mode).
 # True (default) computes the full Spotify-style feature vector.
-AUDIO_FEATURES_FULL: bool = os.getenv("AUDIO_FEATURES_FULL", "true").lower() not in (
-    "0", "false", "no",
-)
+from backend.config import get_audio_features_full  # noqa: E402
+
+AUDIO_FEATURES_FULL: bool = get_audio_features_full()
 
 
 # ---------------------------------------------------------------------------

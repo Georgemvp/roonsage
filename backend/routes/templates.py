@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
-from backend.dependencies import check_rate_limit
+from backend.dependencies import limiter
 from backend.generator import generate_playlist_stream
 from backend.llm_client import get_llm_client
 from backend.roon_client import get_roon_client
@@ -147,8 +147,10 @@ async def delete_template(template_id: str) -> None:
         raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
 
 
-@router.post("/{template_id}/generate", dependencies=[Depends(check_rate_limit)])
+@router.post("/{template_id}/generate")
+@limiter.limit("30/hour")
 async def generate_from_template(
+    request: Request,
     template_id: str,
     body: GenerateFromTemplateRequest | None = None,
 ) -> StreamingResponse:

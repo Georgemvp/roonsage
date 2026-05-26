@@ -8,12 +8,12 @@ import threading
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from starlette.responses import StreamingResponse
 
 from backend import library_cache
 from backend.config import get_config
-from backend.dependencies import check_rate_limit
+from backend.dependencies import limiter
 from backend.llm_client import TOKENS_PER_ALBUM, estimate_cost_for_model, get_llm_client
 from backend.models import (
     AlbumCandidate,
@@ -188,8 +188,11 @@ async def recommend_analyze_prompt(request: AnalyzePromptFiltersRequest) -> Anal
         )
 
 
-@router.post("/questions", response_model=RecommendQuestionsResponse, dependencies=[Depends(check_rate_limit)])
-async def recommend_questions(request: RecommendQuestionsRequest) -> RecommendQuestionsResponse:
+@router.post("/questions", response_model=RecommendQuestionsResponse)
+@limiter.limit("30/hour")
+async def recommend_questions(
+    raw_request: Request, request: RecommendQuestionsRequest
+) -> RecommendQuestionsResponse:
     """Generate clarifying questions for album recommendation."""
     pipeline = _get_pipeline()
     if not pipeline:
@@ -262,8 +265,9 @@ async def recommend_switch_mode(request: RecommendSwitchModeRequest) -> Recommen
     return RecommendSwitchModeResponse(session_id=new_session_id)
 
 
-@router.post("/generate", dependencies=[Depends(check_rate_limit)])
-async def recommend_generate(request: RecommendGenerateRequest, raw_request: Request) -> StreamingResponse:
+@router.post("/generate")
+@limiter.limit("30/hour")
+async def recommend_generate(raw_request: Request, request: RecommendGenerateRequest) -> StreamingResponse:
     """Generate album recommendations with SSE progress streaming."""
     pipeline = _get_pipeline()
     if not pipeline:

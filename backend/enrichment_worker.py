@@ -25,7 +25,6 @@ import asyncio
 import contextlib
 import json
 import logging
-import os
 import sqlite3
 from datetime import UTC, datetime
 
@@ -43,7 +42,9 @@ CONCURRENCY = 10          # Max items processed concurrently within a batch
 # Set ENRICHMENT_SKIP_MB=true to skip MusicBrainz entirely and use only Last.fm.
 # Last.fm allows 5 req/s (vs MB's 1 req/s), so this reduces a 68k-track library
 # from ~36 hours to under an hour. MBID and release-date backfill are skipped.
-ENRICHMENT_SKIP_MB: bool = os.getenv("ENRICHMENT_SKIP_MB", "").lower() in ("1", "true", "yes")
+from backend.config import get_enrichment_skip_mb  # noqa: E402
+
+ENRICHMENT_SKIP_MB: bool = get_enrichment_skip_mb()
 
 # Last.fm rate: 5 req/s
 _lf_semaphore = asyncio.Semaphore(5)
