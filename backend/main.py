@@ -213,6 +213,24 @@ async def js_no_cache(request: Request, call_next):
 
 
 # =============================================================================
+# Long-cache headers for versioned static assets (CSS / SVG / icons)
+# =============================================================================
+# JS modules use no-cache (above) because ES module URLs aren't version-busted
+# by index.html. CSS + SVG assets are loaded with ?v={version} cache-busters
+# in serve_index, so it's safe to send immutable headers and cut roundtrips.
+
+@app.middleware("http")
+async def static_asset_cache(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/static/") and (
+        path.endswith(".css") or path.endswith(".svg")
+    ) and "Cache-Control" not in response.headers:
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
+
+
+# =============================================================================
 # Static File Serving
 # =============================================================================
 
