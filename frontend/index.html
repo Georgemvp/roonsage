@@ -1665,21 +1665,50 @@
             <div id="music-map-view" class="view">
                 <p class="rs-view-eyebrow">DISCOVER</p>
                 <h2 class="rs-view-title">Music Map</h2>
-                <p class="rs-view-sub">Every analyzed track plotted by sonic similarity. Click a dot to play it. Pan with drag, zoom with the wheel.</p>
+                <p class="rs-view-sub">Een 2D-kaart van je hele bibliotheek, gegroepeerd op sonische gelijkenis. Tracks die hetzelfde klinken liggen dicht bij elkaar.</p>
+
+                <details class="music-map-help" open>
+                    <summary>Hoe werkt deze kaart?</summary>
+                    <div class="music-map-help-body">
+                        <div class="music-map-help-item">
+                            <span class="music-map-help-num">1</span>
+                            <div>
+                                <strong>Elke stip is één track.</strong> De positie komt uit BPM, energie, danceability, valence, instrumentalness en spectrale kenmerken — samengeperst tot 2D met UMAP. Tracks dichtbij elkaar klinken sonisch verwant, ook al verschillen ze van genre.
+                            </div>
+                        </div>
+                        <div class="music-map-help-item">
+                            <span class="music-map-help-num">2</span>
+                            <div>
+                                <strong>Kleur = automatisch ontdekte groep.</strong> HDBSCAN heeft sonische clusters gevonden (of, in de Genre-modus, de primaire genre van de track). Grijze stippen zijn outliers — tracks die nergens echt bij passen, vaak juist eigenzinnig en interessant.
+                            </div>
+                        </div>
+                        <div class="music-map-help-item">
+                            <span class="music-map-help-num">3</span>
+                            <div>
+                                <strong>Wat kun je doen?</strong> Klik op een stip om die track direct af te spelen. Klik op een cluster in de rechterzijbalk om erop in te zoomen. Sleep om te pannen, scroll om te zoomen, gebruik het zoekveld om titels of artiesten op te lichten.
+                            </div>
+                        </div>
+                    </div>
+                </details>
 
                 <div class="music-map-layout">
                     <div class="music-map-toolbar">
                         <div class="music-map-toolbar-group">
-                            <label>Color by:</label>
+                            <label>Kleur op:</label>
                             <select id="music-map-color-mode" class="auto-form-input">
-                                <option value="cluster" selected>Cluster</option>
-                                <option value="genre">Genre</option>
+                                <option value="genre" selected>Genre</option>
+                                <option value="cluster">Cluster</option>
                             </select>
                         </div>
                         <div class="music-map-toolbar-group">
-                            <input id="music-map-search" type="search" class="auto-form-input" placeholder="Highlight tracks…" />
+                            <input id="music-map-search" type="search" class="auto-form-input" placeholder="Zoek track of artiest…" />
+                        </div>
+                        <div class="music-map-toolbar-group">
+                            <button id="music-map-reset" class="btn btn-secondary btn-sm" title="Reset zoom en pan">↺ Reset weergave</button>
+                            <span id="music-map-selection" class="music-map-selection" hidden></span>
                         </div>
                         <div class="music-map-toolbar-group music-map-toolbar-group--right">
+                            <label class="music-map-toggle"><input type="checkbox" id="music-map-show-labels" checked /> Labels</label>
                             <span id="music-map-count" class="music-map-count">—</span>
                         </div>
                     </div>
@@ -1687,6 +1716,7 @@
                     <div class="music-map-canvas-wrap">
                         <canvas id="music-map-canvas" width="900" height="540"></canvas>
                         <div id="music-map-tooltip" class="music-map-tooltip" hidden></div>
+                        <div class="music-map-hint">Klik op een stip om te spelen · sleep om te pannen · scroll om te zoomen</div>
                     </div>
 
                     <div class="music-map-sidebar">

@@ -21,7 +21,35 @@ const PALETTE = Array.from({ length: 50 }, (_, i) => {
     const hue = Math.round((i * 360) / 50);
     return `hsl(${hue} 70% 55%)`;
 });
-const NOISE_COLOR = '#666';
+const NOISE_COLOR = '#5a5a60';
+
+// A small, hand-picked palette keyed by lowercased genre keyword. Anything
+// not in the table falls back to a hash-based color so the visual stays
+// stable across reloads.
+const GENRE_COLORS = {
+    'classical': '#a78bfa',
+    'jazz': '#fbbf24',
+    'electronic': '#22d3ee',
+    'rock': '#f87171',
+    'pop': '#f472b6',
+    'hip hop': '#34d399',
+    'hip-hop': '#34d399',
+    'rap': '#34d399',
+    'r&b': '#fb923c',
+    'soul': '#fb923c',
+    'funk': '#fdba74',
+    'metal': '#9ca3af',
+    'punk': '#ef4444',
+    'folk': '#84cc16',
+    'country': '#eab308',
+    'blues': '#60a5fa',
+    'reggae': '#10b981',
+    'ambient': '#7dd3fc',
+    'techno': '#06b6d4',
+    'house': '#3b82f6',
+    'indie': '#c084fc',
+    'soundtrack': '#facc15',
+};
 
 let _initialized = false;
 let _state = null;
@@ -34,6 +62,10 @@ function colorFor(clusterId) {
 
 function genreToColor(genre) {
     if (!genre) return NOISE_COLOR;
+    const key = String(genre).toLowerCase().trim();
+    for (const [k, v] of Object.entries(GENRE_COLORS)) {
+        if (key.includes(k)) return v;
+    }
     let h = 0;
     for (let i = 0; i < genre.length; i++) h = (h * 31 + genre.charCodeAt(i)) >>> 0;
     return PALETTE[h % PALETTE.length];
@@ -44,7 +76,7 @@ function primaryGenre(track) {
     try {
         const parsed = JSON.parse(track.genres);
         if (Array.isArray(parsed) && parsed.length) return parsed[0];
-    } catch {/* fall through */}
+    } catch { /* fall through */ }
     return String(track.genres).split(',')[0]?.trim() || null;
 }
 
@@ -59,22 +91,18 @@ function computeBounds(tracks) {
         if (t.y_2d < minY) minY = t.y_2d;
         if (t.y_2d > maxY) maxY = t.y_2d;
     }
-    // Pad 5% so dots don't sit on the canvas edge.
     const padX = (maxX - minX) * 0.05 || 1;
     const padY = (maxY - minY) * 0.05 || 1;
     return { minX: minX - padX, maxX: maxX + padX, minY: minY - padY, maxY: maxY + padY };
 }
 
 function makeProjector(canvas, bounds, viewport) {
-    // viewport = { offsetX, offsetY, scale } -- scale=1 fits-to-canvas.
     const w = canvas.width;
     const h = canvas.height;
     const bw = bounds.maxX - bounds.minX;
     const bh = bounds.maxY - bounds.minY;
-    // unit scale so the bounds map to the canvas; viewport.scale zooms further.
     const baseScale = Math.min(w / bw, h / bh);
     const scale = baseScale * viewport.scale;
-    // Center the data, then apply pan offset.
     const cx = w / 2 + viewport.offsetX;
     const cy = h / 2 + viewport.offsetY;
     const bcx = (bounds.minX + bounds.maxX) / 2;
@@ -96,30 +124,118 @@ function draw(ctx, s) {
 
     const project = makeProjector(canvas, s.bounds, s.viewport);
     const searchLower = (s.search || '').toLowerCase().trim();
-    const radius = Math.max(1.5, 2.5 * Math.sqrt(s.viewport.scale));
+    const radius = Math.max(1.5, 2.2 * Math.sqrt(s.viewport.scale));
+    const hasSelection = s.selectedClusterId !== null && s.selectedClusterId !== undefined;
+    const hasSearch = !!searchLower;
 
+    // Two-pass: dim/outlier dots first, then highlighted dots on top so they
+    // visually pop instead of being buried under the noise layer.
+    const highlightTracks = [];
     for (let i = 0; i < s.tracks.length; i++) {
         const t = s.tracks[i];
         const { px, py } = project(t.x_2d, t.y_2d);
-        // Skip off-canvas for perf when zoomed in.
         if (px < -20 || px > canvas.width + 20 || py < -20 || py > canvas.height + 20) continue;
-        const isMatch = searchLower && (
+        const isOutlier = t.cluster_id === -1 || t.cluster_id === null;
+        const isSearchMatch = hasSearch && (
             (t.title || '').toLowerCase().includes(searchLower) ||
             (t.artist || '').toLowerCase().includes(searchLower)
         );
+        const isClusterMatch = hasSelection && t.cluster_id === s.selectedClusterId;
+        const isHighlighted = isSearchMatch || isClusterMatch;
+
+        // Decide alpha + draw the "dim" pass right away; defer highlighted to pass 2.
+        if (isHighlighted) {
+            highlightTracks.push({ t, px, py });
+            continue;
+        }
+
+        let alpha;
+        if (hasSearch || hasSelection) {
+            alpha = isOutlier ? 0.06 : 0.15;
+        } else {
+            alpha = isOutlier ? 0.35 : 0.85;
+        }
+
         const fill = s.colorMode === 'genre' ? genreToColor(primaryGenre(t)) : colorFor(t.cluster_id);
         ctx.beginPath();
-        ctx.arc(px, py, isMatch ? radius * 2.4 : radius, 0, Math.PI * 2);
+        ctx.arc(px, py, radius, 0, Math.PI * 2);
         ctx.fillStyle = fill;
-        ctx.globalAlpha = searchLower ? (isMatch ? 1.0 : 0.18) : 0.85;
+        ctx.globalAlpha = alpha;
         ctx.fill();
-        if (isMatch) {
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = '#fff';
-            ctx.stroke();
-        }
+    }
+
+    // Pass 2: highlighted dots on top.
+    for (const { t, px, py } of highlightTracks) {
+        const fill = s.colorMode === 'genre' ? genreToColor(primaryGenre(t)) : colorFor(t.cluster_id);
+        ctx.beginPath();
+        ctx.arc(px, py, radius * 2.2, 0, Math.PI * 2);
+        ctx.fillStyle = fill;
+        ctx.globalAlpha = 1.0;
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#fff';
+        ctx.globalAlpha = 0.9;
+        ctx.stroke();
     }
     ctx.globalAlpha = 1;
+
+    if (s.showLabels) drawClusterLabels(ctx, s, project);
+}
+
+function drawClusterLabels(ctx, s, project) {
+    // Show one label per top cluster, placed at its (x_2d, y_2d) centroid from
+    // the summary endpoint. Skip noise. Skip when zoomed out too far so the
+    // labels don't overlap into a wall of text.
+    if (!s.summary || !s.summary.length) return;
+    const canvas = ctx.canvas;
+
+    // Top-N largest clusters with a centroid. Fewer labels when zoomed out.
+    const maxLabels = s.viewport.scale < 1.4 ? 10 : (s.viewport.scale < 3 ? 25 : 60);
+    const clusters = s.summary
+        .filter(c => !c.is_noise && c.centroid_x !== null && c.centroid_y !== null)
+        .slice(0, maxLabels);
+
+    ctx.save();
+    ctx.font = '600 11px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const placed = [];
+    for (const c of clusters) {
+        const { px, py } = project(c.centroid_x, c.centroid_y);
+        if (px < 20 || px > canvas.width - 20 || py < 14 || py > canvas.height - 14) continue;
+        const label = c.dominant_genre || `Cluster ${c.cluster_id}`;
+        // Cheap overlap avoidance: skip labels that collide with one already placed.
+        const tw = ctx.measureText(label).width;
+        let overlaps = false;
+        for (const p of placed) {
+            if (Math.abs(p.px - px) < (p.w + tw) / 2 + 6 && Math.abs(p.py - py) < 18) {
+                overlaps = true;
+                break;
+            }
+        }
+        if (overlaps) continue;
+        placed.push({ px, py, w: tw });
+
+        // Pill background for legibility.
+        const padX = 6, padY = 3;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.62)';
+        ctx.beginPath();
+        const rx = px - tw / 2 - padX;
+        const ry = py - 8 - padY;
+        const rw = tw + padX * 2;
+        const rh = 16 + padY * 2 - 2;
+        const rr = 8;
+        ctx.moveTo(rx + rr, ry);
+        ctx.arcTo(rx + rw, ry, rx + rw, ry + rh, rr);
+        ctx.arcTo(rx + rw, ry + rh, rx, ry + rh, rr);
+        ctx.arcTo(rx, ry + rh, rx, ry, rr);
+        ctx.arcTo(rx, ry, rx + rw, ry, rr);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, px, py);
+    }
+    ctx.restore();
 }
 
 function findNearest(s, mx, my, maxDist = 8) {
@@ -136,13 +252,63 @@ function findNearest(s, mx, my, maxDist = 8) {
     return best;
 }
 
-// ---- Legend ----
+// ---- Cluster focus ----
+
+function focusOnCluster(s, clusterId) {
+    // Compute tight bounds for this cluster's points, then update viewport
+    // so they fill ~60% of the canvas.
+    const points = s.tracks.filter(t => t.cluster_id === clusterId);
+    if (!points.length) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of points) {
+        if (p.x_2d < minX) minX = p.x_2d;
+        if (p.x_2d > maxX) maxX = p.x_2d;
+        if (p.y_2d < minY) minY = p.y_2d;
+        if (p.y_2d > maxY) maxY = p.y_2d;
+    }
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const span = Math.max(maxX - minX, maxY - minY, 0.5);
+    const fullSpan = Math.max(s.bounds.maxX - s.bounds.minX, s.bounds.maxY - s.bounds.minY);
+    // Aim for the cluster to fill ~60% of the canvas.
+    const targetScale = Math.min(40, (fullSpan / span) * 0.6);
+    s.viewport.scale = Math.max(0.8, targetScale);
+
+    // Now pan so (cx, cy) lands at canvas center.
+    const canvas = s.canvas;
+    const bw = s.bounds.maxX - s.bounds.minX;
+    const bh = s.bounds.maxY - s.bounds.minY;
+    const baseScale = Math.min(canvas.width / bw, canvas.height / bh);
+    const scale = baseScale * s.viewport.scale;
+    const bcx = (s.bounds.minX + s.bounds.maxX) / 2;
+    const bcy = (s.bounds.minY + s.bounds.maxY) / 2;
+    // We want: canvas.width/2 + offsetX + (cx - bcx) * scale = canvas.width/2
+    // -> offsetX = -(cx - bcx) * scale; symmetric for y (inverted).
+    s.viewport.offsetX = -(cx - bcx) * scale;
+    s.viewport.offsetY = (cy - bcy) * scale;
+}
+
+function resetView(s) {
+    s.viewport = { offsetX: 0, offsetY: 0, scale: 1 };
+    s.selectedClusterId = null;
+}
+
+// ---- Legend + selection chip ----
 
 function renderLegend(s) {
     const el = document.getElementById('music-map-legend');
     if (!el) return;
     if (s.colorMode !== 'cluster') {
-        el.innerHTML = '<div class="music-map-legend-note">Colored by primary genre.</div>';
+        const items = Object.entries(GENRE_COLORS).slice(0, 14);
+        el.innerHTML = `
+          <div class="music-map-legend-hint">Klik op een cluster om erop in te zoomen — of zet hierboven "Kleur op: Cluster".</div>
+          ${items.map(([name, color]) => `
+            <div class="music-map-legend-row" style="cursor:default">
+                <span class="music-map-legend-swatch" style="background:${color}"></span>
+                <span class="music-map-legend-label" style="text-transform:capitalize">${name}</span>
+            </div>
+          `).join('')}
+        `;
         return;
     }
     if (!s.summary || !s.summary.length) {
@@ -150,7 +316,7 @@ function renderLegend(s) {
         return;
     }
     const rows = s.summary.slice(0, 20).map(c => `
-        <div class="music-map-legend-row" data-cluster-id="${c.cluster_id}">
+        <div class="music-map-legend-row ${s.selectedClusterId === c.cluster_id ? 'music-map-legend-row--active' : ''}" data-cluster-id="${c.cluster_id}">
             <span class="music-map-legend-swatch" style="background:${colorFor(c.cluster_id)}"></span>
             <span class="music-map-legend-label">
                 ${c.is_noise ? 'Outliers' : 'Cluster ' + c.cluster_id}
@@ -159,7 +325,23 @@ function renderLegend(s) {
             <span class="music-map-legend-count">${c.track_count}</span>
         </div>
     `).join('');
-    el.innerHTML = rows;
+    el.innerHTML = `<div class="music-map-legend-hint">Klik op een cluster om erop in te zoomen.</div>${rows}`;
+}
+
+function renderSelectionChip(s) {
+    const el = document.getElementById('music-map-selection');
+    if (!el) return;
+    if (s.selectedClusterId === null || s.selectedClusterId === undefined) {
+        el.hidden = true;
+        el.innerHTML = '';
+        return;
+    }
+    const c = (s.summary || []).find(x => x.cluster_id === s.selectedClusterId);
+    const label = c
+        ? (c.dominant_genre || `Cluster ${c.cluster_id}`) + ` · ${c.track_count} tracks`
+        : `Cluster ${s.selectedClusterId}`;
+    el.hidden = false;
+    el.innerHTML = `<span>${label}</span><button id="music-map-clear-selection" title="Toon alles">×</button>`;
 }
 
 // ---- Play ----
@@ -176,7 +358,7 @@ async function getDefaultZone() {
 async function playTrack(itemKey) {
     const zoneId = await getDefaultZone();
     if (!zoneId) {
-        alert('No Roon zone available to play to.');
+        alert('Geen Roon-zone beschikbaar om naar af te spelen.');
         return;
     }
     try {
@@ -185,7 +367,7 @@ async function playTrack(itemKey) {
             body: JSON.stringify({ item_keys: [itemKey], zone_id: zoneId, mode: 'replace' }),
         });
     } catch (err) {
-        alert(`Play failed: ${err.message}`);
+        alert(`Afspelen mislukt: ${err.message}`);
     }
 }
 
@@ -201,6 +383,10 @@ export async function initMusicMapView() {
     const colorSel = document.getElementById('music-map-color-mode');
     const countEl = document.getElementById('music-map-count');
     const clusterPanel = document.getElementById('music-map-cluster-panel');
+    const resetBtn = document.getElementById('music-map-reset');
+    const labelsToggle = document.getElementById('music-map-show-labels');
+    const legendEl = document.getElementById('music-map-legend');
+    const selectionEl = document.getElementById('music-map-selection');
 
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -211,31 +397,78 @@ export async function initMusicMapView() {
         summary: [],
         bounds: { minX: 0, maxX: 1, minY: 0, maxY: 1 },
         viewport: { offsetX: 0, offsetY: 0, scale: 1 },
-        colorMode: 'cluster',
+        colorMode: 'genre',
         search: '',
+        showLabels: true,
+        selectedClusterId: null,
         dragging: false,
         lastX: 0,
         lastY: 0,
     };
 
+    function rerender() {
+        draw(ctx, _state);
+        renderLegend(_state);
+        renderSelectionChip(_state);
+    }
+
+    function selectCluster(clusterId) {
+        _state.selectedClusterId = clusterId;
+        focusOnCluster(_state, clusterId);
+        rerender();
+    }
+
+    function clearSelection() {
+        _state.selectedClusterId = null;
+        rerender();
+    }
+
     async function loadData() {
-        countEl.textContent = 'Loading…';
+        countEl.textContent = 'Laden…';
         try {
             const [data, summary] = await Promise.all([fetchClusterData(), fetchClusterSummary()]);
             _state.tracks = data.tracks || [];
             _state.summary = summary.summaries || [];
             _state.bounds = computeBounds(_state.tracks);
             _state.viewport = { offsetX: 0, offsetY: 0, scale: 1 };
-            countEl.textContent = `${_state.tracks.length} tracks · ${summary.n_clusters} clusters`;
-            draw(ctx, _state);
-            renderLegend(_state);
+            _state.selectedClusterId = null;
+            const outliers = _state.summary.find(c => c.is_noise);
+            const outlierTxt = outliers ? ` · ${outliers.track_count} outliers` : '';
+            countEl.textContent = `${_state.tracks.length} tracks · ${summary.n_clusters} clusters${outlierTxt}`;
+            rerender();
         } catch (err) {
-            countEl.textContent = `Error: ${err.message}`;
+            countEl.textContent = `Fout: ${err.message}`;
         }
     }
 
     // Clustering panel: shows status + Run button. On completion, refresh data.
     mountClusteringPanel(clusterPanel, { onComplete: loadData });
+
+    // Delegate clicks for cluster cards in the side panel and rows in the legend.
+    clusterPanel.addEventListener('click', (e) => {
+        const card = e.target.closest('.cluster-card');
+        if (!card) return;
+        const cid = parseInt(card.dataset.clusterId, 10);
+        if (Number.isNaN(cid) || cid === -1) return;
+        selectCluster(cid);
+        // Mark active visually (the next refresh from the polling timer may
+        // overwrite this, which is fine).
+        clusterPanel.querySelectorAll('.cluster-card--active').forEach(el => el.classList.remove('cluster-card--active'));
+        card.classList.add('cluster-card--active');
+    });
+
+    legendEl.addEventListener('click', (e) => {
+        const row = e.target.closest('.music-map-legend-row');
+        if (!row || !row.dataset.clusterId) return;
+        const cid = parseInt(row.dataset.clusterId, 10);
+        if (Number.isNaN(cid) || cid === -1) return;
+        if (_state.selectedClusterId === cid) clearSelection();
+        else selectCluster(cid);
+    });
+
+    selectionEl.addEventListener('click', (e) => {
+        if (e.target.id === 'music-map-clear-selection') clearSelection();
+    });
 
     // ---- Interactions ----
 
@@ -247,7 +480,6 @@ export async function initMusicMapView() {
         const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
         const oldScale = _state.viewport.scale;
         const newScale = Math.max(0.3, Math.min(40, oldScale * factor));
-        // Zoom toward cursor: keep the world point under the cursor stationary.
         const cx = canvas.width / 2 + _state.viewport.offsetX;
         const cy = canvas.height / 2 + _state.viewport.offsetY;
         const dx = mx - cx;
@@ -263,6 +495,7 @@ export async function initMusicMapView() {
         _state.dragging = true;
         _state.lastX = e.clientX;
         _state.lastY = e.clientY;
+        _state.dragMoved = false;
     });
     window.addEventListener('mouseup', () => { _state.dragging = false; });
     canvas.addEventListener('mousemove', (e) => {
@@ -270,8 +503,11 @@ export async function initMusicMapView() {
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
         if (_state.dragging) {
-            _state.viewport.offsetX += e.clientX - _state.lastX;
-            _state.viewport.offsetY += e.clientY - _state.lastY;
+            const ddx = e.clientX - _state.lastX;
+            const ddy = e.clientY - _state.lastY;
+            if (Math.abs(ddx) + Math.abs(ddy) > 2) _state.dragMoved = true;
+            _state.viewport.offsetX += ddx;
+            _state.viewport.offsetY += ddy;
             _state.lastX = e.clientX;
             _state.lastY = e.clientY;
             tooltip.hidden = true;
@@ -283,7 +519,18 @@ export async function initMusicMapView() {
             tooltip.hidden = false;
             tooltip.style.left = `${mx + 12}px`;
             tooltip.style.top = `${my + 12}px`;
-            tooltip.innerHTML = `<strong>${hit.title}</strong><br>${hit.artist}<br><small>${primaryGenre(hit) || ''}</small>`;
+            const meta = [
+                hit.bpm ? `${Math.round(hit.bpm)} BPM` : null,
+                hit.energy !== null && hit.energy !== undefined ? `E ${hit.energy.toFixed(2)}` : null,
+                hit.valence !== null && hit.valence !== undefined ? `V ${hit.valence.toFixed(2)}` : null,
+            ].filter(Boolean).join(' · ');
+            tooltip.innerHTML = `
+                <strong>${hit.title || ''}</strong><br>
+                ${hit.artist || ''}
+                ${primaryGenre(hit) ? `<br><small>${primaryGenre(hit)}</small>` : ''}
+                ${meta ? `<br><small style="opacity:0.75">${meta}</small>` : ''}
+                <br><small style="opacity:0.55">Klik om af te spelen</small>
+            `;
         } else {
             tooltip.hidden = true;
         }
@@ -291,6 +538,8 @@ export async function initMusicMapView() {
     canvas.addEventListener('mouseleave', () => { tooltip.hidden = true; });
 
     canvas.addEventListener('click', (e) => {
+        // Suppress click after a drag-pan.
+        if (_state.dragMoved) { _state.dragMoved = false; return; }
         const rect = canvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
@@ -298,7 +547,18 @@ export async function initMusicMapView() {
         if (hit) playTrack(hit.item_key);
     });
 
-    // Touch (pan only — simple).
+    // Double-click on a track → focus its cluster.
+    canvas.addEventListener('dblclick', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const hit = findNearest(_state, mx, my, 12);
+        if (hit && hit.cluster_id !== null && hit.cluster_id !== -1) {
+            selectCluster(hit.cluster_id);
+        }
+    });
+
+    // Touch (pan + pinch zoom).
     let touchLastX = 0, touchLastY = 0, touchDist = 0;
     canvas.addEventListener('touchstart', (e) => {
         if (e.touches.length === 1) {
@@ -336,8 +596,17 @@ export async function initMusicMapView() {
 
     colorSel.addEventListener('change', () => {
         _state.colorMode = colorSel.value;
+        rerender();
+    });
+
+    resetBtn.addEventListener('click', () => {
+        resetView(_state);
+        rerender();
+    });
+
+    labelsToggle.addEventListener('change', () => {
+        _state.showLabels = labelsToggle.checked;
         draw(ctx, _state);
-        renderLegend(_state);
     });
 
     await loadData();

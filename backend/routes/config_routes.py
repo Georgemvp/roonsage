@@ -161,3 +161,13 @@ async def ollama_model_info(
     if info is None:
         raise HTTPException(status_code=404, detail=f"Model '{model}' not found")
     return info
+
+
+@router.get("/system/onnx-providers")
+async def get_onnx_providers():
+    """Return available ONNX Runtime execution providers on this host."""
+    try:
+        import onnxruntime as ort  # noqa: PLC0415
+        return {"providers": ort.get_available_providers()}
+    except ImportError:
+        return {"providers": [], "error": "onnxruntime not installed"}

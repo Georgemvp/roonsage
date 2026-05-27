@@ -11,8 +11,113 @@
         "toolbar toolbar"
         "canvas  sidebar";
     gap: 12px;
-    height: calc(100vh - 220px);
-    min-height: 520px;
+    height: calc(100vh - 360px);
+    min-height: 480px;
+}
+
+/* --- Music Map help / explainer card --- */
+.music-map-help {
+    background: var(--bg-surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin: 12px 0;
+    padding: 0;
+}
+.music-map-help > summary {
+    cursor: pointer;
+    padding: 12px 14px;
+    font-weight: 600;
+    list-style: none;
+    user-select: none;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.music-map-help > summary::-webkit-details-marker { display: none; }
+.music-map-help > summary::before {
+    content: '▸';
+    display: inline-block;
+    color: var(--accent);
+    transition: transform 0.15s;
+}
+.music-map-help[open] > summary::before { transform: rotate(90deg); }
+.music-map-help-body {
+    padding: 0 14px 16px 14px;
+    display: grid;
+    gap: 12px;
+    color: var(--text-body);
+    font-size: 13px;
+    line-height: 1.5;
+}
+.music-map-help-item {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 10px;
+    align-items: start;
+}
+.music-map-help-item strong { color: var(--text-primary); font-weight: 600; }
+.music-map-help-num {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--bg-root);
+    font-weight: 700;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* Selection chip + label toggle */
+.music-map-selection {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px 4px 10px;
+    background: var(--accent);
+    color: var(--bg-root);
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.music-map-selection button {
+    background: transparent;
+    color: inherit;
+    border: 0;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 2px;
+}
+.music-map-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.music-map-toggle input { margin: 0; }
+
+/* Pan/zoom hint overlay inside the canvas */
+.music-map-hint {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.55);
+    color: #eaeaea;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    pointer-events: none;
 }
 .music-map-toolbar {
     grid-area: toolbar;
@@ -74,7 +179,25 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 3px 0;
+    padding: 5px 6px;
+    margin: 0 -6px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.music-map-legend-row:hover { background: var(--bg-elevated); }
+.music-map-legend-row--active {
+    background: var(--accent);
+    color: var(--bg-root);
+}
+.music-map-legend-row--active .music-map-legend-count { color: inherit; }
+.music-map-legend-hint {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-style: italic;
+    padding: 4px 2px 8px 2px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 6px;
 }
 .music-map-legend-swatch {
     width: 12px; height: 12px;
@@ -121,7 +244,11 @@
     border-radius: 6px;
     padding: 8px 10px;
     border: 1px solid var(--border);
+    cursor: pointer;
+    transition: border-color 0.1s, transform 0.1s;
 }
+.cluster-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.cluster-card--active { border-color: var(--accent); background: var(--bg-glass, var(--bg-elevated)); }
 .cluster-card-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
 .cluster-card-genre { color: var(--accent); font-weight: normal; font-style: italic; margin-left: 4px; }
 .cluster-card-stat { font-size: 16px; color: var(--text-primary); margin-bottom: 4px; }

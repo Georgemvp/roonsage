@@ -94,6 +94,18 @@ def reset_model() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _ort_providers() -> list[str]:
+    """Return best available ONNX Runtime execution providers.
+
+    Prefers CoreMLExecutionProvider on Apple Silicon; falls back to CPU.
+    """
+    import onnxruntime as ort  # noqa: PLC0415
+
+    available = set(ort.get_available_providers())
+    providers = [p for p in ("CoreMLExecutionProvider", "CPUExecutionProvider") if p in available]
+    return providers or ["CPUExecutionProvider"]
+
+
 class _OnnxLyricsBackend:
     """ONNX Runtime inference for GTE-multilingual.
 
@@ -105,10 +117,12 @@ class _OnnxLyricsBackend:
         import onnxruntime as ort  # noqa: PLC0415
         from tokenizers import Tokenizer  # noqa: PLC0415
 
+        providers = _ort_providers()
+        logger.info("Lyrics ONNX using providers: %s", providers)
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = 0
         self.session = ort.InferenceSession(
-            str(model_path), sess_options=opts, providers=["CPUExecutionProvider"]
+            str(model_path), sess_options=opts, providers=providers
         )
         # Tokenizer was saved by `optimum`; tokenizer.json is the fast format.
         tok_json = tokenizer_dir / "tokenizer.json"

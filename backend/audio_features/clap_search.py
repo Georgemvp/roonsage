@@ -125,6 +125,19 @@ def _ensure_onnx_lock():
     return _onnx_lock
 
 
+def _ort_providers() -> list[str]:
+    """Return best available ONNX Runtime execution providers.
+
+    Prefers CoreMLExecutionProvider on Apple Silicon; falls back to CPU.
+    Always includes CPUExecutionProvider as the final fallback.
+    """
+    import onnxruntime as ort  # noqa: PLC0415
+
+    available = set(ort.get_available_providers())
+    providers = [p for p in ("CoreMLExecutionProvider", "CPUExecutionProvider") if p in available]
+    return providers or ["CPUExecutionProvider"]
+
+
 class _OnnxClapBackend:
     """ONNX Runtime inference for the CLAP audio + text encoders.
 
@@ -141,13 +154,15 @@ class _OnnxClapBackend:
     def __init__(self, audio_path, text_path):
         import onnxruntime as ort  # noqa: PLC0415
 
+        providers = _ort_providers()
+        logger.info("CLAP ONNX using providers: %s", providers)
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = 0  # let ORT pick based on available cores
         self.audio_sess = ort.InferenceSession(
-            str(audio_path), sess_options=opts, providers=["CPUExecutionProvider"]
+            str(audio_path), sess_options=opts, providers=providers
         )
         self.text_sess = ort.InferenceSession(
-            str(text_path), sess_options=opts, providers=["CPUExecutionProvider"]
+            str(text_path), sess_options=opts, providers=providers
         )
         self.tokenizer = self._load_tokenizer()
 

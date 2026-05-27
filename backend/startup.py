@@ -270,18 +270,24 @@ async def start_background_tasks(app: FastAPI) -> None:
     from backend.scheduler import init_scheduler  # noqa: PLC0415
     init_scheduler()
 
+    import os as _os  # noqa: PLC0415
+    _worker_sidecar = _os.getenv("WORKER_SIDECAR", "false").lower() == "true"
+
     # Metadata enrichment worker
-    from backend.db import get_db_connection  # noqa: PLC0415
-    from backend.enrichment_worker import get_worker, populate_enrichment_queue  # noqa: PLC0415
-    try:
-        _enrich_conn = get_db_connection()
-        _pending = populate_enrichment_queue(_enrich_conn)
-        _enrich_conn.close()
-        logger.info("Enrichment queue: %d new items queued", _pending)
-    except Exception as exc:
-        logger.warning("Could not populate enrichment queue at startup: %s", exc)
-    get_worker().start()
-    logger.info("Metadata enrichment worker started")
+    if _worker_sidecar:
+        logger.info("Metadata enrichment worker delegated to sidecar (WORKER_SIDECAR=true)")
+    else:
+        from backend.db import get_db_connection  # noqa: PLC0415
+        from backend.enrichment_worker import get_worker, populate_enrichment_queue  # noqa: PLC0415
+        try:
+            _enrich_conn = get_db_connection()
+            _pending = populate_enrichment_queue(_enrich_conn)
+            _enrich_conn.close()
+            logger.info("Enrichment queue: %d new items queued", _pending)
+        except Exception as exc:
+            logger.warning("Could not populate enrichment queue at startup: %s", exc)
+        get_worker().start()
+        logger.info("Metadata enrichment worker started")
 
     # Audio features worker (BPM / key / energy) — opt-in via env var.
     from backend.config import (  # noqa: PLC0415
@@ -289,44 +295,47 @@ async def start_background_tasks(app: FastAPI) -> None:
         get_music_library_path,
     )
     if get_audio_features_enabled():
-        try:
-            from backend.audio_features.path_resolver import (
-                resolve_paths_for_tracks,  # noqa: PLC0415
-            )
-            from backend.audio_features.worker import (  # noqa: PLC0415
-                get_features_worker,
-                populate_audio_features_queue,
-            )
-            music_root = get_music_library_path()
+        if _worker_sidecar:
+            logger.info("Audio features worker delegated to sidecar (WORKER_SIDECAR=true)")
+        else:
+            try:
+                from backend.audio_features.path_resolver import (
+                    resolve_paths_for_tracks,  # noqa: PLC0415
+                )
+                from backend.audio_features.worker import (  # noqa: PLC0415
+                    get_features_worker,
+                    populate_audio_features_queue,
+                )
+                music_root = get_music_library_path()
 
-            async def _audio_features_bootstrap() -> None:
-                """Resolve filesystem paths + populate queue on first boot.
+                async def _audio_features_bootstrap() -> None:
+                    """Resolve filesystem paths + populate queue on first boot.
 
-                Runs in a thread because the filesystem walk + tag read can
-                take several minutes on a large library. Worker is started
-                immediately after so it can begin processing as soon as the
-                first rows land in the queue.
-                """
-                from backend.db import get_db_connection as _gdc  # noqa: PLC0415
-                try:
-                    def _bootstrap_sync() -> dict:
-                        _c = _gdc()
-                        try:
-                            resolved = resolve_paths_for_tracks(_c, music_root)
-                            queued = populate_audio_features_queue(_c)
-                            return {**resolved, "queued": queued}
-                        finally:
-                            _c.close()
-                    result = await asyncio.to_thread(_bootstrap_sync)
-                    logger.info("Audio features bootstrap complete: %s", result)
-                except Exception as exc:
-                    logger.warning("Audio features bootstrap failed: %s", exc)
+                    Runs in a thread because the filesystem walk + tag read can
+                    take several minutes on a large library. Worker is started
+                    immediately after so it can begin processing as soon as the
+                    first rows land in the queue.
+                    """
+                    from backend.db import get_db_connection as _gdc  # noqa: PLC0415
+                    try:
+                        def _bootstrap_sync() -> dict:
+                            _c = _gdc()
+                            try:
+                                resolved = resolve_paths_for_tracks(_c, music_root)
+                                queued = populate_audio_features_queue(_c)
+                                return {**resolved, "queued": queued}
+                            finally:
+                                _c.close()
+                        result = await asyncio.to_thread(_bootstrap_sync)
+                        logger.info("Audio features bootstrap complete: %s", result)
+                    except Exception as exc:
+                        logger.warning("Audio features bootstrap failed: %s", exc)
 
-            _add_task(_audio_features_bootstrap(), "audio_features_bootstrap")
-            get_features_worker().start()
-            logger.info("Audio features worker started (music_root=%s)", music_root)
-        except Exception as exc:
-            logger.warning("Could not start audio features worker: %s", exc)
+                _add_task(_audio_features_bootstrap(), "audio_features_bootstrap")
+                get_features_worker().start()
+                logger.info("Audio features worker started (music_root=%s)", music_root)
+            except Exception as exc:
+                logger.warning("Could not start audio features worker: %s", exc)
     else:
         logger.info("Audio features disabled (set AUDIO_FEATURES_ENABLED=true to enable)")
 
