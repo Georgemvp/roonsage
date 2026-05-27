@@ -3727,6 +3727,83 @@ async def get_cluster_tracks(cluster_id: int, limit: int = 200) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 
+@mcp.tool()
+async def auto_tag_clusters() -> str:
+    """Compute human-readable labels for every sonic cluster.
+
+    Uses Last.fm community tags (top-3 per cluster); falls back to Roon's own
+    genre tags when no Last.fm metadata is available. Persists results into
+    ``cluster_labels`` so the Music Map and ``get_cluster_labels`` see them.
+    Re-run after every ``run_clustering`` to keep labels in sync.
+    """
+    logger.info("AUTO_TAG_CLUSTERS called")
+    result = await _api_call("POST", "/api/clustering/auto-tag")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def get_cluster_labels() -> str:
+    """Return every cluster's persisted labels (primary/secondary/tertiary)."""
+    logger.info("GET_CLUSTER_LABELS called")
+    result = await _api_call("GET", "/api/clustering/labels")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
+# Smart playback (v13.3)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def smart_shuffle(item_keys: list[str]) -> str:
+    """Reorder a track list for cluster variety.
+
+    Interleaves tracks from different sonic clusters so consecutive tracks
+    come from different sonic territories. Within each cluster, "edge"
+    tracks (most-distinct from the centroid) lead so a single cluster run
+    never sounds samey. Pass the resulting ``ordered_keys`` straight to
+    ``play_tracks`` / ``curate_and_play``.
+    """
+    logger.info("SMART_SHUFFLE: %d input keys", len(item_keys))
+    result = await _api_call(
+        "POST",
+        "/api/playback/smart-shuffle",
+        json={"item_keys": item_keys},
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def smart_radio(
+    zone_id: str,
+    duration_minutes: int = 60,
+    seed_item_key: str | None = None,
+    play: bool = False,
+) -> str:
+    """Generate a cluster-hopping radio queue starting from the zone's current track.
+
+    Alternates ~3 tracks from the current track's sonic cluster with 1 track
+    from a neighbouring cluster, repeating until the requested duration is
+    filled. Pass ``seed_item_key`` to override the live-zone seed. Set
+    ``play=True`` to queue the result on the Roon zone in one call.
+    """
+    logger.info("SMART_RADIO: zone=%s duration=%dm play=%s", zone_id, duration_minutes, play)
+    body: dict = {
+        "zone_id": zone_id,
+        "duration_minutes": duration_minutes,
+        "play": play,
+    }
+    if seed_item_key:
+        body["seed_item_key"] = seed_item_key
+    result = await _api_call(
+        "POST",
+        "/api/playback/smart-radio",
+        json=body,
+        retryable=not play,
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
 # ---------------------------------------------------------------------------
 # Song paths (v13.0)
 # ---------------------------------------------------------------------------
@@ -4021,6 +4098,66 @@ async def play_sonic_fingerprint(zone_id: str, limit: int = 25) -> str:
     Prefers tracks the user hasn't played much, so it surfaces new discoveries."""
     result = await _api_call("POST", "/api/sonic-fingerprint/play",
                              json={"zone_id": zone_id, "limit": limit})
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
+# Sonic Radio (v13.3) — endless adaptive radio mode
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def start_sonic_radio(
+    zone_id: str,
+    discovery_ratio: float = 0.3,
+    queue_ahead: int = 5,
+    play: bool = True,
+) -> str:
+    """Start an endless Sonic Radio session on a Roon zone.
+
+    Sonic Radio seeds the queue from the user's musical fingerprint, then
+    drifts toward what's actually being heard as the session progresses.
+
+    Args:
+        zone_id:          Roon zone identifier.
+        discovery_ratio:  0.0 = only familiar tracks; 1.0 = only new picks.
+                          Default 0.3 ⇒ ~30% discovery, ~70% familiar.
+        queue_ahead:      How many tracks to prep in the first batch.
+        play:             Queue the first batch on the zone immediately.
+    """
+    logger.info(
+        "START_SONIC_RADIO: zone=%s discovery=%.2f queue_ahead=%d play=%s",
+        zone_id, discovery_ratio, queue_ahead, play,
+    )
+    result = await _api_call(
+        "POST",
+        "/api/sonic-radio/start",
+        json={
+            "zone_id": zone_id,
+            "discovery_ratio": discovery_ratio,
+            "queue_ahead": queue_ahead,
+            "play": play,
+        },
+        retryable=not play,
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def stop_sonic_radio(zone_id: str) -> str:
+    """Stop the Sonic Radio session on a zone and return final session stats."""
+    logger.info("STOP_SONIC_RADIO: zone=%s", zone_id)
+    result = await _api_call(
+        "POST", "/api/sonic-radio/stop", json={"zone_id": zone_id}, retryable=False
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def sonic_radio_status() -> str:
+    """List every active Sonic Radio session with their drift + skip stats."""
+    logger.info("SONIC_RADIO_STATUS called")
+    result = await _api_call("GET", "/api/sonic-radio/status")
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 

@@ -476,6 +476,7 @@ class PlayQueueRequest(BaseModel):
     item_keys: list[str]
     zone_id: str
     mode: Literal["replace", "play_next"] = "replace"
+    smart_shuffle: bool = False
 
     @field_validator("zone_id")
     @classmethod

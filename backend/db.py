@@ -736,6 +736,21 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         "ON track_audio_features(cluster_id)"
     )
 
+    # -----------------------------------------------------------------------
+    # Cluster labels (v13.3 — cluster auto-tagging)
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS cluster_labels (
+            cluster_id INTEGER PRIMARY KEY,
+            label_primary TEXT,
+            label_secondary TEXT,
+            label_tertiary TEXT,
+            track_count INTEGER DEFAULT 0,
+            source TEXT,                -- "lastfm" | "roon_genres" | "mixed"
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+
     conn.commit()
     return migrated
 

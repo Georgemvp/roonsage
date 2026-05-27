@@ -21,7 +21,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.audio_features import clustering
+from backend.audio_features import cluster_tagger, clustering
 from backend.db import get_db_connection
 
 logger = logging.getLogger(__name__)
@@ -103,12 +103,36 @@ def _current_status() -> dict[str, Any]:
 
 
 def _run_clustering_sync() -> None:
-    """Worker for asyncio.to_thread — opens its own connection."""
+    """Worker for asyncio.to_thread — opens its own connection.
+
+    On completion, fires the ``clustering_complete`` automation trigger so
+    downstream automations (e.g. auto-tag + notify) can run.
+    """
     conn = get_db_connection()
+    result: dict[str, Any] | None = None
     try:
-        clustering.run_clustering(conn=conn)
+        result = clustering.run_clustering(conn=conn)
     finally:
         conn.close()
+
+    if result and result.get("status") == "complete":
+        try:
+            from backend.automation_engine import (  # noqa: PLC0415
+                TriggerType,
+                get_engine,
+            )
+            engine = get_engine()
+            if engine is not None:
+                engine.on_event(
+                    TriggerType.CLUSTERING_COMPLETE,
+                    {
+                        "n_tracks": result.get("n_tracks", 0),
+                        "n_clusters": result.get("n_clusters", 0),
+                        "n_noise": result.get("n_noise", 0),
+                    },
+                )
+        except Exception as exc:  # pragma: no cover - notification is best-effort
+            logger.debug("clustering_complete event dispatch failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +205,55 @@ async def get_summary() -> ClusterSummaryResponse:
     return ClusterSummaryResponse(
         n_clusters=sum(1 for s in summaries if not s["is_noise"]),
         summaries=[ClusterSummary(**s) for s in summaries],
+    )
+
+
+class ClusterLabel(BaseModel):
+    cluster_id: int
+    label_primary: str | None = None
+    label_secondary: str | None = None
+    label_tertiary: str | None = None
+    labels: list[str] = []
+    track_count: int = 0
+    source: str | None = None
+    updated_at: str | None = None
+
+
+class ClusterLabelsResponse(BaseModel):
+    n_labels: int
+    labels: list[ClusterLabel]
+
+
+class ClusterAutoTagResponse(BaseModel):
+    n_clusters: int
+    clusters: dict[int, dict[str, Any]]
+
+
+@router.post("/auto-tag", response_model=ClusterAutoTagResponse)
+async def trigger_auto_tag() -> ClusterAutoTagResponse:
+    """Compute and persist human-readable labels for every cluster.
+
+    Uses Last.fm community tags when available, falling back to Roon's own
+    genre tags. Synchronous (pure SQL), typically completes in <1 s.
+    """
+    result = await cluster_tagger.auto_tag_clusters()
+    return ClusterAutoTagResponse(
+        n_clusters=result["n_clusters"],
+        clusters={int(k): v for k, v in result["clusters"].items()},
+    )
+
+
+@router.get("/labels", response_model=ClusterLabelsResponse)
+async def list_labels() -> ClusterLabelsResponse:
+    """Return every persisted cluster label."""
+    conn = get_db_connection()
+    try:
+        rows = cluster_tagger.get_all_labels(conn)
+    finally:
+        conn.close()
+    return ClusterLabelsResponse(
+        n_labels=len(rows),
+        labels=[ClusterLabel(**r) for r in rows],
     )
 
 

@@ -47,6 +47,7 @@ class TriggerType(StrEnum):
     LIBRARY_SYNCED = "library_synced"
     LB_SYNCED = "lb_synced"
     WATCHLIST_MATCH = "watchlist_match"
+    CLUSTERING_COMPLETE = "clustering_complete"
 
 
 class ActionType(StrEnum):

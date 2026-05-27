@@ -411,14 +411,41 @@ class RoonPlaybackMixin:
             return RoonResponse(success=False, error=str(e))
 
     def play_tracks(
-        self, zone_id: str, item_keys: list[str], mode: str = "replace"
+        self,
+        zone_id: str,
+        item_keys: list[str],
+        mode: str = "replace",
+        smart_shuffle: bool = False,
     ) -> RoonResponse:
-        """Queue and play tracks on a Roon zone via the Browse API."""
+        """Queue and play tracks on a Roon zone via the Browse API.
+
+        When ``smart_shuffle=True`` the track list is reordered before queueing
+        so consecutive tracks come from different sonic clusters — see
+        :mod:`backend.audio_features.smart_shuffle`. Tracks without cluster
+        data still play; they're treated as a single bucket and interleaved.
+        """
         if not self.is_connected():
             return RoonResponse(success=False, error="Not connected to Roon")
 
         if not item_keys:
             return RoonResponse(success=False, error="No tracks provided")
+
+        if smart_shuffle:
+            try:
+                from backend.audio_features.smart_shuffle import (  # noqa: PLC0415
+                    smart_shuffle_sync,
+                )
+                reordered = smart_shuffle_sync(item_keys)
+                if reordered:
+                    logger.info(
+                        "play_tracks: smart_shuffle reordered %d → %d keys",
+                        len(item_keys), len(reordered),
+                    )
+                    item_keys = reordered
+            except Exception as exc:
+                logger.warning(
+                    "play_tracks: smart_shuffle failed (%s) — using original order", exc
+                )
 
         PLAY_NOW_KEYWORDS: set[str] = {"play now", "play"}
         QUEUE_KEYWORDS: set[str] = {"queue", "add to queue"}

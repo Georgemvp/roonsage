@@ -122,6 +122,105 @@ async function _play() {
     }
 }
 
+
+// ---- Sonic Radio controls --------------------------------------------------
+
+let _radioPoll = null;
+let _radioActiveZone = null;
+
+function _setRadioStatus(text, isActive) {
+    const el = document.getElementById('sf-radio-status');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('sf-radio-status--on', !!isActive);
+}
+
+function _renderRadioStats(stats) {
+    const el = document.getElementById('sf-radio-stats');
+    if (!el) return;
+    if (!stats) { el.innerHTML = ''; return; }
+    const drift = (stats.fingerprint_drift || 0).toFixed(3);
+    el.innerHTML = `
+      <div class="sf-radio-stat-row">
+        <span>${stats.tracks_played || 0} gespeeld</span>
+        <span>${stats.tracks_skipped || 0} skip</span>
+        <span title="Hoeveel je profiel deze sessie is verschoven">drift ${drift}</span>
+      </div>
+    `;
+}
+
+async function _refreshRadioStatus() {
+    try {
+        const data = await apiCall('/sonic-radio/status');
+        const mine = (data.sessions || []).find(s => s.zone_id === _radioActiveZone);
+        if (mine) {
+            _setRadioStatus('aan', true);
+            _renderRadioStats(mine);
+            document.getElementById('sf-radio-start-btn').disabled = true;
+            document.getElementById('sf-radio-stop-btn').disabled = false;
+        } else {
+            _setRadioStatus('uit', false);
+            _renderRadioStats(null);
+            document.getElementById('sf-radio-start-btn').disabled = false;
+            document.getElementById('sf-radio-stop-btn').disabled = true;
+            _radioActiveZone = null;
+            if (_radioPoll) { clearInterval(_radioPoll); _radioPoll = null; }
+        }
+    } catch (e) {
+        console.warn('sonic-radio status failed', e);
+    }
+}
+
+async function _startRadio() {
+    const zoneId = state.activeZone?.zone_id;
+    if (!zoneId) { alert('Selecteer eerst een Roon zone.'); return; }
+    const slider = document.getElementById('sf-radio-discovery');
+    const ratio = (parseInt(slider?.value || '30', 10) || 30) / 100;
+    const startBtn = document.getElementById('sf-radio-start-btn');
+    if (startBtn) startBtn.disabled = true;
+    try {
+        await apiCall('/sonic-radio/start', {
+            method: 'POST',
+            body: JSON.stringify({
+                zone_id: zoneId,
+                discovery_ratio: ratio,
+                play: true,
+            }),
+        });
+        _radioActiveZone = zoneId;
+        _setRadioStatus('aan', true);
+        document.getElementById('sf-radio-stop-btn').disabled = false;
+        if (_radioPoll) clearInterval(_radioPoll);
+        _radioPoll = setInterval(_refreshRadioStatus, 5000);
+    } catch (e) {
+        alert(`Sonic Radio start mislukt: ${e.message}`);
+        if (startBtn) startBtn.disabled = false;
+    }
+}
+
+async function _stopRadio() {
+    if (!_radioActiveZone) {
+        await _refreshRadioStatus();
+        return;
+    }
+    const stopBtn = document.getElementById('sf-radio-stop-btn');
+    if (stopBtn) stopBtn.disabled = true;
+    try {
+        const result = await apiCall('/sonic-radio/stop', {
+            method: 'POST',
+            body: JSON.stringify({ zone_id: _radioActiveZone }),
+        });
+        _renderRadioStats(result);
+    } catch (e) {
+        alert(`Sonic Radio stop mislukt: ${e.message}`);
+    } finally {
+        _radioActiveZone = null;
+        if (_radioPoll) { clearInterval(_radioPoll); _radioPoll = null; }
+        _setRadioStatus('uit', false);
+        document.getElementById('sf-radio-start-btn').disabled = false;
+    }
+}
+
 export async function initSonicFingerprintView() {
     if (_initialized) return;
     _initialized = true;
@@ -129,5 +228,14 @@ export async function initSonicFingerprintView() {
     document.getElementById('sf-limit')?.addEventListener('change', _load);
     document.getElementById('sf-play-btn')?.addEventListener('click', _play);
 
+    const slider = document.getElementById('sf-radio-discovery');
+    const sliderVal = document.getElementById('sf-radio-discovery-val');
+    slider?.addEventListener('input', () => {
+        if (sliderVal) sliderVal.textContent = `${slider.value}%`;
+    });
+    document.getElementById('sf-radio-start-btn')?.addEventListener('click', _startRadio);
+    document.getElementById('sf-radio-stop-btn')?.addEventListener('click', _stopRadio);
+
     await _load();
+    await _refreshRadioStatus();
 }

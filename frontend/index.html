@@ -1872,6 +1872,21 @@
                             </select>
                             <button id="sf-play-btn" class="btn btn-primary" disabled>&#9654; Afspelen</button>
                         </div>
+                        <div class="sf-radio-box">
+                            <div class="sf-radio-header">
+                                <strong>Sonic Radio</strong>
+                                <span id="sf-radio-status" class="sf-radio-status">uit</span>
+                            </div>
+                            <label for="sf-radio-discovery" style="font-size:0.78rem;color:var(--text-muted);">
+                                Discovery Mix: <span id="sf-radio-discovery-val">30%</span>
+                            </label>
+                            <input id="sf-radio-discovery" type="range" min="0" max="100" value="30">
+                            <div class="sf-radio-actions">
+                                <button id="sf-radio-start-btn" class="btn btn-primary">&#9654; Start Radio</button>
+                                <button id="sf-radio-stop-btn" class="btn" disabled>&#9632; Stop</button>
+                            </div>
+                            <div id="sf-radio-stats" class="sf-radio-stats"></div>
+                        </div>
                     </div>
                 </div>
                 <div id="sf-results" class="sf-results"></div>

@@ -174,12 +174,22 @@ class RoonIntelligenceMixin:
         if prev and prev.get("track_key") != track_key:
             # Track changed — log the previous one
             played = _calc_played(prev, now_playing)
+            duration = prev.get("duration", 0)
+            skipped = _is_skipped(played, duration) if played >= _MIN_PLAY_SECONDS else 0
             if played >= _MIN_PLAY_SECONDS:
-                duration = prev.get("duration", 0)
-                skipped = _is_skipped(played, duration)
                 self._log_listen(
                     prev, played, skipped, zone.get("display_name", zone_id)
                 )
+
+            # Sonic Radio: feed completion / skip back into the session and
+            # top up the queue if it's running low. Fire-and-forget — the
+            # zone monitor must never block on radio bookkeeping.
+            try:
+                _handle_sonic_radio_track_end(
+                    zone_id, prev, skipped=bool(skipped)
+                )
+            except Exception as _exc:
+                logger.debug("Sonic Radio track-end hook failed: %s", _exc)
 
         if not prev or prev.get("track_key") != track_key:
             # New track started — record start state
@@ -506,6 +516,84 @@ class RoonIntelligenceMixin:
 # ---------------------------------------------------------------------------
 # Module-level helpers (pure functions, no self)
 # ---------------------------------------------------------------------------
+
+
+def _resolve_item_key(conn, title: str, artist: str) -> str | None:
+    """Best-effort title+artist → item_key lookup against the SQLite cache."""
+    if not title:
+        return None
+    if artist:
+        row = conn.execute(
+            "SELECT item_key FROM tracks "
+            "WHERE LOWER(title) = LOWER(?) AND LOWER(artist) LIKE ? LIMIT 1",
+            (title, f"%{artist.lower()}%"),
+        ).fetchone()
+        if row:
+            return row["item_key"]
+    row = conn.execute(
+        "SELECT item_key FROM tracks WHERE LOWER(title) = LOWER(?) LIMIT 1",
+        (title,),
+    ).fetchone()
+    return row["item_key"] if row else None
+
+
+def _handle_sonic_radio_track_end(zone_id: str, prev: dict, *, skipped: bool) -> None:
+    """Sync entry point from the zone monitor — schedules the async hook."""
+    try:
+        from backend.audio_features.sonic_radio import get_session  # noqa: PLC0415
+    except Exception:
+        return
+    session = get_session(zone_id)
+    if session is None:
+        return
+    _fire_and_forget(_sonic_radio_track_end_async(session, prev, skipped))
+
+
+async def _sonic_radio_track_end_async(session, prev: dict, skipped: bool) -> None:
+    """Register skip feedback and top up Roon's queue with the next pick."""
+    from backend.db import get_db_connection  # noqa: PLC0415
+
+    title = prev.get("title", "")
+    artist = prev.get("artist", "")
+    item_key: str | None = None
+    try:
+        conn = get_db_connection()
+        try:
+            item_key = _resolve_item_key(conn, title, artist)
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.debug("Sonic Radio: item_key resolve failed: %s", exc)
+
+    if skipped and item_key:
+        try:
+            await session.skip_feedback(item_key)
+        except Exception as exc:
+            logger.debug("Sonic Radio: skip_feedback failed: %s", exc)
+
+    # Top up the queue with one more pick so playback is endless.
+    try:
+        next_batch = await session.next_tracks(1)
+    except Exception as exc:
+        logger.debug("Sonic Radio: next_tracks failed: %s", exc)
+        return
+    if not next_batch:
+        return
+
+    try:
+        from backend.roon_client import get_roon_client  # noqa: PLC0415
+        client = get_roon_client()
+        if client is None or not client.is_connected():
+            return
+        import asyncio  # noqa: PLC0415
+        await asyncio.to_thread(
+            client.play_tracks,
+            session.zone_id,
+            [t["item_key"] for t in next_batch if t.get("item_key")],
+            "play_next",
+        )
+    except Exception as exc:
+        logger.debug("Sonic Radio: queue top-up failed: %s", exc)
 
 
 def _calc_played(prev: dict, now_playing: dict | None) -> int:

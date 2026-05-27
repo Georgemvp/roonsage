@@ -35,6 +35,23 @@ export async function fetchClusterTracks(clusterId, limit = 200) {
     return apiCall(`/clustering/cluster/${clusterId}/tracks?limit=${limit}`);
 }
 
+export async function fetchClusterLabels() {
+    return apiCall('/clustering/labels');
+}
+
+export async function runAutoTagClusters() {
+    return apiCall('/clustering/auto-tag', { method: 'POST' });
+}
+
+export async function runSmartRadio({ zone_id, duration_minutes = 60, seed_item_key = null, play = true }) {
+    const body = { zone_id, duration_minutes, play };
+    if (seed_item_key) body.seed_item_key = seed_item_key;
+    return apiCall('/playback/smart-radio', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+}
+
 // ---- Rendering ----
 
 function fmtNum(n, digits = 1) {

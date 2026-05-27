@@ -29,10 +29,12 @@ from backend.routes.intelligence import router as intelligence_router
 from backend.routes.lyrics import router as lyrics_router
 from backend.routes.mood import router as mood_router
 from backend.routes.notifications import router as notifications_router
+from backend.routes.playback_intelligence import router as playback_intelligence_router
 from backend.routes.qobuz_playlist import router as qobuz_playlist_router
 from backend.routes.scheduler import router as scheduler_router
 from backend.routes.song_path import router as song_path_router
 from backend.routes.sonic_fingerprint import router as sonic_fingerprint_router
+from backend.routes.sonic_radio import router as sonic_radio_router
 from backend.routes.templates import router as templates_router
 from backend.routes.verify import router as verify_router
 from backend.routes.watchlist import router as watchlist_router
@@ -207,6 +209,8 @@ app.include_router(clap_search_router)
 app.include_router(lyrics_router)
 app.include_router(mood_router)
 app.include_router(sonic_fingerprint_router)
+app.include_router(sonic_radio_router)
+app.include_router(playback_intelligence_router)
 
 
 # =============================================================================
