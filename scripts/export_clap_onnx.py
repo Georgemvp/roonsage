@@ -65,10 +65,11 @@ def _build_wrappers(clap_module):
             self.inner = inner
 
         def forward(self, waveform: torch.Tensor) -> torch.Tensor:
+            device = waveform.device
             audio_dict = {"waveform": waveform}
-            emb = self.inner.encode_audio(audio_dict)["embedding"]
+            emb = self.inner.encode_audio(audio_dict, device=device)["embedding"]
             emb = self.inner.audio_projection(emb)
-            return F.normalize(emb, dim=-1)
+            return F.normalize(emb, dim=-1)  # L2-normalise to match get_audio_embedding
 
     class CLAPTextEncoder(nn.Module):
         """input_ids + attention_mask (B, L) -> L2-normalized 512-dim embedding."""
@@ -83,9 +84,9 @@ def _build_wrappers(clap_module):
             attention_mask: torch.Tensor,
         ) -> torch.Tensor:
             text_dict = {"input_ids": input_ids, "attention_mask": attention_mask}
-            emb = self.inner.encode_text(text_dict)
-            emb = self.inner.text_projection(emb)
-            return F.normalize(emb, dim=-1)
+            # Use get_text_embedding which applies encode_text + text_projection
+            # + normalize internally — avoids double-projecting.
+            return self.inner.get_text_embedding(text_dict)
 
     audio = CLAPAudioEncoder().eval()
     text = CLAPTextEncoder().eval()
@@ -135,6 +136,7 @@ def export_audio(audio_module, out_path: Path) -> None:
         },
         opset_version=ONNX_OPSET,
         do_constant_folding=True,
+        dynamo=False,
     )
 
 
@@ -161,6 +163,7 @@ def export_text(text_module, out_path: Path, tokenizer) -> None:
             "attention_mask": {0: "batch", 1: "seq"},
             "embedding": {0: "batch"},
         },
+        dynamo=False,
         opset_version=ONNX_OPSET,
         do_constant_folding=True,
     )
@@ -206,11 +209,18 @@ def verify(clap_module, audio_onnx: Path, text_onnx: Path, tolerance: float) -> 
         logger.error("Audio encoder cosine %.4f below tolerance %.4f", cos_audio, tolerance)
         ok = False
 
-    # Text
+    # Text — in laion_clap the naming is counter-intuitive: `clap_module.tokenize`
+    # IS the HuggingFace RobertaTokenizer object; `clap_module.tokenizer` is a
+    # bound method that wraps it and doesn't accept the standard HF kwargs.
     native_t = clap_module.get_text_embedding(["a calm ambient piano track"], use_tensor=False)[0]
     native_t = native_t / (np.linalg.norm(native_t) + 1e-12)
-    tokenizer = clap_module.tokenize  # tokenize callable returns dict of tensors
-    enc = tokenizer(["a calm ambient piano track"])
+    enc = clap_module.tokenize(
+        ["a calm ambient piano track"],
+        padding="max_length",
+        truncation=True,
+        max_length=77,
+        return_tensors="pt",
+    )
     sess = ort.InferenceSession(str(text_onnx), providers=["CPUExecutionProvider"])
     onnx_t = sess.run(
         ["embedding"],
@@ -290,9 +300,10 @@ def main(argv: list[str] | None = None) -> int:
         # The CLAP_Module exposes its tokenizer as the .tokenize method but the
         # underlying tokenizer object (a transformers tokenizer) lives on .tokenizer
         # — we need its callable form for the dummy input.
-        tokenizer = getattr(clap_module, "tokenizer", None)
-        if tokenizer is None:
-            tokenizer = clap_module.tokenize
+        # In laion_clap the naming is counter-intuitive: clap_module.tokenize
+        # IS the HuggingFace tokenizer object; clap_module.tokenizer is a
+        # bound method that wraps it and doesn't accept standard HF kwargs.
+        tokenizer = clap_module.tokenize
         export_text(text_module, text_path, tokenizer)
     except Exception:
         logger.exception("ONNX export failed")

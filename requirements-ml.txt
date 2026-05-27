@@ -12,9 +12,15 @@ umap-learn>=0.5.6
 hdbscan>=0.8.33
 onnxruntime>=1.18.0
 tokenizers>=0.19.0
-# optimum is only needed by scripts/export_gte_onnx.py — install pulls the
-# `exporters` extra so `optimum.exporters.onnx.main_export` is available.
-optimum[exporters]>=1.20.0
-# `onnx` is needed by optimum's exporter and by onnxruntime's quantize_dynamic
-# (which reads/writes the protobuf graph).
+# onnx + onnxscript are required by torch.onnx.export in PyTorch 2.6+
+# (onnxscript is a torch.onnx internal dep for the legacy exporter path).
+# protobuf<5 pins to the last version that ships google.protobuf as a
+# regular Python package; v5+ dropped it from the Python-accessible namespace.
 onnx>=1.16.0
+onnxscript>=0.1.0
+protobuf>=3.20.2,<5
+# optimum 1.x bundles the ONNX exporters subpackage; 2.x split it out and
+# broke compatibility with torch 2.x (symbolic_opset14 internal rename).
+# The GTE export script now uses torch.onnx.export directly, so optimum is
+# no longer required. Kept here as reference in case the approach changes.
+# optimum[exporters]>=1.20.0,<2.0.0
