@@ -1,14 +1,21 @@
 """Song-path finding (v13.0): smoothest bridge between two tracks.
 
-Two strategies:
+Strategies, parameterised by ``method``:
 
-* ``find_song_path`` — greedy nearest-neighbor walk in the normalized
-  feature space, biased toward the target. Cheap, no graph construction.
-* ``find_song_path_graph`` — Dijkstra over a k-NN graph; tends to find a
-  smoother route but pays O(n·k) up front.
+* ``"features"`` (default, alias ``"greedy"``) — greedy nearest-neighbor walk
+  in the normalised audio-feature space, biased toward the target. Cheap, no
+  graph construction.
+* ``"graph"`` — Dijkstra over a k-NN graph built from feature distances; tends
+  to find a smoother route but pays O(n·k) up front.
+* ``"clap"`` — Dijkstra over a k-NN graph built from cosine distances between
+  CLAP audio embeddings. Captures richer sonic similarity (timbre, instrumentation)
+  than the 6-feature vector but ignores BPM/key structure.
+* ``"hybrid"`` — Dijkstra over a k-NN graph whose edges combine CLAP cosine
+  distance and feature distance (``0.6·clap + 0.4·features``). Aims for
+  natural-sounding transitions that also keep BPM/key smooth.
 
-Both return an ordered list of dicts compatible with the REST response
-model (item_key, title, artist, album, plus audio-feature metadata).
+All strategies return an ordered list of dicts compatible with the REST
+response model (item_key, title, artist, album, plus audio-feature metadata).
 """
 
 from __future__ import annotations
@@ -25,6 +32,9 @@ if TYPE_CHECKING:
     import sqlite3
 
 logger = logging.getLogger(__name__)
+
+CLAP_WEIGHT = 0.6
+FEATURE_WEIGHT = 0.4
 
 _MOOD_CENTROIDS: dict[str, list[float]] | None = None
 
@@ -280,6 +290,241 @@ def find_song_path_graph(
     path = _dijkstra(adj, src_idx, dst_idx)
     if not path:
         return find_song_path(conn, from_track_id, to_track_id, max_steps, mood=mood)
+
+    target_len = max_steps + 1
+    if len(path) > target_len:
+        idxs = [
+            round(i * (len(path) - 1) / (target_len - 1)) for i in range(target_len)
+        ]
+        seen: set[int] = set()
+        path = [path[i] for i in idxs if not (path[i] in seen or seen.add(path[i]))]
+    return [metadata[i] for i in path]
+
+
+# ---------------------------------------------------------------------------
+# CLAP-based variants (v13.2)
+# ---------------------------------------------------------------------------
+
+
+def _row_to_metadata(row: Any) -> dict[str, Any]:
+    return {
+        "item_key": row["item_key"],
+        "title": row["title"],
+        "artist": row["artist"],
+        "album": row["album"],
+        "year": row["year"],
+        "genres": row["genres"],
+        "bpm": row["bpm"],
+        "energy": row["energy"],
+        "danceability": row["danceability"],
+        "valence": row["valence"],
+        "instrumentalness": row["instrumentalness"],
+        "acousticness": row["acousticness"],
+        "camelot": row["camelot"],
+        "key_root": row["key_root"],
+        "key_mode": row["key_mode"],
+    }
+
+
+def _load_clap_table(
+    conn: sqlite3.Connection,
+) -> tuple[list[str], Any, dict[str, int], list[dict[str, Any]]]:
+    """Pull (keys, L2-normalised CLAP matrix, key→idx, metadata) for embedded tracks.
+
+    Audio-feature columns are left-joined and may be ``None`` for tracks where
+    only the CLAP embedding has been computed.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    rows = conn.execute(
+        """
+        SELECT t.item_key, t.title, t.artist, t.album, t.year, t.genres,
+               ce.embedding,
+               af.bpm, af.energy, af.danceability, af.valence,
+               af.instrumentalness, af.acousticness,
+               af.camelot, af.key_root, af.key_mode
+        FROM clap_embeddings ce
+        JOIN tracks t ON t.item_key = ce.item_key
+        LEFT JOIN track_audio_features af ON af.item_key = ce.item_key
+        """
+    ).fetchall()
+
+    if not rows:
+        return [], np.zeros((0, 0), dtype=np.float32), {}, []
+
+    matrix = np.stack(
+        [np.frombuffer(r["embedding"], dtype=np.float32) for r in rows]
+    )
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    matrix = matrix / (norms + 1e-12)
+
+    keys = [r["item_key"] for r in rows]
+    metadata = [_row_to_metadata(r) for r in rows]
+    key_to_idx = {k: i for i, k in enumerate(keys)}
+    return keys, matrix, key_to_idx, metadata
+
+
+def _load_hybrid_table(
+    conn: sqlite3.Connection,
+) -> tuple[
+    list[str], Any, list[list[float]], dict[str, int], list[dict[str, Any]]
+]:
+    """Pull tracks that have BOTH CLAP embeddings and full audio features.
+
+    Returns ``(keys, clap_matrix_normalised, feature_matrix_normalised,
+    key_to_idx, metadata)``. Feature columns are MinMax-normalised the same way
+    as ``_load_feature_table`` so feature distances live in [0, ~sqrt(n_dim)].
+    """
+    import numpy as np  # noqa: PLC0415
+
+    where_features = " AND ".join(f"af.{c} IS NOT NULL" for c in FEATURE_COLUMNS)
+    rows = conn.execute(
+        f"""
+        SELECT t.item_key, t.title, t.artist, t.album, t.year, t.genres,
+               ce.embedding,
+               {", ".join("af." + c for c in FEATURE_COLUMNS)},
+               af.camelot, af.key_root, af.key_mode
+        FROM clap_embeddings ce
+        JOIN tracks t ON t.item_key = ce.item_key
+        JOIN track_audio_features af ON af.item_key = ce.item_key
+        WHERE {where_features}
+        """
+    ).fetchall()
+
+    if not rows:
+        return [], np.zeros((0, 0), dtype=np.float32), [], {}, []
+
+    clap_matrix = np.stack(
+        [np.frombuffer(r["embedding"], dtype=np.float32) for r in rows]
+    )
+    clap_norms = np.linalg.norm(clap_matrix, axis=1, keepdims=True)
+    clap_matrix = clap_matrix / (clap_norms + 1e-12)
+
+    raw_features = [[float(r[c]) for c in FEATURE_COLUMNS] for r in rows]
+    mins = [min(col) for col in zip(*raw_features, strict=False)]
+    maxs = [max(col) for col in zip(*raw_features, strict=False)]
+    feature_matrix: list[list[float]] = [
+        [
+            (v - mins[i]) / (maxs[i] - mins[i]) if maxs[i] > mins[i] else 0.0
+            for i, v in enumerate(vec)
+        ]
+        for vec in raw_features
+    ]
+
+    keys = [r["item_key"] for r in rows]
+    metadata = [_row_to_metadata(r) for r in rows]
+    key_to_idx = {k: i for i, k in enumerate(keys)}
+    return keys, clap_matrix, feature_matrix, key_to_idx, metadata
+
+
+def _build_knn_graph_distances(
+    distance_matrix: list[list[float]], k: int
+) -> list[list[tuple[int, float]]]:
+    """Build a sparse symmetric k-NN adjacency list from a precomputed distance matrix."""
+    n = len(distance_matrix)
+    adj: list[list[tuple[int, float]]] = [[] for _ in range(n)]
+    for i in range(n):
+        dists = [(distance_matrix[i][j], j) for j in range(n) if j != i]
+        dists.sort()
+        for d, j in dists[:k]:
+            adj[i].append((j, d))
+            adj[j].append((i, d))
+    return adj
+
+
+def _cosine_distance_matrix(matrix: Any) -> list[list[float]]:
+    """Pairwise cosine distance for an L2-normalised matrix (1 − cosine sim)."""
+    import numpy as np  # noqa: PLC0415
+
+    sim = matrix @ matrix.T
+    # Clamp for numerical safety, then convert to distance in [0, 2].
+    sim = np.clip(sim, -1.0, 1.0)
+    return (1.0 - sim).tolist()
+
+
+def _feature_distance_matrix(feature_matrix: list[list[float]]) -> list[list[float]]:
+    """Pairwise Euclidean distance scaled to roughly [0, 1] by sqrt(n_dim)."""
+    n = len(feature_matrix)
+    n_dim = max(1, len(feature_matrix[0]) if feature_matrix else 1)
+    scale = n_dim ** 0.5
+    dist: list[list[float]] = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = _euclid_sq(feature_matrix[i], feature_matrix[j]) ** 0.5 / scale
+            dist[i][j] = d
+            dist[j][i] = d
+    return dist
+
+
+def find_song_path_clap(
+    conn: sqlite3.Connection,
+    from_track_id: str,
+    to_track_id: str,
+    max_steps: int = 10,
+    *,
+    k: int = 10,
+) -> list[dict[str, Any]]:
+    """Dijkstra path over a k-NN graph built from CLAP audio embeddings.
+
+    Cosine distance between L2-normalised embeddings is the edge weight.
+    Returns ``[]`` if CLAP embeddings haven't been computed; raises
+    ``KeyError`` if either endpoint is missing its embedding.
+    """
+    keys, matrix, key_to_idx, metadata = _load_clap_table(conn)
+    if not keys:
+        return []
+    src_idx, dst_idx = _validate_endpoints(key_to_idx, from_track_id, to_track_id)
+
+    dist_matrix = _cosine_distance_matrix(matrix)
+    adj = _build_knn_graph_distances(dist_matrix, k=min(k, max(1, len(matrix) - 1)))
+
+    path = _dijkstra(adj, src_idx, dst_idx)
+    if not path:
+        return []
+
+    target_len = max_steps + 1
+    if len(path) > target_len:
+        idxs = [
+            round(i * (len(path) - 1) / (target_len - 1)) for i in range(target_len)
+        ]
+        seen: set[int] = set()
+        path = [path[i] for i in idxs if not (path[i] in seen or seen.add(path[i]))]
+    return [metadata[i] for i in path]
+
+
+def find_song_path_hybrid(
+    conn: sqlite3.Connection,
+    from_track_id: str,
+    to_track_id: str,
+    max_steps: int = 10,
+    *,
+    k: int = 10,
+    clap_weight: float = CLAP_WEIGHT,
+    feature_weight: float = FEATURE_WEIGHT,
+) -> list[dict[str, Any]]:
+    """Dijkstra over a k-NN graph weighted by ``clap_weight·clap_cos + feature_weight·feature_dist``.
+
+    Only tracks with BOTH a CLAP embedding and a complete audio-feature row are
+    considered. The combined distance balances richer sonic similarity (CLAP)
+    with structural smoothness (BPM, key, energy).
+    """
+    keys, clap_matrix, feature_matrix, key_to_idx, metadata = _load_hybrid_table(conn)
+    if not keys:
+        return []
+    src_idx, dst_idx = _validate_endpoints(key_to_idx, from_track_id, to_track_id)
+
+    clap_dist = _cosine_distance_matrix(clap_matrix)
+    feat_dist = _feature_distance_matrix(feature_matrix)
+    n = len(keys)
+    combined: list[list[float]] = [
+        [clap_weight * clap_dist[i][j] + feature_weight * feat_dist[i][j] for j in range(n)]
+        for i in range(n)
+    ]
+    adj = _build_knn_graph_distances(combined, k=min(k, max(1, n - 1)))
+
+    path = _dijkstra(adj, src_idx, dst_idx)
+    if not path:
+        return []
 
     target_len = max_steps + 1
     if len(path) > target_len:

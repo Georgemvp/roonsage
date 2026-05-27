@@ -31,7 +31,17 @@ class SongPathRequest(BaseModel):
     from_track_id: str = Field(..., description="item_key of the start track")
     to_track_id: str = Field(..., description="item_key of the end track")
     max_steps: int = Field(10, ge=2, le=50)
-    method: Literal["greedy", "graph"] = "greedy"
+    method: Literal["features", "greedy", "graph", "clap", "hybrid"] = Field(
+        "features",
+        description=(
+            "Distance space + algorithm. "
+            "'features' (default, alias 'greedy'): greedy walk over the 6-dim "
+            "audio-feature vector. 'graph': Dijkstra over a feature k-NN graph. "
+            "'clap': Dijkstra over a k-NN graph of CLAP audio embeddings — "
+            "richer sonic similarity. 'hybrid': Dijkstra over a blend of CLAP "
+            "cosine distance and feature distance."
+        ),
+    )
     mood: str | None = Field(None, description="Optional mood bias for the path")
 
 
@@ -70,14 +80,38 @@ class SongPathPlayResponse(SongPathResponse):
     queue_response: dict[str, Any] = {}
 
 
+def _has_clap_embeddings(conn) -> bool:
+    row = conn.execute("SELECT 1 FROM clap_embeddings LIMIT 1").fetchone()
+    return row is not None
+
+
 def _find_path(req: SongPathRequest) -> list[dict]:
     mood = req.mood if req.mood and req.mood in VALID_MOODS else None
     conn = get_db_connection()
     try:
+        if req.method in ("clap", "hybrid"):
+            if not _has_clap_embeddings(conn):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"method={req.method!r} requires CLAP embeddings — "
+                        "enable CLAP_ENABLED and run /api/clap-search/analyze first."
+                    ),
+                )
+            if mood is not None:
+                logger.info("Mood bias is ignored for method=%s", req.method)
+            if req.method == "clap":
+                return song_path.find_song_path_clap(
+                    conn, req.from_track_id, req.to_track_id, req.max_steps
+                )
+            return song_path.find_song_path_hybrid(
+                conn, req.from_track_id, req.to_track_id, req.max_steps
+            )
         if req.method == "graph":
             return song_path.find_song_path_graph(
                 conn, req.from_track_id, req.to_track_id, req.max_steps, mood=mood
             )
+        # "features" and legacy "greedy" both use the greedy walk
         return song_path.find_song_path(
             conn, req.from_track_id, req.to_track_id, req.max_steps, mood=mood
         )

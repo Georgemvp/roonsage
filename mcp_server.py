@@ -3731,22 +3731,30 @@ async def find_song_path(
     from_track_id: str,
     to_track_id: str,
     max_steps: int = 10,
-    method: str = "greedy",
+    method: str = "features",
     mood: str = "",
 ) -> str:
     """Find the sonically smoothest bridge playlist between two tracks.
 
-    Both tracks must already have audio features extracted. Returns an
-    ordered list of tracks transitioning gradually through the feature
-    space (BPM, energy, danceability, valence, instrumentalness, acousticness).
+    Both tracks must have audio features extracted. ``"clap"`` and
+    ``"hybrid"`` additionally require CLAP embeddings (``CLAP_ENABLED=true``
+    + run ``/api/clap-search/analyze``).
 
     Args:
         from_track_id: item_key of the start track.
         to_track_id:   item_key of the end track.
         max_steps:     Length of the bridge (5–50, default 10).
-        method:        "greedy" (fast, biased walk) or "graph" (Dijkstra over k-NN).
-        mood:          Optional mood bias for the path. One of: calm, energetic,
-                       happy, melancholic, aggressive, dreamy, groovy, dark.
+        method:        Distance space + algorithm.
+                       ``"features"`` (default, alias ``"greedy"``) — greedy walk
+                       over the 6-dim audio-feature vector.
+                       ``"graph"`` — Dijkstra over a feature k-NN graph.
+                       ``"clap"`` — Dijkstra over a k-NN graph of CLAP audio
+                       embeddings; richer sonic similarity (timbre, instrumentation)
+                       but ignores BPM/key.
+                       ``"hybrid"`` — Dijkstra over a blend of CLAP cosine distance
+                       and feature distance; best of both worlds.
+        mood:          Optional mood bias (features/graph only). One of: calm,
+                       energetic, happy, melancholic, aggressive, dreamy, groovy, dark.
     """
     logger.info("FIND_SONG_PATH: %s → %s (method=%s, mood=%s)", from_track_id, to_track_id, method, mood)
     payload: dict = {
