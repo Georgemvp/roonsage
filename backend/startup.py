@@ -151,7 +151,7 @@ async def init_clients(app: FastAPI) -> None:
         # CLAP and lyrics batch jobs run in asyncio threads — they die on any
         # restart and leave status='running' stuck in the DB. Reset to 'idle'
         # so the UI shows the correct state and Start buttons are re-enabled.
-        for run_table in ("clap_runs", "lyrics_runs"):
+        for run_table in ("clap_runs", "lyrics_runs", "mood_runs"):
             try:
                 n = _repair_conn.execute(
                     f"UPDATE {run_table} SET status='idle' WHERE status='running'",

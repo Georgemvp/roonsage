@@ -642,6 +642,43 @@ def init_schema(conn: sqlite3.Connection) -> bool:
     """)
 
     # -----------------------------------------------------------------------
+    # Mood tagging via CLAP K-Means (v13.2)
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS track_mood_tags (
+            track_id TEXT PRIMARY KEY,
+            mood_primary TEXT NOT NULL,
+            mood_secondary TEXT,
+            confidence REAL,
+            cluster_id INTEGER,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (track_id) REFERENCES tracks(item_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_track_mood_primary
+            ON track_mood_tags(mood_primary);
+        CREATE INDEX IF NOT EXISTS idx_track_mood_secondary
+            ON track_mood_tags(mood_secondary);
+
+        CREATE TABLE IF NOT EXISTS mood_runs (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            status TEXT DEFAULT 'idle',
+            started_at TEXT,
+            finished_at TEXT,
+            n_tracks INTEGER DEFAULT 0,
+            n_clusters INTEGER DEFAULT 0,
+            error_message TEXT
+        );
+        INSERT OR IGNORE INTO mood_runs (id, status) VALUES (1, 'idle');
+    """)
+
+    # Migration: existing installs may have track_mood_tags without cluster_id.
+    try:
+        conn.execute("ALTER TABLE track_mood_tags ADD COLUMN cluster_id INTEGER")
+        logger.info("Migration applied: added cluster_id column to track_mood_tags")
+    except sqlite3.OperationalError:
+        pass
+
+    # -----------------------------------------------------------------------
     # Lyrics extraction + semantic embeddings (v13.0)
     # -----------------------------------------------------------------------
     conn.executescript("""

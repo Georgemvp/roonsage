@@ -196,8 +196,10 @@ class AnalyzePromptResponse(BaseModel):
 
     suggested_genres: list[str]
     suggested_decades: list[str]
+    suggested_moods: list[str] = []
     available_genres: list[GenreCount]
     available_decades: list[DecadeCount]
+    available_moods: list[str] = []
     reasoning: str
     token_count: int = 0
     estimated_cost: float = 0.0

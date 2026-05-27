@@ -14,18 +14,21 @@ from backend.taste_profile import TasteProfile
 
 PROMPT_ANALYSIS_SYSTEM = """You are a music expert helping to create playlists from a user's music library.
 
-Analyze the user's prompt and suggest appropriate filters (genres and decades) that would help find matching tracks.
+Analyze the user's prompt and suggest appropriate filters (genres, decades, and moods) that would help find matching tracks.
 
 Return a JSON object with:
 - genres: Array of genre names that match the prompt (e.g., ["Alternative", "Rock", "Indie"])
 - decades: Array of decade strings (e.g., ["1990s", "2000s"])
+- moods: Array of mood labels chosen from the provided vocabulary (e.g., ["calm", "dreamy"])
 - reasoning: Brief explanation of why you chose these filters
 
-Be specific about genres and decades. Consider:
-- Mood/atmosphere (melancholy, upbeat, energetic)
+Be specific. Consider:
+- Mood/atmosphere (melancholy, upbeat, energetic) → map to the provided mood vocabulary
 - Era references (90s, classic, modern)
 - Genre keywords (alternative, jazz, electronic)
 - Artist style hints
+
+Only return moods that appear in the provided mood vocabulary — never invent new ones.
 
 Return ONLY valid JSON, no markdown formatting.
 
@@ -82,6 +85,11 @@ async def analyze_prompt(prompt: str, use_taste_profile: bool = True) -> Analyze
     available_genres = [GenreCount(**g) for g in stats.get("genres", [])]
     available_decades = [DecadeCount(**d) for d in stats.get("decades", [])]
 
+    # Mood vocabulary — derived from the mood tagger (CLAP K-Means). Only moods
+    # that have actually been assigned to library tracks are surfaced; we fall
+    # back to the full default vocabulary when the tagger hasn't run yet.
+    available_moods = _load_available_moods()
+
     # Build prompt with available filter context
     analysis_prompt = f"""User's playlist request: "{prompt}"
 
@@ -91,7 +99,10 @@ Available genres in their library:
 Available decades in their library:
 {', '.join(f"{d.name} ({d.count})" if d.count else d.name for d in available_decades)}
 
-Suggest genres and decades from the available options that best match the user's request."""
+Available mood vocabulary:
+{', '.join(available_moods) if available_moods else '(mood tagging not yet run — leave moods empty)'}
+
+Suggest genres, decades, and (when applicable) moods from the available options that best match the user's request."""
 
     # Add taste profile context (gated by use_taste_profile flag)
     if use_taste_profile:
@@ -120,19 +131,49 @@ Suggest genres and decades from the available options that best match the user's
 
     available_genre_names = {g.name for g in available_genres}
     available_decade_names = {d.name for d in available_decades}
+    available_mood_set = {m.lower() for m in available_moods}
 
     suggested_genres = [g for g in data.get("genres", []) if g in available_genre_names]
     suggested_decades = [d for d in data.get("decades", []) if d in available_decade_names]
 
+    # LLM-suggested moods, restricted to the available vocabulary. Fall back to
+    # a keyword scan of the raw prompt for the case where the LLM omits moods.
+    llm_moods = [m.lower().strip() for m in data.get("moods", []) if isinstance(m, str)]
+    suggested_moods = [m for m in llm_moods if m in available_mood_set]
+    if not suggested_moods and available_mood_set:
+        prompt_lower = prompt.lower()
+        suggested_moods = [m for m in available_moods if m.lower() in prompt_lower]
+
     return AnalyzePromptResponse(
         suggested_genres=suggested_genres,
         suggested_decades=suggested_decades,
+        suggested_moods=suggested_moods,
         available_genres=available_genres,
         available_decades=available_decades,
+        available_moods=available_moods,
         reasoning=data.get("reasoning", ""),
         token_count=response.total_tokens,
         estimated_cost=response.estimated_cost(),
     )
+
+
+def _load_available_moods() -> list[str]:
+    """Return moods present in ``track_mood_tags``, else the default vocab."""
+    try:
+        from backend.audio_features.mood_tagger import DEFAULT_MOODS, get_mood_tag_counts
+        from backend.db import get_connection
+    except Exception:
+        return []
+
+    try:
+        with get_connection() as conn:
+            counts = get_mood_tag_counts(conn)
+    except Exception:
+        return list(DEFAULT_MOODS)
+
+    if counts:
+        return [c["mood"] for c in counts]
+    return list(DEFAULT_MOODS)
 
 
 async def analyze_track(track: Track) -> AnalyzeTrackResponse:

@@ -3496,6 +3496,86 @@ async def filter_tracks_by_audio(
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
+# ---------------------------------------------------------------------------
+# Mood tagging tools (v13.2)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_mood_tags() -> str:
+    """List the moods available in the library + how many tracks carry each one.
+
+    Mood tags are derived offline from CLAP audio embeddings via K-Means; each
+    cluster is labelled with the two closest moods from a 12-mood vocabulary.
+    Returns an empty list when the mood tagger has not been run yet — in that
+    case ask the user to trigger `generate_mood_tags` (requires CLAP_ENABLED).
+    """
+    logger.info("GET_MOOD_TAGS called")
+    result = await _api_call("GET", "/api/mood/tags")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def filter_tracks_by_mood(
+    mood: str,
+    limit: int = 500,
+    include_secondary: bool = True,
+) -> str:
+    """Filter the library by a single mood label.
+
+    Returns the same numbered list + session_id format as `filter_tracks`, so
+    the result can be handed straight to `validate_playlist` and
+    `curate_and_play`. Track order is by descending mood confidence.
+
+    Args:
+        mood:              One of the moods returned by `get_mood_tags`
+                           (e.g. "calm", "energetic", "dreamy"). Case sensitive.
+        limit:             Maximum tracks to return (default 500).
+        include_secondary: When True (default) include tracks whose secondary
+                           mood matches as well — broader pool, slightly less
+                           confident match. Set False for purer results.
+    """
+    logger.info("FILTER_TRACKS_BY_MOOD: mood=%s limit=%d", mood, limit)
+    result = await _api_call(
+        "GET",
+        "/api/mood/tracks",
+        params={"mood": mood, "limit": limit, "include_secondary": include_secondary},
+    )
+    if isinstance(result, str):
+        return result
+
+    tracks = result.get("tracks", [])
+    total = result.get("total", len(tracks))
+    session_id = result.get("session_id")
+    lines = [_format_compact_line(i, t) for i, t in enumerate(tracks, start=1)]
+
+    out: dict = {
+        "mood": mood,
+        "total_matching": total,
+        "returned": len(tracks),
+        "tracks": "\n".join(lines),
+        "session_id": session_id,
+        "note": "Mood filter — use session_id with curate_and_play.",
+    }
+    if not session_id:
+        out["key_map"] = {str(i): t.get("item_key", "") for i, t in enumerate(tracks, start=1)}
+    return json.dumps(out, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def generate_mood_tags() -> str:
+    """Trigger background mood-tag generation across the library.
+
+    Runs K-Means over the stored CLAP audio embeddings and assigns each cluster
+    to the two closest moods from the built-in vocabulary. Requires that
+    /api/clap/analyze has finished first. Returns immediately; poll
+    /api/mood/status (or call `get_mood_tags` later) to see progress.
+    """
+    logger.info("GENERATE_MOOD_TAGS called")
+    result = await _api_call("POST", "/api/mood/generate", retryable=False)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
 @mcp.tool()
 async def build_dj_set(
     duration_minutes: int = 60,

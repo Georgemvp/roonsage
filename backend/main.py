@@ -27,6 +27,7 @@ from backend.routes.dj_templates import router as dj_templates_router
 from backend.routes.enrichment import router as enrichment_router
 from backend.routes.intelligence import router as intelligence_router
 from backend.routes.lyrics import router as lyrics_router
+from backend.routes.mood import router as mood_router
 from backend.routes.notifications import router as notifications_router
 from backend.routes.qobuz_playlist import router as qobuz_playlist_router
 from backend.routes.scheduler import router as scheduler_router
@@ -204,6 +205,7 @@ app.include_router(song_path_router)
 app.include_router(alchemy_router)
 app.include_router(clap_search_router)
 app.include_router(lyrics_router)
+app.include_router(mood_router)
 app.include_router(sonic_fingerprint_router)
 
 

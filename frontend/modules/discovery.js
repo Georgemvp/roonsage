@@ -5,6 +5,7 @@
 import { apiCall } from './api.js';
 import { escapeHtml } from './utils.js';
 import { getCurrentZoneId } from './nowplaying.js';
+import { renderMoodsSection } from './moods.js';
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -68,11 +69,14 @@ function _render(view, data) {
         ${_renderFavoritesInLibrary(favorites)}
         ${_renderDeepCuts(cuts)}
         ${_renderForgottenFavorites(forgotten)}
+        <div id="discovery-moods-pane"></div>
         ${_renderGenreExplorer(genres)}
         <div id="discovery-similar-pane"></div>
     `;
 
-    // Load similar artists async (non-blocking)
+    // Async sections — render after the main view is up so the page doesn't
+    // block on the mood-tag endpoint (which can be slow on a cold DB).
+    renderMoodsSection(document.getElementById('discovery-moods-pane'));
     _renderSimilarArtists();
 
     // Wire up play buttons after render

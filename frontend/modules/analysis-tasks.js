@@ -305,9 +305,9 @@ async function _startLyrics() {
     }
 }
 
-function _restartPoll(immediate = false) {
+function _restartPoll(intervalMs = POLL_INTERVAL_ACTIVE) {
     if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
-    if (immediate) { _poll(); } else { _pollTimer = setTimeout(_poll, immediate); }
+    _pollTimer = setTimeout(_poll, intervalMs);
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────

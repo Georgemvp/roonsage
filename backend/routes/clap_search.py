@@ -91,7 +91,7 @@ async def start_analyze() -> ClapAnalyzeResponse:
     finally:
         conn.close()
 
-    if clap_search.get_model() is None:
+    if clap_search.get_onnx_backend() is None and clap_search.get_model() is None:
         raise HTTPException(503, "CLAP model could not be loaded")
 
     asyncio.create_task(  # noqa: RUF006
@@ -110,7 +110,7 @@ async def status() -> ClapStatusResponse:
         conn.close()
     return ClapStatusResponse(
         enabled=enabled,
-        model_loaded=clap_search._model is not None,
+        model_loaded=clap_search._model is not None or clap_search.get_onnx_backend() is not None,
         status=s.get("status", "idle"),
         started_at=s.get("started_at"),
         finished_at=s.get("finished_at"),

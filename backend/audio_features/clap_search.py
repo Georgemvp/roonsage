@@ -464,8 +464,11 @@ def batch_analyze_clap(conn: sqlite3.Connection) -> dict[str, Any]:
            WHERE af.file_path IS NOT NULL AND ce.item_key IS NULL"""
     ).fetchall()
 
-    n_total = len(rows)
-    n_done = 0
+    # Grand total = already done + still remaining, so the progress bar never jumps back.
+    n_already = conn.execute("SELECT COUNT(*) FROM clap_embeddings").fetchone()[0]
+    n_remaining = len(rows)
+    n_total = n_already + n_remaining
+    n_done = n_already
     n_failed = 0
     model_name = get_clap_model()
 
@@ -473,7 +476,7 @@ def batch_analyze_clap(conn: sqlite3.Connection) -> dict[str, Any]:
     _set_state(
         conn, "running",
         started_at=started, finished_at=None,
-        n_total=n_total, n_done=0, n_failed=0, error_message=None,
+        n_total=n_total, n_done=n_done, n_failed=0, error_message=None,
     )
 
     try:

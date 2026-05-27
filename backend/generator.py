@@ -295,9 +295,29 @@ async def generate_playlist_stream(
                     len(_enriched_tags), len(_keys), _enrichment_coverage * 100,
                 )
 
+            # Mood tags from the CLAP K-Means tagger (v13.2). Independent of
+            # MB/Last.fm enrichment, so we merge both sources into a single
+            # tag list per track.
+            try:
+                from backend.audio_features.mood_tagger import get_mood_tags_for_keys
+                from backend.db import get_connection
+                with get_connection() as _mood_conn:
+                    _mood_tags = get_mood_tags_for_keys(_mood_conn, _keys)
+            except Exception:
+                _mood_tags = {}
+            if _mood_tags:
+                logger.info(
+                    "Mood tag coverage: %d/%d tracks (%.0f%%)",
+                    len(_mood_tags), len(_keys),
+                    len(_mood_tags) / max(len(_keys), 1) * 100,
+                )
+
             def _fmt_track(i: int, t) -> str:  # type: ignore[no-untyped-def]
                 base = f"{i+1}. {t.artist} - {t.title} ({t.album}, {t.year or 'Unknown year'})"
-                tags = _enriched_tags.get(t.item_key, [])
+                tags: list[str] = list(_enriched_tags.get(t.item_key, []))
+                for m in _mood_tags.get(t.item_key, []):
+                    if m and m not in tags:
+                        tags.append(m)
                 if tags:
                     return f"{base} [{', '.join(tags)}]"
                 return base

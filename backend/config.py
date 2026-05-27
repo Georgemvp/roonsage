@@ -539,6 +539,23 @@ def get_onnx_models_dir() -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Mood tagging (v13.2)
+# ---------------------------------------------------------------------------
+
+
+def get_mood_cluster_count() -> int:
+    """K for the K-Means partition over CLAP embeddings.
+
+    Defaults to 12 — the size of the default mood vocabulary. Set
+    ``MOOD_CLUSTER_COUNT`` to override (clamped to >= 2 by the caller).
+    """
+    try:
+        return max(2, int(os.environ.get("MOOD_CLUSTER_COUNT", "12")))
+    except ValueError:
+        return 12
+
+
+# ---------------------------------------------------------------------------
 # Lyrics semantic search (v13.0)
 # ---------------------------------------------------------------------------
 

@@ -565,3 +565,48 @@
     text-overflow: ellipsis;
     margin-top: -4px;
 }
+
+/* ── Mood cards (v13.2) ─────────────────────────────────────────────── */
+.moods-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+}
+.mood-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 18px 12px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+    color: var(--text-primary);
+    font: inherit;
+}
+.mood-card:hover:not(:disabled) {
+    transform: translateY(-2px);
+    border-color: var(--border-accent, var(--accent));
+    box-shadow: var(--shadow-card, 0 4px 14px rgba(0,0,0,0.2));
+}
+.mood-card:disabled { opacity: 0.6; cursor: progress; }
+.mood-card-emoji { font-size: 1.6rem; line-height: 1; }
+.mood-card-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+.mood-card-count {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+.mood-card-loading { pointer-events: none; }
+.mood-card-flash {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--accent);
+}
