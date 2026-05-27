@@ -147,6 +147,20 @@ async def init_clients(app: FastAPI) -> None:
                                 n, busy_state, table)
             except Exception as exc:
                 logger.debug("Orphan reset on %s skipped: %s", table, exc)
+
+        # CLAP and lyrics batch jobs run in asyncio threads — they die on any
+        # restart and leave status='running' stuck in the DB. Reset to 'idle'
+        # so the UI shows the correct state and Start buttons are re-enabled.
+        for run_table in ("clap_runs", "lyrics_runs"):
+            try:
+                n = _repair_conn.execute(
+                    f"UPDATE {run_table} SET status='idle' WHERE status='running'",
+                ).rowcount
+                if n:
+                    logger.info("Reset stuck 'running' status in %s to 'idle'", run_table)
+            except Exception as exc:
+                logger.debug("Orphan reset on %s skipped: %s", run_table, exc)
+
         _repair_conn.commit()
     finally:
         _repair_conn.close()

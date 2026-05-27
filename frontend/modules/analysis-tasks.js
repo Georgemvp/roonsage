@@ -212,7 +212,7 @@ function _updateSettingsSections(cl, clap, lyr) {
         const banner = document.getElementById('lyrics-disabled-banner');
         if (banner) banner.style.display = lyr.enabled ? 'none' : '';
 
-        const done = lyr.n_done ?? 0;
+        const done = lyr.n_embedded ?? 0;
         const total = lyr.n_total ?? 0;
         const pending = total > done ? total - done : 0;
         _setText('lyrics-n-done',    done.toLocaleString());
