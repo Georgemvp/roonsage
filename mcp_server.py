@@ -3937,6 +3937,170 @@ async def play_alchemy(
 
 
 # ---------------------------------------------------------------------------
+# Saved Alchemy profiles + Surprise Me (v13.4)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_alchemy_profiles() -> str:
+    """Return every saved Song Alchemy profile (most-recently updated first).
+
+    A profile is a named, reusable Alchemy target — the averaged audio
+    features of an ADD set and (optionally) a SUBTRACT set, plus an optional
+    bound zone_id for one-tap playback.
+    """
+    logger.info("LIST_ALCHEMY_PROFILES")
+    result = await _api_call("GET", "/api/alchemy/profiles")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def save_alchemy_profile(
+    name: str,
+    add_track_ids: list[str],
+    subtract_track_ids: list[str] | None = None,
+    zone_id: str | None = None,
+) -> str:
+    """Persist the current Alchemy selection as a named, reusable profile.
+
+    Use this when the user has built an alchemy mix they want to re-run
+    later — e.g. "save this as Sunday Morning Coffee, bound to Living Room".
+
+    Args:
+        name:               Unique profile name (overwrites if exists).
+        add_track_ids:      item_keys of ADD tracks (≥1, must have audio features).
+        subtract_track_ids: item_keys of SUBTRACT tracks (optional).
+        zone_id:            Optional Roon zone_id to bind to this profile.
+    """
+    body = {
+        "name": name,
+        "add_track_ids": add_track_ids,
+        "subtract_track_ids": subtract_track_ids or [],
+        "zone_id": zone_id,
+    }
+    logger.info("SAVE_ALCHEMY_PROFILE: name=%r add=%d sub=%d",
+                name, len(add_track_ids), len(subtract_track_ids or []))
+    result = await _api_call("POST", "/api/alchemy/profiles", json=body)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def delete_alchemy_profile(profile_id: int) -> str:
+    """Permanently delete a saved Alchemy profile by id."""
+    logger.info("DELETE_ALCHEMY_PROFILE: id=%d", profile_id)
+    result = await _api_call("DELETE", f"/api/alchemy/profiles/{profile_id}")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def generate_from_alchemy_profile(
+    profile_id: int,
+    limit: int = 25,
+    play: bool = False,
+    zone_id: str | None = None,
+    mode: str = "replace",
+) -> str:
+    """Apply a saved Alchemy profile and (optionally) queue the result.
+
+    When ``play=True`` and the profile has a bound zone_id (or one is
+    supplied), the result is queued to that zone using ``mode``
+    (``replace`` or ``append``).
+
+    Args:
+        profile_id: The id returned by ``save_alchemy_profile``.
+        limit:      How many tracks to return (1-200, default 25).
+        play:       Set True to queue the result to a Roon zone.
+        zone_id:    Overrides the profile's bound zone (optional).
+        mode:       "replace" (default) or "append".
+    """
+    body = {"limit": limit, "play": play, "zone_id": zone_id, "mode": mode}
+    logger.info("GEN_FROM_ALCHEMY_PROFILE: id=%d play=%s", profile_id, play)
+    result = await _api_call("POST", f"/api/alchemy/profiles/{profile_id}/generate", json=body)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def surprise_me_alchemy(
+    zone_id: str | None = None,
+    zone_name: str | None = None,
+    limit: int = 25,
+    play: bool = False,
+    mode: str = "replace",
+) -> str:
+    """Build a "more of what's working, less of what's not" mix for a zone.
+
+    Uses the zone's last 5 finished plays as the implicit ADD set and the
+    last 5 skipped tracks as SUBTRACT. With no recent skips, the lowest-
+    energy plays become SUBTRACT instead. Returns the same shape as
+    ``song_alchemy`` with extra ``n_plays`` / ``n_skips`` / ``subtract_source``
+    fields.
+
+    Either ``zone_id`` (for playback + name lookup) or ``zone_name`` (when
+    matching purely against listening_history) is sufficient.
+    """
+    body = {
+        "zone_id": zone_id,
+        "zone_name": zone_name,
+        "limit": limit,
+        "play": play,
+        "mode": mode,
+    }
+    logger.info("SURPRISE_ME: zone_id=%s zone_name=%s", zone_id, zone_name)
+    result = await _api_call("POST", "/api/alchemy/surprise", json=body)
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
+# Circadian audio profile (v13.4)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_circadian_profile() -> str:
+    """Return the user's 24-hour audio-feature listening profile.
+
+    For each hour of the day the response includes the average energy,
+    danceability, valence, instrumentalness, and acousticness of the tracks
+    actually played at that hour. Use this to understand when the user
+    listens to what — e.g. mellow acoustic at 07:00, high-energy at 18:00.
+    Hours with too little data are interpolated from their nearest neighbours
+    on the 24-hour ring; the response flags those in ``interpolated_hours``.
+    """
+    logger.info("GET_CIRCADIAN_PROFILE")
+    result = await _api_call("GET", "/api/circadian/profile")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def circadian_playlist(hour: int, limit: int = 25) -> str:
+    """Generate a playlist matched to the user's audio profile for an hour.
+
+    Picks library tracks whose audio features sit closest to the target
+    profile for ``hour`` (0-23). Each result includes a ``match`` score
+    (0.0-1.0) and Euclidean distance to the target.
+
+    Args:
+        hour:  Hour of the day, 0-23.
+        limit: Number of tracks to return (1-200, default 25).
+    """
+    logger.info("CIRCADIAN_PLAYLIST: hour=%d limit=%d", hour, limit)
+    result = await _api_call("GET", f"/api/circadian/playlist?hour={hour}&limit={limit}")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def circadian_now(limit: int = 25) -> str:
+    """Generate a playlist tuned to the user's profile for *right now*.
+
+    Convenience wrapper around ``circadian_playlist`` that uses the current
+    local hour. Great for "give me something fitting" prompts.
+    """
+    logger.info("CIRCADIAN_NOW: limit=%d", limit)
+    result = await _api_call("GET", f"/api/circadian/current?limit={limit}")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
 # CLAP text-to-audio search (v13.0)
 # ---------------------------------------------------------------------------
 

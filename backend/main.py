@@ -19,6 +19,7 @@ from backend.routes import config_routes, generate, library, recommend, results,
 from backend.routes.alchemy import router as alchemy_router
 from backend.routes.audio_features import router as audio_features_router
 from backend.routes.automations import router as automations_router
+from backend.routes.circadian import router as circadian_router
 from backend.routes.clap_search import router as clap_search_router
 from backend.routes.clustering import router as clustering_router
 from backend.routes.discovery import router as discovery_router
@@ -205,6 +206,7 @@ app.include_router(dj_templates_router)
 app.include_router(clustering_router)
 app.include_router(song_path_router)
 app.include_router(alchemy_router)
+app.include_router(circadian_router)
 app.include_router(clap_search_router)
 app.include_router(lyrics_router)
 app.include_router(mood_router)

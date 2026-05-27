@@ -29,7 +29,7 @@ class ScheduleFilters(BaseModel):
 
 class CreateScheduleRequest(BaseModel):
     name: str
-    prompt: str
+    prompt: str = ""
     filters: ScheduleFilters | None = None
     track_count: int = 25
     schedule: str  # cron expression
@@ -37,6 +37,7 @@ class CreateScheduleRequest(BaseModel):
     save_to_qobuz: bool = True
     qobuz_playlist_id: str | None = None
     enabled: bool = True
+    schedule_type: str = "prompt"  # "prompt" | "circadian"
 
 
 class UpdateScheduleRequest(BaseModel):
@@ -49,6 +50,7 @@ class UpdateScheduleRequest(BaseModel):
     save_to_qobuz: bool | None = None
     qobuz_playlist_id: str | None = None
     enabled: bool | None = None
+    schedule_type: str | None = None
 
 
 def _row_to_dict(row) -> dict:
@@ -101,14 +103,27 @@ async def create_schedule(req: CreateScheduleRequest):
     """Create a new scheduled playlist."""
     _validate_cron(req.schedule)
 
+    schedule_type = (req.schedule_type or "prompt").lower()
+    if schedule_type not in {"prompt", "circadian"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid schedule_type {schedule_type!r}: expected 'prompt' or 'circadian'",
+        )
+    if schedule_type == "prompt" and not (req.prompt and req.prompt.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="prompt is required when schedule_type='prompt'",
+        )
+
     filters_json = json.dumps(req.filters.model_dump() if req.filters else {})
 
     with get_connection() as conn:
         cursor = conn.execute(
             """INSERT INTO scheduled_playlists
                    (name, prompt, filters, track_count, schedule,
-                    zone_name, save_to_qobuz, qobuz_playlist_id, enabled)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    zone_name, save_to_qobuz, qobuz_playlist_id, enabled,
+                    schedule_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 req.name,
                 req.prompt,
@@ -119,6 +134,7 @@ async def create_schedule(req: CreateScheduleRequest):
                 1 if req.save_to_qobuz else 0,
                 req.qobuz_playlist_id,
                 1 if req.enabled else 0,
+                schedule_type,
             ),
         )
         conn.commit()
@@ -187,6 +203,15 @@ async def update_schedule(schedule_id: int, req: UpdateScheduleRequest):
     if req.enabled is not None:
         updates.append("enabled=?")
         params.append(1 if req.enabled else 0)
+    if req.schedule_type is not None:
+        st = req.schedule_type.lower()
+        if st not in {"prompt", "circadian"}:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid schedule_type {st!r}: expected 'prompt' or 'circadian'",
+            )
+        updates.append("schedule_type=?")
+        params.append(st)
 
     if updates:
         params.append(schedule_id)

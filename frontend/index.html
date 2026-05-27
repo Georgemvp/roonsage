@@ -103,6 +103,10 @@
                         <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="13" cy="13" r="1.5"/><path d="M3 4.5Q3 10 8 8 13 6 13 11.5"/></svg></span>
                         <span>Song Paths</span>
                     </button>
+                    <button class="rs-nav-item" data-nav="circadian" aria-label="Circadian Rhythm">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 2v6l4 2"/></svg></span>
+                        <span>Circadian</span>
+                    </button>
                     <button class="rs-nav-item" data-nav="alchemy" aria-label="Song Alchemy">
                         <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2v4L3 12a2 2 0 002 2h6a2 2 0 002-2L10 6V2"/><path d="M5 2h6"/></svg></span>
                         <span>Alchemy</span>
@@ -1773,34 +1777,106 @@
                 <div id="song-paths-result" class="song-paths-result"></div>
             </div>
 
-            <!-- Song Alchemy View (v13.0) -->
+            <!-- Song Alchemy View (v13.0 / v13.4) -->
             <div id="alchemy-view" class="view">
                 <p class="rs-view-eyebrow">DISCOVER</p>
                 <h2 class="rs-view-title">Song Alchemy</h2>
-                <p class="rs-view-sub">Add tracks you want more of, subtract tracks you want less of. RoonSage finds the closest match in your library.</p>
+                <p class="rs-view-sub">Voeg tracks toe die je méér wilt, trek tracks af die je minder wilt. RoonSage zoekt de dichtstbijzijnde match in je bibliotheek.</p>
 
-                <div class="alchemy-layout">
-                    <div class="alchemy-search">
-                        <input id="alchemy-search" type="search" class="auto-form-input" placeholder="Search library…" />
-                        <div id="alchemy-search-results" class="alchemy-results-list"></div>
+                <!-- Surprise Me top action: builds an implicit mix from recent zone plays/skips -->
+                <div class="alchemy-surprise-bar">
+                    <div class="alchemy-surprise-info">
+                        <strong>Surprise Me</strong>
+                        <span class="alchemy-surprise-hint">— meer van wat werkt in een zone, minder van wat je overslaat.</span>
                     </div>
-                    <div class="alchemy-mix">
-                        <div class="alchemy-bucket">
-                            <h4>Add (+)</h4>
-                            <ul id="alchemy-add-list" class="alchemy-bucket-list"></ul>
-                        </div>
-                        <div class="alchemy-bucket">
-                            <h4>Subtract (−)</h4>
-                            <ul id="alchemy-subtract-list" class="alchemy-bucket-list"></ul>
-                        </div>
-                        <div class="alchemy-actions">
-                            <button id="alchemy-mix-btn" class="btn btn-primary btn-sm">Mix</button>
-                            <button id="alchemy-play-btn" class="btn btn-secondary btn-sm" disabled>Play mix</button>
-                        </div>
-                        <div id="alchemy-result" class="alchemy-result"></div>
-                        <canvas id="alchemy-radar" width="320" height="320" hidden></canvas>
+                    <div class="alchemy-surprise-controls">
+                        <select id="alchemy-surprise-zone" class="auto-form-input" aria-label="Zone"></select>
+                        <button id="alchemy-surprise-btn" class="btn btn-primary btn-sm">Verras me</button>
+                        <button id="alchemy-surprise-play-btn" class="btn btn-secondary btn-sm" disabled>Speel af</button>
                     </div>
                 </div>
+
+                <div class="alchemy-tabs" role="tablist">
+                    <button class="alchemy-tab is-active" role="tab" data-tab="mix">Mix</button>
+                    <button class="alchemy-tab" role="tab" data-tab="profiles">Profielen</button>
+                </div>
+
+                <!-- Tab: Mix (manual ADD/SUBTRACT) -->
+                <div id="alchemy-tab-mix" class="alchemy-tab-panel is-active">
+                    <div class="alchemy-layout">
+                        <div class="alchemy-search">
+                            <input id="alchemy-search" type="search" class="auto-form-input" placeholder="Zoek in bibliotheek…" />
+                            <div id="alchemy-search-results" class="alchemy-results-list"></div>
+                        </div>
+                        <div class="alchemy-mix">
+                            <div class="alchemy-bucket">
+                                <h4>Add (+)</h4>
+                                <ul id="alchemy-add-list" class="alchemy-bucket-list"></ul>
+                            </div>
+                            <div class="alchemy-bucket">
+                                <h4>Subtract (−)</h4>
+                                <ul id="alchemy-subtract-list" class="alchemy-bucket-list"></ul>
+                            </div>
+                            <div class="alchemy-actions">
+                                <button id="alchemy-mix-btn" class="btn btn-primary btn-sm">Mix</button>
+                                <button id="alchemy-play-btn" class="btn btn-secondary btn-sm" disabled>Speel mix af</button>
+                                <button id="alchemy-save-profile-btn" class="btn btn-secondary btn-sm" disabled>Opslaan als profiel…</button>
+                            </div>
+                            <div id="alchemy-result" class="alchemy-result"></div>
+                            <canvas id="alchemy-radar" width="320" height="320" hidden></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Profielen (saved profiles) -->
+                <div id="alchemy-tab-profiles" class="alchemy-tab-panel" hidden>
+                    <div class="alchemy-profiles-bar">
+                        <p class="alchemy-profiles-hint">Opgeslagen profielen kun je opnieuw uitvoeren zonder de tracks weer te selecteren. Koppel optioneel een zone om met één klik af te spelen.</p>
+                    </div>
+                    <div id="alchemy-profiles-list" class="alchemy-profiles-list"></div>
+                </div>
+            </div>
+
+            <!-- Circadian Rhythm View (v13.4) -->
+            <div id="circadian-view" class="view">
+                <p class="rs-view-eyebrow">DISCOVER</p>
+                <h2 class="rs-view-title">Circadian Rhythm</h2>
+                <p class="rs-view-sub">Jouw muziek door de dag heen — 24 uur audio-feature profiel berekend uit je luistergedrag. Genereer een playlist die past bij dit moment.</p>
+
+                <div class="circadian-layout">
+                    <div class="circadian-chart-wrap">
+                        <canvas id="circadian-chart" width="640" height="280"></canvas>
+                        <div id="circadian-meta" class="circadian-meta"></div>
+                    </div>
+                    <div class="circadian-sidebar">
+                        <div class="circadian-controls">
+                            <label for="circadian-hour" style="font-size:0.82rem;color:var(--text-muted);">Uur</label>
+                            <input id="circadian-hour" type="range" min="0" max="23" value="0" />
+                            <div id="circadian-hour-label" class="circadian-hour-label">00:00</div>
+
+                            <label for="circadian-limit" style="font-size:0.82rem;color:var(--text-muted);">Aantal tracks</label>
+                            <select id="circadian-limit" class="auto-form-input">
+                                <option value="15">15 tracks</option>
+                                <option value="25" selected>25 tracks</option>
+                                <option value="50">50 tracks</option>
+                            </select>
+
+                            <label for="circadian-zone" style="font-size:0.82rem;color:var(--text-muted);">Zone</label>
+                            <select id="circadian-zone" class="auto-form-input"></select>
+
+                            <div class="circadian-buttons">
+                                <button id="circadian-now-btn" class="btn btn-primary btn-sm">Genereer voor nu</button>
+                                <button id="circadian-play-btn" class="btn btn-secondary btn-sm" disabled>&#9654; Afspelen</button>
+                            </div>
+                        </div>
+                        <details class="circadian-help">
+                            <summary>Hoe werkt dit?</summary>
+                            <p>Voor elk uur van de dag berekenen we het gemiddelde audio-feature profiel (energy, danceability, valence, instrumentalness, acousticness) van de tracks die je daadwerkelijk op dat uur hebt geluisterd. De grafiek toont die curves over de hele dag. Uur-gemiddelden met te weinig data worden lineair geïnterpoleerd vanaf de dichtstbijzijnde uren op de 24u-cirkel.</p>
+                        </details>
+                    </div>
+                </div>
+
+                <div id="circadian-results" class="circadian-results"></div>
             </div>
 
             <!-- CLAP Search View (v13.0) -->
@@ -1877,10 +1953,19 @@
                                 <strong>Sonic Radio</strong>
                                 <span id="sf-radio-status" class="sf-radio-status">uit</span>
                             </div>
-                            <label for="sf-radio-discovery" style="font-size:0.78rem;color:var(--text-muted);">
-                                Discovery Mix: <span id="sf-radio-discovery-val">30%</span>
-                            </label>
-                            <input id="sf-radio-discovery" type="range" min="0" max="100" value="30">
+                            <p class="sf-radio-desc">
+                                Eindeloze radio op basis van jouw muzikaal DNA. De wachtrij vult zich automatisch bij en past zich aan: tracks die je overslaat wegen minder mee, tracks die je uitluistert sturen de volgende keuzes.
+                            </p>
+                            <div class="sf-radio-slider-row">
+                                <label for="sf-radio-discovery" class="sf-radio-slider-label">
+                                    Discovery Mix <span id="sf-radio-discovery-val">30%</span>
+                                </label>
+                                <input id="sf-radio-discovery" type="range" min="0" max="100" value="30">
+                                <p class="sf-radio-slider-hint">
+                                    <span class="sf-hint-low">◀ Meer vertrouwde nummers</span>
+                                    <span class="sf-hint-high">Meer nieuwe ontdekkingen ▶</span>
+                                </p>
+                            </div>
                             <div class="sf-radio-actions">
                                 <button id="sf-radio-start-btn" class="btn btn-primary">&#9654; Start Radio</button>
                                 <button id="sf-radio-stop-btn" class="btn" disabled>&#9632; Stop</button>

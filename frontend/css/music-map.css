@@ -344,6 +344,183 @@
     font-size: 12px;
 }
 
+/* --- Alchemy tabs + Surprise bar + Profiles (v13.4) --- */
+.alchemy-surprise-bar {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin: 8px 0 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.alchemy-surprise-info { font-size: 13px; }
+.alchemy-surprise-hint { color: var(--text-muted); margin-left: 6px; }
+.alchemy-surprise-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.alchemy-surprise-controls .auto-form-input {
+    min-width: 160px;
+    max-width: 240px;
+}
+.alchemy-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+.alchemy-tab {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 8px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+.alchemy-tab.is-active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+}
+.alchemy-tab-panel { display: none; }
+.alchemy-tab-panel.is-active { display: block; }
+
+.alchemy-profiles-bar { margin-bottom: 10px; }
+.alchemy-profiles-hint { color: var(--text-muted); font-size: 13px; margin: 0; }
+
+.alchemy-profiles-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+}
+.alchemy-profile-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.alchemy-profile-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+.alchemy-profile-head h4 { margin: 0; font-size: 14px; }
+.alchemy-profile-meta { font-size: 11px; color: var(--text-muted); }
+.alchemy-profile-feats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    font-size: 11px;
+}
+.alchemy-profile-feat {
+    background: rgba(255, 255, 255, 0.06);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: monospace;
+}
+.alchemy-profile-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.alchemy-profile-result {
+    max-height: 240px;
+    overflow-y: auto;
+}
+.alchemy-empty {
+    color: var(--text-muted);
+    background: var(--bg-surface);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    font-size: 13px;
+}
+
+/* --- Circadian view (v13.4) --- */
+.circadian-layout {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 16px;
+    margin-top: 12px;
+}
+.circadian-chart-wrap {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    min-height: 320px;
+    position: relative;
+}
+.circadian-chart-wrap canvas {
+    width: 100% !important;
+    max-height: 280px;
+}
+.circadian-meta {
+    margin-top: 8px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+.circadian-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.circadian-controls {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.circadian-controls input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+}
+.circadian-hour-label {
+    font-family: monospace;
+    font-size: 18px;
+    color: var(--accent);
+    text-align: center;
+}
+.circadian-buttons {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+.circadian-help {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.circadian-help summary {
+    cursor: pointer;
+    color: var(--text-primary);
+}
+.circadian-help p { margin: 8px 0 0; line-height: 1.45; }
+.circadian-results {
+    margin-top: 12px;
+}
+@media (max-width: 720px) {
+    .circadian-layout { grid-template-columns: 1fr; }
+}
+
 /* --- CLAP / Lyrics search --- */
 .clap-search-panel {
     background: var(--bg-surface);
@@ -461,12 +638,18 @@
     border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.55rem;
 }
 .sf-radio-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+.sf-radio-desc {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    line-height: 1.45;
 }
 .sf-radio-status {
     font-size: 0.72rem;
@@ -478,6 +661,29 @@
 .sf-radio-status--on {
     color: #fff;
     background: var(--accent, #9270d4);
+}
+.sf-radio-slider-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.sf-radio-slider-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary, #aaa);
+    display: flex;
+    justify-content: space-between;
+}
+.sf-radio-slider-label span {
+    color: var(--accent, #9270d4);
+    font-variant-numeric: tabular-nums;
+}
+.sf-radio-slider-hint {
+    margin: 0;
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    opacity: 0.7;
 }
 .sf-radio-actions {
     display: flex;

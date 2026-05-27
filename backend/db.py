@@ -751,6 +751,43 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         );
     """)
 
+    # -----------------------------------------------------------------------
+    # Saved Song Alchemy profiles (v13.4)
+    # Each row is a frozen averaged feature vector (and the original source
+    # track ids) that can be re-applied to the library without re-selecting
+    # tracks. Optional zone_id binds a profile to a default playback zone.
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS alchemy_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            zone_id TEXT,
+            add_features TEXT NOT NULL,       -- JSON: {feature: value, ...}
+            subtract_features TEXT,           -- JSON or NULL
+            add_track_ids TEXT,               -- JSON list of source item_keys
+            subtract_track_ids TEXT,          -- JSON list of source item_keys
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_alchemy_profiles_zone
+            ON alchemy_profiles(zone_id);
+    """)
+
+    # -----------------------------------------------------------------------
+    # Scheduled playlists migration (v13.4): support new schedule_type column
+    # for circadian (audio-feature-aware) schedules. ``prompt`` becomes
+    # optional at the application layer once schedule_type='circadian'.
+    # -----------------------------------------------------------------------
+    try:
+        conn.execute(
+            "ALTER TABLE scheduled_playlists ADD COLUMN schedule_type TEXT DEFAULT 'prompt'"
+        )
+        logger.info(
+            "Migration applied: added schedule_type column to scheduled_playlists"
+        )
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     return migrated
 

@@ -97,11 +97,43 @@ def matches_cron(cron_expr: str, dt: datetime) -> bool:
 # ---------------------------------------------------------------------------
 
 
+async def _generate_circadian_tracks(
+    track_count: int, schedule_id: int, name: str
+) -> tuple[list[dict], str]:
+    """Generate tracks for a circadian-type schedule using the current hour."""
+    from backend.audio_features import circadian as _circadian  # noqa: PLC0415
+    from backend.db import get_db_connection as _gdc  # noqa: PLC0415
+
+    hour = datetime.now().hour
+
+    def _run() -> dict:
+        conn = _gdc()
+        try:
+            return _circadian.get_circadian_playlist(
+                conn, hour=hour, limit=track_count
+            )
+        finally:
+            conn.close()
+
+    data = await asyncio.to_thread(_run)
+    if data.get("error"):
+        raise RuntimeError(data["error"])
+    results = data.get("results") or []
+    if not results:
+        raise RuntimeError(f"Circadian schedule returned no tracks for hour={hour}")
+    logger.info(
+        "Schedule id=%d circadian hour=%d -> %d tracks", schedule_id, hour, len(results)
+    )
+    title = f"{name} — hour {hour}"
+    return results, title
+
+
 async def _run_schedule(row: dict) -> None:
     """Execute a single scheduled playlist job.
 
     Steps:
-      1. Generate playlist via the existing generator pipeline.
+      1. Generate playlist via the existing generator pipeline (or via the
+         circadian audio-feature engine when ``schedule_type == 'circadian'``).
       2. Optionally save to Qobuz (overwrite existing playlist or create new).
       3. Optionally queue into a Roon zone.
       4. Update last_run / last_status / last_error in DB.
@@ -113,6 +145,7 @@ async def _run_schedule(row: dict) -> None:
     zone_name: str | None = row["zone_name"]
     save_to_qobuz: bool = bool(row["save_to_qobuz"])
     qobuz_playlist_id: str | None = row["qobuz_playlist_id"]
+    schedule_type: str = (row.get("schedule_type") or "prompt").lower()
 
     # Parse optional filters JSON
     filters: dict = {}
@@ -124,47 +157,57 @@ async def _run_schedule(row: dict) -> None:
     decades: list[str] | None = filters.get("decades") or None
     exclude_live: bool = filters.get("exclude_live", True)
 
-    logger.info("Running scheduled playlist id=%d name=%r", schedule_id, name)
+    logger.info(
+        "Running scheduled playlist id=%d name=%r type=%s",
+        schedule_id, name, schedule_type,
+    )
     error_msg: str | None = None
     status = "failed"
     generated_tracks: list[dict] = []
     playlist_title: str = name
 
     try:
-        # -------------------------------------------------------------------
-        # 1. Generate playlist — consume the synchronous SSE generator
-        # -------------------------------------------------------------------
-        from backend.generator import generate_playlist_stream  # noqa: PLC0415
-
-        result_data: dict = {}
-
-        def _generate() -> None:
-            nonlocal result_data
-            for chunk in generate_playlist_stream(
-                prompt=prompt,
-                genres=genres,
-                decades=decades,
+        if schedule_type == "circadian":
+            generated_tracks, playlist_title = await _generate_circadian_tracks(
                 track_count=track_count,
-                exclude_live=exclude_live,
-                source_mode="library",
-            ):
-                # SSE chunks look like "event: done\ndata: {...}\n\n"
-                for line in chunk.splitlines():
-                    if line.startswith("data:"):
-                        try:
-                            payload = json.loads(line[5:].strip())
-                            if isinstance(payload, dict) and "tracks" in payload:
-                                result_data = payload
-                        except Exception:
-                            pass
+                schedule_id=schedule_id,
+                name=name,
+            )
+        else:
+            # -------------------------------------------------------------------
+            # 1. Generate playlist — consume the synchronous SSE generator
+            # -------------------------------------------------------------------
+            from backend.generator import generate_playlist_stream  # noqa: PLC0415
 
-        await asyncio.to_thread(_generate)
+            result_data: dict = {}
 
-        if not result_data or not result_data.get("tracks"):
-            raise RuntimeError("Generation produced no tracks")
+            def _generate() -> None:
+                nonlocal result_data
+                for chunk in generate_playlist_stream(
+                    prompt=prompt,
+                    genres=genres,
+                    decades=decades,
+                    track_count=track_count,
+                    exclude_live=exclude_live,
+                    source_mode="library",
+                ):
+                    # SSE chunks look like "event: done\ndata: {...}\n\n"
+                    for line in chunk.splitlines():
+                        if line.startswith("data:"):
+                            try:
+                                payload = json.loads(line[5:].strip())
+                                if isinstance(payload, dict) and "tracks" in payload:
+                                    result_data = payload
+                            except Exception:
+                                pass
 
-        generated_tracks = result_data["tracks"]
-        playlist_title = result_data.get("title") or name
+            await asyncio.to_thread(_generate)
+
+            if not result_data or not result_data.get("tracks"):
+                raise RuntimeError("Generation produced no tracks")
+
+            generated_tracks = result_data["tracks"]
+            playlist_title = result_data.get("title") or name
         logger.info(
             "Schedule id=%d generated %d tracks (title=%r)",
             schedule_id, len(generated_tracks), playlist_title,

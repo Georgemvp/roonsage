@@ -60,6 +60,9 @@ class ActionType(StrEnum):
     RUN_MAINTENANCE = "run_maintenance"
     VOLUME_SET = "volume_set"
     BUILD_DJ_SET_QOBUZ = "build_dj_set_qobuz"
+    RUN_ALCHEMY_PROFILE = "run_alchemy_profile"
+    SURPRISE_ME = "surprise_me"
+    CIRCADIAN_PLAYLIST = "circadian_playlist"
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +396,176 @@ async def _exec_build_dj_set_qobuz(config: dict) -> str:
     return action_result
 
 
+async def _resolve_zone(zone_name: str | None, zone_id: str | None) -> tuple[str | None, str | None]:
+    """Return ``(zone_id, display_name)`` for a zone identified by name or id."""
+    if not zone_name and not zone_id:
+        return None, None
+    from backend.roon_client import get_roon_client  # noqa: PLC0415
+    roon = get_roon_client()
+    if not roon or not roon.is_connected():
+        return zone_id, zone_name
+    try:
+        zones = roon.get_zones()
+    except Exception:
+        return zone_id, zone_name
+
+    if zone_id:
+        for z in zones:
+            if z.get("zone_id") == zone_id:
+                return zone_id, z.get("display_name")
+    if zone_name:
+        needle = zone_name.lower()
+        for z in zones:
+            if needle in (z.get("display_name") or "").lower():
+                return z.get("zone_id"), z.get("display_name")
+    return zone_id, zone_name
+
+
+async def _queue_to_zone(zone_id: str, item_keys: list[str]) -> None:
+    from backend.roon_client import get_roon_client  # noqa: PLC0415
+    roon = get_roon_client()
+    if not roon or not roon.is_connected():
+        raise RuntimeError("Roon not connected")
+    await asyncio.to_thread(roon.queue_tracks, zone_id, item_keys, replace_queue=True)
+
+
+async def _exec_run_alchemy_profile(config: dict) -> str:
+    """Generate from a saved Alchemy profile and queue it to a zone.
+
+    Config:
+      - profile_id (int, required)
+      - limit (int, optional — default 25)
+      - zone_id (str, optional — overrides the profile's bound zone)
+    """
+    profile_id = config.get("profile_id")
+    if profile_id is None:
+        raise ValueError("run_alchemy_profile action requires profile_id")
+    limit = int(config.get("limit", 25))
+
+    from backend.audio_features import alchemy_profiles  # noqa: PLC0415
+
+    def _compute() -> dict:
+        from backend.db import get_db_connection  # noqa: PLC0415
+        conn = get_db_connection()
+        try:
+            return alchemy_profiles.generate_from_profile(
+                conn, int(profile_id), limit=limit
+            )
+        finally:
+            conn.close()
+
+    data = await asyncio.to_thread(_compute)
+    if "error" in data:
+        raise RuntimeError(data["error"])
+
+    results = data.get("results") or []
+    if not results:
+        raise RuntimeError("Profile generated no tracks (empty pool or filters)")
+
+    zone_id = config.get("zone_id") or data.get("zone_id")
+    if not zone_id:
+        return (
+            f"Generated {len(results)} tracks from profile "
+            f"{data.get('profile_name')!r} (no zone configured)"
+        )
+
+    item_keys = [r["item_key"] for r in results if r.get("item_key")]
+    await _queue_to_zone(zone_id, item_keys)
+    return (
+        f"Profile {data.get('profile_name')!r} → queued {len(item_keys)} tracks "
+        f"to zone {zone_id}"
+    )
+
+
+async def _exec_surprise_me(config: dict) -> str:
+    """Run Surprise Me for a zone (last plays → ADD, last skips → SUBTRACT)."""
+    zone_id = config.get("zone_id")
+    zone_name = config.get("zone_name") or config.get("zone")
+    limit = int(config.get("limit", 25))
+
+    resolved_zone_id, resolved_name = await _resolve_zone(zone_name, zone_id)
+    target_zone_name = resolved_name or zone_name
+
+    from backend.audio_features import alchemy_profiles  # noqa: PLC0415
+
+    def _compute() -> dict:
+        from backend.db import get_db_connection  # noqa: PLC0415
+        conn = get_db_connection()
+        try:
+            return alchemy_profiles.surprise_me(
+                conn, target_zone_name, limit=limit
+            )
+        finally:
+            conn.close()
+
+    data = await asyncio.to_thread(_compute)
+    if "error" in data:
+        raise RuntimeError(data["error"])
+
+    results = data.get("results") or []
+    if not results:
+        raise RuntimeError("Surprise Me returned no tracks")
+
+    target_zone_id = resolved_zone_id or zone_id
+    if not target_zone_id:
+        return f"Surprise Me built {len(results)} tracks (no zone configured)"
+
+    item_keys = [r["item_key"] for r in results if r.get("item_key")]
+    await _queue_to_zone(target_zone_id, item_keys)
+    return (
+        f"Surprise Me ({data.get('n_plays', 0)} plays / "
+        f"{data.get('n_skips', 0)} skips) → queued "
+        f"{len(item_keys)} tracks to {target_zone_name or target_zone_id}"
+    )
+
+
+async def _exec_circadian_playlist(config: dict) -> str:
+    """Generate a time-of-day playlist matched to listening patterns.
+
+    Config:
+      - zone_id / zone_name (one required for playback)
+      - limit (int, default 25)
+      - hour (int 0-23, optional — defaults to current local hour)
+    """
+    zone_id = config.get("zone_id")
+    zone_name = config.get("zone_name") or config.get("zone")
+    limit = int(config.get("limit", 25))
+    hour = config.get("hour")
+    if hour is None:
+        hour = datetime.now().hour
+    hour = int(hour) % 24
+
+    from backend.audio_features import circadian  # noqa: PLC0415
+
+    def _compute() -> dict:
+        from backend.db import get_db_connection  # noqa: PLC0415
+        conn = get_db_connection()
+        try:
+            return circadian.get_circadian_playlist(conn, hour=hour, limit=limit)
+        finally:
+            conn.close()
+
+    data = await asyncio.to_thread(_compute)
+    if "error" in data:
+        raise RuntimeError(data["error"])
+
+    results = data.get("results") or []
+    if not results:
+        raise RuntimeError(f"Circadian playlist for hour={hour} returned no tracks")
+
+    resolved_zone_id, resolved_name = await _resolve_zone(zone_name, zone_id)
+    target_zone_id = resolved_zone_id or zone_id
+    if not target_zone_id:
+        return f"Circadian playlist built for hour={hour} ({len(results)} tracks, no zone configured)"
+
+    item_keys = [r["item_key"] for r in results if r.get("item_key")]
+    await _queue_to_zone(target_zone_id, item_keys)
+    return (
+        f"Circadian (hour={hour}) → queued {len(item_keys)} tracks to "
+        f"{resolved_name or target_zone_id}"
+    )
+
+
 _ACTION_EXECUTORS = {
     ActionType.GENERATE_PLAYLIST: _exec_generate_playlist,
     ActionType.PLAY_TEMPLATE: _exec_play_template,
@@ -403,6 +576,9 @@ _ACTION_EXECUTORS = {
     ActionType.RUN_MAINTENANCE: _exec_run_maintenance,
     ActionType.VOLUME_SET: _exec_volume_set,
     ActionType.BUILD_DJ_SET_QOBUZ: _exec_build_dj_set_qobuz,
+    ActionType.RUN_ALCHEMY_PROFILE: _exec_run_alchemy_profile,
+    ActionType.SURPRISE_ME: _exec_surprise_me,
+    ActionType.CIRCADIAN_PLAYLIST: _exec_circadian_playlist,
 }
 
 
