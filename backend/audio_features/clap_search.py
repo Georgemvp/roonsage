@@ -240,7 +240,8 @@ def search_by_text(
     mat_norm = matrix / (np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-12)
     scores = mat_norm @ text_norm  # cosine similarities
 
-    top_idx = np.argsort(-scores)[:limit]
+    # Fetch more candidates than needed so deduplication doesn't starve the result set.
+    top_idx = np.argsort(-scores)[:limit * 6]
     placeholders = ",".join("?" for _ in top_idx)
     top_keys = [keys[i] for i in top_idx]
     rows = conn.execute(
@@ -250,10 +251,22 @@ def search_by_text(
     ).fetchall()
     by_key = {r["item_key"]: dict(r) for r in rows}
 
+    # Deduplicate: keep only the highest-scoring match per unique (artist, title) pair.
+    # The same recording often appears on multiple albums in Roon, each with its own embedding.
+    seen: set[tuple[str, str]] = set()
     out: list[dict[str, Any]] = []
     for idx in top_idx:
+        if len(out) >= limit:
+            break
         k = keys[int(idx)]
         meta = by_key.get(k, {"item_key": k})
+        dedup_key = (
+            (meta.get("artist") or "").lower().strip(),
+            (meta.get("title") or "").lower().strip(),
+        )
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
         meta["similarity"] = float(scores[int(idx)])
         out.append(meta)
     return out
