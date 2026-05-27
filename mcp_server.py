@@ -212,27 +212,33 @@ async def get_library_stats() -> str:
 
 @mcp.tool()
 async def get_discovery_sections() -> str:
-    """Return all 4 Cache-Powered Discovery sections for the user's library.
+    """Return all Cache-Powered Discovery sections for the user's library.
 
     Zero LLM calls, zero external APIs — pure SQL queries against the local
     SQLite library cache. Use this to surface hidden gems and forgotten music.
 
     Sections returned:
-    - undiscovered_albums  Albums by the user's most-played artists with zero plays.
-                           Great for "I know this artist well — what else do they have?"
-    - deep_cuts            Under-played tracks from the top-20 most-listened artists.
-                           These are the tracks on side B the user keeps skipping.
-    - forgotten_favorites  Tracks with 5+ total plays but no play in the last 60 days.
-                           Use for "Rediscover" playlists or gentle nudges.
-    - genre_explorer       All library genres with artist_count and track_count,
-                           sorted by artist diversity. Use to surface niche genres
-                           or understand the depth of the collection.
+    - undiscovered_albums   Albums by the user's most-played artists with zero plays.
+                            Great for "I know this artist well — what else do they have?"
+    - deep_cuts             Under-played tracks from the top-20 most-listened artists.
+                            These are the tracks on side B the user keeps skipping.
+    - forgotten_favorites   Tracks with 5+ total plays but no play in the last 60 days.
+                            Use for "Rediscover" playlists or gentle nudges.
+    - genre_explorer        All library genres with artist_count and track_count,
+                            sorted by artist diversity. Use to surface niche genres
+                            or understand the depth of the collection.
+    - sounds_like_your_week Unplayed tracks that sit closest in CLAP audio-embedding
+                            space to the centroid of what the user has actually
+                            played in the last 7 days (falls back to 30 days).
+                            Only present when CLAP is enabled and embeddings exist.
+                            Each track has a `match_pct` (0-100) similarity score.
 
     Suggested uses:
     - "What albums of mine haven't I played?" → undiscovered_albums
     - "Play something I haven't heard in a while" → forgotten_favorites (pick 15–20 tracks)
     - "I want to go deeper into [artist]" → deep_cuts filtered by artist
     - "What genres do I have?" → genre_explorer
+    - "Sounds like what I'm into this week" → sounds_like_your_week
     - "Surprise me" → combine all sections, pick diverse selection
     """
     logger.info("GET_DISCOVERY_SECTIONS called")
@@ -3929,6 +3935,69 @@ async def start_lyrics_analysis() -> str:
 async def get_track_lyrics(item_key: str) -> str:
     """Return the stored lyrics for a single track."""
     result = await _api_call("GET", f"/api/lyrics/track/{item_key}")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def lyrics_mood_playlist(mood: str, limit: int = 25) -> str:
+    """Generate a playlist whose lyrics best match a given mood.
+
+    Picks tracks whose lyric embeddings sit closest to a centroid built from
+    a curated bag of mood-specific query terms (e.g. "loss/rain/tears" for
+    melancholic). Pure cosine ranking over the GTE lyrics index — no LLM.
+
+    Available moods: melancholic, romantic, empowering, nostalgic, dark,
+    peaceful, rebellious, joyful. Use ``list_lyrics_moods`` to confirm what's
+    currently populated in this library.
+
+    Requires LYRICS_SEARCH_ENABLED=true and a populated lyrics index.
+    """
+    logger.info("LYRICS_MOOD_PLAYLIST: mood=%s limit=%d", mood, limit)
+    result = await _api_call(
+        "GET",
+        "/api/lyrics/mood-playlist",
+        params={"mood": mood, "limit": limit},
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def list_lyrics_moods() -> str:
+    """List available lyric mood categories and a per-mood track-count estimate."""
+    result = await _api_call("GET", "/api/lyrics/moods")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def lyrics_cross_modal(item_key: str, limit: int = 20) -> str:
+    """Find tracks similar in BOTH sound and lyrics to a given seed track.
+
+    Blends 50% cosine over the CLAP audio embedding with 50% over the lyrics
+    embedding, so results share the seed's sonic texture AND lyrical themes.
+    Useful for "more like this song" recommendations that capture mood as well
+    as production style.
+
+    Requires both CLAP and lyrics indexes to be populated for the seed track.
+    """
+    logger.info("LYRICS_CROSS_MODAL: item_key=%s limit=%d", item_key, limit)
+    result = await _api_call(
+        "GET",
+        f"/api/lyrics/cross-modal/{item_key}",
+        params={"limit": limit},
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def get_thematic_taste() -> str:
+    """Return the user's thematic taste profile derived from lyrics.
+
+    Averages the lyric embeddings of the user's top-played tracks and ranks
+    every mood centroid (melancholic, romantic, empowering, …) by cosine
+    similarity. Reveals lyrical themes the user gravitates toward without
+    needing any LLM call.
+    """
+    result = await _api_call("GET", "/api/lyrics/thematic-taste")
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 

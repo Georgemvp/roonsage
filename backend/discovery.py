@@ -362,6 +362,147 @@ def get_forgotten_favorites() -> list[dict]:
         return []
 
 
+def get_sounds_like_your_week(limit: int = 20) -> dict:
+    """Tracks closest to the sonic centroid of the user's last week of listening.
+
+    Averages the CLAP audio embeddings of every track played in the last 7 days
+    (falls back to 30 days when fewer than 3 plays are available), then ranks
+    unplayed tracks (``play_count = 0``) by cosine similarity to that centroid.
+
+    Returns:
+        Dict with keys:
+          - ``tracks``:    Up to ``limit`` dicts (title, artist, album, item_key,
+                            similarity (0-1), match_pct (rounded int %)).
+          - ``window_days``: 7 or 30.
+          - ``source_count``: Number of recent tracks whose embeddings shaped
+                              the centroid.
+          - ``message``: Optional human-readable note when empty (e.g. CLAP
+                         not yet indexed).
+    """
+    import numpy as np  # noqa: PLC0415
+
+    empty: dict = {
+        "tracks": [],
+        "window_days": 7,
+        "source_count": 0,
+        "message": None,
+    }
+
+    try:
+        with get_connection() as conn:
+            n_emb = conn.execute("SELECT COUNT(*) FROM clap_embeddings").fetchone()[0]
+            if not n_emb:
+                empty["message"] = "No CLAP embeddings yet — run CLAP analysis first."
+                return empty
+
+            def _recent_embeddings(days: int) -> list[bytes]:
+                # listening_history has no item_key — join on normalised
+                # (title, artist) into tracks → clap_embeddings.
+                cutoff = (datetime.now(tz=UTC) - timedelta(days=days)).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+                rows = conn.execute(
+                    """
+                    SELECT ce.embedding
+                    FROM listening_history lh
+                    JOIN tracks t
+                        ON LOWER(t.title)  = LOWER(lh.track_title)
+                       AND LOWER(t.artist) = LOWER(lh.artist)
+                    JOIN clap_embeddings ce ON ce.item_key = t.item_key
+                    WHERE lh.timestamp >= ?
+                      AND (lh.skipped IS NULL OR lh.skipped = 0)
+                    """,
+                    (cutoff,),
+                ).fetchall()
+                return [r["embedding"] for r in rows]
+
+            window_days = 7
+            embs = _recent_embeddings(window_days)
+            if len(embs) < 3:
+                window_days = 30
+                embs = _recent_embeddings(window_days)
+
+            if len(embs) < 3:
+                empty["window_days"] = window_days
+                empty["source_count"] = len(embs)
+                empty["message"] = (
+                    "Not enough recent listens with audio analysis to build "
+                    "a sonic centroid (need 3+)."
+                )
+                return empty
+
+            matrix = np.stack(
+                [np.frombuffer(b, dtype=np.float32) for b in embs]
+            ).astype(np.float32)
+            centroid = matrix.mean(axis=0)
+            centroid_norm = centroid / (np.linalg.norm(centroid) + 1e-12)
+
+            # Pull unplayed tracks' embeddings + metadata in one go.
+            cand_rows = conn.execute(
+                """
+                SELECT ce.item_key, ce.embedding,
+                       t.title, t.artist, t.album
+                FROM clap_embeddings ce
+                JOIN tracks t ON t.item_key = ce.item_key
+                LEFT JOIN (
+                    SELECT LOWER(track_title) AS nt, LOWER(artist) AS na,
+                           COUNT(*) AS cnt
+                    FROM listening_history
+                    GROUP BY LOWER(track_title), LOWER(artist)
+                ) pc ON LOWER(t.title) = pc.nt AND LOWER(t.artist) = pc.na
+                WHERE COALESCE(pc.cnt, 0) = 0
+                  AND (t.is_live IS NULL OR t.is_live = 0)
+                """
+            ).fetchall()
+
+            if not cand_rows:
+                empty["window_days"] = window_days
+                empty["source_count"] = len(embs)
+                empty["message"] = "No unplayed analysed tracks left to recommend."
+                return empty
+
+            cand_matrix = np.stack(
+                [np.frombuffer(r["embedding"], dtype=np.float32) for r in cand_rows]
+            )
+            cand_norms = np.linalg.norm(cand_matrix, axis=1, keepdims=True)
+            cand_normed = cand_matrix / (cand_norms + 1e-12)
+            sims = cand_normed @ centroid_norm  # (N,)
+
+            top_idx = np.argsort(-sims)
+            tracks: list[dict] = []
+            seen: set[tuple[str, str]] = set()
+            for idx in top_idx:
+                if len(tracks) >= limit:
+                    break
+                r = cand_rows[int(idx)]
+                dedup = (
+                    (r["title"] or "").lower().strip(),
+                    (r["artist"] or "").lower().strip(),
+                )
+                if dedup in seen:
+                    continue
+                seen.add(dedup)
+                sim = float(sims[int(idx)])
+                tracks.append({
+                    "item_key": r["item_key"],
+                    "title": r["title"],
+                    "artist": r["artist"],
+                    "album": r["album"],
+                    "similarity": round(sim, 4),
+                    "match_pct": int(round(max(0.0, min(1.0, sim)) * 100)),
+                })
+
+            return {
+                "tracks": tracks,
+                "window_days": window_days,
+                "source_count": len(embs),
+                "message": None,
+            }
+    except Exception:
+        logger.exception("get_sounds_like_your_week failed")
+        return empty
+
+
 def get_genre_explorer() -> list[dict]:
     """Aggregate genres from track_genres.
 

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from backend.config import get_lyrics_search_enabled
 from backend.db import get_db_connection
-from backend.lyrics import embedder, search
+from backend.lyrics import cross_modal, embedder, mood_lyrics, search
 
 logger = logging.getLogger(__name__)
 
@@ -192,3 +192,161 @@ async def get_track(item_key: str) -> LyricsTrackDetail:
     if not row:
         raise HTTPException(404, f"no lyrics record for {item_key}")
     return LyricsTrackDetail(**row)
+
+
+# ---------------------------------------------------------------------------
+# Lyric moods + cross-modal (v13.x)
+# ---------------------------------------------------------------------------
+
+
+class MoodTrack(BaseModel):
+    item_key: str
+    title: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    year: int | None = None
+    similarity: float | None = None
+    mood: str | None = None
+
+
+class MoodPlaylistResponse(BaseModel):
+    mood: str
+    results: list[MoodTrack]
+
+
+class MoodInfo(BaseModel):
+    mood: str
+    track_count: int
+
+
+class MoodsListResponse(BaseModel):
+    moods: list[MoodInfo]
+
+
+class CrossModalTrack(BaseModel):
+    item_key: str
+    title: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    year: int | None = None
+    lyrics_similarity: float | None = None
+    clap_similarity: float | None = None
+    combined_similarity: float | None = None
+
+
+class CrossModalResponse(BaseModel):
+    seed_item_key: str
+    results: list[CrossModalTrack]
+
+
+class ThematicMood(BaseModel):
+    mood: str
+    score: float
+
+
+class ThematicTasteResponse(BaseModel):
+    moods: list[ThematicMood]
+    n_source_tracks: int
+    message: str | None = None
+
+
+@router.get("/moods", response_model=MoodsListResponse)
+async def list_moods() -> MoodsListResponse:
+    """Available lyric moods with a per-mood track-count estimate."""
+    _require_enabled()
+
+    def _do() -> list[dict[str, Any]]:
+        conn = get_db_connection()
+        try:
+            return mood_lyrics.get_moods_with_counts(conn)
+        finally:
+            conn.close()
+
+    out = await asyncio.to_thread(_do)
+    return MoodsListResponse(moods=[MoodInfo(**m) for m in out])
+
+
+@router.get("/mood-playlist", response_model=MoodPlaylistResponse)
+async def mood_playlist(mood: str, limit: int = 25) -> MoodPlaylistResponse:
+    """Generate a playlist whose lyrics best match a given mood centroid."""
+    _require_enabled()
+    if mood not in mood_lyrics.MOOD_QUERIES:
+        raise HTTPException(
+            400,
+            f"Unknown mood '{mood}'. Available: {', '.join(mood_lyrics.available_moods())}",
+        )
+    if limit < 1 or limit > 200:
+        raise HTTPException(400, "limit must be between 1 and 200")
+
+    def _do() -> list[dict[str, Any]]:
+        conn = get_db_connection()
+        try:
+            return mood_lyrics.get_lyrics_mood_playlist(mood, limit, conn)
+        finally:
+            conn.close()
+
+    out = await asyncio.to_thread(_do)
+    return MoodPlaylistResponse(
+        mood=mood,
+        results=[MoodTrack(**r) for r in out],
+    )
+
+
+@router.get("/cross-modal/{item_key}", response_model=CrossModalResponse)
+async def cross_modal_endpoint(item_key: str, limit: int = 20) -> CrossModalResponse:
+    """Tracks similar in BOTH sound and lyrics to the given seed track."""
+    _require_enabled()
+    if limit < 1 or limit > 200:
+        raise HTTPException(400, "limit must be between 1 and 200")
+
+    def _do() -> list[dict[str, Any]]:
+        conn = get_db_connection()
+        try:
+            return cross_modal.cross_modal_similarity(item_key, conn, limit)
+        finally:
+            conn.close()
+
+    out = await asyncio.to_thread(_do)
+    if not out:
+        # Distinguish "seed not analysed" from "no matches found".
+        conn = get_db_connection()
+        try:
+            has_lyr = conn.execute(
+                "SELECT 1 FROM lyrics_embeddings WHERE item_key = ?", (item_key,)
+            ).fetchone()
+            has_clap = conn.execute(
+                "SELECT 1 FROM clap_embeddings WHERE item_key = ?", (item_key,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if not has_lyr or not has_clap:
+            raise HTTPException(
+                404,
+                f"Track {item_key} is missing a "
+                f"{'lyrics' if not has_lyr else 'CLAP'} embedding.",
+            )
+
+    return CrossModalResponse(
+        seed_item_key=item_key,
+        results=[CrossModalTrack(**r) for r in out],
+    )
+
+
+@router.get("/thematic-taste", response_model=ThematicTasteResponse)
+async def thematic_taste_endpoint() -> ThematicTasteResponse:
+    """User's mood preferences derived from the lyrics of their top-played tracks."""
+    _require_enabled()
+
+    def _do() -> dict[str, Any]:
+        conn = get_db_connection()
+        try:
+            return cross_modal.get_thematic_taste(conn)
+        finally:
+            conn.close()
+
+    out = await asyncio.to_thread(_do)
+    return ThematicTasteResponse(
+        moods=[ThematicMood(**m) for m in out.get("moods", [])],
+        n_source_tracks=out.get("n_source_tracks", 0),
+        message=out.get("message"),
+    )

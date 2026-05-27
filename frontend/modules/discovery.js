@@ -44,9 +44,11 @@ function _render(view, data) {
     const cuts        = data.deep_cuts            || [];
     const forgotten   = data.forgotten_favorites  || [];
     const genres      = data.genre_explorer       || [];
+    const soundsWeek  = data.sounds_like_your_week || null;
 
     const hasAny = favorites.length || lbReleases.length || lbLoved.length ||
-                   cuts.length || forgotten.length || genres.length;
+                   cuts.length || forgotten.length || genres.length ||
+                   (soundsWeek && soundsWeek.tracks && soundsWeek.tracks.length);
 
     if (!hasAny) {
         view.innerHTML = `
@@ -64,6 +66,7 @@ function _render(view, data) {
         ${_renderStatsBar(data)}
         ${_renderFeaturedGem(favorites, lbReleases)}
 
+        ${_renderSoundsLikeYourWeek(soundsWeek)}
         ${_renderLbTopReleases(lbReleases)}
         ${_renderLbLoved(lbLoved)}
         ${_renderFavoritesInLibrary(favorites)}
@@ -84,6 +87,11 @@ function _render(view, data) {
         btn.addEventListener('click', () => _playItem(btn));
     });
 
+    // Wire up "queue all" buttons (sounds-like-your-week)
+    view.querySelectorAll('[data-queue-keys]').forEach(btn => {
+        btn.addEventListener('click', () => _queueAll(btn));
+    });
+
     // Wire up genre pills
     view.querySelectorAll('.rs-tab[data-genre]').forEach(pill => {
         pill.addEventListener('click', () => {
@@ -96,6 +104,65 @@ function _render(view, data) {
             }
         });
     });
+}
+
+// ── Section: Sounds Like Your Week (CLAP-powered) ───────────────────────────
+
+function _renderSoundsLikeYourWeek(section) {
+    if (!section) return '';
+    const tracks = section.tracks || [];
+    if (!tracks.length) {
+        if (section.message) {
+            return `
+                <section class="rs-section" aria-labelledby="disc-soundsweek-heading">
+                    <div class="rs-section-header">
+                        <h3 class="rs-section-title" id="disc-soundsweek-heading">Sounds Like Your Week</h3>
+                    </div>
+                    <p class="discovery-section-desc">${escapeHtml(section.message)}</p>
+                </section>`;
+        }
+        return '';
+    }
+
+    const keys = tracks.map(t => t.item_key).filter(Boolean);
+    const windowLabel = section.window_days === 30 ? 'laatste 30 dagen' : 'laatste 7 dagen';
+    const rows = tracks.map(t => `
+        <div class="rs-track-row">
+            <div class="rs-track-info">
+                <span class="rs-track-title">${escapeHtml(t.title || '—')}</span>
+                <span class="rs-track-artist">${escapeHtml(t.artist || '')}${t.album ? ` — ${escapeHtml(t.album)}` : ''}</span>
+            </div>
+            <div class="discovery-track-right">
+                <span class="alchemy-score" title="Cosine similarity to your weekly centroid">${t.match_pct ?? 0}%</span>
+                ${t.item_key ? `
+                <button class="btn btn-secondary btn-sm discovery-play-btn"
+                    data-play-key="${escapeHtml(t.item_key)}" data-play-type="track"
+                    title="Play ${escapeHtml(t.title || '')}">▶</button>` : ''}
+            </div>
+        </div>
+    `).join('');
+
+    return `
+        <section class="rs-section" aria-labelledby="disc-soundsweek-heading">
+            <div class="rs-section-header">
+                <h3 class="rs-section-title" id="disc-soundsweek-heading">Sounds Like Your Week</h3>
+                <span class="discovery-section-badge">${tracks.length}</span>
+            </div>
+            <p class="discovery-section-desc">
+                Onbespeelde tracks die sonisch het dichtst bij je luistergedrag van de ${escapeHtml(windowLabel)} liggen
+                — gevoed door CLAP audio-embeddings (geen LLM).
+            </p>
+            ${keys.length ? `
+            <div style="margin: 4px 0 10px;">
+                <button class="btn btn-primary btn-sm"
+                    data-queue-keys="${escapeHtml(keys.join(','))}"
+                    data-queue-mode="replace">▶ Speel alle ${keys.length}</button>
+                <button class="btn btn-secondary btn-sm"
+                    data-queue-keys="${escapeHtml(keys.join(','))}"
+                    data-queue-mode="append">+ Voeg toe aan queue</button>
+            </div>` : ''}
+            <div class="discovery-track-list">${rows}</div>
+        </section>`;
 }
 
 // ── Section: LB Top Releases in Library ──────────────────────────────────────
@@ -413,6 +480,42 @@ async function _renderSimilarArtists() {
 }
 
 // ── Playback helper ───────────────────────────────────────────────────────────
+
+async function _queueAll(btn) {
+    const raw = btn.dataset.queueKeys || '';
+    const mode = btn.dataset.queueMode || 'replace';
+    const keys = raw.split(',').filter(Boolean);
+    if (!keys.length) return;
+
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+        let zoneId = getCurrentZoneId();
+        if (!zoneId) {
+            try {
+                const zones = await apiCall('/roon/zones');
+                const list = Array.isArray(zones) ? zones : (zones?.zones || []);
+                if (list.length) zoneId = list[0].zone_id;
+            } catch (_) { /* ignore */ }
+        }
+        if (!zoneId) {
+            btn.textContent = '✗ No zone';
+            setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+            return;
+        }
+        await apiCall('/queue', {
+            method: 'POST',
+            body: JSON.stringify({ zone_id: zoneId, item_keys: keys, mode }),
+        });
+        btn.textContent = '✓';
+        setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+    } catch (e) {
+        btn.textContent = '✗';
+        btn.title = e.message;
+        setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2500);
+    }
+}
 
 async function _playItem(btn) {
     const key  = btn.dataset.playKey;

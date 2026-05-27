@@ -175,4 +175,66 @@ export async function initLyricsSearchView() {
             }
         }, 3000);
     }
+
+    renderMoods();
+}
+
+// ── Lyrical Moods ────────────────────────────────────────────────────────────
+
+const MOOD_EMOJI = {
+    melancholic: '🌧️',
+    romantic:    '💗',
+    empowering:  '✊',
+    nostalgic:   '📼',
+    dark:        '🌑',
+    peaceful:    '🌊',
+    rebellious:  '🔥',
+    joyful:      '☀️',
+};
+
+async function renderMoods() {
+    const el = document.getElementById('lyrics-moods-block');
+    if (!el) return;
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Lyrical moods laden…</div>';
+    try {
+        const data = await apiCall('/lyrics/moods');
+        const moods = data?.moods || [];
+        if (!moods.length) { el.innerHTML = ''; return; }
+        el.innerHTML = `
+            <h3 style="margin:18px 0 8px;font-size:1.05rem;">Lyrical Moods</h3>
+            <p style="color:var(--text-muted);font-size:13px;margin:0 0 10px;">
+                Klik op een mood om een playlist op basis van songteksten te genereren.
+            </p>
+            <div class="lyrics-moods-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;">
+                ${moods.map(m => `
+                    <button class="lyrics-mood-card" data-mood="${m.mood}"
+                        style="background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:12px;cursor:pointer;text-align:center;color:var(--text-primary);">
+                        <div style="font-size:1.6rem;line-height:1;margin-bottom:6px;">${MOOD_EMOJI[m.mood] || '🎵'}</div>
+                        <div style="font-weight:700;text-transform:capitalize;">${m.mood}</div>
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">${m.track_count} tracks</div>
+                    </button>
+                `).join('')}
+            </div>
+        `;
+        el.querySelectorAll('.lyrics-mood-card').forEach(btn => {
+            btn.addEventListener('click', () => runMoodPlaylist(btn.dataset.mood));
+        });
+    } catch (err) {
+        el.innerHTML = `<div style="color:var(--text-muted);font-size:13px;">Lyrical moods niet beschikbaar (${err.message}).</div>`;
+    }
+}
+
+async function runMoodPlaylist(mood) {
+    const out = document.getElementById('lyrics-results');
+    out.innerHTML = `<div style="color:var(--text-muted);font-size:13px;">Generating "${mood}" playlist…</div>`;
+    try {
+        const data = await apiCall(`/lyrics/mood-playlist?mood=${encodeURIComponent(mood)}&limit=25`);
+        // Reuse the regular results renderer for consistency.
+        _lastResults = { query: `${mood} (lyrical mood)`, results: data.results || [] };
+        renderResults(_lastResults);
+        const playBtn = document.getElementById('lyrics-play-btn');
+        if (playBtn) playBtn.disabled = !_lastResults.results.length;
+    } catch (err) {
+        out.innerHTML = `<div class="cluster-error">${err.message}</div>`;
+    }
 }

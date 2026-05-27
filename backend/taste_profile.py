@@ -583,6 +583,24 @@ class TasteProfile:
                     for r in album_rows
                 ]
 
+                # ── 9: Thematic moods (lyrical) ────────────────────────────────
+                # Best-effort: requires lyrics embeddings + the lyrics module.
+                # Silently skip when not available — the rest of the profile
+                # still needs to compute.
+                thematic_moods: list[dict] = []
+                try:
+                    from backend.config import (  # noqa: PLC0415
+                        get_lyrics_search_enabled,
+                    )
+                    if get_lyrics_search_enabled():
+                        from backend.lyrics.cross_modal import (  # noqa: PLC0415
+                            get_thematic_taste,
+                        )
+                        tt = get_thematic_taste(conn)
+                        thematic_moods = (tt.get("moods") or [])[:5]
+                except Exception as tt_exc:
+                    logger.debug("Thematic taste computation skipped: %s", tt_exc)
+
                 # ── General stats ──────────────────────────────────────────────
                 stats_row = conn.execute(
                     """
@@ -640,6 +658,7 @@ class TasteProfile:
             updates["skip_signals"] = skip_signals
             updates["artist_streaks"] = artist_streaks
             updates["top_albums"] = top_albums
+            updates["thematic_moods"] = thematic_moods
 
             listening_stats: dict = {}
             if stats_row and stats_row[0]:
@@ -797,6 +816,8 @@ def _empty_profile() -> dict:
         "skip_signals": {"genres": [], "artists": []},
         "artist_streaks": [],
         "top_albums": [],
+        # Top-5 lyrical mood preferences derived from cross_modal.get_thematic_taste
+        "thematic_moods": [],
         # ListenBrainz-enriched data (prefix lb_)
         "lb_genre_by_hour": {},
         "lb_era_distribution": {},
@@ -857,6 +878,12 @@ def build_profile_summary(profile: dict | None = None) -> str:
     if moods:
         top_moods = sorted(moods.items(), key=lambda x: -x[1])[:4]
         parts.append("Preferred moods: " + ", ".join(f"{m} ({s:.0%})" for m, s in top_moods))
+
+    thematic = profile.get("thematic_moods", [])
+    if thematic:
+        parts.append("Lyrical themes: " + ", ".join(
+            f"{m['mood']} ({m['score']:.0%})" for m in thematic[:5]
+        ))
 
     patterns = profile.get("listening_patterns", {})
     if patterns.get("evening_genres"):
@@ -946,6 +973,7 @@ def _merge_profiles(current: dict, updates: dict) -> dict:
         "skip_signals":       current.get("skip_signals", {"genres": [], "artists": []}),
         "artist_streaks":     current.get("artist_streaks", []),
         "top_albums":         current.get("top_albums", []),
+        "thematic_moods":     current.get("thematic_moods", []),
         # LB keys: always overwrite (fresh from LB API)
         "lb_genre_by_hour":      current.get("lb_genre_by_hour", {}),
         "lb_era_distribution":   current.get("lb_era_distribution", {}),
@@ -1004,6 +1032,7 @@ def _merge_profiles(current: dict, updates: dict) -> dict:
         "skip_signals",
         "artist_streaks",
         "top_albums",
+        "thematic_moods",
         # LB keys
         "lb_genre_by_hour",
         "lb_era_distribution",
