@@ -1,6 +1,15 @@
 """CLAP (Contrastive Language-Audio Pretraining) text-to-audio search.
 
-Loads a laion-clap model lazily and exposes:
+Two inference backends with auto-detection:
+
+1. **ONNX Runtime** (preferred when available) — loads
+   ``data/models/clap_audio_encoder.onnx`` + ``clap_text_encoder.onnx`` and uses
+   ``tokenizers`` for the RoBERTa text tokenization. Smaller RAM footprint,
+   faster cold start. Built by ``scripts/export_clap_onnx.py``.
+2. **laion-clap (PyTorch)** — original full model, ~600 MB on first download.
+   Used as a fallback when ONNX files are missing or ``CLAP_USE_ONNX=false``.
+
+Public surface:
 
 * ``batch_analyze_clap`` — iterate tracks that have a ``file_path`` resolved
   by ``path_resolver`` and don't yet have a stored embedding; compute the
@@ -9,8 +18,9 @@ Loads a laion-clap model lazily and exposes:
 * ``search_by_text`` — encode a free-text query with the CLAP text encoder
   and rank stored embeddings by cosine similarity.
 
-The model itself is large (~600 MB) and downloads on first use. ``CLAP_ENABLED``
-must be ``true`` for any of this to run. Tests mock the encoder.
+``CLAP_ENABLED`` must be ``true`` for any of this to run. Tests mock the
+encoder via ``get_model`` (ONNX path is skipped automatically when the files
+aren't present).
 """
 
 from __future__ import annotations
@@ -95,6 +105,150 @@ def reset_model() -> None:
     """Drop the cached model (used by tests / config reloads)."""
     global _model
     _model = None
+    reset_onnx_backend()
+
+
+# ---------------------------------------------------------------------------
+# ONNX backend (preferred when exported files exist on disk)
+# ---------------------------------------------------------------------------
+
+
+_onnx_backend: Any = None  # None = uninitialised; "missing" = checked, not available
+_onnx_lock = None
+
+
+def _ensure_onnx_lock():
+    global _onnx_lock
+    if _onnx_lock is None:
+        import threading  # noqa: PLC0415
+        _onnx_lock = threading.Lock()
+    return _onnx_lock
+
+
+class _OnnxClapBackend:
+    """ONNX Runtime inference for the CLAP audio + text encoders.
+
+    Loaded lazily by :func:`get_onnx_backend`. The audio session expects a
+    ``(batch, 480_000)`` float32 waveform; the text session expects ``input_ids``
+    and ``attention_mask`` int64 tensors. Both outputs are L2-normalized.
+    """
+
+    # RoBERTa-base config — laion-clap uses this tokenizer.
+    _TOKENIZER_REPO = "roberta-base"
+    _MAX_TEXT_LEN = 77
+    _PAD_ID = 1  # roberta-base pad token
+
+    def __init__(self, audio_path, text_path):
+        import onnxruntime as ort  # noqa: PLC0415
+
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = 0  # let ORT pick based on available cores
+        self.audio_sess = ort.InferenceSession(
+            str(audio_path), sess_options=opts, providers=["CPUExecutionProvider"]
+        )
+        self.text_sess = ort.InferenceSession(
+            str(text_path), sess_options=opts, providers=["CPUExecutionProvider"]
+        )
+        self.tokenizer = self._load_tokenizer()
+
+    @classmethod
+    def _load_tokenizer(cls):
+        from tokenizers import Tokenizer  # noqa: PLC0415
+
+        tok = Tokenizer.from_pretrained(cls._TOKENIZER_REPO)
+        tok.enable_padding(length=cls._MAX_TEXT_LEN, pad_id=cls._PAD_ID, pad_token="<pad>")
+        tok.enable_truncation(max_length=cls._MAX_TEXT_LEN)
+        return tok
+
+    def embed_audio(self, waveform):
+        import numpy as np  # noqa: PLC0415
+
+        wf = np.ascontiguousarray(waveform, dtype=np.float32)
+        if wf.ndim == 1:
+            wf = wf[None, :]
+        out = self.audio_sess.run(["embedding"], {"waveform": wf})[0]
+        return out[0]
+
+    def embed_text(self, text: str):
+        import numpy as np  # noqa: PLC0415
+
+        enc = self.tokenizer.encode(text)
+        input_ids = np.asarray([enc.ids], dtype=np.int64)
+        attention_mask = np.asarray([enc.attention_mask], dtype=np.int64)
+        out = self.text_sess.run(
+            ["embedding"],
+            {"input_ids": input_ids, "attention_mask": attention_mask},
+        )[0]
+        return out[0]
+
+
+def get_onnx_backend():
+    """Return the cached ONNX backend, or None if disabled / files missing."""
+    global _onnx_backend
+    if _onnx_backend is not None:
+        return _onnx_backend if _onnx_backend != "missing" else None
+
+    from backend.config import (  # noqa: PLC0415
+        get_clap_enabled,
+        get_clap_use_onnx,
+        get_onnx_models_dir,
+    )
+
+    if not get_clap_enabled() or not get_clap_use_onnx():
+        _onnx_backend = "missing"
+        return None
+
+    models_dir = get_onnx_models_dir()
+    audio_path = models_dir / "clap_audio_encoder.onnx"
+    text_path = models_dir / "clap_text_encoder.onnx"
+    if not (audio_path.exists() and text_path.exists()):
+        _onnx_backend = "missing"
+        return None
+
+    lock = _ensure_onnx_lock()
+    with lock:
+        if _onnx_backend is not None and _onnx_backend != "missing":
+            return _onnx_backend
+        try:
+            backend = _OnnxClapBackend(audio_path, text_path)
+        except Exception:
+            logger.exception("Failed to load CLAP ONNX backend — falling back to laion_clap")
+            _onnx_backend = "missing"
+            return None
+        _onnx_backend = backend
+        logger.info("CLAP ONNX backend loaded from %s", models_dir)
+        return _onnx_backend
+
+
+def reset_onnx_backend() -> None:
+    global _onnx_backend
+    _onnx_backend = None
+
+
+# ---------------------------------------------------------------------------
+# Inference dispatch helpers
+# ---------------------------------------------------------------------------
+
+
+def _embed_audio_from_waveform(waveform):
+    """Compute the 512-d CLAP embedding from a (480_000,) float32 waveform."""
+    onnx = get_onnx_backend()
+    if onnx is not None:
+        return onnx.embed_audio(waveform)
+    model = get_model()
+    if model is None:
+        raise RuntimeError("CLAP model not available — set CLAP_ENABLED=true")
+    return model.get_audio_embedding_from_data([waveform], use_tensor=False)[0]
+
+
+def _embed_text(text: str):
+    onnx = get_onnx_backend()
+    if onnx is not None:
+        return onnx.embed_text(text)
+    model = get_model()
+    if model is None:
+        raise RuntimeError("CLAP model not available — set CLAP_ENABLED=true")
+    return model.get_text_embedding([text], use_tensor=False)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -178,13 +332,14 @@ def analyze_track_clap(audio_path: str):
     typical music files while producing identical embeddings (CLAP clips to 10 s
     internally regardless).
     """
-    model = get_model()
-    if model is None:
+    onnx = get_onnx_backend()
+    model = get_model() if onnx is None else None
+    if onnx is None and model is None:
         raise RuntimeError("CLAP model not available — set CLAP_ENABLED=true")
 
     try:
-        import numpy as np          # noqa: PLC0415
-        import soundfile as sf      # noqa: PLC0415
+        import numpy as np  # noqa: PLC0415
+        import soundfile as sf  # noqa: PLC0415
 
         info = sf.info(audio_path)
         native_sr = info.samplerate
@@ -209,12 +364,17 @@ def analyze_track_clap(audio_path: str):
         else:
             data = np.pad(data, (0, _CLAP_FRAMES - len(data)))
 
-        emb = model.get_audio_embedding_from_data([data], use_tensor=False)
-        return emb[0]
+        return _embed_audio_from_waveform(data)
 
     except Exception as exc:
         logger.debug("Fast audio clip failed for %s (%s) — falling back to filelist", audio_path, exc)
-        emb = model.get_audio_embedding_from_filelist([audio_path], use_tensor=False)
+        # The filelist fallback (laion_clap reads the file itself) only works
+        # with the PyTorch model. If we're in ONNX-only mode, load the heavy
+        # model on demand as a last resort for this one file.
+        fb_model = model or get_model()
+        if fb_model is None:
+            raise
+        emb = fb_model.get_audio_embedding_from_filelist([audio_path], use_tensor=False)
         return emb[0]
 
 
@@ -226,16 +386,14 @@ def search_by_text(
     """Encode the query and return top tracks by cosine similarity."""
     import numpy as np  # noqa: PLC0415
 
-    model = get_model()
-    if model is None:
+    if get_onnx_backend() is None and get_model() is None:
         raise RuntimeError("CLAP model not available — set CLAP_ENABLED=true")
 
     keys, matrix = load_all_embeddings(conn)
     if not keys:
         return []
 
-    text_emb = model.get_text_embedding([query], use_tensor=False)[0]
-    text_emb = np.asarray(text_emb, dtype=np.float32)
+    text_emb = np.asarray(_embed_text(query), dtype=np.float32)
     text_norm = text_emb / (np.linalg.norm(text_emb) + 1e-12)
     mat_norm = matrix / (np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-12)
     scores = mat_norm @ text_norm  # cosine similarities
@@ -281,8 +439,7 @@ def batch_analyze_clap(conn: sqlite3.Connection) -> dict[str, Any]:
     """
     from backend.config import get_clap_model  # noqa: PLC0415
 
-    model = get_model()
-    if model is None:
+    if get_onnx_backend() is None and get_model() is None:
         raise RuntimeError("CLAP model not available — set CLAP_ENABLED=true")
 
     rows = conn.execute(

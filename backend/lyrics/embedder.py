@@ -1,10 +1,15 @@
 """Sentence-embedding backend for lyrics search.
 
-Uses HuggingFace ``transformers`` to load the GTE-multilingual model and
-mean-pool the token embeddings into a single sentence vector. Lazily
-loaded — the model is ~500 MB on first download.
+Two inference backends with auto-detection:
 
-Tests should monkeypatch ``embed_text`` directly to avoid loading the model.
+1. **ONNX Runtime** (preferred when available) — loads
+   ``data/models/gte_multilingual.onnx`` + the matching tokenizer in
+   ``data/models/gte_tokenizer/``. Built by ``scripts/export_gte_onnx.py``.
+2. **HuggingFace transformers** — original GTE-multilingual via ``AutoModel``,
+   ~500 MB on first download. Used when ONNX files are missing or
+   ``LYRICS_USE_ONNX=false``.
+
+Tests should monkeypatch ``embed_text`` directly to avoid loading any model.
 """
 
 from __future__ import annotations
@@ -24,6 +29,9 @@ _tokenizer = None
 _model = None
 _lock = None
 
+_onnx_backend: Any = None  # None = uninitialised; "missing" = checked, not available
+_onnx_lock = None
+
 
 def _ensure_lock():
     global _lock
@@ -31,6 +39,14 @@ def _ensure_lock():
         import threading  # noqa: PLC0415
         _lock = threading.Lock()
     return _lock
+
+
+def _ensure_onnx_lock():
+    global _onnx_lock
+    if _onnx_lock is None:
+        import threading  # noqa: PLC0415
+        _onnx_lock = threading.Lock()
+    return _onnx_lock
 
 
 def get_model_pair():
@@ -70,11 +86,113 @@ def reset_model() -> None:
     global _tokenizer, _model
     _tokenizer = None
     _model = None
+    reset_onnx_backend()
+
+
+# ---------------------------------------------------------------------------
+# ONNX backend (preferred when exported file exists on disk)
+# ---------------------------------------------------------------------------
+
+
+class _OnnxLyricsBackend:
+    """ONNX Runtime inference for GTE-multilingual.
+
+    Mean-pools the model's ``last_hidden_state`` masked by ``attention_mask``
+    to produce a single sentence vector — matches the transformers path exactly.
+    """
+
+    def __init__(self, model_path, tokenizer_dir):
+        import onnxruntime as ort  # noqa: PLC0415
+        from tokenizers import Tokenizer  # noqa: PLC0415
+
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = 0
+        self.session = ort.InferenceSession(
+            str(model_path), sess_options=opts, providers=["CPUExecutionProvider"]
+        )
+        # Tokenizer was saved by `optimum`; tokenizer.json is the fast format.
+        tok_json = tokenizer_dir / "tokenizer.json"
+        if not tok_json.exists():
+            raise FileNotFoundError(f"missing tokenizer.json at {tok_json}")
+        tok = Tokenizer.from_file(str(tok_json))
+        tok.enable_truncation(max_length=512)
+        # Padding to longest is fine for single-string encoding; dynamic axes
+        # in the exported model accept variable sequence length.
+        self.tokenizer = tok
+        # Cache the set of expected input names so we know whether to provide
+        # token_type_ids (BERT-style models need it; GTE doesn't).
+        self._input_names = {inp.name for inp in self.session.get_inputs()}
+
+    def embed_text(self, text: str):
+        import numpy as np  # noqa: PLC0415
+
+        enc = self.tokenizer.encode(text)
+        ids = np.asarray([enc.ids], dtype=np.int64)
+        mask = np.asarray([enc.attention_mask], dtype=np.int64)
+        feeds: dict[str, Any] = {"input_ids": ids, "attention_mask": mask}
+        if "token_type_ids" in self._input_names:
+            feeds["token_type_ids"] = np.zeros_like(ids)
+
+        outputs = self.session.run(None, feeds)
+        # The exported feature-extraction head returns last_hidden_state first.
+        last = outputs[0]  # (1, L, D)
+        mask_f = mask.astype(np.float32)[..., None]
+        summed = (last * mask_f).sum(axis=1)
+        counts = mask_f.sum(axis=1).clip(min=1)
+        pooled = (summed / counts).squeeze(0)
+        return np.asarray(pooled, dtype=np.float32)
+
+
+def get_onnx_backend():
+    """Return the cached ONNX backend, or None if disabled / files missing."""
+    global _onnx_backend
+    if _onnx_backend is not None:
+        return _onnx_backend if _onnx_backend != "missing" else None
+
+    from backend.config import (  # noqa: PLC0415
+        get_lyrics_search_enabled,
+        get_lyrics_use_onnx,
+        get_onnx_models_dir,
+    )
+
+    if not get_lyrics_search_enabled() or not get_lyrics_use_onnx():
+        _onnx_backend = "missing"
+        return None
+
+    models_dir = get_onnx_models_dir()
+    model_path = models_dir / "gte_multilingual.onnx"
+    tokenizer_dir = models_dir / "gte_tokenizer"
+    if not (model_path.exists() and tokenizer_dir.exists()):
+        _onnx_backend = "missing"
+        return None
+
+    lock = _ensure_onnx_lock()
+    with lock:
+        if _onnx_backend is not None and _onnx_backend != "missing":
+            return _onnx_backend
+        try:
+            backend = _OnnxLyricsBackend(model_path, tokenizer_dir)
+        except Exception:
+            logger.exception("Failed to load lyrics ONNX backend — falling back to transformers")
+            _onnx_backend = "missing"
+            return None
+        _onnx_backend = backend
+        logger.info("Lyrics ONNX backend loaded from %s", models_dir)
+        return _onnx_backend
+
+
+def reset_onnx_backend() -> None:
+    global _onnx_backend
+    _onnx_backend = None
 
 
 def embed_text(text: str):
     """Encode a single string. Returns numpy.float32 1D array."""
     import numpy as np  # noqa: PLC0415
+
+    onnx = get_onnx_backend()
+    if onnx is not None:
+        return np.asarray(onnx.embed_text(text), dtype=np.float32)
 
     tok, model = get_model_pair()
     if tok is None or model is None:

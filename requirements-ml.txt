@@ -12,3 +12,9 @@ umap-learn>=0.5.6
 hdbscan>=0.8.33
 onnxruntime>=1.18.0
 tokenizers>=0.19.0
+# optimum is only needed by scripts/export_gte_onnx.py — install pulls the
+# `exporters` extra so `optimum.exporters.onnx.main_export` is available.
+optimum[exporters]>=1.20.0
+# `onnx` is needed by optimum's exporter and by onnxruntime's quantize_dynamic
+# (which reads/writes the protobuf graph).
+onnx>=1.16.0

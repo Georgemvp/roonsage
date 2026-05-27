@@ -34,7 +34,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     APP_VERSION=${VERSION} \
     CLAP_CACHE_DIR=/app/data/.clap_cache \
     HF_HOME=/app/data/.hf_cache \
-    TRANSFORMERS_CACHE=/app/data/.hf_cache
+    TRANSFORMERS_CACHE=/app/data/.hf_cache \
+    ONNX_MODELS_DIR=/app/data/models
 
 WORKDIR /app
 
@@ -42,7 +43,11 @@ WORKDIR /app
 RUN groupadd -r -g 1000 roonsage && useradd -r -u 1000 -g roonsage roonsage
 
 # Data directory (SQLite + user config) owned by app user
-RUN mkdir -p /app/data /app/data/.clap_cache /app/data/.hf_cache \
+# /app/data/models holds the exported ONNX models (clap_audio_encoder.onnx,
+# clap_text_encoder.onnx, gte_multilingual.onnx, gte_tokenizer/). Build them
+# inside the container with `scripts/export_clap_onnx.py` and
+# `scripts/export_gte_onnx.py`; the inference path auto-detects them at startup.
+RUN mkdir -p /app/data /app/data/.clap_cache /app/data/.hf_cache /app/data/models \
     && chown -R roonsage:roonsage /app/data
 
 # System dependencies:
@@ -66,6 +71,7 @@ RUN sed -i 's/torch\.load(checkpoint_path, map_location=map_location)/torch.load
 # Copy application source
 COPY --chown=roonsage:roonsage backend/ ./backend/
 COPY --chown=roonsage:roonsage frontend/ ./frontend/
+COPY --chown=roonsage:roonsage scripts/ ./scripts/
 COPY --chown=roonsage:roonsage config.example.yaml ./
 COPY --chown=roonsage:roonsage data/mood_centroids.json ./data/mood_centroids.json
 

@@ -528,6 +528,16 @@ def get_clap_cache_dir() -> Path:
     return Path(os.environ.get("CLAP_CACHE_DIR", "/app/data/.clap_cache"))
 
 
+def get_clap_use_onnx() -> bool:
+    """Prefer ONNX Runtime over the full laion-clap PyTorch model when files exist."""
+    return _env_bool("CLAP_USE_ONNX", True)
+
+
+def get_onnx_models_dir() -> Path:
+    """Directory holding exported ONNX models (CLAP encoders, GTE)."""
+    return Path(os.environ.get("ONNX_MODELS_DIR", "/app/data/models"))
+
+
 # ---------------------------------------------------------------------------
 # Lyrics semantic search (v13.0)
 # ---------------------------------------------------------------------------
@@ -539,6 +549,11 @@ def get_lyrics_search_enabled() -> bool:
 
 def get_lyrics_model() -> str:
     return os.environ.get("LYRICS_MODEL", "Alibaba-NLP/gte-multilingual-base")
+
+
+def get_lyrics_use_onnx() -> bool:
+    """Prefer ONNX Runtime over transformers when the exported GTE file exists."""
+    return _env_bool("LYRICS_USE_ONNX", True)
 
 
 def is_llm_provider_from_env() -> bool:
