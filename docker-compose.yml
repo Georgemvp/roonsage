@@ -57,9 +57,9 @@ services:
       # Run scripts/export_gte_onnx.py once to generate the model files.
       - LYRICS_USE_ONNX=${LYRICS_USE_ONNX:-true}
 
-      # Sidecar worker: set to true when running the roonsage-worker service below
-      # so FastAPI skips the enrichment + audio-features workers (sidecar handles them).
-      - WORKER_SIDECAR=${WORKER_SIDECAR:-false}
+      # Sidecar worker: delegates enrichment + audio-features to roonsage-worker.
+      # Set to false to disable the sidecar and run everything in one container.
+      - WORKER_SIDECAR=${WORKER_SIDECAR:-true}
 
       # LLM Provider (anthropic, openai, gemini, ollama, or custom)
       # Defaults to gemini. Can also be configured in the web UI.
@@ -100,19 +100,13 @@ services:
     restart: unless-stopped
     stop_grace_period: 60s
 
-  # Optional sidecar: runs audio-feature analysis + metadata enrichment in a
+  # Sidecar worker: runs audio-feature analysis + metadata enrichment in a
   # separate process so the FastAPI event loop stays responsive under heavy load.
-  #
-  # Usage:
-  #   WORKER_SIDECAR=true docker compose --profile worker up -d
-  #
-  # The main service must have WORKER_SIDECAR=true (set via env or .env file)
-  # so it delegates those workers here instead of running them itself.
+  # Starts automatically alongside the main service.
+  # To disable and run everything in one container: set WORKER_SIDECAR=false.
   roonsage-worker:
     build: .
     container_name: roonsage-worker
-    profiles:
-      - worker
     command: python -m backend.worker_process
     environment:
       - ENRICHMENT_SKIP_MB=true
