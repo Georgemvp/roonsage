@@ -459,11 +459,12 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 12px;
-    min-height: 320px;
+    height: 320px;
     position: relative;
 }
 .circadian-chart-wrap canvas {
     width: 100% !important;
+    height: 280px !important;
     max-height: 280px;
 }
 .circadian-meta {

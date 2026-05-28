@@ -34,6 +34,7 @@ export function updateView() {
     });
 
     // Scroll main content area to top on view change
+    window.scrollTo(0, 0);
     const rsMain = document.querySelector('.rs-main');
     if (rsMain) rsMain.scrollTop = 0;
 
