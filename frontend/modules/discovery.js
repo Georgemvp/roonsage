@@ -6,6 +6,7 @@ import { apiCall } from './api.js';
 import { escapeHtml } from './utils.js';
 import { getCurrentZoneId } from './nowplaying.js';
 import { renderMoodsSection } from './moods.js';
+import { showSkeleton } from './loading.js';
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -13,7 +14,8 @@ export async function initDiscoveryView() {
     const view = document.getElementById('discovery-view');
     if (!view) return;
 
-    view.innerHTML = _skeletonHtml();
+    // Layout-matching skeleton — replaced once data arrives
+    showSkeleton('discovery-view');
 
     try {
         const data = await apiCall('/discovery/sections');
@@ -21,18 +23,6 @@ export async function initDiscoveryView() {
     } catch (e) {
         view.innerHTML = `<p class="discovery-error">Could not load discovery data: ${escapeHtml(e.message)}</p>`;
     }
-}
-
-// ── Skeleton ──────────────────────────────────────────────────────────────────
-
-function _skeletonHtml() {
-    return `
-        <div class="discovery-skeleton">
-            <div class="skeleton-block skeleton-title"></div>
-            <div class="skeleton-block skeleton-row"></div>
-            <div class="skeleton-block skeleton-row"></div>
-            <div class="skeleton-block skeleton-row"></div>
-        </div>`;
 }
 
 // ── Main renderer ─────────────────────────────────────────────────────────────

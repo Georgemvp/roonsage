@@ -661,9 +661,32 @@
 .rs-taste-stat-value--teal { color: var(--teal, var(--accent)); }
 .rs-taste-stat-value--amber { color: var(--accent); }
 .rs-taste-stat-sub {
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     color: var(--text-muted);
     margin-top: 2px;
+    display: block;
+}
+
+/* Intelligence variant — teal-tinted stat cards for intel-derived metrics */
+.rs-taste-stat--intel {
+    border-color: rgba(0,212,170,0.15);
+}
+.rs-taste-stat--intel .rs-taste-stat-value {
+    color: var(--teal);
+}
+.rs-taste-stat--intel .rs-taste-stat-sub {
+    color: var(--teal);
+    opacity: 0.7;
+}
+
+/* Genre dot — small color swatch used in genre bar lists */
+.rs-taste-genre-dot,
+.rs-genre-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: inline-block;
 }
 
 /* ── Hourly activity bars ─────────────────────────────────────────────── */

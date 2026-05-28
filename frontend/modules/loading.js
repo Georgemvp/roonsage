@@ -135,3 +135,74 @@ export function hideStepLoading() {
     _stepTiming.queue.push({ type: 'hide' });
     _processStepQueue();
 }
+
+// =============================================================================
+// View-specific skeleton screens — render a layout-matching placeholder while
+// real content is being fetched. Use showSkeleton(viewId) to render, then
+// overwrite the container with real content when ready.
+// =============================================================================
+
+function skeletonDiscovery() {
+    return `
+        <div style="padding:24px">
+            <div class="rs-skeleton rs-skel-text" style="width:120px;margin-bottom:6px"></div>
+            <div class="rs-skeleton rs-skel-title" style="width:200px;margin-bottom:24px"></div>
+            <div class="rs-skeleton" style="height:120px;border-radius:14px;margin-bottom:20px"></div>
+            <div class="rs-skeleton rs-skel-text" style="width:140px;margin-bottom:12px"></div>
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px">
+                ${Array(5).fill(0).map(() => `
+                    <div>
+                        <div class="rs-skeleton rs-skel-art" style="margin-bottom:8px"></div>
+                        <div class="rs-skeleton rs-skel-text" style="width:85%;margin-bottom:5px"></div>
+                        <div class="rs-skeleton rs-skel-text" style="width:60%"></div>
+                    </div>`).join('')}
+            </div>
+        </div>`;
+}
+
+function skeletonPlaylistResults() {
+    return `
+        <div style="padding:24px">
+            <div class="rs-skeleton rs-skel-text" style="width:100px;margin-bottom:8px"></div>
+            <div class="rs-skeleton rs-skel-title" style="width:220px;margin-bottom:16px"></div>
+            <div style="display:flex;gap:8px;margin-bottom:24px">
+                ${Array(3).fill(0).map(() => `<div class="rs-skeleton rs-skel-btn" style="width:80px"></div>`).join('')}
+            </div>
+            ${Array(8).fill(0).map((_, i) => `
+                <div class="rs-skeleton rs-skel-row" style="margin-bottom:4px;opacity:${(1 - i * 0.08).toFixed(2)}"></div>
+            `).join('')}
+        </div>`;
+}
+
+function skeletonTaste() {
+    return `
+        <div style="padding:24px">
+            <div class="rs-skeleton rs-skel-title" style="width:180px;margin-bottom:20px"></div>
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:20px">
+                ${Array(5).fill(0).map(() => `
+                    <div class="rs-skeleton" style="height:80px;border-radius:10px"></div>
+                `).join('')}
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 200px;gap:14px">
+                <div class="rs-skeleton" style="height:100px;border-radius:12px"></div>
+                <div class="rs-skeleton" style="height:100px;border-radius:12px"></div>
+            </div>
+        </div>`;
+}
+
+const SKELETON_MAP = {
+    'discovery-view': skeletonDiscovery,
+    'create-view':    skeletonPlaylistResults,
+    'taste-view':     skeletonTaste,
+    'default':        skeletonPlaylistResults,
+};
+
+/**
+ * Render a layout-matching skeleton inside the given view container.
+ * Call again with real content (replacing innerHTML) once data is ready.
+ */
+export function showSkeleton(viewId) {
+    const skeletonFn = SKELETON_MAP[viewId] || SKELETON_MAP['default'];
+    const container = document.getElementById(viewId) || document.querySelector('.rs-main');
+    if (container) container.innerHTML = skeletonFn();
+}

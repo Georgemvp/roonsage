@@ -119,28 +119,36 @@ function _renderAutomations(list, container) {
         const aCfg = _describeConfig(a.action_config);
         const lastRun = a.last_triggered
             ? new Date(a.last_triggered).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' })
-            : 'never';
+            : 'nog niet';
+        const runCount = a.run_count || 0;
+        const triggerText = `${_esc(_triggerLabel(a.trigger_type))}${tCfg ? ' · ' + _esc(tCfg) : ''}`;
+        const actionText  = `${_esc(_actionLabel(a.action_type))}${aCfg ? ' · ' + _esc(aCfg) : ''}`;
+
         return `
-        <div class="rs-auto-row ${a.enabled ? '' : 'rs-auto-row--disabled'}" data-id="${a.id}">
-            <div class="rs-auto-content">
-                <div class="rs-auto-line">
-                    <span class="rs-auto-pill rs-auto-pill--when">Wanneer</span>
-                    <span class="rs-auto-text">${_esc(_triggerLabel(a.trigger_type))}${tCfg ? ' · ' + _esc(tCfg) : ''}</span>
-                </div>
-                <div class="rs-auto-line">
-                    <span class="rs-auto-pill rs-auto-pill--then">Dan</span>
-                    <span class="rs-auto-text rs-auto-then-text">${_esc(_actionLabel(a.action_type))}${aCfg ? ' · ' + _esc(aCfg) : ''}</span>
-                </div>
-                <div class="rs-auto-meta">
-                    ${a.run_count || 0} runs · last ${_esc(lastRun)}
+        <div class="rs-auto-row ${a.enabled ? '' : 'rs-auto-row--disabled'}" data-id="${a.id}" style="display:block;padding:0">
+            <div style="display:flex;align-items:center;gap:8px;padding:12px 16px">
+                <div style="flex:1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0">
+                    <span class="rs-auto-text" style="font-weight:600">${_esc(a.name || 'Naamloze automation')}</span>
+                    <span class="rs-auto-run-meta">${runCount}× · ${_esc(lastRun)}</span>
                     ${_statusBadge(a.last_status)}
                 </div>
+                <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+                    <button class="auto-run-btn rs-btn rs-btn--secondary" data-id="${a.id}" title="Run now" style="font-size:0.8rem;padding:4px 8px">▶</button>
+                    <button class="auto-delete-btn rs-btn rs-btn--danger" data-id="${a.id}" title="Delete" style="font-size:0.8rem;padding:4px 8px">✕</button>
+                    <button class="rs-auto-toggle auto-toggle-btn ${a.enabled ? 'on' : ''}"
+                            data-id="${a.id}" aria-label="${a.enabled ? 'Disable' : 'Enable'} automation"></button>
+                </div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-                <button class="auto-run-btn rs-btn rs-btn--secondary" data-id="${a.id}" title="Run now" style="font-size:0.8rem;padding:4px 8px">▶</button>
-                <button class="auto-delete-btn rs-btn rs-btn--danger" data-id="${a.id}" title="Delete" style="font-size:0.8rem;padding:4px 8px">✕</button>
-                <button class="rs-auto-toggle auto-toggle-btn ${a.enabled ? 'on' : ''}"
-                        data-id="${a.id}" aria-label="${a.enabled ? 'Disable' : 'Enable'} automation"></button>
+            <div class="rs-auto-flow">
+                <div class="rs-auto-flow-if">
+                    <span class="rs-auto-flow-label rs-auto-flow-label--if">Als</span>
+                    <span class="rs-auto-flow-text">${triggerText}</span>
+                </div>
+                <div class="rs-auto-flow-arrow">→</div>
+                <div class="rs-auto-flow-then">
+                    <span class="rs-auto-flow-label rs-auto-flow-label--then">Dan</span>
+                    <span class="rs-auto-flow-text">${actionText}</span>
+                </div>
             </div>
         </div>`;
     }).join('');

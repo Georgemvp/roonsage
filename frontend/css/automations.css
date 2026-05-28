@@ -567,3 +567,54 @@
 .rs-auto-toggle.on::after {
     left: 18px;
 }
+
+/* =============================================================================
+   IF → THEN two-column layout (improved automation cards)
+   ============================================================================= */
+.rs-auto-flow {
+    display: flex;
+    align-items: stretch;
+    border-top: 1px solid var(--border-subtle, var(--border));
+    margin-top: 10px;
+}
+.rs-auto-flow-if,
+.rs-auto-flow-then {
+    flex: 1;
+    padding: 12px 16px;
+    min-width: 0;
+}
+.rs-auto-flow-if {
+    border-right: 1px solid var(--border-subtle, var(--border));
+}
+.rs-auto-flow-arrow {
+    width: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+.rs-auto-flow-label {
+    font-size: 0.57rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    display: block;
+}
+.rs-auto-flow-label--if   { color: var(--accent); }
+.rs-auto-flow-label--then { color: var(--teal); }
+.rs-auto-flow-text {
+    font-size: 0.84rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+/* Run-counter + last-run timestamp in card header */
+.rs-auto-run-meta {
+    font-size: 0.69rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}

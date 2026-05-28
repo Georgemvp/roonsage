@@ -423,48 +423,96 @@ input[type="number"]:focus:not(:focus-visible) {
     to { opacity: 1; transform: scale(1); }
 }
 
-/* Toast Notifications */
+/* Toast Notifications — floating card with icon + colored border */
 .toast {
     position: fixed;
-    bottom: var(--spacing-lg);
+    bottom: calc(var(--spacing-lg) + env(safe-area-inset-bottom, 0px));
     left: 50%;
-    transform: translateX(-50%);
-    padding: var(--spacing-md) var(--spacing-lg);
-    border-radius: var(--radius-md);
+    transform: translateX(-50%) translateY(0);
+    min-width: 280px;
+    max-width: 360px;
+    width: calc(100vw - 32px);
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-left-width: 3px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.4);
+    color: var(--text-primary);
     display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
+    align-items: flex-start;
+    gap: 10px;
     z-index: 1000;
-    animation: slideUp var(--transition-normal);
+    animation: toastSlideUp 200ms ease-out;
 }
 
 .toast.hidden {
     display: none;
 }
 
-.toast.error {
-    background: var(--error-toast);
-    color: white;
-}
+/* Colored left border per type */
+.toast.success { border-left-color: var(--success, #43a047); }
+.toast.error   { border-left-color: var(--error); }
+.toast.info    { border-left-color: var(--teal); }
 
-.toast.success {
-    background: var(--success-toast);
-    color: white;
+/* Icon square */
+.toast-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+.toast.success .toast-icon { background: rgba(67,160,71,0.12); color: #43a047; }
+.toast.error   .toast-icon { background: rgba(233,92,89,0.12); color: var(--error); }
+.toast.info    .toast-icon { background: var(--teal-dim);      color: var(--teal); }
+
+/* Text content */
+.toast-body  { flex: 1; min-width: 0; }
+.toast-title { font-size: 0.84rem; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+.toast-sub   { font-size: 0.72rem; color: var(--text-muted); }
+
+/* Optional progress bar (for sync/loading toasts) */
+.toast-progress {
+    height: 3px;
+    background: var(--bg-hover);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 7px;
+}
+.toast-progress-fill {
+    height: 100%;
+    background: var(--teal);
+    border-radius: 999px;
+    transition: width 300ms ease;
 }
 
 .toast-close {
     background: transparent;
     border: none;
-    color: inherit;
+    color: var(--text-muted);
     font-size: var(--font-size-lg);
     cursor: pointer;
-    padding: 0;
+    padding: 0 4px;
     line-height: 1;
+    flex-shrink: 0;
+    align-self: flex-start;
+    transition: color var(--transition-fast);
+}
+.toast-close:hover { color: var(--text-primary); }
+
+@keyframes toastSlideUp {
+    from { transform: translateX(-50%) translateY(24px); opacity: 0; }
+    to   { transform: translateX(-50%) translateY(0);    opacity: 1; }
 }
 
 @keyframes slideUp {
     from { transform: translate(-50%, 100%); opacity: 0; }
-    to { transform: translate(-50%, 0); opacity: 1; }
+    to   { transform: translate(-50%, 0);    opacity: 1; }
 }
 
 @keyframes slideUpFromBottom {
@@ -626,6 +674,22 @@ input[type="number"]:focus:not(:focus-visible) {
     0%, 100% { opacity: 0.6; }
     50%       { opacity: 1; }
 }
+
+/* Generic skeleton placeholders — view-specific layouts in loading.js use these */
+.rs-skeleton {
+    background: var(--bg-elevated);
+    border-radius: 6px;
+    animation: rsSkel 1.6s ease-in-out infinite;
+}
+@keyframes rsSkel {
+    0%, 100% { opacity: 0.5; }
+    50%      { opacity: 1; }
+}
+.rs-skel-text  { height: 14px; border-radius: 4px; }
+.rs-skel-title { height: 28px; border-radius: 6px; }
+.rs-skel-art   { border-radius: 8px; aspect-ratio: 1; }
+.rs-skel-btn   { height: 36px; border-radius: 8px; }
+.rs-skel-row   { height: 52px; border-radius: 8px; }
 
 /* PWA safe area for notched phones */
 @supports (padding: env(safe-area-inset-bottom)) {

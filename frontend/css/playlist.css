@@ -1,6 +1,44 @@
 
 
-/* Step Progress (shared across playlist + recommend flows) */
+/* Slim bar-indicator (preferred) — alternative to the legacy numbered circles */
+.step-progress-bars {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.step-progress-bar {
+    flex: 1;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--bg-elevated);
+    transition: background 300ms, opacity 300ms;
+}
+.step-progress-bar--done   { background: var(--accent); }
+.step-progress-bar--active { background: var(--accent); opacity: 0.5; }
+.step-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.step-progress-count {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+.step-progress-name {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+/* When the slim bar variant is rendered inside .step-progress, neutralise the
+   legacy flex/padding so it lays out cleanly */
+.step-progress:has(.step-progress-bars) {
+    display: block;
+    padding: 0 0 20px;
+}
+
+/* Step Progress (legacy numbered-circle layout — kept for other flows) */
 .step-progress {
     display: flex;
     align-items: center;

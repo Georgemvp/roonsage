@@ -5,6 +5,7 @@
 import { apiCall } from './api.js';
 import { escapeHtml } from './utils.js';
 import { state } from './state.js';
+import { showSuccess } from './ui.js';
 
 // ── Local state ──────────────────────────────────────────────────────────────
 let _playlists = [];
@@ -609,9 +610,7 @@ function _showDJSetArcModal(set) {
 
 // ── Toast helper ──────────────────────────────────────────────────────────────
 function showToast(msg) {
-    const el = document.getElementById('success-toast');
-    const msgEl = document.getElementById('success-message');
-    if (el && msgEl) { msgEl.textContent = msg; el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 3000); }
+    showSuccess(msg);
 }
 
 // =============================================================================

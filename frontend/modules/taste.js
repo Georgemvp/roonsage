@@ -289,20 +289,36 @@ function _renderHourlyBars(stats) {
 
     const max = Math.max(...hourly, 1);
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e5a00d';
+    const teal   = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim() || '#00d4aa';
 
     container.innerHTML = `
         <div style="display:flex;align-items:flex-end;gap:3px;height:64px;padding-bottom:18px">
             ${hourly.map((v, i) => {
                 const h = Math.max(2, Math.round((v / max) * 50));
-                const op = v === 0 ? 0.07 : 0.25 + 0.75 * (v / max);
+                const pct = v / max;
+                // Color tiers: amber for peak, teal for mid, dim for low
+                const barColor = pct > 0.7 ? accent : pct > 0.35 ? teal : 'var(--bg-hover)';
+                const op = v === 0 ? 0.07 : 0.55 + 0.45 * pct;
                 const label = i % 6 === 0 ? `${i}h` : '';
                 return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
-                    <div title="${i}:00 — ${v} tracks" style="width:100%;height:${h}px;border-radius:3px 3px 0 0;background:${accent};opacity:${op.toFixed(2)}"></div>
+                    <div title="${i}:00 — ${v} tracks" style="width:100%;height:${h}px;border-radius:3px 3px 0 0;background:${barColor};opacity:${op.toFixed(2)}"></div>
                     <div style="font-size:0.55rem;color:var(--text-muted)">${label}</div>
                 </div>`;
             }).join('')}
         </div>
     `;
+
+    // Update peak-hour label in the section header if a target element exists
+    const peakEl = document.getElementById('taste-hourly-peak');
+    if (peakEl) {
+        if (max > 1) {
+            const peakHour = hourly.indexOf(Math.max(...hourly));
+            const end = (peakHour + 2) % 24;
+            peakEl.textContent = `Piek: ${String(peakHour).padStart(2, '0')}:00–${String(end).padStart(2, '0')}:00`;
+        } else {
+            peakEl.textContent = '';
+        }
+    }
 }
 
 // ── Taste Stats Grid ──────────────────────────────────────────────────────────
@@ -332,21 +348,28 @@ function _renderTasteStats(profile, listeningStats) {
         || listeningStats?.top_artists?.length
         || null;
 
+    // Enrichment percentage — fraction of tracks with audio-feature data
+    const enrichedPct = profile?.enriched_pct
+        ?? profile?.stats?.enriched_pct
+        ?? listeningStats?.enriched_pct
+        ?? null;
+
     const stats = [
         {
             value: totalHours != null ? (totalHours < 1 ? '<1' : Math.round(totalHours)) : '—',
-            label: 'Hours Listened',
-            color: 'teal',
+            label: 'Luistertijd',
+            sub: 'totaal',
+            intel: true,
         },
         {
             value: Object.keys(profile?.genres || profile?.genre_scores || {}).length || (profile?.top_genres?.length ?? '—'),
             label: 'Genres',
-            color: '',
         },
         {
             value: artistCount ?? '—',
-            label: 'Artists Tracked',
-            color: '',
+            label: 'Artiesten',
+            sub: 'geanalyseerd',
+            intel: true,
         },
         {
             value: peakHour != null ? `${peakHour}:00` : '—',
@@ -354,20 +377,28 @@ function _renderTasteStats(profile, listeningStats) {
             color: 'amber',
         },
         {
-            value: peakDay
-                ? peakDay.charAt(0).toUpperCase() + peakDay.slice(1)
-                : '—',
-            label: 'Peak Day',
-            color: 'amber',
+            value: enrichedPct != null
+                ? `${Math.round(enrichedPct)}%`
+                : (peakDay ? peakDay.charAt(0).toUpperCase() + peakDay.slice(1) : '—'),
+            label: enrichedPct != null ? 'Enriched' : 'Peak Day',
+            sub: enrichedPct != null ? 'audio-analyse' : null,
+            intel: enrichedPct != null,
+            color: enrichedPct != null ? null : 'amber',
         },
     ];
 
-    statsGrid.innerHTML = stats.map(s => `
-        <div class="rs-taste-stat">
-            <div class="rs-taste-stat-value${s.color ? ' rs-taste-stat-value--' + s.color : ''}">${s.value}</div>
+    statsGrid.innerHTML = stats.map(s => {
+        const cls = ['rs-taste-stat'];
+        if (s.intel) cls.push('rs-taste-stat--intel');
+        const valueCls = ['rs-taste-stat-value'];
+        if (s.color) valueCls.push('rs-taste-stat-value--' + s.color);
+        return `
+        <div class="${cls.join(' ')}">
+            <div class="${valueCls.join(' ')}">${s.value}</div>
             <div class="rs-taste-stat-label">${s.label}</div>
-        </div>
-    `).join('');
+            ${s.sub ? `<span class="rs-taste-stat-sub">${s.sub}</span>` : ''}
+        </div>`;
+    }).join('');
 }
 
 // ── Mood Tags ─────────────────────────────────────────────────────────────────

@@ -84,37 +84,20 @@ export function updateMode() {
         inputSeed.classList.toggle('active', state.mode === 'seed');
     }
 
-    // Update step progress - show refine for prompt mode, dimensions for seed mode
-    const refineStep = document.querySelector('#playlist-steps .step[data-step="refine"]');
-    const refineConnector = refineStep?.previousElementSibling;
-    const dimensionsStep = document.querySelector('#playlist-steps .step[data-step="dimensions"]');
-    const dimensionsConnector = dimensionsStep?.previousElementSibling;
-    if (state.mode === 'prompt') {
-        refineStep?.classList.remove('hidden');
-        refineConnector?.classList.remove('hidden');
-        dimensionsStep?.classList.add('hidden');
-        dimensionsConnector?.classList.add('hidden');
-    } else {
-        refineStep?.classList.add('hidden');
-        refineConnector?.classList.add('hidden');
-        dimensionsStep?.classList.remove('hidden');
-        dimensionsConnector?.classList.remove('hidden');
-    }
-
-    // Renumber visible steps
-    let stepNumber = 1;
-    document.querySelectorAll('#playlist-steps .step').forEach(step => {
-        if (!step.classList.contains('hidden')) {
-            step.querySelector('.step-circle').textContent = stepNumber++;
-        }
-    });
-
-    // Update first step label based on mode
-    const inputLabel = document.getElementById('step-label-input');
-    if (inputLabel) {
-        inputLabel.textContent = state.mode === 'seed' ? 'Seed' : 'Prompt';
-    }
+    // The slim-bar step indicator is re-rendered every updateStep() call based
+    // on state.mode, so no per-step DOM mutation is needed here anymore.
 }
+
+// Step labels — keyed by internal step id. Used by the slim bar indicator.
+const _STEP_LABELS = {
+    input:      'Prompt',
+    seed:       'Seed',
+    refine:     'Verfijnen',
+    dimensions: 'Dimensies',
+    source:     'Bron',
+    filters:    'Filters',
+    results:    'Resultaten',
+};
 
 export function updateStep() {
     window.scrollTo(0, 0);
@@ -139,36 +122,36 @@ export function updateStep() {
     const regenBtn = document.getElementById('regenerate-btn');
     if (regenBtn) regenBtn.style.display = '';
 
-    // Steps array is mode-dependent: prompt uses refine, seed uses dimensions
+    // Steps array is mode-dependent: prompt uses refine, seed uses dimensions.
+    // Note: 'results' is excluded from the visible indicator — once we render the
+    // playlist, the indicator is hidden anyway.
     const steps = state.mode === 'prompt'
-        ? ['input', 'refine', 'source', 'filters', 'results']
-        : ['input', 'dimensions', 'source', 'filters', 'results'];
-    const currentIndex = steps.indexOf(state.step);
+        ? ['input', 'refine', 'source', 'filters']
+        : ['input', 'dimensions', 'source', 'filters'];
+    const currentIndex = Math.max(0, steps.indexOf(state.step));
 
-    document.querySelectorAll('#playlist-steps .step').forEach((stepEl, index) => {
-        const stepName = stepEl.dataset.step;
-        const stepIndex = steps.indexOf(stepName);
-        const isActive = stepName === state.step;
-
-        stepEl.classList.toggle('active', isActive);
-        stepEl.classList.toggle('completed', stepIndex >= 0 && stepIndex < currentIndex);
-
-        // Update ARIA state for screen readers
-        if (isActive) {
-            stepEl.setAttribute('aria-current', 'step');
-        } else {
-            stepEl.removeAttribute('aria-current');
-        }
-    });
-
-    // Update connectors — only count visible ones
-    let connectorIdx = 0;
-    document.querySelectorAll('#playlist-steps .step-connector').forEach(connector => {
-        if (!connector.classList.contains('hidden')) {
-            connector.classList.toggle('completed', connectorIdx < currentIndex);
-            connectorIdx++;
-        }
-    });
+    // Render the slim bar-based progress indicator (replaces the legacy circles)
+    if (stepProgress && !isResults) {
+        // Show "Seed" instead of "Prompt" when in seed mode
+        const labelOverrides = state.mode === 'seed' ? { ..._STEP_LABELS, input: 'Seed' } : _STEP_LABELS;
+        const labelKeys = steps;
+        const bars = labelKeys.map((_, i) => {
+            const cls = i < currentIndex ? 'step-progress-bar--done'
+                      : i === currentIndex ? 'step-progress-bar--active'
+                      : '';
+            return `<div class="step-progress-bar ${cls}"></div>`;
+        }).join('');
+        const currentLabel = labelOverrides[labelKeys[currentIndex]] || labelKeys[currentIndex] || '';
+        stepProgress.innerHTML = `
+            <div class="step-progress-bars" role="progressbar"
+                 aria-valuemin="1" aria-valuemax="${labelKeys.length}" aria-valuenow="${currentIndex + 1}">
+                ${bars}
+            </div>
+            <div class="step-progress-meta">
+                <span class="step-progress-count">Stap ${currentIndex + 1} van ${labelKeys.length}</span>
+                <span class="step-progress-name">${escapeHtml(currentLabel)}</span>
+            </div>`;
+    }
 
     // Update step panels
     document.querySelectorAll('.step-panel').forEach(panel => {
@@ -1355,32 +1338,48 @@ export function setLoading(loading, message = 'Loading...', substeps = null) {
     }
 }
 
-export function showError(message) {
+// Toast types → icon glyph
+const _TOAST_ICONS = { success: '✓', error: '⚠', info: '↻' };
+
+function _renderToast(toastEl, type, message, subtitle, progress, onClose) {
+    const icon = _TOAST_ICONS[type] || 'ℹ';
+    toastEl.innerHTML = `
+        <div class="toast-icon">${icon}</div>
+        <div class="toast-body">
+            <div class="toast-title">${escapeHtml(message)}</div>
+            ${subtitle ? `<div class="toast-sub">${escapeHtml(subtitle)}</div>` : ''}
+            ${progress !== undefined && progress !== null ? `
+                <div class="toast-progress">
+                    <div class="toast-progress-fill" style="width:${Math.max(0, Math.min(100, progress))}%"></div>
+                </div>` : ''}
+        </div>
+        <button class="toast-close" aria-label="Sluiten">&times;</button>
+    `;
+    toastEl.querySelector('.toast-close')?.addEventListener('click', onClose);
+}
+
+export function showError(message, subtitle, progress) {
     const toast = document.getElementById('error-toast');
-    const messageEl = document.getElementById('error-message');
-
-    messageEl.textContent = message;
+    if (!toast) return;
+    _renderToast(toast, 'error', message, subtitle, progress, hideError);
     toast.classList.remove('hidden');
-
     setTimeout(() => hideError(), 5000);
 }
 
 export function hideError() {
-    document.getElementById('error-toast').classList.add('hidden');
+    document.getElementById('error-toast')?.classList.add('hidden');
 }
 
-export function showSuccess(message) {
+export function showSuccess(message, subtitle, progress) {
     const toast = document.getElementById('success-toast');
-    const messageEl = document.getElementById('success-message');
-
-    messageEl.textContent = message;
+    if (!toast) return;
+    _renderToast(toast, 'success', message, subtitle, progress, hideSuccess);
     toast.classList.remove('hidden');
-
     setTimeout(() => hideSuccess(), 3000);
 }
 
 export function hideSuccess() {
-    document.getElementById('success-toast').classList.add('hidden');
+    document.getElementById('success-toast')?.classList.add('hidden');
 }
 
 export function showSuccessModal(name, trackCount, playlistUrl) {
