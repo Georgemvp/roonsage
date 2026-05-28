@@ -255,6 +255,7 @@
                                         <option value="custom">Custom (OpenAI-compatible)</option>
                                     </select>
                                 </div>
+                                <form autocomplete="off" onsubmit="return false" style="display:contents">
                                 <div class="form-group" id="setup-ai-key-group">
                                     <label for="setup-ai-key">API Key</label>
                                     <input type="password" id="setup-ai-key" placeholder="Your API key" autocomplete="new-password">
@@ -270,6 +271,7 @@
                                 </div>
                                 <div id="setup-ai-error" class="setup-inline-error hidden" role="alert"></div>
                                 <button id="setup-ai-btn" class="btn btn-primary">Validate</button>
+                                </form>
                             </div>
                             <div class="setup-step-done hidden" id="setup-ai-done">
                                 <span class="setup-done-icon" aria-hidden="true">&#10003;</span>
@@ -2086,6 +2088,8 @@
             <!-- Settings View -->
             <div id="settings-view" class="view">
                 <h2>Settings</h2>
+                <!-- form wrapper silences "password not in form" browser warning for API key inputs -->
+                <form autocomplete="off" onsubmit="return false" style="display:contents">
 
                 <!-- Appearance card -->
                 <div class="rs-settings-card" id="settings-appearance-card">
@@ -2690,6 +2694,7 @@
                     <h3 class="rs-settings-card-title">Library Statistics</h3>
                     <div id="library-stats"></div>
                 </section>
+                </form><!-- /settings autocomplete wrapper -->
             </div>
 
         </main>

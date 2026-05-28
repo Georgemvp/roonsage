@@ -18,6 +18,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["intelligence"])
 
 
+def _safe_str(v: object) -> object:
+    """Return v unchanged unless it's a bytes-like str with invalid UTF-8.
+
+    SQLite may store strings with corrupt byte sequences originating from
+    Roon metadata.  Pydantic v2 raises PydanticSerializationError when it
+    tries to JSON-encode them.  Replace undecodable bytes with the replacement
+    character so the response is always valid UTF-8.
+    """
+    if not isinstance(v, str):
+        return v
+    # Fast path — most strings are already valid
+    try:
+        v.encode("utf-8").decode("utf-8")
+        return v
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return v.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+
+
+def _sanitize(d: dict) -> dict:
+    return {k: _safe_str(val) for k, val in d.items()}
+
+
 # ---------------------------------------------------------------------------
 # Request / response models
 # ---------------------------------------------------------------------------
@@ -166,7 +188,7 @@ async def get_listening_history(
                     ).fetchone()
                     if fallback and fallback[0]:
                         art_key = fallback[0]
-            result.append({
+            result.append(_sanitize({
                 "id":               r[0],
                 "timestamp":        r[1],
                 "zone_name":        r[2],
@@ -178,7 +200,7 @@ async def get_listening_history(
                 "played_seconds":   r[8],
                 "skipped":          bool(r[9]),
                 "image_key":        art_key,
-            })
+            }))
         return result
     finally:
         conn.close()
