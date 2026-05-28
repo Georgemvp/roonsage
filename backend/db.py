@@ -53,18 +53,28 @@ def get_db_connection() -> sqlite3.Connection:
     # WAL mode: concurrent readers during writes.
     # After a crash or force-kill the -shm (WAL index) can be left in an
     # inconsistent state, causing "database disk image is malformed" on the
-    # first PRAGMA journal_mode=WAL of a new connection.  Running a checkpoint
-    # on the same (pre-WAL) connection resets the index; closing and reopening
-    # then succeeds.
+    # first PRAGMA journal_mode=WAL of a new connection.
+    # Recovery: switch to DELETE journal mode first (doesn't use SHM), which
+    # checkpoints and removes the WAL/SHM files, then reopen in WAL mode.
+    # As last resort, delete the stale SHM/WAL files directly.
     try:
         conn.execute("PRAGMA journal_mode=WAL")
     except sqlite3.DatabaseError:
-        logger.warning("WAL header inconsistent; running recovery checkpoint")
+        logger.warning("WAL header inconsistent; attempting journal reset recovery")
         try:
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.execute("PRAGMA journal_mode=DELETE")
         except Exception as exc:
-            logger.error("WAL recovery checkpoint failed: %s", exc)
+            logger.warning("journal_mode=DELETE failed: %s", exc)
         conn.close()
+        shm_path = DB_PATH.parent / (DB_PATH.name + "-shm")
+        wal_path = DB_PATH.parent / (DB_PATH.name + "-wal")
+        for p in (shm_path, wal_path):
+            if p.exists():
+                try:
+                    p.unlink()
+                    logger.info("Removed stale WAL artefact: %s", p.name)
+                except OSError as exc:
+                    logger.warning("Could not remove %s: %s", p.name, exc)
         conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")

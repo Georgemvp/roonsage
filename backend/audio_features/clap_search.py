@@ -382,10 +382,25 @@ def analyze_track_clap(audio_path: str):
         return _embed_audio_from_waveform(data)
 
     except Exception as exc:
-        logger.debug("Fast audio clip failed for %s (%s) — falling back to filelist", audio_path, exc)
-        # The filelist fallback (laion_clap reads the file itself) only works
-        # with the PyTorch model. If we're in ONNX-only mode, load the heavy
-        # model on demand as a last resort for this one file.
+        logger.debug("soundfile fast path failed for %s (%s) — trying librosa", audio_path, exc)
+        # Prefer ONNX + librosa over loading the 600 MB PyTorch model.
+        # librosa handles formats soundfile can't (ALAC, AAC, DSF …) via ffmpeg/audioread.
+        if onnx is not None:
+            try:
+                import librosa  # noqa: PLC0415
+                import numpy as np  # noqa: PLC0415
+                data, _ = librosa.load(
+                    audio_path, sr=_CLAP_SR, offset=30.0, duration=11.0, mono=True
+                )
+                if len(data) >= _CLAP_FRAMES:
+                    data = data[:_CLAP_FRAMES]
+                else:
+                    data = np.pad(data, (0, _CLAP_FRAMES - len(data)))
+                return _embed_audio_from_waveform(data)
+            except Exception as exc2:
+                logger.warning("librosa fallback also failed for %s: %s", audio_path, exc2)
+                raise
+        # PyTorch model fallback — only when ONNX is unavailable.
         fb_model = model or get_model()
         if fb_model is None:
             raise
