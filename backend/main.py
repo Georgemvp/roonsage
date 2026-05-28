@@ -246,7 +246,12 @@ async def static_asset_cache(request: Request, call_next):
     if path.startswith("/static/") and (
         path.endswith(".css") or path.endswith(".svg")
     ) and "Cache-Control" not in response.headers:
-        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        # Only set immutable if the URL has a cache-buster (?v=…).
+        # @import-ed CSS sub-files have no version param and must stay revalidatable.
+        if request.url.query and request.url.query.startswith("v="):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
     return response
 
 

@@ -31,6 +31,7 @@ import { initTemplates }                  from './modules/templates.js';
 import { startActivityMonitor }           from './modules/activity.js';
 import { initPWA }                        from './modules/pwa.js';
 import { initAnalysisTasks }              from './modules/analysis-tasks.js';
+import { loadHomeListenFeed }             from './modules/home-listen.js';
 
 // View modules are loaded on demand — keeps the initial JS payload small,
 // and view-specific code (e.g. Chart.js use in taste.js) only loads when the
@@ -420,6 +421,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize views AFTER config is loaded
     if (state.view === 'home') {
         renderHistoryFeed();
+        loadHomeListenFeed();
         loadHomePreview(); // fire-and-forget; populates feature card previews
         loadHomeHero();
     } else {

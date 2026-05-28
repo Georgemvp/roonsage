@@ -129,6 +129,7 @@ export function navigateTo(view, mode) {
         import('./scheduler.js').then(m => m.initSchedulerSection());
     } else if (view === 'home') {
         renderHistoryFeed();
+        import('./home-listen.js').then(m => m.loadHomeListenFeed());
     } else if (VIEW_MODULES[view]) {
         VIEW_MODULES[view]();
     }
