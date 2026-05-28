@@ -248,7 +248,14 @@ function renderPlaylists() {
     renderTagRow(list);
 
     if (!list.length) {
-        container.innerHTML = '<p class="rs-empty">No playlists found.</p>';
+        container.innerHTML = `
+            <div class="rs-empty-state">
+                <div class="rs-empty-icon" style="background:rgba(146,112,212,0.15);color:#9270d4;">▦</div>
+                <div class="rs-empty-title">Geen afspeellijsten</div>
+                <div class="rs-empty-desc">Genereer je eerste AI-playlist met een prompt.</div>
+                <button class="rs-empty-cta" style="background:rgba(146,112,212,0.15);color:#9270d4;border-color:#9270d4;"
+                    onclick="window.location.hash='playlist'">Nieuwe playlist ✦</button>
+            </div>`;
         return;
     }
     container.innerHTML = list.map(p => playlistCardHtml(p)).join('');
@@ -666,7 +673,14 @@ function renderDJSets() {
     const grid = document.getElementById('dj-sets-grid');
     if (!grid) return;
     if (!_djSets.length) {
-        grid.innerHTML = '<p class="playlists-empty">Nog geen DJ sets opgeslagen. Bouw een set en sla hem op via de DJ Set pagina.</p>';
+        grid.innerHTML = `
+            <div class="rs-empty-state">
+                <div class="rs-empty-icon" style="background:rgba(146,112,212,0.15);color:#9270d4;">🎚</div>
+                <div class="rs-empty-title">Nog geen DJ sets</div>
+                <div class="rs-empty-desc">Bouw een set met beatmatching en sla hem op via de DJ Set pagina.</div>
+                <button class="rs-empty-cta" style="background:rgba(146,112,212,0.15);color:#9270d4;border-color:#9270d4;"
+                    onclick="window.location.hash='dj-set'">DJ Set bouwen</button>
+            </div>`;
         return;
     }
     grid.innerHTML = _djSets.map(_djSetCardHtml).join('');

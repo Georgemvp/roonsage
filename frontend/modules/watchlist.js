@@ -62,7 +62,14 @@ function _renderArtists(artists) {
     const container = document.getElementById('watchlist-artists-list');
     if (!container) return;
     if (!artists || !artists.length) {
-        container.innerHTML = '<p class="rs-empty">No artists watched yet. Add artists above or use Auto-populate.</p>';
+        container.innerHTML = `
+            <div class="rs-empty-state">
+                <div class="rs-empty-icon" style="background:var(--accent-dim);color:var(--accent);">⭐</div>
+                <div class="rs-empty-title">Watchlist leeg</div>
+                <div class="rs-empty-desc">Voeg artiesten toe waarvan je nieuwe releases wil volgen.</div>
+                <button class="rs-empty-cta" style="background:var(--accent-dim);color:var(--accent);border-color:var(--accent);"
+                    onclick="window.location.hash='discovery'">Discovery openen</button>
+            </div>`;
         return;
     }
     container.innerHTML = artists.map(a => _artistRow(a)).join('');

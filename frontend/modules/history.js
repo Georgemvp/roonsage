@@ -107,7 +107,14 @@ export function renderHistoryFeedFromCache() {
 
     // Empty state
     if (items.length === 0) {
-        container.innerHTML = '<div class="history-empty">Your playlist and album history will appear here</div>';
+        container.innerHTML = `
+            <div class="rs-empty-state">
+                <div class="rs-empty-icon" style="background:rgba(0,212,170,0.10);color:var(--teal,#00d4aa);">🕐</div>
+                <div class="rs-empty-title">Nog geen geschiedenis</div>
+                <div class="rs-empty-desc">Luistergeschiedenis verschijnt zodra je begint met afspelen via Roon.</div>
+                <button class="rs-empty-cta" style="background:rgba(0,212,170,0.10);color:var(--teal,#00d4aa);border-color:var(--teal,#00d4aa);"
+                    onclick="window.location.hash='nowplaying'">Open Now Playing</button>
+            </div>`;
         return;
     }
 
@@ -199,7 +206,12 @@ export async function renderHistoryFeed() {
         renderHistoryFeedFromCache();
     } catch (e) {
         console.warn('Failed to load history:', e);
-        container.innerHTML = '<div class="history-empty">Could not load history</div>';
+        container.innerHTML = `
+            <div class="rs-empty-state">
+                <div class="rs-empty-icon" style="background:rgba(233,92,89,0.10);color:var(--error);">!</div>
+                <div class="rs-empty-title">Kon geschiedenis niet laden</div>
+                <div class="rs-empty-desc">Controleer de verbinding met de RoonSage backend en probeer opnieuw.</div>
+            </div>`;
     }
 }
 

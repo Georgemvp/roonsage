@@ -1,5 +1,107 @@
 
 
+/* Featured spotlight hero */
+.rs-disc-spotlight {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-surface) 100%);
+    border: 1px solid var(--border-accent);
+    border-radius: 14px;
+    padding: 22px;
+    margin-bottom: 28px;
+    display: flex;
+    gap: 20px;
+    align-items: flex-end;
+}
+.rs-disc-spotlight-glow {
+    position: absolute;
+    top: -40px; right: -20px;
+    width: 180px; height: 180px;
+    background: var(--accent-glow);
+    border-radius: 50%;
+    filter: blur(40px);
+    pointer-events: none;
+}
+.rs-disc-spotlight-art {
+    width: 88px; height: 88px;
+    border-radius: 9px;
+    overflow: hidden;
+    flex-shrink: 0;
+    box-shadow: 0 10px 32px rgba(0,0,0,0.45);
+    position: relative;
+    z-index: 1;
+}
+.rs-disc-spotlight-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rs-disc-spotlight-content {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+    z-index: 1;
+}
+.rs-disc-spotlight-badge {
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+    display: block;
+}
+.rs-disc-spotlight-title {
+    font-size: 1.2rem;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    color: var(--text-primary);
+    margin-bottom: 3px;
+}
+.rs-disc-spotlight-meta {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    margin-bottom: 14px;
+}
+.rs-disc-spotlight-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* Coloured genre bars (Discovery → Jouw smaak in genres) */
+.rs-genre-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 9px;
+}
+.rs-genre-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.rs-genre-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    min-width: 120px;
+}
+.rs-genre-track {
+    flex: 1;
+    height: 4px;
+    background: var(--bg-elevated);
+    border-radius: 999px;
+    overflow: hidden;
+}
+.rs-genre-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 700ms cubic-bezier(.4,0,.2,1);
+}
+.rs-genre-pct {
+    font-size: 0.69rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    min-width: 32px;
+    text-align: right;
+}
+
 /* =============================================================================
    DISCOVERY VIEW
    ============================================================================= */
@@ -316,7 +418,7 @@
 .rs-section-title { font-size:0.63rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted); }
 
 /* ── Album row ── */
-.rs-album-row { display:grid; grid-template-columns:repeat(6,1fr); gap:14px; }
+.rs-album-row { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; }
 .rs-album-card { cursor:pointer; transition:transform 180ms ease, opacity 180ms ease; }
 .rs-album-card:hover { transform:translateY(-3px); opacity:0.88; }
 .rs-album-art { width:100%; aspect-ratio:1; border-radius:8px; overflow:hidden; margin-bottom:8px; background:var(--bg-surface); }
@@ -513,7 +615,7 @@
 
 .rs-album-grid {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 16px;
     align-items: start;
 }

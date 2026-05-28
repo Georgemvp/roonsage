@@ -63,6 +63,7 @@ function _render(view, data) {
         <h2 class="rs-view-title">Discover</h2>
         <p class="discovery-subtitle">Gevoed door je Last.fm &amp; ListenBrainz luistergeschiedenis.</p>
 
+        ${_renderSpotlight(forgotten, favorites, lbReleases)}
         ${_renderStatsBar(data)}
         ${_renderFeaturedGem(favorites, lbReleases)}
 
@@ -130,7 +131,8 @@ function _renderSoundsLikeYourWeek(section) {
         <div class="rs-track-row">
             <div class="rs-track-info">
                 <span class="rs-track-title">${escapeHtml(t.title || '—')}</span>
-                <span class="rs-track-artist">${escapeHtml(t.artist || '')}${t.album ? ` — ${escapeHtml(t.album)}` : ''}</span>
+                <span class="rs-track-artist">${escapeHtml(t.artist || '')}</span>
+                <span class="rs-track-album">${escapeHtml(t.album || '')}</span>
             </div>
             <div class="discovery-track-right">
                 <span class="alchemy-score" title="Cosine similarity to your weekly centroid">${t.match_pct ?? 0}%</span>
@@ -139,6 +141,7 @@ function _renderSoundsLikeYourWeek(section) {
                     data-play-key="${escapeHtml(t.item_key)}" data-play-type="track"
                     title="Play ${escapeHtml(t.title || '')}">▶</button>` : ''}
             </div>
+            <button class="rs-track-options" title="Opties" aria-label="Opties">···</button>
         </div>
     `).join('');
 
@@ -197,6 +200,59 @@ function _renderStatsBar(data) {
             `).join('')}
         </div>
     `;
+}
+
+// ── Spotlight (vergeten parel) ───────────────────────────────────────────
+function _renderSpotlight(forgotten, favorites, lbReleases) {
+    // Prefer a forgotten favorite (track); fall back to an album favourite
+    const item = (forgotten && forgotten.length) ? forgotten[0]
+               : (favorites && favorites.length) ? favorites[0]
+               : (lbReleases && lbReleases.length) ? lbReleases[0]
+               : null;
+    if (!item) return '';
+
+    const title = item.title || item.album || '—';
+    const artist = item.artist || '';
+
+    // Build "last played X" text from last_played_at if present
+    let lastPlayedText = '';
+    if (item.last_played_at) {
+        const last = new Date(item.last_played_at);
+        const now = new Date();
+        const diffDays = Math.max(1, Math.floor((now - last) / (1000 * 60 * 60 * 24)));
+        if (diffDays < 60) {
+            lastPlayedText = `${diffDays} dagen geleden`;
+        } else {
+            const months = Math.floor(diffDays / 30);
+            lastPlayedText = months === 1 ? '1 maand geleden' : `${months} maanden geleden`;
+        }
+    }
+
+    const metaSuffix = lastPlayedText ? ` · Niet gespeeld ${escapeHtml(lastPlayedText)}` : '';
+
+    // Art: image_key (album-level data) or fallback placeholder
+    const artHtml = item.image_key
+        ? `<img src="/api/art/${escapeHtml(item.image_key)}?width=400&height=400" alt="${escapeHtml(title)}" onerror="this.style.display='none'">`
+        : '<div class="rs-album-art-placeholder">♪</div>';
+
+    // Play target: album item_key if available (album favourite), else track item_key
+    const playKey = item.parent_item_key || item.item_key || '';
+    const playType = item.parent_item_key ? 'album' : 'track';
+
+    return `
+        <div class="rs-disc-spotlight">
+            <div class="rs-disc-spotlight-glow"></div>
+            <div class="rs-disc-spotlight-art">${artHtml}</div>
+            <div class="rs-disc-spotlight-content">
+                <span class="rs-disc-spotlight-badge">⚡ Vergeten parel</span>
+                <div class="rs-disc-spotlight-title">${escapeHtml(title)}</div>
+                <div class="rs-disc-spotlight-meta">${escapeHtml(artist)}${metaSuffix}</div>
+                <div class="rs-disc-spotlight-actions">
+                    ${playKey ? `<button class="rs-btn rs-btn--primary rs-btn--sm"
+                        data-play-key="${escapeHtml(playKey)}" data-play-type="${playType}">Nu spelen</button>` : ''}
+                </div>
+            </div>
+        </div>`;
 }
 
 // ── Featured Hidden Gem ──────────────────────────────────────────────────
@@ -265,6 +321,7 @@ function _renderLbLoved(tracks) {
             <div class="rs-track-info">
                 <span class="rs-track-title">${escapeHtml(t.title)}</span>
                 <span class="rs-track-artist">${escapeHtml(t.artist)}</span>
+                <span class="rs-track-album">${escapeHtml(t.album || '')}</span>
             </div>
             <div class="discovery-track-right">
                 <span class="discovery-play-count">♥</span>
@@ -273,6 +330,7 @@ function _renderLbLoved(tracks) {
                     data-play-key="${escapeHtml(t.item_key)}" data-play-type="track"
                     title="Play ${escapeHtml(t.title)}">▶</button>` : ''}
             </div>
+            <button class="rs-track-options" title="Opties" aria-label="Opties">···</button>
         </div>
     `).join('');
 
@@ -327,7 +385,8 @@ function _renderDeepCuts(tracks) {
         <div class="rs-track-row">
             <div class="rs-track-info">
                 <span class="rs-track-title">${escapeHtml(t.title)}</span>
-                <span class="rs-track-artist">${escapeHtml(t.artist)} — ${escapeHtml(t.album || '—')}</span>
+                <span class="rs-track-artist">${escapeHtml(t.artist)}</span>
+                <span class="rs-track-album">${escapeHtml(t.album || '')}</span>
             </div>
             <div class="discovery-track-right">
                 <span class="discovery-play-count">${t.play_count === 0 ? 'Unplayed' : `${t.play_count}×`}</span>
@@ -340,6 +399,7 @@ function _renderDeepCuts(tracks) {
                     aria-label="Play ${escapeHtml(t.title)}"
                 >▶</button>` : ''}
             </div>
+            <button class="rs-track-options" title="Opties" aria-label="Opties">···</button>
         </div>
     `).join('');
 
@@ -374,7 +434,8 @@ function _renderForgottenFavorites(tracks) {
         <div class="rs-track-row">
             <div class="rs-track-info">
                 <span class="rs-track-title">${escapeHtml(t.title)}</span>
-                <span class="rs-track-artist">${escapeHtml(t.artist)} — ${escapeHtml(t.album || '—')}</span>
+                <span class="rs-track-artist">${escapeHtml(t.artist)}</span>
+                <span class="rs-track-album">${escapeHtml(t.album || '')}</span>
             </div>
             <div class="discovery-track-right">
                 <span class="discovery-forgotten-meta">
@@ -390,6 +451,7 @@ function _renderForgottenFavorites(tracks) {
                     aria-label="Play ${escapeHtml(t.title)}"
                 >▶</button>` : ''}
             </div>
+            <button class="rs-track-options" title="Opties" aria-label="Opties">···</button>
         </div>
     `}).join('');
 

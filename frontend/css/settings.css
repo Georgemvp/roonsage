@@ -825,3 +825,125 @@
     min-width: 60px;
     text-align: right;
 }
+
+/* =============================================================================
+   Settings card layout + status pills (Improvement 08)
+   ============================================================================= */
+.rs-settings-section-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+.rs-settings-section-card-header {
+    padding: 13px 18px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.rs-settings-section-card-title {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.rs-settings-section-card-body {
+    padding: 0 18px 4px;
+}
+
+.rs-settings-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 13px 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+.rs-settings-item:last-child { border-bottom: none; }
+.rs-settings-item-icon {
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    background: var(--bg-elevated);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+}
+.rs-settings-item-label { flex: 1; min-width: 0; }
+.rs-settings-item-title {
+    font-size: 0.86rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+.rs-settings-item-desc {
+    font-size: 0.73rem;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+/* Status pill badge — replaces colored-dot status-indicator */
+.rs-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 0.69rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.rs-status-pill--connected {
+    background: rgba(67,160,71,0.10);
+    color: #43a047;
+}
+.rs-status-pill--error {
+    background: rgba(233,92,89,0.10);
+    color: var(--error);
+}
+.rs-status-pill--idle {
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+}
+.rs-status-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
+
+/* Re-skin the legacy .status-indicator to behave like an rs-status-pill,
+   so all existing settings sections pick up the new look without HTML changes. */
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 0.69rem;
+    font-weight: 600;
+    white-space: nowrap;
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    margin-bottom: var(--spacing-md);
+}
+.status-indicator .status-dot {
+    width: 5px;
+    height: 5px;
+    background: currentColor;
+    flex-shrink: 0;
+}
+.status-indicator.connected {
+    background: rgba(67,160,71,0.10);
+    color: #43a047;
+}
+.status-indicator.error {
+    background: rgba(233,92,89,0.10);
+    color: var(--error);
+}
+.status-indicator .status-text {
+    color: inherit;
+}

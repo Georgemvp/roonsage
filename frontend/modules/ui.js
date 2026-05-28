@@ -725,9 +725,41 @@ function renderVerificationBadge(track) {
     return `<span class="verify-badge verify-badge--warn" title="${flagText}Confidence ${Math.round(confidence * 100)}%: ${reason}">⚠</span>`;
 }
 
+function _renderResultsArtMosaic() {
+    const mosaicEl = document.getElementById('results-art-mosaic');
+    if (!mosaicEl) return;
+    if (!state.playlist || state.playlist.length === 0) {
+        mosaicEl.innerHTML = '';
+        return;
+    }
+    const items = state.playlist.slice(0, 8).map(track => `
+        <div class="rs-results-art-mosaic-item">
+            ${track.art_url
+                ? `<img src="${escapeHtml(track.art_url)}" alt="" loading="lazy" onerror="this.style.display='none'">`
+                : ''}
+        </div>
+    `).join('');
+    mosaicEl.innerHTML = items;
+}
+
+function _renderResultsAiBadge() {
+    const badge = document.getElementById('results-ai-badge');
+    if (!badge) return;
+    if (!state.playlist || state.playlist.length === 0) {
+        badge.classList.add('hidden');
+        return;
+    }
+    badge.classList.remove('hidden');
+    badge.textContent = '✦ AI gegenereerd';
+}
+
 export function updatePlaylist() {
     // Render narrative box
     renderNarrativeBox();
+
+    // Render results-zone enhancements (art mosaic + AI badge)
+    _renderResultsArtMosaic();
+    _renderResultsAiBadge();
 
     const container = document.getElementById('playlist-tracks');
     container.innerHTML = state.playlist.map((track, index) => `
@@ -736,15 +768,17 @@ export function updatePlaylist() {
              aria-selected="false"
              aria-label="${escapeHtml(track.title)} by ${escapeHtml(track.artist)}">
             <span class="track-number">${index + 1}</span>
-            ${trackArtHtml(track)}
+            <div class="track-art-wrap">${trackArtHtml(track)}</div>
             <div class="track-info">
                 <div class="track-title">
                     ${escapeHtml(track.title)}
                     ${track.source === 'qobuz' ? '<span class="qobuz-badge" title="Via Qobuz">Qobuz</span>' : ''}
                     ${renderVerificationBadge(track)}
                 </div>
-                <div class="track-artist">${escapeHtml(track.artist)} - ${escapeHtml(track.album)}</div>
+                <div class="track-artist">${escapeHtml(track.artist)}</div>
+                <span class="rs-track-album">${escapeHtml(track.album || '')}</span>
             </div>
+            <button class="rs-track-options" tabindex="0" title="Opties" aria-label="Opties">···</button>
             <button class="track-remove" tabindex="0" data-item-key="${escapeHtml(track.item_key)}"
                     aria-label="Remove ${escapeHtml(track.title)}">&times;</button>
         </div>

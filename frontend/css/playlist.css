@@ -1322,7 +1322,7 @@
 .rs-track-row:hover { background:var(--bg-surface); }
 .rs-track-row.sel { background:var(--bg-elevated); border-left-color:var(--accent); }
 .rs-track-num { width:22px; text-align:right; font-size:0.74rem; color:var(--text-muted); font-family:var(--font-mono); flex-shrink:0; }
-.rs-track-art { width:34px; height:34px; border-radius:4px; flex-shrink:0; overflow:hidden; background:var(--bg-surface); }
+.rs-track-art { width:40px; height:40px; border-radius:5px; flex-shrink:0; overflow:hidden; background:var(--bg-surface); position:relative; }
 .rs-track-info { flex:1; min-width:0; }
 .rs-track-title { font-size:0.845rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-primary); }
 .rs-track-artist { font-size:0.72rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -1380,9 +1380,11 @@
     border-left-color: var(--accent);
 }
 .track-art {
-    width: 34px;
-    height: 34px;
-    border-radius: 4px;
+    width: 40px;
+    height: 40px;
+    border-radius: 5px;
+    object-fit: cover;
+    background: var(--bg-tertiary);
 }
 .track-title {
     font-size: 0.845rem;
@@ -1440,12 +1442,54 @@
     flex-shrink: 0;
 }
 .rs-track-art {
-    width: 34px;
-    height: 34px;
-    border-radius: 4px;
+    width: 40px;
+    height: 40px;
+    border-radius: 5px;
     overflow: hidden;
     flex-shrink: 0;
     background: var(--bg-elevated);
+    position: relative;
+}
+.rs-track-art-inner {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+.rs-track-art-inner img,
+.rs-track-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.rs-track-row:hover .rs-track-art-inner::after,
+.playlist-track:hover .track-art-wrap::after {
+    content: '▶';
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.52);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: #fff;
+    border-radius: 5px;
+}
+.track-art-wrap {
+    width: 40px;
+    height: 40px;
+    border-radius: 5px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: var(--bg-elevated);
+    position: relative;
+}
+.track-art-wrap img,
+.track-art-wrap .art-placeholder {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    display: block;
 }
 .rs-track-info {
     flex: 1;
@@ -1465,6 +1509,34 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+.rs-track-album {
+    font-size: 0.69rem;
+    color: rgba(90,90,100,0.65);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.rs-track-options {
+    background: none;
+    border: none;
+    color: transparent;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color 120ms;
+    flex-shrink: 0;
+    line-height: 1;
+    font-family: inherit;
+}
+.rs-track-row:hover .rs-track-options,
+.playlist-track:hover .rs-track-options {
+    color: var(--text-secondary);
+}
+.rs-track-options:hover {
+    color: var(--text-primary) !important;
+    background: var(--bg-hover);
 }
 .rs-track-dur {
     font-size: 0.72rem;
@@ -1505,4 +1577,55 @@
 }
 .rs-quick-btn svg {
     display: block;
+}
+
+/* =============================================================================
+   Playlist Results Header Zone (Improvement 10)
+   ============================================================================= */
+.rs-results-header-zone {
+    position: relative;
+    overflow: hidden;
+    padding: 28px 28px 24px;
+    background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-primary) 100%);
+    margin-bottom: 0;
+    border-radius: 12px;
+}
+
+.rs-results-art-mosaic {
+    position: absolute;
+    top: 0; right: 0;
+    display: grid;
+    grid-template-columns: repeat(4, 60px);
+    grid-template-rows: repeat(2, 60px);
+    gap: 2px;
+    opacity: 0.15;
+    pointer-events: none;
+}
+.rs-results-art-mosaic-item {
+    width: 60px; height: 60px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+}
+.rs-results-art-mosaic-item img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+}
+
+.rs-results-ai-badge {
+    font-size: 0.59rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+    display: block;
+    position: relative;
+}
+
+.rs-results-title {
+    font-size: 1.6rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    position: relative;
 }

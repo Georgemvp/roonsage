@@ -1013,6 +1013,8 @@ function _renderLbSections(lbData, profile) {
 }
 
 // ── HTML bar chart (countries etc.) ──────────────────────────────────────────
+const GENRE_COLORS = ['#9270d4', '#5b8fe8', '#00d4aa', '#e5a00d', '#e57373', '#fb8c00'];
+
 function _renderBarChart(containerId, items) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -1021,15 +1023,19 @@ function _renderBarChart(containerId, items) {
         return;
     }
     const max = Math.max(...items.map(i => i.value), 1);
-    container.innerHTML = items.map(item => `
-        <div class="rs-genre-bar">
-            <div class="rs-genre-name" title="${escapeHtml(String(item.label))}">${escapeHtml(String(item.label))}</div>
+    container.innerHTML = items.map((item, i) => {
+        const color = GENRE_COLORS[i % GENRE_COLORS.length];
+        const pct = Math.round((item.value / max) * 100);
+        return `
+        <div class="rs-genre-bar rs-genre-bar-row">
+            <span class="rs-genre-dot" style="background:${color}"></span>
+            <div class="rs-genre-name rs-genre-label" title="${escapeHtml(String(item.label))}">${escapeHtml(String(item.label))}</div>
             <div class="rs-genre-track">
-                <div class="rs-genre-fill" style="width:${Math.round((item.value / max) * 100)}%"></div>
+                <div class="rs-genre-fill" style="width:${pct}%;background:${color}"></div>
             </div>
             <div class="rs-genre-pct">${item.value}</div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 // ── HTML list (loved tracks etc.) ────────────────────────────────────────────
