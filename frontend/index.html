@@ -1786,13 +1786,13 @@
                 <div id="song-paths-result" class="song-paths-result"></div>
             </div>
 
-            <!-- Song Alchemy View (v13.0 / v13.4) -->
+            <!-- Song Alchemy View (v13.0 / v13.4 / improved) -->
             <div id="alchemy-view" class="view">
                 <p class="rs-view-eyebrow">DISCOVER</p>
                 <h2 class="rs-view-title">Song Alchemy</h2>
                 <p class="rs-view-sub">Voeg tracks toe die je méér wilt, trek tracks af die je minder wilt. RoonSage zoekt de dichtstbijzijnde match in je bibliotheek.</p>
 
-                <!-- Surprise Me top action: builds an implicit mix from recent zone plays/skips -->
+                <!-- Surprise Me -->
                 <div class="alchemy-surprise-bar">
                     <div class="alchemy-surprise-info">
                         <strong>Surprise Me</strong>
@@ -1806,43 +1806,98 @@
                 </div>
 
                 <div class="alchemy-tabs" role="tablist">
-                    <button class="alchemy-tab is-active" role="tab" data-tab="mix">Mix</button>
-                    <button class="alchemy-tab" role="tab" data-tab="profiles">Profielen</button>
+                    <button class="alchemy-tab alchemy-tab--primary is-active" role="tab" data-tab="mix">Mix</button>
+                    <button class="alchemy-tab alchemy-tab--secondary" role="tab" data-tab="profiles">Profielen</button>
                 </div>
 
-                <!-- Tab: Mix (manual ADD/SUBTRACT) -->
+                <!-- Tab: Mix -->
                 <div id="alchemy-tab-mix" class="alchemy-tab-panel is-active">
-                    <div class="alchemy-layout">
-                        <div class="alchemy-search">
+                    <div class="alchemy-two-col">
+
+                        <!-- Left: search + buckets + controls -->
+                        <div class="alchemy-left">
+                            <button id="alchemy-nowplaying-btn" class="btn btn-secondary btn-sm alchemy-nowplaying-btn">♪ Nu spelend als ADD</button>
                             <input id="alchemy-search" type="search" class="auto-form-input" placeholder="Zoek in bibliotheek…" />
                             <div id="alchemy-search-results" class="alchemy-results-list"></div>
-                        </div>
-                        <div class="alchemy-mix">
-                            <div class="alchemy-bucket">
-                                <h4>Add (+)</h4>
-                                <ul id="alchemy-add-list" class="alchemy-bucket-list"></ul>
+
+                            <div class="alchemy-buckets-row">
+                                <div class="alchemy-bucket alchemy-bucket--add">
+                                    <h4 class="alchemy-bucket-head">ADD (+)</h4>
+                                    <ul id="alchemy-add-list" class="alchemy-bucket-list"></ul>
+                                </div>
+                                <div class="alchemy-bucket alchemy-bucket--sub">
+                                    <h4 class="alchemy-bucket-head">SUBTRACT (−)</h4>
+                                    <ul id="alchemy-subtract-list" class="alchemy-bucket-list"></ul>
+                                </div>
                             </div>
-                            <div class="alchemy-bucket">
-                                <h4>Subtract (−)</h4>
-                                <ul id="alchemy-subtract-list" class="alchemy-bucket-list"></ul>
+
+                            <div class="alchemy-sliders">
+                                <div class="alchemy-slider-row">
+                                    <label for="alchemy-limit" class="alchemy-slider-label">Tracks: <span id="alchemy-limit-val">25</span></label>
+                                    <input id="alchemy-limit" type="range" min="10" max="100" value="25" step="5" />
+                                </div>
+                                <div class="alchemy-slider-row">
+                                    <label for="alchemy-subtract-weight" class="alchemy-slider-label">Subtract gewicht: <span id="alchemy-subtract-weight-val">0.5</span></label>
+                                    <input id="alchemy-subtract-weight" type="range" min="0" max="1" value="0.5" step="0.1" />
+                                </div>
                             </div>
+
+                            <div class="alchemy-zone-row">
+                                <label for="alchemy-mix-zone" class="alchemy-slider-label">Zone</label>
+                                <select id="alchemy-mix-zone" class="auto-form-input alchemy-zone-sel" aria-label="Zone"></select>
+                            </div>
+
                             <div class="alchemy-actions">
                                 <button id="alchemy-mix-btn" class="btn btn-primary btn-sm">Mix</button>
-                                <button id="alchemy-play-btn" class="btn btn-secondary btn-sm" disabled>Speel mix af</button>
-                                <button id="alchemy-save-profile-btn" class="btn btn-secondary btn-sm" disabled>Opslaan als profiel…</button>
+                                <button id="alchemy-play-btn" class="btn btn-secondary btn-sm" disabled>▶ Afspelen</button>
+                                <button id="alchemy-append-btn" class="btn btn-secondary btn-sm" disabled>+ Queue</button>
+                                <button id="alchemy-save-qobuz-btn" class="btn btn-secondary btn-sm" disabled>💾 Qobuz</button>
+                                <button id="alchemy-save-profile-btn" class="btn btn-secondary btn-sm" disabled>Profiel opslaan…</button>
+                            </div>
+                            <div id="alchemy-qobuz-result" class="alchemy-qobuz-result" hidden></div>
+                        </div>
+
+                        <!-- Right: radar + results -->
+                        <div class="alchemy-right">
+                            <div class="alchemy-radar-wrap">
+                                <canvas id="alchemy-radar" width="280" height="280" hidden></canvas>
+                                <div id="alchemy-radar-placeholder" class="alchemy-radar-placeholder">
+                                    Voeg tracks toe en klik <em>Mix</em> om het sonisch profiel te zien
+                                </div>
                             </div>
                             <div id="alchemy-result" class="alchemy-result"></div>
-                            <canvas id="alchemy-radar" width="320" height="320" hidden></canvas>
                         </div>
+
                     </div>
                 </div>
 
-                <!-- Tab: Profielen (saved profiles) -->
+                <!-- Tab: Profielen -->
                 <div id="alchemy-tab-profiles" class="alchemy-tab-panel" hidden>
                     <div class="alchemy-profiles-bar">
                         <p class="alchemy-profiles-hint">Opgeslagen profielen kun je opnieuw uitvoeren zonder de tracks weer te selecteren. Koppel optioneel een zone om met één klik af te spelen.</p>
                     </div>
                     <div id="alchemy-profiles-list" class="alchemy-profiles-list"></div>
+                </div>
+
+                <!-- Save profile modal -->
+                <div id="alchemy-profile-modal" class="alchemy-modal-overlay" hidden>
+                    <div class="alchemy-modal-box">
+                        <h3 class="alchemy-modal-title">Profiel opslaan</h3>
+                        <div class="alchemy-modal-field">
+                            <label for="alchemy-profile-name-input">Naam</label>
+                            <input id="alchemy-profile-name-input" type="text" class="auto-form-input" placeholder="Bijv. Late night jazz…" maxlength="120" />
+                        </div>
+                        <div class="alchemy-modal-field">
+                            <label for="alchemy-profile-zone-select">Zone (optioneel)</label>
+                            <select id="alchemy-profile-zone-select" class="auto-form-input">
+                                <option value="">— geen zone —</option>
+                            </select>
+                        </div>
+                        <div class="alchemy-modal-actions">
+                            <button id="alchemy-modal-confirm" class="btn btn-primary btn-sm">Opslaan</button>
+                            <button id="alchemy-modal-cancel" class="btn btn-secondary btn-sm">Annuleren</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
