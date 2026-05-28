@@ -389,17 +389,17 @@ body.no-scroll .pwa-toast {
 
 [data-theme="light"] .rs-ai-pill { background: var(--accent); color: #fff; }
 
-/* Blue accent for light theme */
+/* Warm amber accent for light theme — brand consistent */
 [data-theme="light"] {
-    --accent: #2563eb;
-    --accent-bright: #3b82f6;
-    --accent-dim: rgba(37,99,235,0.08);
-    --accent-glow: rgba(37,99,235,0.15);
-    --border-accent: rgba(37,99,235,0.30);
-    --amber: #2563eb;
-    --amber-hover: #3b82f6;
-    --amber-dim: rgba(37,99,235,0.08);
-    --teal: #2563eb;
-    --teal-hover: #3b82f6;
-    --teal-dim: rgba(37,99,235,0.06);
+    --accent: #b07800;
+    --accent-bright: #c98a00;
+    --accent-dim: rgba(176,120,0,0.09);
+    --accent-glow: rgba(176,120,0,0.16);
+    --border-accent: rgba(176,120,0,0.28);
+    --amber: #b07800;
+    --amber-hover: #c98a00;
+    --amber-dim: rgba(176,120,0,0.09);
+    --teal: #007a60;
+    --teal-hover: #00896a;
+    --teal-dim: rgba(0,122,96,0.07);
 }

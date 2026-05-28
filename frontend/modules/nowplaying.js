@@ -127,14 +127,18 @@ function _render(zones) {
     const dur   = zone.now_playing?.length ?? 0;
     const pct   = dur > 0 ? Math.min(100, (pos / dur) * 100) : 0;
 
-    // Zone switcher HTML
-    const zoneSwitcher = zones.length > 1
-        ? `<select id="np-zone-select" class="np-zone-select" aria-label="Select zone">
-            ${zones.map(z =>
-                `<option value="${escapeHtml(z.zone_id)}"${z.zone_id === _currentZoneId ? ' selected' : ''}>${escapeHtml(z.display_name || z.zone_id)}</option>`
-            ).join('')}
-           </select>`
-        : `<span class="np-zone-name">${escapeHtml(zone.display_name || zone.zone_id)}</span>`;
+    // Zone switcher HTML — pill style
+    const zoneSwitcher = `<div class="np-zone-pill" id="np-zone-pill"><span class="np-zone-dot"></span><span class="np-zone-name">${escapeHtml(zone.display_name || zone.zone_id)}</span></div>`;
+
+    // Waveform overlay for album art (only while playing)
+    const waveHTML = isPlaying ? `
+      <div class="np-art-wave-overlay">
+        <div class="np-waveform">
+          ${[3,5,8,6,9,7,4,8,5,3].map((h, i) =>
+            `<div class="np-waveform-bar" style="height:${h}px;animation:npWave 0.7s ease-in-out ${i*70}ms infinite alternate"></div>`
+          ).join('')}
+        </div>
+      </div>` : '';
 
     const elapsed = dur > 0 ? Math.round(pos) : 0;
     const eMin = Math.floor(elapsed / 60);
@@ -145,10 +149,11 @@ function _render(zones) {
     bar.innerHTML = `
         <!-- Left: track info -->
         <div class="np-track-col">
-            <div class="np-art-col">
+            <div class="np-art-col" style="position:relative">
                 ${artSrc
                     ? `<img src="${artSrc}" alt="" onerror="this.style.display='none'">`
                     : `<div class="np-art-placeholder">♪</div>`}
+                ${waveHTML}
             </div>
             <div class="np-info-col">
                 <div class="np-title-col" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
@@ -185,7 +190,7 @@ function _render(zones) {
 
         <!-- Right: volume -->
         <div class="np-right-col">
-            ${zones.length > 1 ? `<select id="np-zone-select" class="np-zone-select-col" aria-label="Select zone">${zones.map(z => `<option value="${escapeHtml(z.zone_id)}"${z.zone_id === _currentZoneId ? ' selected' : ''}>${escapeHtml(z.display_name || z.zone_id)}</option>`).join('')}</select>` : ''}
+            <div class="np-zone-pill" id="np-zone-pill-right"><span class="np-zone-dot"></span><span class="np-zone-name">${escapeHtml(zone.display_name || zone.zone_id)}</span></div>
             <button class="np-btn-col np-mute-btn" id="np-mute-btn" title="${zone.is_muted ? 'Unmute' : 'Mute'}" aria-label="${zone.is_muted ? 'Unmute' : 'Mute'}" style="opacity:${zone.is_muted ? '0.35' : '0.6'}">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/></svg>
             </button>
@@ -202,10 +207,9 @@ function _render(zones) {
     if (sidebarZoneName) sidebarZoneName.textContent = zone.display_name || zone.zone_id || 'Active';
     if (sidebarZoneDot)  sidebarZoneDot.classList.remove('rs-zone-dot--inactive');
 
-    // Zone selector change
-    bar.querySelector('#np-zone-select')?.addEventListener('change', e => {
-        _currentZoneId = e.target.value;
-        _poll();
+    // Zone pill click — open zone picker
+    bar.querySelectorAll('.np-zone-pill').forEach(pill => {
+        pill.addEventListener('click', openZonePicker);
     });
 
     // Transport buttons

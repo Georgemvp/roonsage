@@ -22,9 +22,25 @@ _automate your listening, and let Claude Desktop control every aspect of Roon �
 
 ## Screenshots
 
-| Playlist generation | Album recommendation |
+| Home | Generate Playlist |
 |---|---|
-| ![Playlist](docs/images/screenshot-playlist.png) | ![Album](docs/images/screenshot-album.png) |
+| ![Home](docs/images/screenshot-home.png) | ![Generate Playlist](docs/images/screenshot-playlist.png) |
+
+| From Seed Song | Recommend Album |
+|---|---|
+| ![From Seed Song](docs/images/screenshot-seed.png) | ![Recommend Album](docs/images/screenshot-recommend.png) |
+
+| Discovery | My Taste |
+|---|---|
+| ![Discovery](docs/images/screenshot-discovery.png) | ![My Taste](docs/images/screenshot-taste.png) |
+
+| DJ Set | Automations |
+|---|---|
+| ![DJ Set](docs/images/screenshot-dj.png) | ![Automations](docs/images/screenshot-automations.png) |
+
+| Watchlist | Settings |
+|---|---|
+| ![Watchlist](docs/images/screenshot-watchlist.png) | ![Settings](docs/images/screenshot-settings.png) |
 
 ---
 
@@ -344,6 +360,8 @@ RoonSage exposes **69 tools** to Claude Desktop, grouped by function.
 
 ### Web UI Views
 
+![Home](docs/images/screenshot-home.png)
+
 | View | Description |
 |------|-------------|
 | **Generate** | Natural language playlist generation with genre/decade filters, track count, source mode (library/hybrid/qobuz), and one-click playlist templates |
@@ -358,6 +376,8 @@ RoonSage exposes **69 tools** to Claude Desktop, grouped by function.
 
 ### Discovery Engine
 
+![Discovery](docs/images/screenshot-discovery.png)
+
 Four sections powered entirely by SQL queries against the local SQLite cache — zero LLM calls, zero external API calls, instant response:
 
 - **Undiscovered Albums** — Albums by the user's most-played artists with zero play count. Great for "what else do they have?"
@@ -367,6 +387,8 @@ Four sections powered entirely by SQL queries against the local SQLite cache —
 
 ### Playlist Templates
 
+![Generate Playlist](docs/images/screenshot-playlist.png)
+
 One-click playlist presets eliminate the need to type prompts for common listening occasions:
 
 - **Built-in templates** stored in `data/playlist_templates.yaml` — Morning commute, Late-night focus, Weekend dinner, etc.
@@ -375,6 +397,8 @@ One-click playlist presets eliminate the need to type prompts for common listeni
 - The `generate_from_template` MCP tool and the web UI Generate view both support one-click generation
 
 ### Artist Watchlist
+
+![Watchlist](docs/images/screenshot-watchlist.png)
 
 Monitor artists for new releases on Qobuz without leaving Roon:
 
@@ -394,6 +418,8 @@ Cron-based automatic playlist regeneration that keeps your Roon queue fresh:
 - Manually trigger any schedule immediately via `run_scheduled_playlist` or the Settings UI
 
 ### Automation Engine
+
+![Automations](docs/images/screenshot-automations.png)
 
 A trigger-action workflow system that connects Roon events to RoonSage actions:
 
@@ -444,6 +470,8 @@ Audio fingerprint verification for Qobuz search results using the free [AcoustID
 - Requires `libchromaprint-tools` (included in the Docker image) and a free AcoustID API key
 
 ### Audio Features & DJ Set Builder
+
+![DJ Set](docs/images/screenshot-dj.png)
 
 Per-track audio analysis with [librosa](https://librosa.org) + a beatmatched DJ set generator:
 
@@ -505,6 +533,8 @@ Gemini's 1M context allows sending ~18,000 filtered tracks to the AI in a single
 ---
 
 ## Intelligence Layer
+
+![My Taste](docs/images/screenshot-taste.png)
 
 RoonSage builds a detailed taste profile from multiple data sources:
 
@@ -641,6 +671,8 @@ Last.fm uses a token-based OAuth-like flow:
 ---
 
 ## Deployment
+
+![Settings](docs/images/screenshot-settings.png)
 
 ### Docker (recommended)
 

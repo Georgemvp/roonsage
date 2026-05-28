@@ -134,38 +134,111 @@ export function updateSidebarZone(zoneName, isActive) {
 // Home Preview — live data for feature cards and taste snapshot
 // =============================================================================
 
-// Populate the home hero banner with the most recently played track/album
+// Populate the home hero with now-playing state, falling back to recent history
 async function loadHomeHero() {
-    try {
-        const data = await apiCall('/listening/history?days=30&limit=1').catch(() => null);
-        const events = Array.isArray(data) ? data : (data?.events || []);
-        const event = events[0];
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Goedemorgen' : hour < 18 ? 'Goedemiddag' : 'Goedenavond';
 
-        const hero = document.getElementById('home-hero');
-        const fallback = document.getElementById('home-fallback-header');
-        if (!event || !hero) {
-            if (fallback) fallback.style.display = '';
+    const hero = document.getElementById('home-hero');
+    if (!hero) return;
+
+    const greetingEl = document.getElementById('home-hero-greeting');
+    if (greetingEl) greetingEl.textContent = greeting;
+
+    try {
+        // Try: currently playing zone first
+        let track = null;
+        let isLive = false;
+
+        try {
+            const zones = await apiCall('/roon/zones');
+            const zoneList = Array.isArray(zones) ? zones : (zones?.zones || []);
+            const activeZone = zoneList.find(z => z.state === 'playing' && z.now_playing);
+            if (activeZone) {
+                const np = activeZone.now_playing;
+                track = {
+                    title: np.one_line?.line1 || np.two_line?.line1 || '—',
+                    artist: np.one_line?.line2 || np.two_line?.line2 || '',
+                    zone: activeZone.display_name || activeZone.zone_id,
+                    image_key: np.image_key,
+                };
+                isLive = true;
+            }
+        } catch (_) { /* ignore zone errors */ }
+
+        // Fallback: most recent history entry
+        if (!track) {
+            const data = await apiCall('/listening/history?days=30&limit=1').catch(() => null);
+            const events = Array.isArray(data) ? data : (data?.events || []);
+            const event = events[0];
+            if (event) {
+                track = {
+                    title: event.album || event.title || '—',
+                    artist: event.artist || '',
+                    year: event.year,
+                    genre: event.genre,
+                    image_key: event.image_key,
+                };
+            }
+        }
+
+        // Empty state: no data available
+        if (!track) {
+            hero.classList.add('hero--empty');
+            hero.querySelector('.hero-bg')?.remove();
+            hero.querySelector('.hero-overlay')?.remove();
+            const content = hero.querySelector('.hero-content');
+            if (content) content.innerHTML = `
+                <div class="hero-info" style="width:100%;text-align:center">
+                    <div class="hero-title" style="font-size:1.6rem;color:var(--text-primary)">${greeting}</div>
+                    <div class="hero-subtitle" style="color:var(--text-secondary)">AI-powered playlists, discovery en intelligence voor je Roon bibliotheek</div>
+                </div>`;
             return;
         }
 
-        // Show hero, hide fallback
-        hero.style.display = 'flex';
-        if (fallback) fallback.style.display = 'none';
+        // Fill elements
+        const eyebrowEl = document.getElementById('home-hero-eyebrow');
+        const titleEl   = document.getElementById('home-hero-title');
+        const metaEl    = document.getElementById('home-hero-meta');
+        const bgEl      = document.getElementById('home-hero-bg');
+        const artImg    = document.getElementById('home-hero-art-img');
 
-        document.getElementById('home-hero-title').textContent =
-            event.album || event.title || '—';
-        document.getElementById('home-hero-meta').textContent =
-            [event.artist, event.year, event.genre].filter(Boolean).join(' · ') || '—';
+        if (eyebrowEl) eyebrowEl.textContent = isLive ? '▶ Nu aan het spelen' : 'Onlangs gespeeld';
+        if (titleEl)   titleEl.textContent   = track.title;
 
-        // Album art
-        const artEl = document.getElementById('home-hero-art');
-        if (artEl && event.image_key) {
-            artEl.innerHTML = `<img src="/api/art/${event.image_key}?width=300&height=300" alt="" onerror="this.parentElement.innerHTML=''">`;
+        const metaParts = isLive
+            ? [track.artist, track.zone].filter(Boolean)
+            : [track.artist, track.year, track.genre].filter(Boolean);
+        if (metaEl) metaEl.textContent = metaParts.join(' · ') || '—';
+
+        if (track.image_key) {
+            const artUrl = `/api/art/${track.image_key}?width=300&height=300`;
+            if (bgEl)    bgEl.style.backgroundImage = `url(${artUrl})`;
+            if (artImg) {
+                artImg.src = artUrl;
+                artImg.style.display = 'block';
+                artImg.onerror = () => { artImg.style.display = 'none'; };
+            }
         }
+
+        // Button actions
+        document.getElementById('home-hero-play')?.addEventListener('click', () => {
+            const artist = track.artist;
+            location.hash = 'recommend-album';
+            if (artist) {
+                requestAnimationFrame(() => {
+                    const input = document.querySelector('#recommend-view [name="artist"], #rec-artist-input');
+                    if (input) input.value = artist;
+                });
+            }
+        });
+        document.getElementById('home-hero-queue')?.addEventListener('click', () => {
+            location.hash = 'discovery';
+        });
+
     } catch (e) {
         console.warn('Hero load failed:', e);
-        const fallback = document.getElementById('home-fallback-header');
-        if (fallback) fallback.style.display = '';
+        hero.classList.add('hero--empty');
     }
 }
 
