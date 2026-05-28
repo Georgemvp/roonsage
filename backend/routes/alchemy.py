@@ -37,6 +37,7 @@ class AlchemyTrack(BaseModel):
     album: str
     year: int | None = None
     genres: str | None = None
+    image_key: str | None = None
     bpm: float | None = None
     energy: float | None = None
     danceability: float | None = None

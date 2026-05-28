@@ -348,55 +348,192 @@
     background: var(--accent);
 }
 
-/* --- Alchemy --- */
-.alchemy-layout {
+/* --- Alchemy — two-column layout --- */
+.alchemy-two-col {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    grid-template-columns: 380px 1fr;
+    gap: 16px;
+    align-items: start;
 }
-.alchemy-search, .alchemy-mix {
+.alchemy-left {
     background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.alchemy-right {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Search */
+.alchemy-nowplaying-btn { width: 100%; font-size: 12px; }
+.alchemy-results-list { max-height: 260px; overflow-y: auto; }
+.alchemy-result-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 2px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+}
+.alchemy-result-row.alchemy-in-add  { background: rgba(80, 200, 100, 0.08); }
+.alchemy-result-row.alchemy-in-sub  { background: rgba(220, 80, 80, 0.08); }
+.alchemy-result-row .alchemy-meta { flex: 1; font-size: 12px; min-width: 0; }
+.alchemy-result-row .alchemy-meta strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.alchemy-result-row .btn { padding: 2px 7px; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+.alchemy-btn-active-add { background: rgba(80,200,100,0.25) !important; color: #5dc87a !important; border-color: #5dc87a !important; }
+.alchemy-btn-active-sub { background: rgba(220,80,80,0.25) !important; color: #e06060 !important; border-color: #e06060 !important; }
+
+/* Album art */
+.alchemy-art-thumb {
+    width: 36px; height: 36px;
+    border-radius: 3px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+.alchemy-art-placeholder {
+    width: 36px; height: 36px;
+    border-radius: 3px;
+    background: var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+/* Buckets */
+.alchemy-buckets-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.alchemy-bucket { min-height: 60px; }
+.alchemy-bucket-head {
+    margin: 0 0 5px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.alchemy-bucket--add .alchemy-bucket-head { color: #5dc87a; }
+.alchemy-bucket--sub .alchemy-bucket-head { color: #e06060; }
+.alchemy-bucket-list { list-style: none; margin: 0; padding: 0; }
+.alchemy-bucket-list li {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 0;
+    font-size: 12px;
+}
+.alchemy-bucket-list li span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.alchemy-bucket-list li button { padding: 0 5px; font-size: 11px; flex-shrink: 0; }
+
+/* Sliders */
+.alchemy-sliders { display: flex; flex-direction: column; gap: 6px; }
+.alchemy-slider-row { display: flex; align-items: center; gap: 8px; }
+.alchemy-slider-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; min-width: 140px; }
+.alchemy-slider-row input[type=range] { flex: 1; }
+
+/* Zone selector */
+.alchemy-zone-row { display: flex; align-items: center; gap: 8px; }
+.alchemy-zone-sel { flex: 1; }
+
+/* Action bar */
+.alchemy-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Qobuz result feedback */
+.alchemy-qobuz-result {
+    font-size: 12px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: var(--bg-surface);
     border: 1px solid var(--border);
 }
-.alchemy-results-list { max-height: 480px; overflow-y: auto; margin-top: 8px; }
-.alchemy-result-row {
+.alchemy-qobuz-result.is-success { border-color: #5dc87a; color: #5dc87a; }
+.alchemy-qobuz-result.is-error   { border-color: #e06060; color: #e06060; }
+
+/* Radar + placeholder */
+.alchemy-radar-wrap {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 180px;
+}
+.alchemy-radar-wrap canvas { max-width: 280px; max-height: 280px; }
+.alchemy-radar-placeholder {
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 24px;
+}
+
+/* Mix results */
+.alchemy-result { overflow-y: auto; }
+.alchemy-result-track {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 6px 4px;
     border-bottom: 1px solid var(--border);
-}
-.alchemy-result-row .alchemy-meta { flex: 1; font-size: 13px; }
-.alchemy-result-row .btn { padding: 2px 8px; font-size: 12px; }
-.alchemy-bucket { margin-bottom: 12px; }
-.alchemy-bucket h4 { margin: 0 0 6px 0; font-size: 13px; color: var(--text-muted); }
-.alchemy-bucket-list { list-style: none; margin: 0; padding: 0; }
-.alchemy-bucket-list li {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 0;
     font-size: 13px;
 }
-.alchemy-bucket-list li button { padding: 0 6px; font-size: 11px; }
-.alchemy-actions { display: flex; gap: 8px; margin: 8px 0; }
-.alchemy-result { margin-top: 8px; }
-.alchemy-result-track {
-    display: flex;
-    justify-content: space-between;
-    padding: 4px 2px;
-    border-bottom: 1px solid var(--border);
-    font-size: 13px;
-}
+.alchemy-result-track-info { flex: 1; min-width: 0; }
+.alchemy-result-track-info > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .alchemy-score {
     color: var(--accent);
     font-family: monospace;
     font-size: 12px;
+    flex-shrink: 0;
 }
 
-/* --- Alchemy tabs + Surprise bar + Profiles (v13.4) --- */
+/* Feature mini-bars */
+.alchemy-feat-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 3px;
+    flex-wrap: wrap;
+}
+.alchemy-feat-tag {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+.alchemy-feat-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    color: var(--text-muted);
+}
+.alchemy-feat-bar-label { min-width: 36px; }
+.alchemy-feat-bar-track {
+    width: 48px;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.alchemy-feat-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+}
+
+/* --- Alchemy tabs + Surprise bar + Profiles --- */
 .alchemy-surprise-bar {
     background: var(--bg-surface);
     border: 1px solid var(--border);
@@ -436,6 +573,8 @@
     border-bottom: 2px solid transparent;
     margin-bottom: -1px;
 }
+.alchemy-tab--primary { font-size: 14px; font-weight: 600; }
+.alchemy-tab--secondary { font-size: 12px; }
 .alchemy-tab.is-active {
     color: var(--text-primary);
     border-bottom-color: var(--accent);
@@ -498,6 +637,34 @@
     text-align: center;
     font-size: 13px;
 }
+
+/* --- Save profile modal --- */
+.alchemy-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.alchemy-modal-overlay[hidden] { display: none; }
+.alchemy-modal-box {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    min-width: 320px;
+    max-width: 420px;
+    width: 90%;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.alchemy-modal-title { margin: 0; font-size: 16px; }
+.alchemy-modal-field { display: flex; flex-direction: column; gap: 5px; }
+.alchemy-modal-field label { font-size: 12px; color: var(--text-muted); }
+.alchemy-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* --- Circadian view (v13.4) --- */
 .circadian-layout {

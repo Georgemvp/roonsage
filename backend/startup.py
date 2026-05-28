@@ -270,8 +270,26 @@ async def start_background_tasks(app: FastAPI) -> None:
                 n = enrich_imported_genres(conn)
                 if n:
                     logger.info("Startup scrobble enrichment: backfilled %d rows", n)
+                # If rows still lack genre, resume Last.fm tag enrichment (may have
+                # been interrupted by a previous server reload mid-run).
+                remaining = conn.execute(
+                    "SELECT COUNT(*) FROM listening_history"
+                    " WHERE source IN ('lastfm','listenbrainz')"
+                    " AND (genre IS NULL OR genre = '')"
+                ).fetchone()[0]
             finally:
                 conn.close()
+            if remaining and lf is not None:
+                from backend.scrobble_import import (  # noqa: PLC0415
+                    get_tag_enrich_state,
+                    start_lastfm_tag_enrich,
+                )
+                if get_tag_enrich_state().get("status") != "running":
+                    logger.info(
+                        "Auto-resuming Last.fm tag enrichment (%d rows still missing genre)",
+                        remaining,
+                    )
+                    await start_lastfm_tag_enrich(lf)
 
         _add_task(_auto_scrobble_bootstrap(), "auto_scrobble_bootstrap")
 

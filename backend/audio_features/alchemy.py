@@ -47,9 +47,11 @@ def _load_feature_matrix(conn: sqlite3.Connection):
     rows = conn.execute(
         f"""
         SELECT t.item_key, t.title, t.artist, t.album, t.year, t.genres,
+               alb.image_key,
                {", ".join("af." + c for c in FEATURE_COLUMNS)}
         FROM track_audio_features af
         JOIN tracks t ON t.item_key = af.item_key
+        LEFT JOIN albums alb ON alb.item_key = t.parent_item_key
         WHERE {where}
         """
     ).fetchall()
@@ -77,6 +79,7 @@ def _load_feature_matrix(conn: sqlite3.Connection):
             "album": r["album"],
             "year": r["year"],
             "genres": r["genres"],
+            "image_key": r["image_key"],
             **{c: r[c] for c in FEATURE_COLUMNS},
         }
         for r in rows
