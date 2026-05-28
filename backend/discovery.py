@@ -190,7 +190,7 @@ def get_lb_loved_in_library() -> list[dict]:
 
             # Load tracks into a lookup structure (single query replaces per-track queries)
             track_rows = conn.execute(
-                """SELECT title, artist, item_key,
+                """SELECT title, artist, item_key, image_key,
                           LOWER(artist) AS al, LOWER(title) AS tl
                    FROM tracks WHERE is_live IS NULL OR is_live = 0"""
             ).fetchall()
@@ -224,6 +224,7 @@ def get_lb_loved_in_library() -> list[dict]:
                     "title": match["title"],
                     "artist": match["artist"],
                     "item_key": match["item_key"],
+                    "image_key": match["image_key"],
                 })
                 if len(results) >= 20:
                     break
@@ -264,6 +265,7 @@ def get_deep_cuts() -> list[dict]:
             -- One row per unique (artist, title) — pick any item_key
             SELECT
                 MIN(t.item_key) AS item_key,
+                MIN(t.image_key) AS image_key,
                 t.title,
                 t.artist,
                 COALESCE(tp.play_count, 0) AS play_count
@@ -278,11 +280,11 @@ def get_deep_cuts() -> list[dict]:
         ),
         candidates AS (
             SELECT
-                item_key, title, artist, play_count,
+                item_key, image_key, title, artist, play_count,
                 ROW_NUMBER() OVER (PARTITION BY artist ORDER BY RANDOM()) AS rn
             FROM deduped
         )
-        SELECT title, artist, '' AS album, item_key, play_count
+        SELECT title, artist, '' AS album, item_key, image_key, play_count
         FROM candidates
         WHERE rn <= 2
         ORDER BY RANDOM()
@@ -340,6 +342,7 @@ def get_forgotten_favorites() -> list[dict]:
             SELECT
                 d.item_key,
                 t.title,
+                t.image_key,
                 d.artist,
                 d.total_plays,
                 d.last_played_at,
@@ -347,7 +350,7 @@ def get_forgotten_favorites() -> list[dict]:
             FROM deduped d
             JOIN tracks t ON t.item_key = d.item_key
         )
-        SELECT title, artist, '' AS album, item_key, total_plays, last_played_at
+        SELECT title, artist, '' AS album, item_key, image_key, total_plays, last_played_at
         FROM candidates
         WHERE rn <= 2
         ORDER BY RANDOM()

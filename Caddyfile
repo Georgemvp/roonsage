@@ -1,0 +1,16 @@
+roonsage.duckdns.org {
+    reverse_proxy roonsage:5765 {
+        flush_interval -1
+        transport http {
+            response_header_timeout 300s
+        }
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+}

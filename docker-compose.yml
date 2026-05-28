@@ -16,6 +16,8 @@ services:
       # UI-saved values on every restart. Uncomment only if you prefer env vars:
       #- ROON_HOST=192.168.1.x
       - ROON_PORT=9330
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5765}
+      - ROONSAGE_PASSWORD=${ROONSAGE_PASSWORD:-}
 
       # Performance tuning
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
@@ -100,6 +102,29 @@ services:
     restart: unless-stopped
     stop_grace_period: 60s
 
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    container_name: duckdns
+    environment:
+      - SUBDOMAINS=roonsage
+      - TOKEN=${DUCKDNS_TOKEN}
+      - TZ=Europe/Amsterdam
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - roonsage
+    restart: unless-stopped
+
   # Sidecar worker: runs audio-feature analysis + metadata enrichment in a
   # separate process so the FastAPI event loop stays responsive under heavy load.
   # Starts automatically alongside the main service.
@@ -140,3 +165,7 @@ services:
       start_period: 30s
     restart: unless-stopped
     stop_grace_period: 60s
+
+volumes:
+  caddy_data:
+  caddy_config:
