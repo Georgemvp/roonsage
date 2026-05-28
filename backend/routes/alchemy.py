@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.audio_features import alchemy, alchemy_profiles
+from backend.audio_features.alchemy import SUBTRACT_WEIGHT
 from backend.db import get_db_connection
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class AlchemyMixRequest(BaseModel):
     add: list[str] = Field(..., min_length=1)
     subtract: list[str] = []
     limit: int = Field(25, ge=1, le=200)
+    subtract_weight: float = Field(SUBTRACT_WEIGHT, ge=0.0, le=1.0)
 
 
 class AlchemyPlayRequest(AlchemyMixRequest):
@@ -62,7 +64,8 @@ def _compute(req: AlchemyMixRequest) -> dict:
     conn = get_db_connection()
     try:
         return alchemy.compute_alchemy(
-            conn, req.add, req.subtract, limit=req.limit
+            conn, req.add, req.subtract, limit=req.limit,
+            subtract_weight=req.subtract_weight,
         )
     finally:
         conn.close()
@@ -72,7 +75,7 @@ def _compute(req: AlchemyMixRequest) -> dict:
 async def mix(req: AlchemyMixRequest) -> AlchemyMixResponse:
     """Compute a sonic target from ADD/SUBTRACT and return ranked matches."""
     try:
-        data = _compute(req)
+        data = await asyncio.to_thread(_compute, req)
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
@@ -90,7 +93,7 @@ async def mix(req: AlchemyMixRequest) -> AlchemyMixResponse:
 async def play(req: AlchemyPlayRequest) -> AlchemyPlayResponse:
     """Compute the mix and queue the results to Roon."""
     try:
-        data = _compute(req)
+        data = await asyncio.to_thread(_compute, req)
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:

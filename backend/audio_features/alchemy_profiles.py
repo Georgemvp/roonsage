@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import sqlite3
 
+import numpy as np
+
 from backend.audio_features.alchemy import (
     SUBTRACT_WEIGHT,
     _cosine_similarity,
@@ -69,8 +71,9 @@ def _now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _features_dict(vec: list[float]) -> dict[str, float]:
-    return dict(zip(FEATURE_COLUMNS, vec, strict=False))
+def _features_dict(vec) -> dict[str, float]:
+    """Convert a feature vector (list or np.ndarray) to a {column: float} dict."""
+    return {c: float(v) for c, v in zip(FEATURE_COLUMNS, vec, strict=False)}
 
 
 def _vec_from_dict(d: dict[str, float]) -> list[float]:
@@ -327,30 +330,54 @@ def _match_history_to_item_keys(
     Joins via case-insensitive title+artist match against tracks. Rows that
     can't be matched, or whose track lacks fully-populated audio features,
     are skipped.
+
+    Uses a single batched SQL query instead of one query per row to avoid
+    N+1 query performance issues.
     """
     if not history_rows:
         return []
 
-    out: list[tuple[dict[str, Any], str]] = []
-    where = " AND ".join(f"taf.{c} IS NOT NULL" for c in FEATURE_COLUMNS)
-    sql = f"""
-        SELECT t.item_key
-          FROM tracks t
-          JOIN track_audio_features taf ON taf.item_key = t.item_key
-         WHERE LOWER(t.title) = LOWER(?)
-           AND LOWER(t.artist) = LOWER(?)
-           AND {where}
-         LIMIT 1
-    """
+    # Collect valid (title, artist) pairs along with their source row
+    valid: list[tuple[dict[str, Any], str, str]] = []
     for row in history_rows:
         title = row.get("track_title") or ""
         artist = row.get("artist") or ""
-        if not title or not artist:
-            continue
-        match = conn.execute(sql, (title, artist)).fetchone()
-        if match is None:
-            continue
-        out.append((row, match["item_key"]))
+        if title and artist:
+            valid.append((row, title, artist))
+
+    if not valid:
+        return []
+
+    where_features = " AND ".join(f"taf.{c} IS NOT NULL" for c in FEATURE_COLUMNS)
+    pair_clauses = " OR ".join(
+        "(LOWER(t.title) = LOWER(?) AND LOWER(t.artist) = LOWER(?))"
+        for _ in valid
+    )
+    sql = f"""
+        SELECT t.item_key, LOWER(t.title) AS ltitle, LOWER(t.artist) AS lartist
+          FROM tracks t
+          JOIN track_audio_features taf ON taf.item_key = t.item_key
+         WHERE ({pair_clauses})
+           AND {where_features}
+    """
+    params: list[str] = []
+    for _row, title, artist in valid:
+        params.extend([title, artist])
+
+    db_rows = conn.execute(sql, params).fetchall()
+    # Build lookup: (lower_title, lower_artist) -> item_key
+    # If multiple tracks match (shouldn't happen often), first one wins
+    key_map: dict[tuple[str, str], str] = {}
+    for db_row in db_rows:
+        pair = (db_row["ltitle"], db_row["lartist"])
+        if pair not in key_map:
+            key_map[pair] = db_row["item_key"]
+
+    out: list[tuple[dict[str, Any], str]] = []
+    for row, title, artist in valid:
+        item_key = key_map.get((title.lower(), artist.lower()))
+        if item_key is not None:
+            out.append((row, item_key))
     return out
 
 
