@@ -132,5 +132,11 @@ services:
       - ./data:/app/data
       - ./backend:/app/backend
       - /Volumes/4tbdrive/Muziek:/music:ro
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q worker_process /proc/1/cmdline"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     stop_grace_period: 60s

@@ -50,8 +50,25 @@ def get_db_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
     conn.row_factory = sqlite3.Row
 
-    # WAL mode: concurrent readers during writes
-    conn.execute("PRAGMA journal_mode=WAL")
+    # WAL mode: concurrent readers during writes.
+    # After a crash or force-kill the -shm (WAL index) can be left in an
+    # inconsistent state, causing "database disk image is malformed" on the
+    # first PRAGMA journal_mode=WAL of a new connection.  Running a checkpoint
+    # on the same (pre-WAL) connection resets the index; closing and reopening
+    # then succeeds.
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.DatabaseError:
+        logger.warning("WAL header inconsistent; running recovery checkpoint")
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception as exc:
+            logger.error("WAL recovery checkpoint failed: %s", exc)
+        conn.close()
+        conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+
     # Busy timeout for lock contention
     conn.execute("PRAGMA busy_timeout=5000")
     # Enforce referential integrity
