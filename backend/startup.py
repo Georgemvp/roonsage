@@ -148,18 +148,10 @@ async def init_clients(app: FastAPI) -> None:
             except Exception as exc:
                 logger.debug("Orphan reset on %s skipped: %s", table, exc)
 
-        # CLAP and lyrics batch jobs run in asyncio threads — they die on any
-        # restart and leave status='running' stuck in the DB. Reset to 'idle'
-        # so the UI shows the correct state and Start buttons are re-enabled.
-        for run_table in ("clap_runs", "lyrics_runs", "mood_runs"):
-            try:
-                n = _repair_conn.execute(
-                    f"UPDATE {run_table} SET status='idle' WHERE status='running'",
-                ).rowcount
-                if n:
-                    logger.info("Reset stuck 'running' status in %s to 'idle'", run_table)
-            except Exception as exc:
-                logger.debug("Orphan reset on %s skipped: %s", run_table, exc)
+        # NOTE: clap_runs / lyrics_runs / mood_runs reset moved to
+        # worker_process.py — the worker owns those batch jobs now, and the
+        # main API process must not stomp on 'running' rows mid-run when
+        # uvicorn --reload restarts it on every backend file save.
 
         _repair_conn.commit()
     finally:
@@ -245,6 +237,41 @@ async def start_background_tasks(app: FastAPI) -> None:
 
         _add_task(_lf_sync_loop(), "lf_sync")
         logger.info("Last.fm background sync scheduled (every 6 hours)")
+
+    # Auto-trigger historical scrobble import if configured but never completed,
+    # and run a fast genre enrichment pass on any existing imported rows.
+    _has_lb  = getattr(app.state, "lb_client", None) is not None
+    _has_lf  = getattr(app.state, "lf_client", None) is not None
+    if _has_lb or _has_lf:
+        async def _auto_scrobble_bootstrap() -> None:
+            # Wait for library sync to settle before enriching
+            await asyncio.sleep(90)
+            from backend.db import get_db_connection as _gdc  # noqa: PLC0415
+            from backend.scrobble_import import (  # noqa: PLC0415
+                enrich_imported_genres,
+                get_import_state,
+                start_lastfm_import,
+                start_lb_import,
+            )
+            # Kick off imports for sources that have never completed
+            lb = getattr(app.state, "lb_client", None)
+            if lb is not None and get_import_state("listenbrainz").get("status") not in ("complete", "running"):
+                logger.info("Auto-triggering ListenBrainz history import (never completed)")
+                await start_lb_import(lb, from_year=2014)
+            lf = getattr(app.state, "lf_client", None)
+            if lf is not None and get_import_state("lastfm").get("status") not in ("complete", "running"):
+                logger.info("Auto-triggering Last.fm history import (never completed)")
+                await start_lastfm_import(lf, from_year=2014)
+            # Fast SQL pass: enrich any previously-imported rows still missing genre
+            conn = _gdc()
+            try:
+                n = enrich_imported_genres(conn)
+                if n:
+                    logger.info("Startup scrobble enrichment: backfilled %d rows", n)
+            finally:
+                conn.close()
+
+        _add_task(_auto_scrobble_bootstrap(), "auto_scrobble_bootstrap")
 
     # Watchlist background scan (interval configurable via env var)
     from backend.config import get_watchlist_scan_interval_seconds  # noqa: PLC0415

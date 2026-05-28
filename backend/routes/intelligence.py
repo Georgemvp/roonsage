@@ -1047,36 +1047,43 @@ class ListenFeedbackRequest(BaseModel):
 
 @router.post("/intelligence/listening-history/enrich")
 async def enrich_listening_history() -> dict:
-    """Backfill genre/year/decade for listening_history rows with empty genre.
+    """Backfill genre/year/decade for imported scrobble rows.
 
-    Fuzzy-matches tracks against the library cache using artist + title.
+    Pass 1 (fast, SQL): exact lowercased title+artist match against the library.
+    Pass 2 (fuzzy, Python): rapidfuzz on rows still missing genre after pass 1,
+    handles minor title/artist variations (e.g. featuring credits, remaster tags).
     """
-    from rapidfuzz import fuzz  # noqa: PLC0415
+    from rapidfuzz import fuzz  # noqa: PLC0415  # noqa: I001
+
+    from backend.scrobble_import import enrich_imported_genres  # noqa: PLC0415
 
     conn = get_db_connection()
     try:
-        rows = conn.execute(
+        # -- Pass 1: fast SQL exact match ----------------------------------
+        sql_updated = enrich_imported_genres(conn)
+
+        # -- Pass 2: fuzzy match for remaining unmatched rows --------------
+        unmatched = conn.execute(
             """
             SELECT id, track_title, artist
             FROM listening_history
             WHERE (genre IS NULL OR genre = '')
-            AND track_title IS NOT NULL AND track_title != ''
-            AND artist IS NOT NULL AND artist != ''
-            LIMIT 500
+              AND source IN ('lastfm', 'listenbrainz')
+              AND track_title IS NOT NULL AND track_title != ''
+              AND artist IS NOT NULL AND artist != ''
+            LIMIT 5000
             """
         ).fetchall()
 
-        updated = 0
-        for row in rows:
+        fuzzy_updated = 0
+        for row in unmatched:
             hist_id, title, artist = row[0], row[1], row[2]
             try:
                 candidates = conn.execute(
-                    "SELECT item_key, title, artist, year FROM tracks WHERE artist LIKE ? LIMIT 20",
-                    (f"%{artist[:20]}%",),
+                    "SELECT item_key, title, artist, year FROM tracks WHERE LOWER(artist) LIKE ? LIMIT 30",
+                    (f"%{artist[:20].lower()}%",),
                 ).fetchall()
-                best_key = None
-                best_score = 0
-                best_year = None
+                best_key, best_score, best_year = None, 0, None
                 for c in candidates:
                     score = fuzz.token_sort_ratio(
                         f"{artist} {title}",
@@ -1095,14 +1102,20 @@ async def enrich_listening_history() -> dict:
                     decade = f"{(best_year // 10) * 10}s" if best_year else None
                     conn.execute(
                         "UPDATE listening_history SET genre=?, year=?, decade=? WHERE id=?",
-                        (genre, best_year, decade, hist_id),
+                        (genre or None, best_year, decade, hist_id),
                     )
-                    updated += 1
+                    fuzzy_updated += 1
             except Exception as row_exc:
                 logger.debug("Enrich row %d failed: %s", hist_id, row_exc)
 
         conn.commit()
-        return {"status": "ok", "rows_checked": len(rows), "rows_updated": updated}
+        return {
+            "status": "ok",
+            "sql_updated": sql_updated,
+            "fuzzy_checked": len(unmatched),
+            "fuzzy_updated": fuzzy_updated,
+            "total_updated": sql_updated + fuzzy_updated,
+        }
     finally:
         conn.close()
 
@@ -1139,6 +1152,14 @@ async def get_lastfm_import_status() -> dict:
 
     state = get_import_state("lastfm")
     state["is_running"] = is_running("lastfm")
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM listening_history WHERE source='lastfm' AND (genre IS NULL OR genre='')"
+        ).fetchone()
+        state["rows_missing_genre"] = row[0] if row else 0
+    finally:
+        conn.close()
     return state
 
 
@@ -1164,6 +1185,14 @@ async def get_lb_import_status() -> dict:
 
     state = get_import_state("listenbrainz")
     state["is_running"] = is_running("listenbrainz")
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM listening_history WHERE source='listenbrainz' AND (genre IS NULL OR genre='')"
+        ).fetchone()
+        state["rows_missing_genre"] = row[0] if row else 0
+    finally:
+        conn.close()
     return state
 
 

@@ -11,8 +11,12 @@ import logging
 from calendar import timegm
 from datetime import UTC, datetime
 from time import strptime
+from typing import TYPE_CHECKING
 
 from backend.db import get_connection
+
+if TYPE_CHECKING:
+    import sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +87,57 @@ def _insert_batch(rows: list[tuple]) -> int:
         )
         conn.commit()
         return result.rowcount
+
+
+def enrich_imported_genres(conn: sqlite3.Connection) -> int:
+    """Fast SQL backfill of genre + release-year/decade for imported scrobbles.
+
+    Matches rows (source='lastfm'/'listenbrainz') to the library ``tracks``
+    table by exact lowercased title + artist, then:
+    - copies genre tags from ``track_genres``
+    - overwrites year/decade with the track's actual release year (more
+      accurate than the scrobble-timestamp year stored at import time)
+
+    Returns the number of rows updated.
+    Called automatically at the end of each import run and on startup.
+    """
+    result = conn.execute(
+        """
+        UPDATE listening_history
+        SET
+            genre = (
+                SELECT GROUP_CONCAT(sub.genre, ', ')
+                FROM (
+                    SELECT DISTINCT tg.genre
+                    FROM track_genres tg
+                    JOIN tracks t ON t.item_key = tg.track_key
+                    WHERE LOWER(t.title)  = LOWER(listening_history.track_title)
+                      AND LOWER(t.artist) = LOWER(listening_history.artist)
+                    ORDER BY tg.genre
+                ) AS sub
+            ),
+            year = COALESCE(
+                (SELECT t.year FROM tracks t
+                 WHERE LOWER(t.title)  = LOWER(listening_history.track_title)
+                   AND LOWER(t.artist) = LOWER(listening_history.artist)
+                   AND t.year IS NOT NULL AND t.year > 0
+                 LIMIT 1),
+                year
+            ),
+            decade = COALESCE(
+                (SELECT CAST((t.year / 10) * 10 AS TEXT) || 's' FROM tracks t
+                 WHERE LOWER(t.title)  = LOWER(listening_history.track_title)
+                   AND LOWER(t.artist) = LOWER(listening_history.artist)
+                   AND t.year IS NOT NULL AND t.year > 0
+                 LIMIT 1),
+                decade
+            )
+        WHERE source IN ('lastfm', 'listenbrainz')
+          AND track_title IS NOT NULL AND artist IS NOT NULL
+        """
+    )
+    conn.commit()
+    return result.rowcount
 
 
 def _ts_to_row(uts: int, title: str, artist: str, album: str, source: str) -> tuple:
@@ -192,6 +247,11 @@ async def _run_lastfm_import(lf_client, from_year: int) -> None:
         )
         logger.info("Last.fm import complete: %d tracks imported", total)
 
+        # Backfill genre/year/decade from library for all imported rows
+        with get_connection() as enrich_conn:
+            enriched = enrich_imported_genres(enrich_conn)
+            logger.info("Last.fm post-import enrichment: %d rows updated with genre/year", enriched)
+
     except Exception as exc:
         logger.exception("Last.fm import failed")
         _set_state(source, status="error", error_message=str(exc))
@@ -267,6 +327,11 @@ async def _run_lb_import(lb_client, from_year: int) -> None:
             completed_at=datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M:%S"),
         )
         logger.info("ListenBrainz import complete: %d tracks imported", total)
+
+        # Backfill genre/year/decade from library for all imported rows
+        with get_connection() as enrich_conn:
+            enriched = enrich_imported_genres(enrich_conn)
+            logger.info("LB post-import enrichment: %d rows updated with genre/year", enriched)
 
     except Exception as exc:
         logger.exception("ListenBrainz import failed")

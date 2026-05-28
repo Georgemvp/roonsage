@@ -98,6 +98,7 @@ def init_schema(conn: sqlite3.Connection) -> bool:
         -- Expression indexes for discovery queries (LOWER joins)
         CREATE INDEX IF NOT EXISTS idx_tracks_artist_lower ON tracks(LOWER(artist));
         CREATE INDEX IF NOT EXISTS idx_tracks_title_lower ON tracks(LOWER(title));
+        CREATE INDEX IF NOT EXISTS idx_tracks_title_artist_lower ON tracks(LOWER(title), LOWER(artist));
 
         -- Sync state: single-row metadata table
         CREATE TABLE IF NOT EXISTS sync_state (
