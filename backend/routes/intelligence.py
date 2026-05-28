@@ -18,26 +18,30 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["intelligence"])
 
 
-def _safe_str(v: object) -> object:
-    """Return v unchanged unless it's a bytes-like str with invalid UTF-8.
+def _safe_val(v: object) -> object:
+    """Coerce a SQLite field value to something JSON-serialisable.
 
-    SQLite may store strings with corrupt byte sequences originating from
-    Roon metadata.  Pydantic v2 raises PydanticSerializationError when it
-    tries to JSON-encode them.  Replace undecodable bytes with the replacement
-    character so the response is always valid UTF-8.
+    SQLite may store TEXT fields as Python ``bytes`` objects (e.g. when the row
+    was originally written by a different SQLite library or with a BLOB affinity)
+    and may contain surrogate-escaped characters from UTF-8 decoding of corrupt
+    Roon metadata.  Both cases cause ``PydanticSerializationError`` at response
+    serialisation time.
     """
-    if not isinstance(v, str):
-        return v
-    # Fast path — most strings are already valid
-    try:
-        v.encode("utf-8").decode("utf-8")
-        return v
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return v.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+    if isinstance(v, bytes):
+        return v.decode("utf-8", errors="replace")
+    if isinstance(v, str):
+        try:
+            v.encode("utf-8")
+            return v
+        except UnicodeEncodeError:
+            # Surrogate chars from SQLite surrogateescape — recover original bytes
+            raw = v.encode("utf-8", errors="surrogateescape")
+            return raw.decode("utf-8", errors="replace")
+    return v
 
 
 def _sanitize(d: dict) -> dict:
-    return {k: _safe_str(val) for k, val in d.items()}
+    return {k: _safe_val(val) for k, val in d.items()}
 
 
 # ---------------------------------------------------------------------------
