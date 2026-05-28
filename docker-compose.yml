@@ -116,6 +116,18 @@ services:
       - MUSIC_PATH_MAP_TO=${MUSIC_PATH_MAP_TO:-}
       - NUMBA_CACHE_DIR=/app/data/.numba_cache
       - MPLCONFIGDIR=/app/data/.mpl_cache
+      # CLAP / lyrics / mood batch jobs run in this worker so they survive
+      # uvicorn --reload on the API container.
+      - CLAP_ENABLED=${CLAP_ENABLED:-true}
+      - CLAP_MODEL=${CLAP_MODEL:-laion/larger_clap_music_and_speech}
+      - CLAP_CACHE_DIR=/app/data/.clap_cache
+      - CLAP_USE_ONNX=${CLAP_USE_ONNX:-true}
+      - ONNX_MODELS_DIR=/app/data/models
+      - LYRICS_SEARCH_ENABLED=${LYRICS_SEARCH_ENABLED:-true}
+      - LYRICS_MODEL=${LYRICS_MODEL:-Alibaba-NLP/gte-multilingual-base}
+      - HF_HOME=/app/data/.hf_cache
+      - TRANSFORMERS_CACHE=/app/data/.hf_cache
+      - LYRICS_USE_ONNX=${LYRICS_USE_ONNX:-true}
     volumes:
       - ./data:/app/data
       - ./backend:/app/backend

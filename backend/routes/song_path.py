@@ -66,6 +66,7 @@ class SongPathTrack(BaseModel):
     camelot: str | None = None
     key_root: str | None = None
     key_mode: str | None = None
+    transition_dist: float | None = None
 
 
 class SongPathResponse(BaseModel):

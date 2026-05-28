@@ -187,6 +187,8 @@ async def start_background_tasks(app: FastAPI) -> None:
         async def _run_resync() -> None:
             try:
                 await asyncio.to_thread(library_cache.sync_library, roon_client)
+                from backend.audio_features.song_path import invalidate_song_path_cache  # noqa: PLC0415, I001
+                invalidate_song_path_cache()
             except Exception as exc:
                 logger.error("Auto-resync failed: %s", exc)
 

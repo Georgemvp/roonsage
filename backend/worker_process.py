@@ -43,9 +43,64 @@ def _reset_orphaned_rows() -> None:
                     logger.info("Reset %d orphaned %s rows in %s", n, busy_state, table)
             except Exception as exc:
                 logger.debug("Orphan reset on %s skipped: %s", table, exc)
+
+        # The worker owns CLAP/lyrics/mood batch jobs now. If we crashed mid-run
+        # the row is stuck on 'running'; reset it so the next /analyze call works.
+        for run_table in ("clap_runs", "lyrics_runs", "mood_runs"):
+            try:
+                n = conn.execute(
+                    f"UPDATE {run_table} SET status='idle' WHERE status='running'",
+                ).rowcount
+                if n:
+                    logger.info("Reset stuck 'running' in %s to 'idle'", run_table)
+            except Exception as exc:
+                logger.debug("Run-state reset on %s skipped: %s", run_table, exc)
         conn.commit()
     finally:
         conn.close()
+
+
+async def _clap_batch_poller(stop_event: asyncio.Event) -> None:
+    """Run CLAP batch analysis when the API flips ``clap_runs.status`` to 'pending'.
+
+    Polls every 5s. Keeps the heavy ONNX/PyTorch model loaded across runs so
+    repeat invocations don't pay the cold-start cost.
+    """
+    from backend.audio_features import clap_search  # noqa: PLC0415
+    from backend.config import get_clap_enabled  # noqa: PLC0415
+    from backend.db import get_db_connection  # noqa: PLC0415
+
+    if not get_clap_enabled():
+        logger.info("CLAP batch poller disabled (CLAP_ENABLED!=true)")
+        return
+
+    logger.info("CLAP batch poller started")
+    while not stop_event.is_set():
+        try:
+            conn = get_db_connection()
+            try:
+                status = clap_search.get_status(conn).get("status")
+            finally:
+                conn.close()
+            if status == "pending":
+                logger.info("CLAP pending — running batch")
+                def _run() -> dict:
+                    c = get_db_connection()
+                    try:
+                        return clap_search.batch_analyze_clap(c)
+                    finally:
+                        c.close()
+                try:
+                    result = await asyncio.to_thread(_run)
+                    logger.info("CLAP batch finished: %s", result)
+                except Exception:
+                    logger.exception("CLAP batch failed")
+        except Exception:
+            logger.exception("CLAP poller iteration failed")
+        import contextlib  # noqa: PLC0415
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop_event.wait(), timeout=5)
+    logger.info("CLAP batch poller stopped")
 
 
 async def main() -> None:
@@ -121,6 +176,12 @@ async def main() -> None:
     # Graceful shutdown via SIGTERM / SIGINT
     loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
+
+    # CLAP batch poller — picks up /api/clap/analyze requests via clap_runs
+    clap_task = asyncio.create_task(
+        _clap_batch_poller(stop_event), name="clap_batch_poller",
+    )
+    tasks.append(clap_task)
 
     def _handle_signal() -> None:
         logger.info("Shutdown signal received — stopping workers")

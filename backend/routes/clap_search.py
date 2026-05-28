@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
@@ -73,31 +74,36 @@ def _require_enabled() -> None:
         )
 
 
-def _run_batch_sync() -> None:
-    conn = get_db_connection()
-    try:
-        clap_search.batch_analyze_clap(conn)
-    finally:
-        conn.close()
-
-
 @router.post("/analyze", response_model=ClapAnalyzeResponse)
 async def start_analyze() -> ClapAnalyzeResponse:
+    """Request CLAP batch analysis.
+
+    The actual work runs in the sidecar worker (``backend.worker_process``)
+    because the FastAPI process is started with uvicorn ``--reload`` in dev,
+    which kills any in-process or subprocess batch on every file save.
+
+    This route just flips ``clap_runs.status`` to ``'pending'``; the worker
+    polls for that and runs the batch in its own process.
+    """
     _require_enabled()
     conn = get_db_connection()
     try:
-        if clap_search.get_status(conn).get("status") == "running":
-            raise HTTPException(409, "CLAP analysis already running")
+        current = clap_search.get_status(conn).get("status")
+        if current in ("running", "pending"):
+            raise HTTPException(409, f"CLAP analysis already {current}")
+        clap_search._set_state(
+            conn,
+            "pending",
+            started_at=datetime.now(UTC).isoformat(),
+            finished_at=None,
+            error_message=None,
+        )
     finally:
         conn.close()
-
-    if clap_search.get_onnx_backend() is None and clap_search.get_model() is None:
-        raise HTTPException(503, "CLAP model could not be loaded")
-
-    asyncio.create_task(  # noqa: RUF006
-        asyncio.to_thread(_run_batch_sync), name="clap-batch"
+    return ClapAnalyzeResponse(
+        started=True,
+        message="CLAP analysis queued — worker will pick it up.",
     )
-    return ClapAnalyzeResponse(started=True, message="CLAP analysis started.")
 
 
 @router.get("/status", response_model=ClapStatusResponse)

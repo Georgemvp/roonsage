@@ -8,6 +8,7 @@ from collections import defaultdict
 from fastapi import APIRouter, HTTPException, Query
 
 from backend import library_cache
+from backend.audio_features.song_path import invalidate_song_path_cache
 from backend.config import get_config
 from backend.filter_sessions import get_session, store_session
 from backend.llm_client import estimate_cost_for_model
@@ -158,9 +159,11 @@ async def trigger_library_sync() -> SyncTriggerResponse:
     if progress["is_syncing"]:
         raise HTTPException(status_code=409, detail="Sync already in progress")
 
-    asyncio.create_task(
-        asyncio.to_thread(library_cache.sync_library, roon_client)
-    )
+    async def _sync_and_invalidate() -> None:
+        await asyncio.to_thread(library_cache.sync_library, roon_client)
+        invalidate_song_path_cache()
+
+    asyncio.create_task(_sync_and_invalidate())
     return SyncTriggerResponse(started=True, blocking=False)
 
 

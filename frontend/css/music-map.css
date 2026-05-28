@@ -255,6 +255,37 @@
 .cluster-card-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--text-muted); }
 .cluster-card--noise { opacity: 0.6; }
 
+/* --- Song Paths autocomplete --- */
+.sp-ac-wrap { position: relative; flex: 1; }
+.sp-ac-wrap input { width: 100%; box-sizing: border-box; }
+.sp-ac-dropdown {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    background: var(--bg-elevated, #2a2a2a);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    max-height: 220px;
+    overflow-y: auto;
+    z-index: 999;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.sp-ac-item {
+    padding: 7px 10px;
+    cursor: pointer;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+    line-height: 1.3;
+}
+.sp-ac-item:last-child { border-bottom: none; }
+.sp-ac-item:hover, .sp-ac-item.sp-ac-active {
+    background: var(--accent-dim, rgba(229,160,13,0.15));
+}
+.sp-ac-item strong { color: var(--text-primary, #fff); }
+.sp-ac-item small { color: var(--text-muted); display: block; }
+.sp-ac-empty { padding: 8px 10px; font-size: 13px; color: var(--text-muted); }
+
 /* --- Song Paths --- */
 .song-paths-form {
     background: var(--bg-surface);
@@ -273,9 +304,30 @@
     padding: 12px;
     border: 1px solid var(--border);
 }
+.sp-now-playing-btn {
+    flex-shrink: 0;
+    font-size: 12px;
+    padding: 4px 8px;
+    white-space: nowrap;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 4px;
+    cursor: pointer;
+}
+.sp-now-playing-btn:hover { border-color: var(--accent); color: var(--accent); }
+.sp-transition {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    justify-content: flex-end;
+}
+.sp-transition-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.sp-transition-label { opacity: 0.85; }
 .song-paths-track {
     display: grid;
-    grid-template-columns: 32px 1fr 200px;
+    grid-template-columns: 32px 1fr 160px 60px;
     gap: 10px;
     padding: 6px 4px;
     align-items: center;

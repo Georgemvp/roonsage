@@ -78,6 +78,7 @@ async def queue_tracks(request: PlayQueueRequest) -> PlayQueueResponse:
         request.zone_id,
         request.item_keys,
         request.mode,
+        request.smart_shuffle,
     )
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error or "Queue failed")

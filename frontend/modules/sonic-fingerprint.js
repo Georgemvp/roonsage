@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { apiCall } from './api.js';
-import { state } from './state.js';
+import { getCurrentZoneId, openZonePicker } from './nowplaying.js';
 
 let _initialized = false;
 let _chart = null;
@@ -107,8 +107,8 @@ async function _load() {
 async function _play() {
     const btn = document.getElementById('sf-play-btn');
     const limit = parseInt(document.getElementById('sf-limit')?.value || '25', 10);
-    const zoneId = state.activeZone?.zone_id;
-    if (!zoneId) { alert('Selecteer eerst een Roon zone.'); return; }
+    const zoneId = getCurrentZoneId();
+    if (!zoneId) { openZonePicker(); return; }
     if (btn) btn.disabled = true;
     try {
         await apiCall('/sonic-fingerprint/play', {
@@ -172,8 +172,8 @@ async function _refreshRadioStatus() {
 }
 
 async function _startRadio() {
-    const zoneId = state.activeZone?.zone_id;
-    if (!zoneId) { alert('Selecteer eerst een Roon zone.'); return; }
+    const zoneId = getCurrentZoneId();
+    if (!zoneId) { openZonePicker(); return; }
     const slider = document.getElementById('sf-radio-discovery');
     const ratio = (parseInt(slider?.value || '30', 10) || 30) / 100;
     const startBtn = document.getElementById('sf-radio-start-btn');

@@ -507,3 +507,37 @@ def batch_analyze_clap(conn: sqlite3.Connection) -> dict[str, Any]:
             error_message=str(exc),
         )
         raise
+
+
+# ---------------------------------------------------------------------------
+# CLI entrypoint — used by routes/clap_search.py to spawn a detached subprocess
+# that survives uvicorn --reload restarts.
+# ---------------------------------------------------------------------------
+
+
+def _cli_main() -> int:
+    import logging as _logging  # noqa: PLC0415
+    import sys as _sys  # noqa: PLC0415
+
+    from backend.db import get_db_connection  # noqa: PLC0415
+
+    _logging.basicConfig(
+        level=_logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=_sys.stdout,
+    )
+    conn = get_db_connection()
+    try:
+        result = batch_analyze_clap(conn)
+        logger.info("CLAP batch finished: %s", result)
+        return 0
+    except Exception:
+        logger.exception("CLAP batch failed")
+        return 1
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    import sys as _sys  # noqa: PLC0415
+    _sys.exit(_cli_main())

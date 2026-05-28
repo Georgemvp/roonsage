@@ -1739,13 +1739,18 @@
                 <div class="song-paths-form">
                     <div class="song-paths-row">
                         <label>Start track</label>
-                        <input id="song-paths-from" type="search" class="auto-form-input" placeholder="Artist – title…" list="song-paths-from-list" />
-                        <datalist id="song-paths-from-list"></datalist>
+                        <div class="sp-ac-wrap">
+                            <input id="song-paths-from" type="text" class="auto-form-input" placeholder="Search artist, title or album…" autocomplete="off" />
+                            <div id="song-paths-from-dropdown" class="sp-ac-dropdown" hidden></div>
+                        </div>
+                        <button id="song-paths-now-playing" class="btn btn-sm sp-now-playing-btn" title="Use currently playing track as start">&#9654; Nu aan</button>
                     </div>
                     <div class="song-paths-row">
                         <label>End track</label>
-                        <input id="song-paths-to" type="search" class="auto-form-input" placeholder="Artist – title…" list="song-paths-to-list" />
-                        <datalist id="song-paths-to-list"></datalist>
+                        <div class="sp-ac-wrap">
+                            <input id="song-paths-to" type="text" class="auto-form-input" placeholder="Search artist, title or album…" autocomplete="off" />
+                            <div id="song-paths-to-dropdown" class="sp-ac-dropdown" hidden></div>
+                        </div>
                     </div>
                     <div class="song-paths-row song-paths-row--inline">
                         <label>Steps</label>
@@ -1768,6 +1773,10 @@
                             <option value="dreamy">Dreamy</option>
                             <option value="groovy">Groovy</option>
                             <option value="dark">Dark</option>
+                        </select>
+                        <label style="margin-left:1rem;">Zone</label>
+                        <select id="song-paths-zone" class="auto-form-input">
+                            <option value="">— laden —</option>
                         </select>
                         <button id="song-paths-find" class="btn btn-primary btn-sm">Find path</button>
                         <button id="song-paths-play" class="btn btn-secondary btn-sm" disabled>Play path</button>
