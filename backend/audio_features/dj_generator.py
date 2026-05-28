@@ -297,11 +297,13 @@ def _load_candidates(
 
 
 def _get_recent_keys(days: int = 7) -> set[str]:
-    """Return item_keys played in the last ``days`` days."""
+    """Return item_keys played in the last ``days`` days via title+artist join."""
     sql = """
-        SELECT DISTINCT item_key FROM listening_history
-        WHERE timestamp >= datetime('now', ?)
-          AND item_key IS NOT NULL
+        SELECT DISTINCT t.item_key
+        FROM listening_history lh
+        JOIN tracks t ON LOWER(t.title)  = LOWER(lh.track_title)
+                     AND LOWER(t.artist) = LOWER(lh.artist)
+        WHERE lh.timestamp >= datetime('now', ?)
     """
     with get_connection() as conn:
         rows = conn.execute(sql, [f"-{days} days"]).fetchall()

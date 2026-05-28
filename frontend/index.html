@@ -255,10 +255,9 @@
                                         <option value="custom">Custom (OpenAI-compatible)</option>
                                     </select>
                                 </div>
-                                <form autocomplete="off" onsubmit="return false" style="display:contents">
                                 <div class="form-group" id="setup-ai-key-group">
                                     <label for="setup-ai-key">API Key</label>
-                                    <input type="password" id="setup-ai-key" placeholder="Your API key" autocomplete="new-password">
+                                    <input type="text" id="setup-ai-key" placeholder="Your API key" autocomplete="off">
                                     <p class="setup-field-hint" id="setup-ai-hint">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></p>
                                 </div>
                                 <div class="form-group hidden" id="setup-ai-ollama-group">
@@ -271,7 +270,6 @@
                                 </div>
                                 <div id="setup-ai-error" class="setup-inline-error hidden" role="alert"></div>
                                 <button id="setup-ai-btn" class="btn btn-primary">Validate</button>
-                                </form>
                             </div>
                             <div class="setup-step-done hidden" id="setup-ai-done">
                                 <span class="setup-done-icon" aria-hidden="true">&#10003;</span>
@@ -2088,8 +2086,6 @@
             <!-- Settings View -->
             <div id="settings-view" class="view">
                 <h2>Settings</h2>
-                <!-- form wrapper silences "password not in form" browser warning for API key inputs -->
-                <form autocomplete="off" onsubmit="return false" style="display:contents">
 
                 <!-- Appearance card -->
                 <div class="rs-settings-card" id="settings-appearance-card">
@@ -2173,7 +2169,7 @@
                     <div id="cloud-provider-settings">
                         <div class="form-group">
                             <label for="llm-api-key">API Key</label>
-                            <input type="password" id="llm-api-key" placeholder="Your API key" autocomplete="new-password">
+                            <input type="text" id="llm-api-key" placeholder="Your API key" autocomplete="off">
                         </div>
                     </div>
 
@@ -2223,7 +2219,7 @@
                         </div>
                         <div class="form-group">
                             <label for="custom-api-key">API Key <span class="optional-label">(optional)</span></label>
-                            <input type="password" id="custom-api-key" placeholder="sk-..." autocomplete="new-password">
+                            <input type="text" id="custom-api-key" placeholder="sk-..." autocomplete="off">
                         </div>
                         <div class="form-group">
                             <label for="custom-model">Model Name</label>
@@ -2252,7 +2248,7 @@
                     </div>
                     <div class="form-group">
                         <label for="qobuz-password">Qobuz Password</label>
-                        <input type="password" id="qobuz-password" placeholder="Password" autocomplete="new-password">
+                        <input type="text" id="qobuz-password" placeholder="Password" autocomplete="off">
                     </div>
                     <div class="settings-actions" style="margin-top: 0.5rem; margin-bottom: 0;">
                         <button id="validate-qobuz-btn" class="btn btn-outline">Validate</button>
@@ -2269,7 +2265,7 @@
                     <p class="settings-section-desc">Connect to ListenBrainz for scrobbling and extended music statistics. Token at <a href="https://listenbrainz.org/profile/" target="_blank">listenbrainz.org/profile</a>.</p>
                     <div class="form-group">
                         <label for="lb-token">ListenBrainz Token</label>
-                        <input type="password" id="lb-token" placeholder="Your LB user token" autocomplete="new-password">
+                        <input type="text" id="lb-token" placeholder="Your LB user token" autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label for="lb-username">Username</label>
@@ -2296,11 +2292,11 @@
                     <p class="settings-section-desc">Connect to Last.fm for dual-scrobbling and rich artist recommendations. API key at <a href="https://www.last.fm/api/account/create" target="_blank">last.fm/api/account/create</a>.</p>
                     <div class="form-group">
                         <label for="lastfm-api-key">Last.fm API Key</label>
-                        <input type="password" id="lastfm-api-key" placeholder="Your Last.fm API key" autocomplete="new-password">
+                        <input type="text" id="lastfm-api-key" placeholder="Your Last.fm API key" autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label for="lastfm-api-secret">Last.fm API Secret</label>
-                        <input type="password" id="lastfm-api-secret" placeholder="Your Last.fm API secret" autocomplete="new-password">
+                        <input type="text" id="lastfm-api-secret" placeholder="Your Last.fm API secret" autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label for="lastfm-username">Username</label>
@@ -2346,7 +2342,7 @@
                     <!-- Telegram -->
                     <div class="form-group">
                         <label for="notif-tg-token">Telegram Bot Token</label>
-                        <input type="password" id="notif-tg-token" placeholder="123456:ABC-DEF..." autocomplete="new-password">
+                        <input type="text" id="notif-tg-token" placeholder="123456:ABC-DEF..." autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label for="notif-tg-chat">Telegram Chat ID</label>
@@ -2694,7 +2690,6 @@
                     <h3 class="rs-settings-card-title">Library Statistics</h3>
                     <div id="library-stats"></div>
                 </section>
-                </form><!-- /settings autocomplete wrapper -->
             </div>
 
         </main>
