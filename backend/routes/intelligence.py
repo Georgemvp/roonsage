@@ -1196,6 +1196,46 @@ async def get_lb_import_status() -> dict:
     return state
 
 
+@router.post("/intelligence/lastfm/tag-enrich")
+async def start_lastfm_tag_enrichment() -> dict:
+    """Start background enrichment of unmatched scrobbles via Last.fm artist.getTopTags.
+
+    Fetches genre tags for every distinct artist that still has scrobbles with
+    a NULL genre (i.e. tracks not in the Roon library).  Runs at ~4.5 req/s;
+    expect ~17 minutes for 4 000+ unique artists.
+    """
+    from backend.lastfm_client import get_lf_client  # noqa: PLC0415
+    from backend.scrobble_import import (  # noqa: PLC0415
+        get_tag_enrich_state,
+        start_lastfm_tag_enrich,
+    )
+
+    lf_client = get_lf_client()
+    if lf_client is None or not lf_client.is_configured():
+        raise HTTPException(status_code=400, detail="Last.fm not configured")
+    if get_tag_enrich_state().get("status") == "running":
+        return {"started": False, "message": "Tag enrichment already running"}
+    await start_lastfm_tag_enrich(lf_client)
+    return {"started": True, "message": "Last.fm tag enrichment started"}
+
+
+@router.get("/intelligence/lastfm/tag-enrich-status")
+async def get_lastfm_tag_enrich_status() -> dict:
+    """Return progress of the Last.fm tag enrichment job."""
+    from backend.scrobble_import import get_tag_enrich_state  # noqa: PLC0415
+
+    state = get_tag_enrich_state()
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM listening_history WHERE source IN ('lastfm','listenbrainz') AND (genre IS NULL OR genre='')"
+        ).fetchone()
+        state["rows_still_missing_genre"] = row[0] if row else 0
+    finally:
+        conn.close()
+    return state
+
+
 @router.get("/roon/tags")
 async def get_roon_tags() -> list[dict]:
     """Return all user-created Roon Tags via the Browse API."""

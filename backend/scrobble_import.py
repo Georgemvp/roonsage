@@ -20,8 +20,134 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Active import tasks — keyed by source ('lastfm', 'listenbrainz')
+# Active import tasks — keyed by source ('lastfm', 'listenbrainz', 'tag_enrich')
 _tasks: dict[str, asyncio.Task] = {}
+
+# ---------------------------------------------------------------------------
+# Tag filtering helpers (shared by artist + track enrichment)
+# ---------------------------------------------------------------------------
+
+# Substrings that disqualify a Last.fm tag from being used as a genre.
+_TAG_NOISE_SUBSTRINGS: tuple[str, ...] = (
+    "seen live", "love", "favourit", "favorit", "amazing", "awesome",
+    "spotify", "youtube", "apple music", "download", "mp3", "flac",
+    "free music", "podcast", "radio", "all time", "best of",
+)
+# Exact (lowercased) tags to skip.
+_TAG_NOISE_EXACT: frozenset[str] = frozenset({
+    "best", "great", "classic", "beautiful", "perfect", "my", "good",
+    "brilliant", "nice", "cool", "banger", "hot", "fire",
+})
+
+
+def _tags_to_genre(tags: list[dict], max_tags: int = 4) -> str | None:
+    """Convert a Last.fm tag list to a comma-separated genre string.
+
+    Filters out personal/noise tags; returns None when nothing useful remains.
+    Tags should be sorted by count/popularity descending (Last.fm default).
+    """
+    genres: list[str] = []
+    for tag in tags:
+        name = tag.get("name", "").strip()
+        if not name or len(name) < 3:
+            continue
+        nl = name.lower()
+        if nl in _TAG_NOISE_EXACT:
+            continue
+        if any(s in nl for s in _TAG_NOISE_SUBSTRINGS):
+            continue
+        genres.append(name)
+        if len(genres) >= max_tags:
+            break
+    return ", ".join(genres) if genres else None
+
+
+# ---------------------------------------------------------------------------
+# Last.fm tag enrichment for unmatched scrobbles
+# ---------------------------------------------------------------------------
+
+_tag_enrich_state: dict = {"status": "idle", "done": 0, "total": 0, "enriched": 0}
+
+
+def get_tag_enrich_state() -> dict:
+    return dict(_tag_enrich_state)
+
+
+async def start_lastfm_tag_enrich(lf_client) -> bool:
+    """Enrich unmatched scrobbles with genre via Last.fm artist.getTopTags.
+
+    Returns False if already running.
+    """
+    if _tag_enrich_state.get("status") == "running":
+        return False
+    task = asyncio.create_task(_run_lastfm_tag_enrich(lf_client), name="lastfm_tag_enrich")
+    _tasks["tag_enrich"] = task
+    return True
+
+
+async def _run_lastfm_tag_enrich(lf_client) -> None:
+    global _tag_enrich_state  # noqa: PLW0603
+
+    # Fetch distinct artists that still have unmatched (genre-less) scrobbles.
+    with get_connection() as conn:
+        artist_rows = conn.execute(
+            """
+            SELECT DISTINCT artist
+            FROM listening_history
+            WHERE source IN ('lastfm', 'listenbrainz')
+              AND (genre IS NULL OR genre = '')
+              AND artist IS NOT NULL AND artist != ''
+            ORDER BY artist
+            """
+        ).fetchall()
+
+    artists = [r[0] for r in artist_rows]
+    total = len(artists)
+    _tag_enrich_state = {"status": "running", "done": 0, "total": total, "enriched": 0}
+    logger.info("Last.fm tag enrichment started: %d unique artists", total)
+
+    pending: list[tuple[str, str]] = []  # (genre, artist)
+    enriched = 0
+
+    try:
+        for i, artist in enumerate(artists):
+            tags = await lf_client.get_artist_tags(artist)
+            genre = _tags_to_genre(tags)
+            if genre:
+                pending.append((genre, artist))
+                enriched += 1
+
+            # Flush batch every 100 artists or at the end
+            if len(pending) >= 100 or (i == total - 1 and pending):
+                with get_connection() as conn:
+                    conn.executemany(
+                        """
+                        UPDATE listening_history
+                        SET genre = ?
+                        WHERE LOWER(artist) = LOWER(?)
+                          AND source IN ('lastfm', 'listenbrainz')
+                          AND (genre IS NULL OR genre = '')
+                        """,
+                        pending,
+                    )
+                    conn.commit()
+                pending.clear()
+
+            _tag_enrich_state["done"] = i + 1
+            _tag_enrich_state["enriched"] = enriched
+
+            await asyncio.sleep(0.22)  # ≈4.5 req/s — safely under Last.fm's 5/s limit
+
+        _tag_enrich_state["status"] = "complete"
+        logger.info(
+            "Last.fm tag enrichment done: %d/%d artists enriched",
+            enriched,
+            total,
+        )
+
+    except Exception as exc:
+        logger.exception("Last.fm tag enrichment failed")
+        _tag_enrich_state.update({"status": "error", "error": str(exc)})
 
 
 def get_import_state(source: str) -> dict:
