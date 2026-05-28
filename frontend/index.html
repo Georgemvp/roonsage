@@ -1527,7 +1527,8 @@
                     </form>
 
                     <!-- Result area (outside form) -->
-                    <canvas id="dj-curve-chart" style="max-height:200px;display:none;"></canvas>
+                    <canvas id="dj-curve-chart" style="max-height:200px;display:none;margin-bottom:12px"></canvas>
+                    <div id="dj-summary" style="display:none;"></div>
                     <div id="dj-result" class="auto-list"></div>
                     <div id="dj-result-actions" style="display:none;margin-top:var(--spacing-sm);">
                         <input id="dj-set-name" type="text" class="auto-form-input" style="width:100%;" placeholder="Naam voor deze set…" />
@@ -1593,27 +1594,45 @@
             <div id="enrichment-view" class="view">
                 <p class="rs-view-eyebrow">LIBRARY</p>
                 <h2 class="rs-view-title">Enrichment</h2>
-                <p class="rs-view-sub">Enrich your Roon library with metadata from MusicBrainz, Last.fm, AcoustID and Qobuz.</p>
+                <p class="rs-view-sub">Enrich your library with metadata from MusicBrainz and Last.fm — canonical IDs, release dates, tags, similar artists.</p>
 
-                <!-- Overall progress -->
+                <!-- Overall progress card -->
                 <div class="rs-settings-card rs-enrich-overall">
                     <div class="rs-enrich-overall-top">
-                        <div>
-                            <div class="rs-enrich-overall-label">Overall enrichment</div>
+                        <div style="flex:1;min-width:0">
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                                <div class="rs-enrich-overall-label">Overall enrichment</div>
+                                <span id="enrich2-worker-badge" class="enrich-worker-badge" style="display:none"></span>
+                                <span id="enrich2-skip-mb-badge" class="enrich-worker-badge" style="display:none;background:rgba(229,160,13,0.15);color:#e5a00d">LF-only mode</span>
+                            </div>
                             <div class="rs-enrich-overall-bar-wrap">
                                 <div class="rs-enrich-overall-bar" id="enrich2-overall-bar"></div>
                             </div>
-                            <div class="rs-enrich-overall-sub" id="enrich2-overall-sub">Loading...</div>
+                            <div style="display:flex;gap:16px;margin-top:6px">
+                                <div class="rs-enrich-overall-sub" id="enrich2-overall-sub">Loading...</div>
+                                <div id="enrich2-eta" style="color:var(--text-muted);font-size:12px;display:none"></div>
+                            </div>
                         </div>
                         <div class="rs-enrich-pct" id="enrich2-overall-pct">—%</div>
-                        <button class="btn btn-primary" id="enrich2-run-btn">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+                    </div>
+                    <div class="enrich-actions" style="margin-top:12px">
+                        <button class="btn btn-primary btn-sm" id="enrich2-run-btn">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                             Run Enrichment
                         </button>
+                        <button class="btn btn-outline btn-sm" id="enrich2-pause-btn" style="display:none">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                            Pause
+                        </button>
+                        <button class="btn btn-outline btn-sm" id="enrich2-resume-btn" style="display:none">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            Resume
+                        </button>
                     </div>
+                    <div id="enrich2-result" class="enrich-result" style="margin-top:8px"></div>
                 </div>
 
-                <!-- Source cards -->
+                <!-- Source breakdown — MB + LF side by side -->
                 <div class="rs-enrich-sources">
                     <div class="rs-settings-card rs-enrich-source-card">
                         <div class="rs-enrich-source-header">
@@ -1622,7 +1641,7 @@
                             <span class="rs-enrich-source-pct" id="enrich2-mb-pct">—%</span>
                         </div>
                         <div class="rs-enrich-source-bar-wrap"><div class="rs-enrich-source-bar rs-enrich-source-bar--orange" id="enrich2-mb-bar"></div></div>
-                        <p class="rs-enrich-source-desc">Canonical IDs, release dates, labels, ISRCs</p>
+                        <p class="rs-enrich-source-desc"><span id="enrich2-mb-count">—</span> tracks · Canonical IDs, release dates, labels</p>
                     </div>
                     <div class="rs-settings-card rs-enrich-source-card">
                         <div class="rs-enrich-source-header">
@@ -1631,39 +1650,61 @@
                             <span class="rs-enrich-source-pct" id="enrich2-lf-pct">—%</span>
                         </div>
                         <div class="rs-enrich-source-bar-wrap"><div class="rs-enrich-source-bar rs-enrich-source-bar--red" id="enrich2-lf-bar"></div></div>
-                        <p class="rs-enrich-source-desc">Play counts, tags, similar artists, bios</p>
-                    </div>
-                    <div class="rs-settings-card rs-enrich-source-card">
-                        <div class="rs-enrich-source-header">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
-                            <span class="rs-enrich-source-name">AcoustID</span>
-                            <span class="rs-enrich-source-pct" id="enrich2-acid-pct">—%</span>
-                        </div>
-                        <div class="rs-enrich-source-bar-wrap"><div class="rs-enrich-source-bar rs-enrich-source-bar--blue" id="enrich2-acid-bar"></div></div>
-                        <p class="rs-enrich-source-desc">Audio fingerprints for unidentified tracks</p>
-                    </div>
-                    <div class="rs-settings-card rs-enrich-source-card">
-                        <div class="rs-enrich-source-header">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
-                            <span class="rs-enrich-source-name">Qobuz</span>
-                            <span class="rs-enrich-source-pct" id="enrich2-qobuz-pct">—%</span>
-                        </div>
-                        <div class="rs-enrich-source-bar-wrap"><div class="rs-enrich-source-bar rs-enrich-source-bar--blue" id="enrich2-qobuz-bar"></div></div>
-                        <p class="rs-enrich-source-desc">Hi-res artwork, liner notes, credits</p>
+                        <p class="rs-enrich-source-desc"><span id="enrich2-lf-count">—</span> tracks · Tags, play counts, similar artists</p>
                     </div>
                 </div>
 
-                <!-- Missing metadata table -->
+                <!-- Source breakdown stacked bar -->
+                <div class="rs-settings-card" style="padding:16px 20px">
+                    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Source breakdown</div>
+                    <div id="enrich2-breakdown-bar" style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--color-border)">
+                        <div id="enrich2-bar-both"   style="background:#22c55e;height:100%;transition:width .4s"></div>
+                        <div id="enrich2-bar-mb"     style="background:#3b82f6;height:100%;transition:width .4s"></div>
+                        <div id="enrich2-bar-lf"     style="background:#a855f7;height:100%;transition:width .4s"></div>
+                        <div id="enrich2-bar-none"   style="background:#4b5563;height:100%;transition:width .4s"></div>
+                    </div>
+                    <div id="enrich2-breakdown-legend" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:12px;color:var(--text-muted)">
+                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#22c55e;margin-right:4px;vertical-align:middle"></span>Both</span>
+                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#3b82f6;margin-right:4px;vertical-align:middle"></span>MusicBrainz only</span>
+                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#a855f7;margin-right:4px;vertical-align:middle"></span>Last.fm only</span>
+                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#4b5563;margin-right:4px;vertical-align:middle"></span>None</span>
+                    </div>
+                </div>
+
+                <!-- Tag cloud -->
+                <div class="rs-settings-card" id="enrich2-tags-card" style="display:none">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                        <h3 class="rs-settings-card-title" style="margin:0">Last.fm Tag Cloud</h3>
+                        <span id="enrich2-tags-total" style="font-size:12px;color:var(--text-muted)"></span>
+                    </div>
+                    <div id="enrich2-tags-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+                </div>
+
+                <!-- Failed tracks -->
+                <div class="rs-settings-card" id="enrich2-failed-card" style="display:none">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                        <h3 class="rs-settings-card-title" style="margin:0">Failed Tracks <span id="enrich2-failed-count" style="font-size:13px;color:var(--text-muted);font-weight:400"></span></h3>
+                        <button class="btn btn-outline btn-sm" id="enrich2-retry-btn">Retry All Failed</button>
+                    </div>
+                    <div id="enrich2-failed-list" style="max-height:260px;overflow-y:auto"></div>
+                </div>
+
+                <!-- Missing metadata -->
                 <div class="rs-settings-card">
-                    <div class="rs-settings-card-header" style="display:flex;justify-content:space-between;align-items:center">
-                        <h3 class="rs-settings-card-title">Tracks with Missing Metadata</h3>
-                        <span class="rs-enrich-missing-count" id="enrich2-missing-count"></span>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                        <h3 class="rs-settings-card-title" style="margin:0">Tracks with Missing Metadata</h3>
+                        <span id="enrich2-missing-count" style="font-size:12px;color:var(--text-muted)"></span>
                     </div>
                     <div id="enrich2-missing-list" class="rs-enrich-missing-list">
                         <p style="color:var(--text-muted);padding:16px">Loading...</p>
                     </div>
                 </div>
-                <div id="enrich2-result" class="enrich-result" style="margin-top:12px"></div>
+
+                <!-- Recent activity -->
+                <div class="rs-settings-card" id="enrich2-recent-card" style="display:none">
+                    <h3 class="rs-settings-card-title" style="margin-bottom:12px">Recently Enriched</h3>
+                    <div id="enrich2-recent-list"></div>
+                </div>
             </div>
 
             <!-- Music Map View (v13.0) -->
@@ -2422,32 +2463,9 @@
                 <section class="rs-settings-card settings-section" id="enrichment-settings-section">
                     <p class="rs-settings-eyebrow">Metadata Enrichment</p>
                     <h3 class="rs-settings-card-title">Metadata Enrichment</h3>
-                    <p class="settings-section-desc">Enriches your library with MusicBrainz and Last.fm tags (e.g., "melancholic", "late night"). Improves mood-based playlist matching. Processes ~1 track/second in the background.</p>
+                    <p class="settings-section-desc">Enriches your library with MusicBrainz and Last.fm tags. Improves mood-based playlist matching.</p>
 
-                    <div class="enrich-stats-grid" id="enrichment-stats">
-                        <div class="enrich-stat">
-                            <span class="enrich-stat-value" id="enrich-total">–</span>
-                            <span class="enrich-stat-label">Enriched</span>
-                        </div>
-                        <div class="enrich-stat">
-                            <span class="enrich-stat-value" id="enrich-mb">–</span>
-                            <span class="enrich-stat-label">MusicBrainz</span>
-                        </div>
-                        <div class="enrich-stat">
-                            <span class="enrich-stat-value" id="enrich-lf">–</span>
-                            <span class="enrich-stat-label">Last.fm</span>
-                        </div>
-                        <div class="enrich-stat">
-                            <span class="enrich-stat-value enrich-stat-value--pending" id="enrich-pending">–</span>
-                            <span class="enrich-stat-label">Pending</span>
-                        </div>
-                        <div class="enrich-stat">
-                            <span class="enrich-stat-value enrich-stat-value--failed" id="enrich-failed">–</span>
-                            <span class="enrich-stat-label">Failed</span>
-                        </div>
-                    </div>
-
-                    <div class="enrich-progress-wrap">
+                    <div class="enrich-progress-wrap" style="margin-bottom:8px">
                         <div class="enrich-progress-bar" aria-hidden="true">
                             <div id="enrich-progress-bar" class="enrich-progress-fill"></div>
                         </div>
@@ -2461,6 +2479,7 @@
                         <button id="enrich-all-btn" class="btn btn-primary btn-sm">Enrich All</button>
                         <button id="enrich-pause-btn" class="btn btn-outline btn-sm" disabled>Pause</button>
                         <button id="enrich-resume-btn" class="btn btn-outline btn-sm" style="display:none;">Resume</button>
+                        <a href="#" class="btn btn-outline btn-sm" data-nav="enrichment" style="margin-left:auto">Open Enrichment →</a>
                     </div>
                     <div id="enrich-action-result" class="enrich-result"></div>
                 </section>

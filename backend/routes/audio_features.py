@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 from backend.db import get_db_connection
 from backend.filter_sessions import store_session
-from backend.models import DJSetCurvePoint, DJSetRequest, DJSetResponse, Track
+from backend.models import DJSetCurvePoint, DJSetRequest, DJSetResponse, DJTrack
 
 logger = logging.getLogger(__name__)
 
@@ -286,17 +286,23 @@ async def build_dj_set(request: DJSetRequest) -> DJSetResponseWithSession:
         seed_item_key=request.seed_item_key,
         start_mood=request.start_mood,
         end_mood=request.end_mood,
+        max_per_artist=request.max_per_artist,
+        allow_half_step=request.allow_half_step,
+        skip_recent=request.skip_recent,
     )
 
     tracks = [
-        Track(
+        DJTrack(
             item_key=t["item_key"],
             title=t["title"],
             artist=t["artist"],
             album=t["album"],
-            duration_ms=0,
+            duration_ms=t.get("duration_ms") or 0,
             year=t.get("year"),
-            genres=[],
+            bpm=t.get("bpm"),
+            camelot=t.get("camelot"),
+            energy=t.get("energy"),
+            valence=t.get("valence"),
         )
         for t in result["tracks"]
     ]
@@ -317,4 +323,5 @@ async def build_dj_set(request: DJSetRequest) -> DJSetResponseWithSession:
         tracks=tracks,
         curve=[DJSetCurvePoint(**c) for c in result["curve"]],
         session_id=session_id,
+        total_duration_ms=result.get("total_duration_ms", 0),
     )

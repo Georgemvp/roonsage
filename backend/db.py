@@ -595,6 +595,12 @@ def init_schema(conn: sqlite3.Connection) -> bool:
             ON track_audio_features(camelot);
         CREATE INDEX IF NOT EXISTS idx_audio_features_energy
             ON track_audio_features(energy);
+        CREATE INDEX IF NOT EXISTS idx_audio_features_valence
+            ON track_audio_features(valence);
+        CREATE INDEX IF NOT EXISTS idx_audio_features_bpm_valence
+            ON track_audio_features(bpm, valence);
+        CREATE INDEX IF NOT EXISTS idx_track_genres_track_key
+            ON track_genres(track_key, genre);
 
         CREATE TABLE IF NOT EXISTS audio_features_queue (
             item_key TEXT PRIMARY KEY,

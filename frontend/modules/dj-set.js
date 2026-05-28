@@ -1,10 +1,6 @@
 // =============================================================================
 // DJ Set view — beatmatched, harmonically-mixed set builder
 // =============================================================================
-//
-// Renders the form in #dj-set-view, calls /api/audio-features/dj-set, draws
-// the resulting BPM curve in a Chart.js canvas, and provides "Play on zone"
-// which dispatches the curated set via the standard play_tracks endpoint.
 
 import { apiCall } from './api.js';
 import { ensureChartJS } from './taste.js';
@@ -18,12 +14,11 @@ let _curveChart = null;
 let _selectedGenres = new Set();
 let _bpmUserEdited = false;
 
-// Pre-fetch genres as soon as the module loads so the data is ready by the
-// time the user opens the DJ Set view — avoids "Laden…" delay on navigation.
+// Pre-fetch genres + Chart.js as soon as the module loads.
 const _genresFetch = apiCall('/library/stats').catch(() => null);
+const _chartJsPreload = ensureChartJS().catch(() => null);
 
 // Energy rank per mood (1 = calmest, 18 = most energetic).
-// Used to restrict which end moods are valid for a given curve direction.
 const MOOD_ENERGY_RANK = {
     meditatief: 1, rustig: 2, dromerig: 3, zacht: 4, melancholisch: 5,
     romantisch: 6, chill: 7, nostalgisch: 8, serieus: 9, donker: 10,
@@ -31,24 +26,12 @@ const MOOD_ENERGY_RANK = {
     feestelijk: 16, opgewonden: 17, euforisch: 18,
 };
 
-// Which direction a curve travels: 'up' (end > start), 'down' (end < start), 'any'.
 const CURVE_DIRECTION = {
-    ramp_up:      'up',
-    crescendo:    'up',
-    sunrise:      'up',
-    explosion:    'up',
-    marathon:     'up',
-    ramp_down:    'down',
-    afterparty:   'down',
-    flat:         'any',
-    peak:         'any',
-    valley:       'any',
-    wave:         'any',
-    rollercoaster:'any',
+    ramp_up: 'up', crescendo: 'up', sunrise: 'up', explosion: 'up', marathon: 'up',
+    ramp_down: 'down', afterparty: 'down',
+    flat: 'any', peak: 'any', valley: 'any', wave: 'any', rollercoaster: 'any',
 };
 
-// Typical BPM center + half-spread per mood.
-// center = midpoint, spread = half the typical range.
 const MOOD_BPM = {
     meditatief:    { center: 65,  spread: 10 },
     rustig:        { center: 72,  spread: 10 },
@@ -82,7 +65,7 @@ function _filterEndMoods() {
 
     endSelect.querySelectorAll('option[value]').forEach(opt => {
         const val = opt.value;
-        if (!val) return; // keep the "— Zelfde als start —" placeholder
+        if (!val) return;
         const rank = MOOD_ENERGY_RANK[val] ?? 0;
         let allowed = true;
         if (direction === 'up'   && startMood) allowed = rank > startRank;
@@ -91,7 +74,6 @@ function _filterEndMoods() {
         opt.disabled = !allowed;
     });
 
-    // If the currently selected end mood is no longer valid, reset it
     const selectedOpt = endSelect.querySelector(`option[value="${currentEnd}"]`);
     if (currentEnd && selectedOpt?.hidden) endSelect.value = '';
 }
@@ -117,11 +99,9 @@ function _suggestBpm() {
         const mid = Math.round((startProfile.center + endCenter) / 2);
         startBpm = endBpm = mid;
     } else if (curve === 'ramp_down') {
-        // High → low: start at the higher of the two, end at the lower
         startBpm = Math.max(startProfile.center, endCenter) + Math.round(startProfile.spread * 0.5);
         endBpm   = Math.min(startProfile.center, endCenter) - Math.round(startProfile.spread * 0.5);
     } else {
-        // ramp_up, peak, valley: start low, ramp up to end
         startBpm = startProfile.center - Math.round(startProfile.spread * 0.5);
         endBpm   = endCenter + Math.round((endProfile?.spread ?? startProfile.spread) * 0.5);
     }
@@ -136,7 +116,7 @@ function _suggestBpm() {
 }
 
 function _esc(s) {
-    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function _updateGenreCountLabel() {
@@ -152,7 +132,7 @@ async function _loadGenres() {
     if (!cloud) return;
     try {
         const data = await _genresFetch;
-        const genres = data.genres || [];
+        const genres = data?.genres || [];
         if (!genres.length) {
             cloud.innerHTML = '<span style="color:var(--text-muted);font-size:0.85em;">Geen genres gevonden.</span>';
             return;
@@ -278,77 +258,270 @@ function _openArcModal() {
     }, { once: true });
 }
 
+// ---------------------------------------------------------------------------
+// Harmonic transition quality between two consecutive tracks
+// ---------------------------------------------------------------------------
+
+const CAMELOT_COMPAT = (() => {
+    const map = {};
+    for (let n = 1; n <= 12; n++) {
+        for (const mode of ['A', 'B']) {
+            const key = `${n}${mode}`;
+            const prev = `${n === 1 ? 12 : n - 1}${mode}`;
+            const next = `${n === 12 ? 1 : n + 1}${mode}`;
+            const other = `${n}${mode === 'A' ? 'B' : 'A'}`;
+            map[key] = new Set([prev, next, other]);
+        }
+    }
+    return map;
+})();
+
+function _transitionQuality(fromKey, toKey) {
+    if (!fromKey || !toKey) return null;
+    if (fromKey === toKey) return 'same';
+    if (CAMELOT_COMPAT[fromKey]?.has(toKey)) return 'ok';
+    return 'clash';
+}
+
+// ---------------------------------------------------------------------------
+// Track list renderer
+// ---------------------------------------------------------------------------
+
+function _formatDuration(ms) {
+    if (!ms) return '';
+    const s = Math.round(ms / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function _formatTotalDuration(ms) {
+    if (!ms) return '';
+    const totalMin = Math.round(ms / 60000);
+    if (totalMin < 60) return `${totalMin} min`;
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    return m ? `${h}u ${m}m` : `${h}u`;
+}
+
+function _camelotBadge(key) {
+    if (!key) return '';
+    const isMinor = key.endsWith('A');
+    const color = isMinor ? '#7986cb' : '#4db6ac';
+    return `<span class="dj-camelot-badge" style="background:${color};color:#fff;font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:4px;letter-spacing:0.02em">${_esc(key)}</span>`;
+}
+
+function _energyBar(energy) {
+    if (energy == null) return '';
+    const pct = Math.round((energy || 0) * 100);
+    const color = pct > 75 ? '#f44336' : pct > 50 ? '#e5a00d' : pct > 25 ? '#4db6ac' : '#7986cb';
+    return `<div class="dj-energy-bar" title="Energy ${pct}%" style="width:40px;height:4px;background:var(--border);border-radius:2px;overflow:hidden;display:inline-block;vertical-align:middle;margin-left:4px">
+        <div style="width:${pct}%;height:100%;background:${color}"></div>
+    </div>`;
+}
+
+function _transitionIndicator(quality, bpmDelta) {
+    if (quality === null) return '';
+    const icons = { same: '≈', ok: '✓', clash: '⚠' };
+    const colors = { same: 'var(--text-muted)', ok: '#4caf50', clash: '#ff9800' };
+    const bpmStr = bpmDelta != null ? ` ${bpmDelta > 0 ? '+' : ''}${bpmDelta.toFixed(0)}` : '';
+    return `<div class="dj-transition" style="text-align:center;font-size:0.65rem;color:${colors[quality]};padding:2px 0;line-height:1">
+        <span title="${quality === 'ok' ? 'Harmonisch' : quality === 'same' ? 'Zelfde toonaard' : 'Toonaard-botsing'}">${icons[quality]}</span><span style="color:var(--text-muted)">${bpmStr} BPM</span>
+    </div>`;
+}
+
 function _renderTracks(tracks, curve) {
     const target = document.getElementById('dj-result');
     if (!target) return;
-    // Show result area now that we have content
     target.style.display = '';
     if (!tracks?.length) {
         target.innerHTML = '<p class="auto-loading">Geen tracks gevonden. Heb je AUDIO_FEATURES_ENABLED aan en is de analyse al klaar?</p>';
         return;
     }
-    const rows = tracks.map((t, i) => {
+
+    let html = '';
+    for (let i = 0; i < tracks.length; i++) {
+        const t = tracks[i];
         const c = curve[i] || {};
-        const bpm = c.bpm ? `${c.bpm.toFixed(0)} BPM` : '';
-        return `
-            <div class="rs-track-row">
+        const actualBpm = t.bpm ? `${t.bpm.toFixed(0)}` : (c.bpm ? `${c.bpm.toFixed(0)}` : '–');
+        const dur = _formatDuration(t.duration_ms);
+
+        html += `
+            <div class="rs-track-row dj-track-row" data-track-idx="${i}" data-item-key="${_esc(t.item_key)}">
                 <span class="rs-track-num">${i + 1}</span>
-                <div class="rs-track-art"></div>
+                <img class="rs-track-art" src="/api/art/${_esc(t.item_key)}" alt="" loading="lazy"
+                     onerror="this.style.display='none'">
                 <div class="rs-track-info">
                     <div class="rs-track-title">${_esc(t.title)}</div>
-                    <div class="rs-track-artist">${_esc(t.artist)} · ${_esc(t.album || '')}</div>
+                    <div class="rs-track-artist" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                        <span>${_esc(t.artist)} · ${_esc(t.album || '')}</span>
+                        ${dur ? `<span style="color:var(--text-muted);font-size:0.72rem">${_esc(dur)}</span>` : ''}
+                    </div>
                 </div>
-                <span class="auto-badge auto-badge--neutral">${bpm}</span>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
+                    <div style="display:flex;align-items:center;gap:5px">
+                        ${_camelotBadge(t.camelot)}
+                        <span class="auto-badge auto-badge--neutral" style="font-size:0.7rem">${actualBpm} BPM</span>
+                    </div>
+                    ${_energyBar(t.energy)}
+                </div>
             </div>
         `;
-    }).join('');
-    target.innerHTML = rows;
+
+        // Transition indicator between this and the next track
+        if (i < tracks.length - 1) {
+            const next = tracks[i + 1];
+            const quality = _transitionQuality(t.camelot, next.camelot);
+            const bpmDelta = (t.bpm != null && next.bpm != null) ? (next.bpm - t.bpm) : null;
+            html += _transitionIndicator(quality, bpmDelta);
+        }
+    }
+    target.innerHTML = html;
+
+    // Load album art lazily via intersection observer if supported
+    target.querySelectorAll('.rs-track-art').forEach(img => {
+        img.addEventListener('load', () => { img.style.display = ''; });
+    });
 
     // Update Camelot wheel with the keys used in this set
-    const keys = (tracks || []).map(t => t.camelot_key || t.key).filter(Boolean);
+    const keys = (tracks || []).map(t => t.camelot).filter(Boolean);
     renderCamelotWheel('dj-camelot-wheel', [...new Set(keys)]);
 }
 
-async function _renderCurve(curve) {
+// ---------------------------------------------------------------------------
+// Summary stats card
+// ---------------------------------------------------------------------------
+
+function _renderSummary(tracks, totalDurationMs) {
+    const container = document.getElementById('dj-summary');
+    if (!container) return;
+
+    const bpms = tracks.map(t => t.bpm).filter(Boolean);
+    const avgBpm = bpms.length ? (bpms.reduce((a, b) => a + b, 0) / bpms.length) : null;
+    const minBpm = bpms.length ? Math.min(...bpms) : null;
+    const maxBpm = bpms.length ? Math.max(...bpms) : null;
+
+    const energies = tracks.map(t => t.energy).filter(e => e != null);
+    const minE = energies.length ? Math.min(...energies) : null;
+    const maxE = energies.length ? Math.max(...energies) : null;
+
+    let harmonicOk = 0, harmonicTotal = 0;
+    for (let i = 0; i < tracks.length - 1; i++) {
+        const q = _transitionQuality(tracks[i].camelot, tracks[i + 1].camelot);
+        if (q !== null) {
+            harmonicTotal++;
+            if (q === 'ok' || q === 'same') harmonicOk++;
+        }
+    }
+    const harmonicPct = harmonicTotal ? Math.round(harmonicOk / harmonicTotal * 100) : null;
+
+    const artists = new Set(tracks.map(t => t.artist));
+
+    const dur = _formatTotalDuration(totalDurationMs);
+    const bpmRangeStr = minBpm != null ? `${minBpm.toFixed(0)}–${maxBpm.toFixed(0)} BPM` : '–';
+    const energyRangeStr = minE != null ? `${Math.round(minE * 100)}–${Math.round(maxE * 100)}%` : '–';
+
+    container.innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;gap:12px 20px;padding:10px 14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;font-size:0.78rem;color:var(--text-secondary);margin-bottom:12px">
+            ${dur ? `<span title="Geschatte duur">⏱ ${_esc(dur)}</span>` : ''}
+            ${avgBpm != null ? `<span title="Gemiddeld BPM">♩ ∅ ${avgBpm.toFixed(0)} BPM</span>` : ''}
+            <span title="BPM-bereik">↔ ${_esc(bpmRangeStr)}</span>
+            ${harmonicPct != null ? `<span title="Harmonische transities" style="color:${harmonicPct >= 70 ? '#4caf50' : harmonicPct >= 40 ? '#ff9800' : '#f44336'}">⟳ ${harmonicPct}% harmonisch</span>` : ''}
+            ${energyRangeStr !== '–' ? `<span title="Energy-bereik">⚡ ${_esc(energyRangeStr)}</span>` : ''}
+            <span title="Aantal unieke artiesten">🎤 ${artists.size} artiest${artists.size !== 1 ? 'en' : ''}</span>
+        </div>
+    `;
+    container.style.display = '';
+}
+
+// ---------------------------------------------------------------------------
+// BPM/Energy curve chart
+// ---------------------------------------------------------------------------
+
+async function _renderCurve(curve, tracks) {
     const canvas = document.getElementById('dj-curve-chart');
     if (!canvas) return;
-    await ensureChartJS();
+    canvas.style.display = '';
+    await _chartJsPreload;
     if (_curveChart) {
         _curveChart.destroy();
         _curveChart = null;
     }
     const labels = curve.map((_, i) => String(i + 1));
     const hasValence = curve.some(c => c.valence != null);
+
+    // Target datasets (solid lines)
     const datasets = [
         {
-            label: 'BPM', data: curve.map(c => c.bpm),
-            borderColor: '#e5a00d', tension: 0.3, yAxisID: 'y',
+            label: 'BPM (doel)', data: curve.map(c => c.bpm),
+            borderColor: '#e5a00d', backgroundColor: 'transparent',
+            tension: 0.3, yAxisID: 'y', borderWidth: 2,
         },
         {
-            label: 'Energy (×100)', data: curve.map(c => Math.round((c.energy || 0) * 100)),
-            borderColor: '#5fb3b3', tension: 0.3, yAxisID: 'y',
+            label: 'Energy (doel ×100)', data: curve.map(c => Math.round((c.energy || 0) * 100)),
+            borderColor: '#5fb3b3', backgroundColor: 'transparent',
+            tension: 0.3, yAxisID: 'y', borderWidth: 2,
         },
     ];
+
+    // Actual track values (dashed overlay)
+    if (tracks?.length) {
+        const actualBpms = tracks.map(t => t.bpm != null ? Math.round(t.bpm) : null);
+        const actualEnergies = tracks.map(t => t.energy != null ? Math.round(t.energy * 100) : null);
+        datasets.push({
+            label: 'BPM (werkelijk)', data: actualBpms,
+            borderColor: '#e5a00d', borderDash: [4, 3], borderWidth: 1.5,
+            backgroundColor: 'transparent', tension: 0.2, yAxisID: 'y', pointRadius: 3,
+        });
+        datasets.push({
+            label: 'Energy (werkelijk ×100)', data: actualEnergies,
+            borderColor: '#5fb3b3', borderDash: [4, 3], borderWidth: 1.5,
+            backgroundColor: 'transparent', tension: 0.2, yAxisID: 'y', pointRadius: 3,
+        });
+    }
+
     if (hasValence) {
         datasets.push({
             label: 'Mood/Valence (×100)', data: curve.map(c => Math.round((c.valence || 0) * 100)),
-            borderColor: '#b388ff', borderDash: [4, 3], tension: 0.3, yAxisID: 'y',
+            borderColor: '#b388ff', borderDash: [6, 3], tension: 0.3, yAxisID: 'y', borderWidth: 1.5,
         });
     }
+
     _curveChart = new Chart(canvas, {
         type: 'line',
         data: { labels, datasets },
         options: {
             responsive: true, maintainAspectRatio: false,
             scales: { y: { beginAtZero: false } },
+            plugins: {
+                legend: { labels: { boxWidth: 12, font: { size: 11 } } },
+                tooltip: { mode: 'index', intersect: false },
+            },
+            onClick: (_evt, elements) => {
+                if (!elements?.length) return;
+                const idx = elements[0].index;
+                _highlightTrack(idx);
+                const row = document.querySelector(`.dj-track-row[data-track-idx="${idx}"]`);
+                row?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            },
+            onHover: (_evt, elements) => {
+                if (canvas) canvas.style.cursor = elements?.length ? 'pointer' : 'default';
+            },
         },
     });
 }
 
+function _highlightTrack(idx) {
+    document.querySelectorAll('.dj-track-row').forEach((row, i) => {
+        row.style.background = i === idx ? 'var(--bg-elevated)' : '';
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Build
+// ---------------------------------------------------------------------------
+
 async function _build(ev) {
     ev?.preventDefault();
     const status = document.getElementById('dj-status');
-    const playBtn = document.getElementById('dj-play-btn');
     if (status) { status.textContent = 'Bouw set…'; status.style.color = ''; }
 
     const genres = Array.from(_selectedGenres);
@@ -356,15 +529,20 @@ async function _build(ev) {
     const payload = {
         duration_minutes: parseInt(document.getElementById('dj-duration').value, 10) || 60,
         start_bpm: parseFloat(document.getElementById('dj-start-bpm').value) || 110,
-        end_bpm: parseFloat(document.getElementById('dj-end-bpm').value) || 128,
+        end_bpm:   parseFloat(document.getElementById('dj-end-bpm').value)   || 128,
         energy_curve: document.getElementById('dj-curve').value || 'ramp_up',
         genres,
         start_mood: document.getElementById('dj-start-mood')?.value || null,
         end_mood:   document.getElementById('dj-end-mood')?.value   || null,
-        mix_style:  document.querySelector('input[name="dj-mix-style"]:checked')?.value || 'harmonic',
         allow_half_step: document.getElementById('dj-opt-halfstep')?.checked ?? true,
-        max_per_artist: document.getElementById('dj-opt-max-artist')?.checked ? 2 : null,
-        analyzed_only: document.getElementById('dj-opt-analyzed')?.checked ?? false,
+        max_per_artist: (() => {
+            const el = document.getElementById('dj-opt-max-artist');
+            if (!el) return null;
+            // Checkbox: checked = max 2 per artist, unchecked = no hard limit
+            if (el.type === 'checkbox') return el.checked ? 2 : null;
+            const val = parseInt(el.value, 10);
+            return isNaN(val) ? null : val;
+        })(),
         exclude_live: document.getElementById('dj-opt-no-live')?.checked ?? true,
         skip_recent: document.getElementById('dj-opt-no-recent')?.checked ?? false,
     };
@@ -378,7 +556,8 @@ async function _build(ev) {
         _lastPayload = payload;
         _savedId = null;
         _renderTracks(data.tracks, data.curve || []);
-        _renderCurve(data.curve || []);
+        _renderCurve(data.curve || [], data.tracks);
+        _renderSummary(data.tracks, data.total_duration_ms || 0);
         if (status) {
             status.textContent = `Set van ${data.returned} tracks (pool: ${data.total_matching}).`;
             status.style.color = '#4caf50';
@@ -402,14 +581,12 @@ function _defaultSetName(payload) {
 }
 
 function _showResultActions(payload) {
-    // Reveal the action buttons next to Build set
     ['dj-play-btn', 'dj-save-btn', 'dj-arc-btn'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = '';
     });
     const saveBtn = document.getElementById('dj-save-btn');
     if (saveBtn) { saveBtn.textContent = 'Opslaan'; saveBtn.disabled = false; }
-    // Show name input below tracklist
     const actionsEl = document.getElementById('dj-result-actions');
     if (actionsEl) actionsEl.style.display = 'block';
     const nameInput = document.getElementById('dj-set-name');
@@ -460,22 +637,63 @@ async function _loadDJHistory() {
             list.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:24px 0">Nog geen opgeslagen sets.</p>';
             return;
         }
-        list.innerHTML = sets.map(s => `
-            <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg-surface);border:1px solid var(--border);border-radius:11px;margin-bottom:8px">
-                <div style="flex:1;min-width:0">
-                    <div style="font-size:0.86rem;font-weight:600;color:var(--text-primary);margin-bottom:3px">${_esc(s.name || 'DJ Set')}</div>
-                    <div style="font-size:0.72rem;color:var(--text-muted)">${s.tracks?.length || 0} tracks · ${s.start_bpm || '?'}–${s.end_bpm || '?'} BPM · ${s.energy_curve || ''}</div>
-                </div>
-                <button class="btn btn-primary btn-sm" onclick="document.dispatchEvent(new CustomEvent('dj-history-play', {detail: ${JSON.stringify({id: s.id})}}))">Queue</button>
-            </div>
-        `).join('');
+        list.innerHTML = '';
+        for (const s of sets) {
+            const item = document.createElement('div');
+            item.style.cssText = 'display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg-surface);border:1px solid var(--border);border-radius:11px;margin-bottom:8px';
+
+            const info = document.createElement('div');
+            info.style.cssText = 'flex:1;min-width:0';
+
+            const nameEl = document.createElement('div');
+            nameEl.style.cssText = 'font-size:0.86rem;font-weight:600;color:var(--text-primary);margin-bottom:3px';
+            nameEl.textContent = s.name || 'DJ Set';
+
+            const meta = document.createElement('div');
+            meta.style.cssText = 'font-size:0.72rem;color:var(--text-muted)';
+            const moodStr = [s.start_mood, s.end_mood].filter(Boolean).join(' → ');
+            const dateStr = s.created_at ? new Date(s.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) : '';
+            meta.textContent = [
+                `${s.tracks?.length || 0} tracks`,
+                `${s.start_bpm || '?'}–${s.end_bpm || '?'} BPM`,
+                moodStr,
+                dateStr,
+            ].filter(Boolean).join(' · ');
+
+            info.append(nameEl, meta);
+
+            const queueBtn = document.createElement('button');
+            queueBtn.className = 'btn btn-primary btn-sm';
+            queueBtn.textContent = 'Queue';
+            queueBtn.addEventListener('click', () => {
+                document.dispatchEvent(new CustomEvent('dj-history-play', { detail: { id: s.id } }));
+            });
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'btn btn-sm';
+            delBtn.style.cssText = 'color:var(--text-muted);border-color:var(--border)';
+            delBtn.title = 'Verwijderen';
+            delBtn.textContent = '✕';
+            delBtn.addEventListener('click', async () => {
+                if (!confirm(`"${s.name || 'DJ Set'}" verwijderen?`)) return;
+                try {
+                    await apiCall(`/dj-sets/${encodeURIComponent(s.id)}`, { method: 'DELETE' });
+                    item.remove();
+                } catch (e) {
+                    alert('Verwijderen mislukt: ' + e.message);
+                }
+            });
+
+            item.append(info, queueBtn, delBtn);
+            list.appendChild(item);
+        }
     } catch (e) {
         list.innerHTML = `<p style="color:var(--error);font-size:0.85rem">${_esc(e.message)}</p>`;
     }
 }
 
 // ---------------------------------------------------------------------------
-// Tab switching (Bouwer | Templates)
+// Tab switching
 // ---------------------------------------------------------------------------
 
 let _templatesPaneInitDone = false;
@@ -487,9 +705,9 @@ export function switchDJTab(tab) {
         t.classList.toggle('active', active);
         t.setAttribute('aria-selected', active ? 'true' : 'false');
     });
-    const builder = document.getElementById('dj-builder-pane');
+    const builder   = document.getElementById('dj-builder-pane');
     const templates = document.getElementById('dj-templates-pane');
-    const history  = document.getElementById('dj-history-pane');
+    const history   = document.getElementById('dj-history-pane');
     if (builder)   builder.style.display   = tab === 'builder'   ? '' : 'none';
     if (templates) templates.style.display = tab === 'templates' ? '' : 'none';
     if (history)   history.style.display   = tab === 'history'   ? '' : 'none';
@@ -498,17 +716,12 @@ export function switchDJTab(tab) {
 
     if (tab === 'templates' && !_templatesPaneInitDone) {
         _templatesPaneInitDone = true;
-        // Lazy-load the templates module so initial DJ view load stays slim.
         import('./dj-templates.js').then(m => m.initDJTemplatesPane());
     } else if (tab === 'templates') {
         import('./dj-templates.js').then(m => m.initDJTemplatesPane());
     }
 }
 
-/**
- * Hand a build result from the Templates pane into the Builder pane so the
- * existing render + playback wiring takes over.
- */
 export function showTemplateBuildResult(data, template) {
     _lastResult = data;
     _lastPayload = {
@@ -522,7 +735,8 @@ export function showTemplateBuildResult(data, template) {
     };
     _savedId = null;
     _renderTracks(data.tracks, data.curve || []);
-    _renderCurve(data.curve || []);
+    _renderCurve(data.curve || [], data.tracks);
+    _renderSummary(data.tracks, data.total_duration_ms || 0);
     _showResultActions(_lastPayload);
     const status = document.getElementById('dj-status');
     if (status) {
@@ -536,54 +750,70 @@ export function showTemplateBuildResult(data, template) {
 }
 
 // ── Camelot Wheel SVG renderer ────────────────────────────────────────────────
+
+const KEY_COLORS_A = {
+    '1':'#e57373','2':'#ff8a65','3':'#ffb74d','4':'#dce775',
+    '5':'#aed581','6':'#4db6ac','7':'#4fc3f7','8':'#7986cb',
+    '9':'#ba68c8','10':'#f06292','11':'#e53935','12':'#ff7043',
+};
+const KEY_COLORS_B = {
+    '1':'#ef9a9a','2':'#ffab91','3':'#ffcc80','4':'#f0f4c3',
+    '5':'#c5e1a5','6':'#80cbc4','7':'#81d4fa','8':'#9fa8da',
+    '9':'#ce93d8','10':'#f48fb1','11':'#ef5350','12':'#ff8a65',
+};
+
 export function renderCamelotWheel(containerId, activeKeys = []) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    const KEY_COLORS = {
-        '1A':'#e57373','1B':'#ef9a9a','2A':'#ff8a65','2B':'#ffab91',
-        '3A':'#ffb74d','3B':'#ffcc80','4A':'#e6ee9c','4B':'#f0f4c3',
-        '5A':'#aed581','5B':'#c5e1a5','6A':'#4db6ac','6B':'#80cbc4',
-        '7A':'#4fc3f7','7B':'#81d4fa','8A':'#7986cb','8B':'#9fa8da',
-        '9A':'#ba68c8','9B':'#ce93d8','10A':'#f06292','10B':'#f48fb1',
-        '11A':'#e53935','11B':'#ef5350','12A':'#ff7043','12B':'#ff8a65',
-    };
-
-    const cx = 110, cy = 110, ro = 90, ri = 52;
+    const cx = 110, cy = 110, ro = 95, rm = 73, ri = 52;
     let paths = '';
+
     for (let n = 1; n <= 12; n++) {
         const startAngle = ((n - 1) / 12) * Math.PI * 2 - Math.PI / 2;
         const endAngle   = (n       / 12) * Math.PI * 2 - Math.PI / 2;
-        const x1o = cx + ro * Math.cos(startAngle), y1o = cy + ro * Math.sin(startAngle);
-        const x2o = cx + ro * Math.cos(endAngle),   y2o = cy + ro * Math.sin(endAngle);
-        const x1i = cx + ri * Math.cos(startAngle), y1i = cy + ri * Math.sin(startAngle);
-        const x2i = cx + ri * Math.cos(endAngle),   y2i = cy + ri * Math.sin(endAngle);
         const midA = (startAngle + endAngle) / 2;
-        const rm = (ro + ri) / 2;
-        const tx = cx + rm * Math.cos(midA), ty = cy + rm * Math.sin(midA);
-        const keyA = `${n}A`, keyB = `${n}B`;
-        const isActive = activeKeys.includes(keyA) || activeKeys.includes(keyB);
-        const color = KEY_COLORS[keyA] || '#888';
-        paths += `<path d="M${x1o.toFixed(1)},${y1o.toFixed(1)} A${ro},${ro} 0 0,1 ${x2o.toFixed(1)},${y2o.toFixed(1)} L${x2i.toFixed(1)},${y2i.toFixed(1)} A${ri},${ri} 0 0,0 ${x1i.toFixed(1)},${y1i.toFixed(1)} Z" fill="${color}" opacity="${isActive ? 1 : 0.3}" stroke="var(--bg-primary)" stroke-width="1.5"/>`;
-        paths += `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="7.5" font-weight="700" fill="rgba(0,0,0,0.7)">${n}</text>`;
+
+        // Outer ring = B (major)
+        const x1oB = cx + ro * Math.cos(startAngle), y1oB = cy + ro * Math.sin(startAngle);
+        const x2oB = cx + ro * Math.cos(endAngle),   y2oB = cy + ro * Math.sin(endAngle);
+        const x1mB = cx + rm * Math.cos(startAngle), y1mB = cy + rm * Math.sin(startAngle);
+        const x2mB = cx + rm * Math.cos(endAngle),   y2mB = cy + rm * Math.sin(endAngle);
+        const txB = cx + (ro + rm) / 2 * Math.cos(midA), tyB = cy + (ro + rm) / 2 * Math.sin(midA);
+        const keyB = `${n}B`;
+        const activeB = activeKeys.includes(keyB);
+        paths += `<path d="M${x1oB.toFixed(1)},${y1oB.toFixed(1)} A${ro},${ro} 0 0,1 ${x2oB.toFixed(1)},${y2oB.toFixed(1)} L${x2mB.toFixed(1)},${y2mB.toFixed(1)} A${rm},${rm} 0 0,0 ${x1mB.toFixed(1)},${y1mB.toFixed(1)} Z" fill="${KEY_COLORS_B[n]}" opacity="${activeB ? 1 : 0.25}" stroke="var(--bg-primary)" stroke-width="1.5"/>`;
+        paths += `<text x="${txB.toFixed(1)}" y="${tyB.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="6.5" font-weight="700" fill="rgba(0,0,0,0.7)">${n}B</text>`;
+
+        // Inner ring = A (minor)
+        const x1mA = cx + rm * Math.cos(startAngle), y1mA = cy + rm * Math.sin(startAngle);
+        const x2mA = cx + rm * Math.cos(endAngle),   y2mA = cy + rm * Math.sin(endAngle);
+        const x1iA = cx + ri * Math.cos(startAngle), y1iA = cy + ri * Math.sin(startAngle);
+        const x2iA = cx + ri * Math.cos(endAngle),   y2iA = cy + ri * Math.sin(endAngle);
+        const txA = cx + (rm + ri) / 2 * Math.cos(midA), tyA = cy + (rm + ri) / 2 * Math.sin(midA);
+        const keyA = `${n}A`;
+        const activeA = activeKeys.includes(keyA);
+        paths += `<path d="M${x1mA.toFixed(1)},${y1mA.toFixed(1)} A${rm},${rm} 0 0,1 ${x2mA.toFixed(1)},${y2mA.toFixed(1)} L${x2iA.toFixed(1)},${y2iA.toFixed(1)} A${ri},${ri} 0 0,0 ${x1iA.toFixed(1)},${y1iA.toFixed(1)} Z" fill="${KEY_COLORS_A[n]}" opacity="${activeA ? 1 : 0.25}" stroke="var(--bg-primary)" stroke-width="1.5"/>`;
+        paths += `<text x="${txA.toFixed(1)}" y="${tyA.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="6.5" font-weight="700" fill="rgba(0,0,0,0.7)">${n}A</text>`;
     }
 
     container.innerHTML = `
-        <svg viewBox="0 0 220 220" width="180" height="180" style="display:block;margin:0 auto">
+        <svg viewBox="0 0 220 220" width="190" height="190" style="display:block;margin:0 auto">
             ${paths}
             <circle cx="${cx}" cy="${cy}" r="${ri - 2}" fill="var(--bg-elevated)" stroke="var(--border)" stroke-width="1"/>
             <text x="${cx}" y="${cy - 6}" text-anchor="middle" font-size="9" fill="var(--text-muted)" font-weight="600">Camelot</text>
             <text x="${cx}" y="${cy + 6}" text-anchor="middle" font-size="8" fill="var(--text-muted)">Wheel</text>
         </svg>
         <p style="font-size:0.69rem;color:var(--text-muted);text-align:center;line-height:1.5;margin-top:8px">
-            Aangrenzende vakjes zijn harmonisch compatibel
+            Buiten = majeur (B) · Binnen = mineur (A)
         </p>
     `;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Energy curve grid — visual buttons with SVG previews
-// ─────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Energy curve grid
+// ─────────────────────────────────────────────────────────────────────────────
+
 const ENERGY_CURVES = [
     { id:'flat',         label:'Flat',         path:'M 2,50 L 98,50' },
     { id:'ramp_up',      label:'Build',        path:'M 2,85 C 40,70 65,35 98,12' },
@@ -627,11 +857,11 @@ function _renderCurveGrid() {
 
 export async function initDJSetView() {
     if (!_initialized) {
-        // Hide result area until a set is built
         const resultEl = document.getElementById('dj-result');
-        if (resultEl && !resultEl.textContent.trim()) {
-            resultEl.style.display = 'none';
-        }
+        if (resultEl && !resultEl.textContent.trim()) resultEl.style.display = 'none';
+
+        const summaryEl = document.getElementById('dj-summary');
+        if (summaryEl) summaryEl.style.display = 'none';
 
         document.getElementById('dj-form')?.addEventListener('submit', _build);
         document.getElementById('dj-play-btn')?.addEventListener('click', _openZoneModal);
@@ -641,12 +871,10 @@ export async function initDJSetView() {
             document.getElementById('dj-zone-modal')?.classList.add('hidden');
         });
 
-        // Template shortcut button
         document.getElementById('dj-template-shortcut-btn')?.addEventListener('click', () => {
             switchDJTab('templates');
         });
 
-        // Duration pills
         document.querySelectorAll('.dj-duration-pill').forEach(pill => {
             pill.addEventListener('click', () => {
                 const dur = pill.dataset.dur;
@@ -657,12 +885,10 @@ export async function initDJSetView() {
             });
         });
 
-        // Tabs
         document.querySelectorAll('#dj-set-view .rs-tab[data-dj-tab]').forEach(btn => {
             btn.addEventListener('click', () => switchDJTab(btn.dataset.djTab));
         });
 
-        // Track manual BPM edits
         ['dj-start-bpm', 'dj-end-bpm'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', () => {
                 _bpmUserEdited = true;
@@ -671,15 +897,7 @@ export async function initDJSetView() {
             });
         });
 
-        // Render Camelot wheel on first load
         renderCamelotWheel('dj-camelot-wheel');
-
-        // Re-render with active keys after a build
-        document.getElementById('dj-form')?.addEventListener('dj-build-complete', e => {
-            const keys = (e.detail?.tracks || []).map(t => t.key).filter(Boolean);
-            const unique = [...new Set(keys)];
-            renderCamelotWheel('dj-camelot-wheel', unique);
-        });
 
         _initialized = true;
     }

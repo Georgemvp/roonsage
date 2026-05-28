@@ -1,16 +1,22 @@
 """Metadata Enrichment Pipeline REST endpoints (v10.0).
 
 Routes:
-  GET  /api/enrichment/status   — queue stats: pending, complete, failed, …
-  POST /api/enrichment/start    — populate queue and start/resume worker
-  POST /api/enrichment/pause    — pause worker after current item
-  POST /api/enrichment/resume   — resume paused worker
-  GET  /api/enrichment/queue    — paginated queue with per-item status
+  GET  /api/enrichment/status        — queue stats: pending, complete, failed, …
+  POST /api/enrichment/start         — populate queue and start/resume worker
+  POST /api/enrichment/pause         — pause worker after current item
+  POST /api/enrichment/resume        — resume paused worker
+  GET  /api/enrichment/queue         — paginated queue with per-item status
+  GET  /api/enrichment/missing       — tracks without enrichment data
+  POST /api/enrichment/enrich-single — enrich one track on demand
+  GET  /api/enrichment/tags          — aggregated Last.fm tag cloud
+  POST /api/enrichment/retry-failed  — reset all failed items back to pending
 """
 
+import json
 import logging
+from collections import Counter
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from backend.db import get_db_connection
@@ -37,6 +43,9 @@ class EnrichmentStatusResponse(BaseModel):
     worker_paused: bool = False
     lastfm_active: bool = False  # True when Last.fm is configured and active in enrichment
     skip_mb: bool = False        # True when ENRICHMENT_SKIP_MB=true (LF-only, ~50× faster)
+    total_tracks: int = 0
+    source_breakdown: dict = {}
+    recent_completed: list = []
 
 
 class EnrichmentQueueItem(BaseModel):
@@ -77,6 +86,25 @@ async def get_enrichment_status() -> EnrichmentStatusResponse:
     conn = get_db_connection()
     try:
         stats = get_queue_stats(conn)
+
+        total_tracks = conn.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
+
+        breakdown_rows = conn.execute(
+            "SELECT enrichment_source, COUNT(*) AS cnt FROM track_metadata_ext GROUP BY enrichment_source"
+        ).fetchall()
+        source_breakdown = {row["enrichment_source"]: row["cnt"] for row in breakdown_rows}
+
+        recent_rows = conn.execute(
+            """SELECT eq.artist, eq.title, eq.processed_at
+               FROM enrichment_queue eq
+               WHERE eq.status = 'complete'
+               ORDER BY eq.processed_at DESC
+               LIMIT 10"""
+        ).fetchall()
+        recent_completed = [
+            {"artist": r["artist"], "title": r["title"], "processed_at": r["processed_at"]}
+            for r in recent_rows
+        ]
     finally:
         conn.close()
 
@@ -98,6 +126,9 @@ async def get_enrichment_status() -> EnrichmentStatusResponse:
         worker_paused=worker.is_paused(),
         lastfm_active=lastfm_active,
         skip_mb=ENRICHMENT_SKIP_MB,
+        total_tracks=total_tracks,
+        source_breakdown=source_breakdown,
+        recent_completed=recent_completed,
     )
 
 
@@ -230,3 +261,120 @@ async def get_enrichment_queue(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/missing")
+async def get_missing_metadata(limit: int = Query(20, ge=1, le=100)) -> dict:
+    """Return tracks that have no enrichment data or source='none'."""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """SELECT t.item_key, t.artist, t.title, t.album, t.image_key
+               FROM tracks t
+               LEFT JOIN track_metadata_ext me ON me.item_key = t.item_key
+               WHERE me.item_key IS NULL OR me.enrichment_source = 'none'
+               ORDER BY t.artist, t.title
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+
+        total_missing = conn.execute(
+            """SELECT COUNT(*)
+               FROM tracks t
+               LEFT JOIN track_metadata_ext me ON me.item_key = t.item_key
+               WHERE me.item_key IS NULL OR me.enrichment_source = 'none'"""
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    return {
+        "tracks": [
+            {
+                "id": row["item_key"],
+                "artist": row["artist"],
+                "title": row["title"],
+                "album": row["album"],
+                "image_key": row["image_key"],
+            }
+            for row in rows
+        ],
+        "total_missing": total_missing,
+    }
+
+
+@router.post("/enrich-single")
+async def enrich_single_track(body: dict) -> dict:
+    """Enrich a single track by item_key, bypassing the batch dedup cache."""
+    from backend.enrichment_worker import _batch_cache, enrich_one  # noqa: PLC0415
+
+    item_key = body.get("track_id")
+    if not item_key:
+        raise HTTPException(status_code=400, detail="track_id required")
+
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT artist, title FROM tracks WHERE item_key = ?", (item_key,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Track not found")
+
+        artist, title = row["artist"], row["title"]
+
+        # Bypass batch dedup cache for on-demand enrichment
+        import re as _re  # noqa: PLC0415
+        primary = artist.split(",")[0].strip().lower() if artist else ""
+        clean = _re.sub(r'\s*[\(\[].*?[\)\]]\s*$', '', title).strip().lower() if title else ""
+        _batch_cache.pop((primary, clean), None)
+
+        success = await enrich_one(item_key, artist, title, conn)
+    finally:
+        conn.close()
+
+    return {"success": success, "item_key": item_key}
+
+
+@router.get("/tags")
+async def get_enrichment_tags(limit: int = Query(30, ge=1, le=100)) -> dict:
+    """Aggregate the most common Last.fm tags across all enriched tracks."""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            "SELECT lastfm_tags FROM track_metadata_ext WHERE lastfm_tags IS NOT NULL"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    tag_counts: Counter = Counter()
+    for row in rows:
+        try:
+            tags = json.loads(row["lastfm_tags"])
+            for tag in tags:
+                tag_counts[tag.lower().strip()] += 1
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return {
+        "tags": [
+            {"name": name, "count": count}
+            for name, count in tag_counts.most_common(limit)
+        ],
+        "total_unique": len(tag_counts),
+    }
+
+
+@router.post("/retry-failed")
+async def retry_failed() -> dict:
+    """Reset all failed enrichment queue items back to pending."""
+    conn = get_db_connection()
+    try:
+        count = conn.execute(
+            """UPDATE enrichment_queue
+               SET status = 'pending', attempts = 0, error_message = NULL
+               WHERE status = 'failed'"""
+        ).rowcount
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {"reset": count, "message": f"{count} failed items reset to pending."}

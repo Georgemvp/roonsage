@@ -306,25 +306,40 @@ class DJSetRequest(BaseModel):
     seed_item_key: str | None = None
     start_mood: str | None = None
     end_mood: str | None = None
+    max_per_artist: int | None = None  # override default artist cap (2 or 3)
+    allow_half_step: bool = True       # also match tracks at half/double BPM
+    skip_recent: bool = False          # exclude tracks played in the last 7 days
+
+
+class DJTrack(BaseModel):
+    """A track in a DJ set — extends basic fields with audio analysis data."""
+
+    item_key: str
+    title: str
+    artist: str
+    album: str
+    duration_ms: int = 0
+    year: int | None = None
+    bpm: float | None = None
+    camelot: str | None = None
+    energy: float | None = None
+    valence: float | None = None
 
 
 class DJSetCurvePoint(BaseModel):
     bpm: float
     energy: float
+    valence: float | None = None
 
 
 class DJSetResponse(BaseModel):
-    """Output of the DJ set builder.
-
-    ``tracks`` mirrors the field shape of FilterLibraryResponse so the
-    frontend / MCP server can pipe the result straight into the existing
-    server-side session + curate_and_play flow.
-    """
+    """Output of the DJ set builder."""
 
     total_matching: int
     returned: int
-    tracks: list[Track]
+    tracks: list[DJTrack]
     curve: list[DJSetCurvePoint] = []
+    total_duration_ms: int = 0
 
 
 class SeedTrackInput(BaseModel):
