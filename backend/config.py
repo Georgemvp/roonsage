@@ -501,6 +501,31 @@ def get_enrichment_skip_mb() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# LLM response cache (v13.5)
+# ---------------------------------------------------------------------------
+
+
+def get_llm_cache_enabled() -> bool:
+    """True when LLM generation responses should be cached locally.
+
+    Defaults to True — the cache is keyed by the full prompt + system +
+    model, so collisions only happen on identical requests.
+    """
+    return _env_bool("LLM_CACHE_ENABLED", True)
+
+
+def get_llm_cache_ttl_seconds() -> int:
+    """How long a cached LLM response stays valid (env: LLM_CACHE_TTL_SECONDS).
+
+    Defaults to 24 hours. Zero or negative disables the cache entirely.
+    """
+    try:
+        return int(os.environ.get("LLM_CACHE_TTL_SECONDS", "86400"))
+    except ValueError:
+        return 86400
+
+
+# ---------------------------------------------------------------------------
 # CLAP text-to-audio search (v13.0)
 # ---------------------------------------------------------------------------
 

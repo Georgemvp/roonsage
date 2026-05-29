@@ -152,3 +152,29 @@ async def analyze_track(request: AnalyzeTrackRequest) -> AnalyzeTrackResponse:
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}") from e
+
+
+# ---------------------------------------------------------------------------
+# LLM response cache management
+# ---------------------------------------------------------------------------
+
+
+@router.get("/llm-cache/stats")
+async def llm_cache_stats() -> dict:
+    """Return LLM response cache diagnostics."""
+    from backend import llm_cache  # noqa: PLC0415
+
+    return llm_cache.get_stats()
+
+
+@router.delete("/llm-cache")
+async def llm_cache_clear(kind: str | None = None) -> dict:
+    """Clear LLM response cache entries.
+
+    Pass ``?kind=playlist`` or ``?kind=album_selection`` to restrict to
+    one category. Omit to clear everything.
+    """
+    from backend import llm_cache  # noqa: PLC0415
+
+    deleted = llm_cache.clear_cache(kind=kind)
+    return {"deleted": deleted, "kind": kind}

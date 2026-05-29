@@ -243,6 +243,32 @@ async def search_library(
     )
 
 
+@router.get("/library/album-tracks", response_model=list[Track])
+async def album_tracks(
+    artist: str = Query(..., description="Album artist"),
+    album: str = Query(..., description="Album title"),
+) -> list[Track]:
+    """Resolve an album to its tracks from the cache via text match.
+
+    Used by Discovery to play albums without relying on stale Roon browse keys.
+    """
+    if not library_cache.has_cached_tracks():
+        raise HTTPException(status_code=503, detail="Library cache empty")
+    rows = await asyncio.to_thread(library_cache.get_album_tracks, artist, album)
+    return [
+        Track(
+            item_key=t["item_key"],
+            title=t["title"],
+            artist=t["artist"],
+            album=t["album"],
+            duration_ms=t.get("duration_ms") or 0,
+            year=t.get("year"),
+            genres=t.get("genres") or [],
+        )
+        for t in rows
+    ]
+
+
 @router.post("/library/filter", response_model=FilterLibraryResponse)
 async def filter_library_tracks(request: FilterLibraryRequest) -> FilterLibraryResponse:
     """Return filtered tracks from the local SQLite library cache."""

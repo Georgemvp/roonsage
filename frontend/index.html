@@ -4,6 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>RoonSage</title>
+    <!-- Mobile shell auto-redirect. Runs before the desktop app boots to avoid a
+         flash. Phones/small screens go to the mobile shell automatically.
+         Escape to desktop: ?mobile=0 (sticks) or long-press the mobile logo.
+         Force mobile from desktop for testing: ?mobile=1. -->
+    <script>
+    (function () {
+        try {
+            var qs = new URLSearchParams(location.search);
+            if (qs.get('mobile') === '1') { localStorage.setItem('rs-use-mobile', '1'); localStorage.removeItem('rs-force-desktop'); }
+            if (qs.get('mobile') === '0') { localStorage.removeItem('rs-use-mobile'); localStorage.setItem('rs-force-desktop', '1'); }
+            if (localStorage.getItem('rs-force-desktop')) return;
+            var isPhone = window.matchMedia('(max-width: 768px)').matches
+                || /Android|iPhone|iPod|Windows Phone|webOS|BlackBerry|Mobile/i.test(navigator.userAgent);
+            var wantMobile = localStorage.getItem('rs-use-mobile') || isPhone;
+            if (wantMobile && location.pathname === '/') {
+                location.replace('/mobile.html');
+            }
+        } catch (e) { /* storage blocked — stay on desktop */ }
+    })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">

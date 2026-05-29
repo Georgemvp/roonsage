@@ -335,6 +335,33 @@ def search_cached_tracks(query: str, limit: int = 20) -> list[dict[str, Any]]:
         return tracks
 
 
+def get_album_tracks(artist: str, album: str, limit: int = 100) -> list[dict[str, Any]]:
+    """Return an album's tracks from the cache, matched by text (artist + album).
+
+    Discovery sections cache Roon browse keys that go stale after a resync, so
+    playing by key fails. Matching on artist/album text yields the *current*
+    item_keys, which remain valid for playback.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT item_key, title, artist, album, duration_ms, year, genres
+            FROM tracks
+            WHERE album = ? COLLATE NOCASE
+              AND artist LIKE ? COLLATE NOCASE
+            ORDER BY track_index IS NULL, track_index, item_key
+            LIMIT ?
+            """,
+            (album, f"%{artist}%", limit),
+        ).fetchall()
+        tracks = []
+        for row in rows:
+            track = dict(row)
+            track["genres"] = json.loads(track["genres"]) if track.get("genres") else []
+            tracks.append(track)
+        return tracks
+
+
 # ---------------------------------------------------------------------------
 # Lookup by key(s)
 # ---------------------------------------------------------------------------

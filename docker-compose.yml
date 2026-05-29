@@ -21,6 +21,8 @@ services:
 
       # Performance tuning
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
+      # Keep the SQLite DB off the macOS bind mount (see volumes below)
+      - ROONSAGE_DB_DIR=/app/dbdata
 
       # Enrichment: skip MusicBrainz, use Last.fm only (~50× faster for large libraries)
       - ENRICHMENT_SKIP_MB=true
@@ -59,6 +61,11 @@ services:
       # Run scripts/export_gte_onnx.py once to generate the model files.
       - LYRICS_USE_ONNX=${LYRICS_USE_ONNX:-true}
 
+      # LLM response cache (v13.5): skip provider calls for repeated requests.
+      # TTL in seconds (default 86400 = 24 h). Set LLM_CACHE_ENABLED=false to disable.
+      - LLM_CACHE_ENABLED=${LLM_CACHE_ENABLED:-true}
+      - LLM_CACHE_TTL_SECONDS=${LLM_CACHE_TTL_SECONDS:-86400}
+
       # Sidecar worker: delegates enrichment + audio-features to roonsage-worker.
       # Set to false to disable the sidecar and run everything in one container.
       - WORKER_SIDECAR=${WORKER_SIDECAR:-true}
@@ -87,10 +94,13 @@ services:
       #- CUSTOM_LLM_API_KEY=sk-or-your-key
       #- CUSTOM_CONTEXT_WINDOW=32768
     volumes:
-      # Persist library cache across restarts
+      # Persist caches/models/config across restarts (bind mount is fine for these)
       # Ensure directory is writable: either set 'user' above, or run:
       #   mkdir -p ./data && chmod 777 ./data
       - ./data:/app/data
+      # SQLite DB on a NAMED VOLUME (inside the Docker VM), not the macOS bind
+      # mount: WAL over Docker Desktop file-sharing corrupts the DB under load.
+      - roonsage_db:/app/dbdata
       # Live-reload frontend without rebuilding the container
       - ./frontend:/app/frontend
       # Live-reload backend without rebuilding the container
@@ -135,6 +145,7 @@ services:
     command: python -m backend.worker_process
     environment:
       - ENRICHMENT_SKIP_MB=true
+      - ROONSAGE_DB_DIR=/app/dbdata
       - AUDIO_FEATURES_ENABLED=${AUDIO_FEATURES_ENABLED:-true}
       - MUSIC_LIBRARY_PATH=${MUSIC_LIBRARY_PATH:-/music}
       - MUSIC_PATH_MAP_FROM=${MUSIC_PATH_MAP_FROM:-}
@@ -155,6 +166,7 @@ services:
       - LYRICS_USE_ONNX=${LYRICS_USE_ONNX:-true}
     volumes:
       - ./data:/app/data
+      - roonsage_db:/app/dbdata
       - ./backend:/app/backend
       - /Volumes/4tbdrive/Muziek:/music:ro
     healthcheck:
@@ -169,3 +181,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  roonsage_db:

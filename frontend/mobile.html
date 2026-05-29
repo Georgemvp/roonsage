@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport"/>
+<title>RoonSage</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#131313">
+<meta name="color-scheme" content="dark">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RoonSage">
+<link rel="apple-touch-icon" href="/static/icon-192.svg">
+<link rel="icon" type="image/svg+xml" href="/static/icon-192.svg">
+<meta name="format-detection" content="telephone=no">
+<meta name="msapplication-tap-highlight" content="no">
+<script id="tailwind-config">
+    tailwind.config = {
+        darkMode: "class",
+        theme: {
+            extend: {
+                colors: {
+                    "tertiary-fixed-dim": "#9ad1c6",
+                    "surface-container-low": "#1c1b1b",
+                    "on-tertiary-fixed-variant": "#154f47",
+                    "on-secondary-fixed-variant": "#604100",
+                    "on-tertiary-fixed": "#00201c",
+                    "inverse-on-surface": "#313030",
+                    "on-tertiary-container": "#00302a",
+                    "surface-dim": "#131313",
+                    "surface-charcoal": "#242424",
+                    "surface-container-high": "#2a2a2a",
+                    "on-secondary-fixed": "#281900",
+                    "on-secondary-container": "#513600",
+                    "secondary-fixed-dim": "#ffba3e",
+                    "on-primary": "#3d167b",
+                    "tertiary-fixed": "#b5eee2",
+                    "on-surface-variant": "#ccc3d3",
+                    "outline-variant": "#4a4551",
+                    "surface-container-lowest": "#0e0e0e",
+                    "inverse-surface": "#e5e2e1",
+                    "surface": "#131313",
+                    "on-primary-fixed": "#250059",
+                    "on-secondary": "#432c00",
+                    "on-background": "#e5e2e1",
+                    "on-surface": "#e5e2e1",
+                    "surface-bright": "#393939",
+                    "on-primary-fixed-variant": "#543293",
+                    "primary-fixed": "#ebddff",
+                    "text-muted": "rgba(235, 234, 229, 0.6)",
+                    "tertiary-container": "#659b91",
+                    "surface-glass": "rgba(255, 255, 255, 0.05)",
+                    "primary-fixed-dim": "#d3bbff",
+                    "primary-container": "#a17ee4",
+                    "surface-container": "#20201f",
+                    "background": "#131313",
+                    "secondary": "#ffba3e",
+                    "on-tertiary": "#003731",
+                    "on-primary-container": "#360b74",
+                    "error-container": "#93000a",
+                    "secondary-fixed": "#ffdeae",
+                    "tertiary": "#9ad1c6",
+                    "surface-variant": "#353535",
+                    "surface-container-highest": "#353535",
+                    "error": "#ffb4ab",
+                    "outline": "#958e9c",
+                    "on-error": "#690005",
+                    "on-error-container": "#ffdad6",
+                    "text-primary": "#EBEAE5",
+                    "surface-tint": "#d3bbff",
+                    "primary": "#d3bbff",
+                    "inverse-primary": "#6d4bac",
+                    "secondary-container": "#dc9900"
+                },
+                borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+                spacing: {
+                    "xs": "8px", "sm": "12px", "md": "16px", "margin-mobile": "20px",
+                    "base": "4px", "xl": "32px", "lg": "24px", "gutter": "16px"
+                },
+                fontFamily: {
+                    "headline-lg-mobile": ["DM Sans"], "label-caps": ["DM Sans"], "headline-lg": ["DM Sans"],
+                    "display-lg": ["DM Sans"], "body-sm": ["DM Sans"], "body-lg": ["DM Sans"], "title-md": ["DM Sans"]
+                },
+                fontSize: {
+                    "headline-lg-mobile": ["28px", { lineHeight: "36px", fontWeight: "700" }],
+                    "label-caps": ["12px", { lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "700" }],
+                    "headline-lg": ["32px", { lineHeight: "40px", letterSpacing: "-0.01em", fontWeight: "700" }],
+                    "display-lg": ["40px", { lineHeight: "48px", letterSpacing: "-0.02em", fontWeight: "700" }],
+                    "display-lg-mobile": ["24px", { lineHeight: "30px", letterSpacing: "-0.02em", fontWeight: "700" }],
+                    "body-sm": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                    "body-lg": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                    "title-md": ["20px", { lineHeight: "28px", fontWeight: "600" }]
+                }
+            }
+        }
+    };
+</script>
+<style>
+    body { font-family: 'DM Sans', sans-serif; background-color: #131313; color: #EBEAE5; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+    .glass-panel { background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); }
+    .glass-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); }
+    .viola-gradient { background: linear-gradient(135deg, #d3bbff 0%, #a17ee4 100%); }
+    .viola-glow { box-shadow: 0 0 20px rgba(211,187,255,0.15); }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .pb-safe { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); }
+    .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+    [data-view] { display: none; }
+    [data-view].is-active { display: block; }
+    @keyframes rs-fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    .rs-fade { animation: rs-fade 0.25s ease; }
+    /* Clear the fixed top bar incl. the device status bar / notch */
+    body { padding-top: calc(64px + env(safe-area-inset-top, 0px)); }
+    /* Extra bottom space so content clears the mini-player when it's visible */
+    body.rs-has-mini { padding-bottom: 152px; }
+</style>
+</head>
+<body class="bg-background text-on-background antialiased pb-24">
+<!-- Top App Bar -->
+<header id="rs-topbar" class="fixed top-0 left-0 w-full z-50 bg-surface/80 backdrop-blur-xl" style="padding-top: env(safe-area-inset-top, 0px);">
+    <div class="flex justify-between items-center px-margin-mobile h-16">
+        <button id="rs-topbar-left" class="h-10 w-10 rounded-full overflow-hidden bg-surface-charcoal flex items-center justify-center text-on-surface-variant active:scale-95 transition-transform" aria-label="Profiel">
+            <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">account_circle</span>
+        </button>
+        <h1 id="rs-topbar-title" class="font-display-lg text-headline-lg-mobile text-primary tracking-tighter">RoonSage</h1>
+        <button id="rs-topbar-settings" class="h-10 w-10 rounded-full flex items-center justify-center text-primary active:scale-95 transition-transform" aria-label="Instellingen">
+            <span class="material-symbols-outlined">settings</span>
+        </button>
+    </div>
+</header>
+
+<!-- View mount point -->
+<main id="rs-main"></main>
+
+<!-- Global mini-player (shown above the bottom nav when audio is playing) -->
+<div id="rs-mini" class="hidden fixed left-2 right-2 z-40 glass-panel rounded-xl p-xs items-center gap-sm shadow-xl" style="bottom: calc(env(safe-area-inset-bottom, 0px) + 60px);">
+    <div id="rs-mini-art" class="w-11 h-11 rounded-lg overflow-hidden bg-surface-charcoal flex items-center justify-center flex-shrink-0">
+        <span class="material-symbols-outlined text-text-muted text-[20px]">music_note</span>
+    </div>
+    <div id="rs-mini-info" class="flex-1 min-w-0 cursor-pointer">
+        <p id="rs-mini-title" class="font-body-lg text-body-sm text-text-primary truncate font-semibold">—</p>
+        <p id="rs-mini-artist" class="font-body-sm text-[12px] text-text-muted truncate">—</p>
+    </div>
+    <button id="rs-mini-toggle" class="w-10 h-10 rounded-full flex items-center justify-center text-primary active:scale-95 transition-transform flex-shrink-0">
+        <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">play_arrow</span>
+    </button>
+</div>
+
+<!-- Bottom Navigation -->
+<nav id="rs-bottomnav" class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-gutter py-sm pb-safe bg-surface/90 backdrop-blur-2xl shadow-[0_-4px_24px_rgba(211,187,255,0.05)] border-t border-white/10">
+    <a data-tab="home" href="#/home" class="rs-tab flex flex-col items-center justify-center gap-1 active:scale-90 transition-all duration-200">
+        <span class="material-symbols-outlined">home</span>
+        <span class="font-label-caps text-label-caps">Home</span>
+    </a>
+    <a data-tab="discover" href="#/discover" class="rs-tab flex flex-col items-center justify-center gap-1 active:scale-90 transition-all duration-200">
+        <span class="material-symbols-outlined">explore</span>
+        <span class="font-label-caps text-label-caps">Discover</span>
+    </a>
+    <a data-tab="library" href="#/library" class="rs-tab flex flex-col items-center justify-center gap-1 active:scale-90 transition-all duration-200">
+        <span class="material-symbols-outlined">library_music</span>
+        <span class="font-label-caps text-label-caps">Library</span>
+    </a>
+    <a data-tab="taste" href="#/taste" class="rs-tab flex flex-col items-center justify-center gap-1 active:scale-90 transition-all duration-200">
+        <span class="material-symbols-outlined">psychology</span>
+        <span class="font-label-caps text-label-caps">Taste</span>
+    </a>
+</nav>
+
+<script type="module" src="/static/mobile/app.js"></script>
+</body>
+</html>

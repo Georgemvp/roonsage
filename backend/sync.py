@@ -15,6 +15,7 @@ from typing import Any
 
 from backend.db import clear_migration_flag, ensure_db_initialized, get_connection
 from backend.roon_utils import is_live_version
+from backend.stable_id import compute_stable_id
 
 logger = logging.getLogger(__name__)
 
@@ -253,6 +254,11 @@ def sync_library(
         # so that a network failure in Phase 1/2 leaves the previous cache intact.
         # (Roon Browse API issues different item_keys across sessions — incremental
         # updates would accumulate stale rows indefinitely.)
+        # Full replace of tracks is safe now that the only blocking FK
+        # (track_mood_tags) is gone. The expensive derived tables
+        # (track_audio_features, clap_embeddings, lyrics_*, track_metadata_ext,
+        # track_mood_tags) are NOT deleted: they are keyed by stable_id and
+        # re-link to the freshly-inserted tracks (new item_keys, same stable_id).
         logger.info("Clearing existing track cache for full replace...")
         conn.execute("DELETE FROM track_genres")   # FK child first
         conn.execute("DELETE FROM tracks")
@@ -270,6 +276,10 @@ def sync_library(
             title_lower = meta.get("title", "").lower()
             if title_lower and title_lower not in album_by_title:
                 album_by_title[title_lower] = meta
+
+        # Running position of each track within its album (browse order) so
+        # albums can be replayed in their original order.
+        album_track_index: dict[str, int] = {}
 
         for track in all_tracks:
             title = track.get("title", "Unknown Track")
@@ -315,27 +325,33 @@ def sync_library(
                 album_item_key = f"synth:{artist}|||{album}"
 
             item_key = track.get("item_key", "")
+            duration_ms = track.get("duration", 0) * 1000 if track.get("duration") else 0
+
+            track_index = album_track_index.get(album_item_key, 0)
+            album_track_index[album_item_key] = track_index + 1
 
             batch_data.append((
                 item_key,
                 title,
                 artist,
                 album,
-                track.get("duration", 0) * 1000 if track.get("duration") else 0,
+                duration_ms,
                 year,
                 json.dumps(genres),
                 _is_live(title, album),
                 album_item_key,   # stored in parent_item_key
                 0,                # view_count (Roon API doesn't expose plays)
                 None,             # last_viewed_at
+                track_index,      # position within the album (browse order)
+                compute_stable_id(artist, album, title, duration_ms),  # stable id
             ))
 
             if len(batch_data) >= SYNC_BATCH_SIZE:
                 conn.executemany(
                     "INSERT OR REPLACE INTO tracks "
                     "(item_key, title, artist, album, duration_ms, year, genres, "
-                    "is_live, parent_item_key, view_count, last_viewed_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+                    "is_live, parent_item_key, view_count, last_viewed_at, track_index, stable_id, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
                     batch_data,
                 )
                 synced_count += len(batch_data)
@@ -354,8 +370,8 @@ def sync_library(
             conn.executemany(
                 "INSERT OR REPLACE INTO tracks "
                 "(item_key, title, artist, album, duration_ms, year, genres, "
-                "is_live, parent_item_key, view_count, last_viewed_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+                "is_live, parent_item_key, view_count, last_viewed_at, track_index, stable_id, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
                 batch_data,
             )
             synced_count += len(batch_data)
@@ -440,6 +456,61 @@ def sync_library(
             "SELECT COUNT(*) FROM tracks WHERE year IS NOT NULL"
         ).fetchone()[0]
         logger.info("Year backfill complete: %d tracks now have year data", backfilled)
+
+        # ----------------------------------------------------------------
+        # stable_id finalize + relink derived data to the new item_keys.
+        # Album/year were corrected above, so recompute stable_id from the final
+        # metadata, then repoint each derived table's key to the freshly-inserted
+        # track that shares its stable_id. This keeps every existing item_key
+        # join working even though Roon issued new item_keys this session;
+        # the expensive analysis/enrichment/embeddings survive untouched.
+        # ----------------------------------------------------------------
+        logger.info("Finalizing stable_id and relinking derived data...")
+        track_rows = conn.execute(
+            "SELECT item_key, artist, album, title, duration_ms FROM tracks"
+        ).fetchall()
+        conn.executemany(
+            "UPDATE tracks SET stable_id = ? WHERE item_key = ?",
+            [
+                (
+                    compute_stable_id(r["artist"], r["album"], r["title"], r["duration_ms"]),
+                    r["item_key"],
+                )
+                for r in track_rows
+            ],
+        )
+        conn.commit()
+
+        # (table, key column). Repoint key -> current item_key via stable_id.
+        # The key column is a PRIMARY KEY, so collapse duplicate rows that share
+        # a stable_id first (they describe the same file/recording — identical
+        # data — so keeping one is lossless) to avoid a UNIQUE collision when
+        # several would relink to the same new item_key.
+        for dtable, dkey in (
+            ("track_audio_features", "item_key"),
+            ("track_metadata_ext", "item_key"),
+            ("clap_embeddings", "item_key"),
+            ("lyrics_data", "item_key"),
+            ("lyrics_embeddings", "item_key"),
+            ("track_mood_tags", "track_id"),
+        ):
+            try:
+                conn.execute(
+                    f"DELETE FROM {dtable} WHERE stable_id IS NOT NULL AND rowid NOT IN ("
+                    f"  SELECT MIN(rowid) FROM {dtable} WHERE stable_id IS NOT NULL GROUP BY stable_id"
+                    f")"
+                )
+                relinked = conn.execute(
+                    f"UPDATE {dtable} SET {dkey} = ("
+                    f"  SELECT t.item_key FROM tracks t "
+                    f"  WHERE t.stable_id = {dtable}.stable_id LIMIT 1"
+                    f") WHERE stable_id IN (SELECT stable_id FROM tracks)"
+                ).rowcount
+                conn.commit()
+                logger.info("Relinked %d rows in %s to current item_keys", relinked, dtable)
+            except Exception as e:  # noqa: BLE001 — best-effort, never fail the sync
+                conn.rollback()
+                logger.warning("Relink skipped for %s: %s", dtable, e)
 
         logger.info("Rebuilding track_genres junction table...")
         genre_rows = conn.execute(

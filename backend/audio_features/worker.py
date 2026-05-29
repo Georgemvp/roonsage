@@ -66,9 +66,13 @@ def populate_audio_features_queue(conn: sqlite3.Connection) -> int:
             deleted,
         )
 
+    # Prune by stable_id, not item_key: Roon item_keys change across sessions,
+    # so an item_key-based prune would wipe all analysis after a resync. A
+    # feature row is only stale if its stable_id is genuinely gone.
     conn.execute("""
         DELETE FROM track_audio_features
-        WHERE item_key NOT IN (SELECT item_key FROM tracks)
+        WHERE stable_id IS NOT NULL
+          AND stable_id NOT IN (SELECT stable_id FROM tracks WHERE stable_id IS NOT NULL)
     """)
 
     # Insert tracks that have a feature row with a file_path but no analysis yet

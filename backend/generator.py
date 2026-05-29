@@ -6,7 +6,8 @@ import random
 from collections.abc import AsyncGenerator
 from datetime import datetime
 
-from backend import library_cache
+from backend import library_cache, llm_cache
+from backend.config import get_llm_cache_enabled, get_llm_cache_ttl_seconds
 from backend.llm_client import get_llm_client
 from backend.models import GenerateResponse, Track
 from backend.roon_client import RoonQueryError, get_roon_client
@@ -378,12 +379,43 @@ async def generate_playlist_stream(
 
             generation_prompt = "\n\n".join(generation_parts)
 
-            # Step 4: Call LLM
+            # Step 4: Call LLM (consult cache first to skip repeat requests)
             yield emit("progress", {"step": "ai_working", "message": "AI is curating your playlist..."})
 
-            logger.info("Calling LLM with prompt length: %d chars", len(generation_prompt))
-            response = await llm_client.generate(generation_prompt, GENERATION_SYSTEM)
-            logger.info("LLM response received: %d input, %d output tokens", response.input_tokens, response.output_tokens)
+            llm_cfg = llm_client.config
+            generation_model = (
+                llm_cfg.model_analysis
+                if llm_cfg.smart_generation
+                else llm_cfg.model_generation
+            )
+            cache_enabled = get_llm_cache_enabled()
+            cache_ttl = get_llm_cache_ttl_seconds()
+            cache_key = (
+                llm_cache.make_cache_key(
+                    generation_prompt, GENERATION_SYSTEM, generation_model
+                )
+                if cache_enabled
+                else None
+            )
+
+            response = None
+            if cache_key is not None:
+                response = llm_cache.get_cached(cache_key, cache_ttl)
+                if response is not None:
+                    logger.info(
+                        "LLM cache hit (playlist generation, key=%s…)",
+                        cache_key[:12],
+                    )
+
+            if response is None:
+                logger.info("Calling LLM with prompt length: %d chars", len(generation_prompt))
+                response = await llm_client.generate(generation_prompt, GENERATION_SYSTEM)
+                logger.info(
+                    "LLM response received: %d input, %d output tokens",
+                    response.input_tokens, response.output_tokens,
+                )
+                if cache_key is not None:
+                    llm_cache.set_cached(cache_key, "playlist", response)
 
             # Step 5: Parse response
             yield emit("progress", {"step": "parsing", "message": "Parsing AI selections..."})

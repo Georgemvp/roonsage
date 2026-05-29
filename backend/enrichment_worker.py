@@ -79,10 +79,13 @@ def populate_enrichment_queue(conn: sqlite3.Connection) -> int:
     if deleted:
         logger.info("Enrichment queue: removed %d stale entries (tracks no longer in library)", deleted)
 
-    # Also clean up track_metadata_ext for removed tracks
+    # Clean up track_metadata_ext by stable_id, not item_key: item_keys change
+    # across Roon sessions, so an item_key prune would wipe enrichment after a
+    # resync. Only drop rows whose stable_id is genuinely gone.
     conn.execute("""
         DELETE FROM track_metadata_ext
-        WHERE item_key NOT IN (SELECT item_key FROM tracks)
+        WHERE stable_id IS NOT NULL
+          AND stable_id NOT IN (SELECT stable_id FROM tracks WHERE stable_id IS NOT NULL)
     """)
 
     conn.commit()

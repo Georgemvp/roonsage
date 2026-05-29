@@ -1,3 +1,6 @@
 services:
   roonsage:
-    command: ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "5765", "--reload", "--reload-dir", "/app/backend"]
+    # --reload removed: watchfiles got stuck in a reload loop that wedged startup.
+    # Backend code is still volume-mounted, so a `docker compose up -d roonsage`
+    # (or `docker compose restart roonsage`) picks up backend edits.
+    command: ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "5765"]

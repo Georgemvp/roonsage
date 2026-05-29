@@ -121,16 +121,20 @@ async function networkFirst(request) {
 }
 
 async function navigationFallback(request) {
+    const url = new URL(request.url);
+    // Distinct shells (desktop '/' vs '/mobile.html') must not clobber each
+    // other in the cache, so key the fallback by the navigation's own path.
+    const shellKey = url.pathname.startsWith('/mobile') ? '/mobile.html' : '/';
     try {
         const resp = await fetch(request);
         if (resp.ok) {
             const cache = await caches.open(SHELL_CACHE);
-            cache.put('/', resp.clone()).catch(() => {});
+            cache.put(shellKey, resp.clone()).catch(() => {});
         }
         return resp;
     } catch (err) {
         const cache = await caches.open(SHELL_CACHE);
-        const cached = await cache.match('/') || await cache.match(request);
+        const cached = await cache.match(shellKey) || await cache.match('/') || await cache.match(request);
         if (cached) return cached;
         throw err;
     }

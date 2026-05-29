@@ -406,6 +406,24 @@ async def start_background_tasks(app: FastAPI) -> None:
 
     _add_task(_db_backup_loop(), "db_backup")
 
+    # LLM response cache: purge expired entries every 6 hours
+    async def _llm_cache_purge_loop() -> None:
+        from backend import llm_cache  # noqa: PLC0415
+        from backend.config import get_llm_cache_ttl_seconds  # noqa: PLC0415
+
+        await asyncio.sleep(300)
+        while True:
+            try:
+                ttl = get_llm_cache_ttl_seconds()
+                deleted = llm_cache.purge_expired(ttl)
+                if deleted:
+                    logger.info("LLM cache: purged %d expired entries", deleted)
+            except Exception as exc:
+                logger.warning("LLM cache purge failed: %s", exc)
+            await asyncio.sleep(6 * 3600)
+
+    _add_task(_llm_cache_purge_loop(), "llm_cache_purge")
+
 
 # ---------------------------------------------------------------------------
 # Graceful shutdown

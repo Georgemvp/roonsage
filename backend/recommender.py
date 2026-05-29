@@ -14,6 +14,8 @@ from typing import Any
 
 from rapidfuzz import fuzz
 
+from backend import llm_cache
+from backend.config import get_llm_cache_enabled, get_llm_cache_ttl_seconds
 from backend.llm_client import LLMClient, LLMResponse
 from backend.models import (
     AlbumCandidate,
@@ -618,7 +620,27 @@ class RecommendationPipeline:
             f"Pick 3 albums: 1 primary + 2 secondary.{small_pool_note}"
         )
 
-        response = self.llm_client.generate_sync(user_prompt, system)
+        selection_model = (
+            self.llm_client.config.model_analysis
+            if self.llm_client.config.smart_generation
+            else self.llm_client.config.model_generation
+        )
+        cache_enabled = get_llm_cache_enabled()
+        cache_ttl = get_llm_cache_ttl_seconds()
+        cache_key = (
+            llm_cache.make_cache_key(user_prompt, system, selection_model)
+            if cache_enabled
+            else None
+        )
+        response = None
+        if cache_key is not None:
+            response = llm_cache.get_cached(cache_key, cache_ttl)
+            if response is not None:
+                logger.info("LLM cache hit (album selection, key=%s…)", cache_key[:12])
+        if response is None:
+            response = self.llm_client.generate_sync(user_prompt, system)
+            if cache_key is not None:
+                llm_cache.set_cached(cache_key, "album_selection", response)
         self._log_cost("selection", response, session_id, album_count=len(album_candidates))
 
         raw = self.llm_client.parse_json_response(response)

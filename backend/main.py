@@ -295,6 +295,16 @@ async def serve_index():
     return {"message": "RoonSage API is running. Frontend not found."}
 
 
+@app.get("/mobile")
+@app.get("/mobile.html")
+async def serve_mobile():
+    """Serve the mobile shell. Reuses the same StaticFiles tree under /static."""
+    mobile_path = frontend_path / "mobile.html"
+    if mobile_path.exists():
+        return HTMLResponse(mobile_path.read_text(), headers={"Cache-Control": "no-cache"})
+    return Response(status_code=404)
+
+
 @app.get("/sw.js")
 async def serve_service_worker():
     """Serve the service worker from the root so its scope covers the whole app.
