@@ -22,7 +22,7 @@ _automate your listening, and let Claude Desktop control every aspect of Roon â€
 
 ## Screenshots
 
-| Home | Generate Playlist |
+| Home (Insight Selection + bento) | Generate Playlist |
 |---|---|
 | ![Home](docs/images/screenshot-home.png) | ![Generate Playlist](docs/images/screenshot-playlist.png) |
 
@@ -30,17 +30,39 @@ _automate your listening, and let Claude Desktop control every aspect of Roon â€
 |---|---|
 | ![From Seed Song](docs/images/screenshot-seed.png) | ![Recommend Album](docs/images/screenshot-recommend.png) |
 
-| Discovery | My Taste |
+| Discovery (cache-powered rails) | My Taste (intelligence profile) |
 |---|---|
 | ![Discovery](docs/images/screenshot-discovery.png) | ![My Taste](docs/images/screenshot-taste.png) |
 
-| DJ Set | Automations |
+| DJ Set (Camelot + energy curve) | Automations |
 |---|---|
 | ![DJ Set](docs/images/screenshot-dj.png) | ![Automations](docs/images/screenshot-automations.png) |
 
 | Watchlist | Settings |
 |---|---|
 | ![Watchlist](docs/images/screenshot-watchlist.png) | ![Settings](docs/images/screenshot-settings.png) |
+
+| Playlists library | Enrichment |
+|---|---|
+| ![Playlists](docs/images/screenshot-playlists.png) | ![Enrichment](docs/images/screenshot-enrichment.png) |
+
+### v13 â€” Audio AI features
+
+| Sonic Fingerprint (musical DNA radar) | Song Paths (sonic bridge builder) |
+|---|---|
+| ![Sonic Fingerprint](docs/images/screenshot-sonic-fingerprint.png) | ![Song Paths](docs/images/screenshot-song-paths.png) |
+
+| Song Alchemy (add / subtract vector mix) | Music Map (UMAP + HDBSCAN clusters) |
+|---|---|
+| ![Song Alchemy](docs/images/screenshot-alchemy.png) | ![Music Map](docs/images/screenshot-music-map.png) |
+
+| Circadian Rhythm (24h audio profile) | Sonic Match (CLAP text-to-audio search) |
+|---|---|
+| ![Circadian](docs/images/screenshot-circadian.png) | ![Sonic Match](docs/images/screenshot-sonic-match.png) |
+
+| Meaning Match (semantic lyrics search) | |
+|---|---|
+| ![Meaning Match](docs/images/screenshot-meaning-match.png) | |
 
 ---
 

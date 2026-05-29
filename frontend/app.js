@@ -64,11 +64,39 @@ async function initViewModule(view) {
 // Theme & Variation Init
 // =============================================================================
 
+/**
+ * Stitch design: fade `.rs-reveal` elements in as they enter the viewport.
+ * Re-observes any newly added .rs-reveal nodes via MutationObserver.
+ */
+function initScrollReveal() {
+    if (!('IntersectionObserver' in window)) {
+        document.querySelectorAll('.rs-reveal').forEach(el => el.classList.add('is-visible'));
+        return;
+    }
+    const io = new IntersectionObserver((entries, observer) => {
+        for (const entry of entries) {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('is-visible');
+                observer.unobserve(entry.target);
+            }
+        }
+    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+    const observe = (root) => {
+        root.querySelectorAll('.rs-reveal:not(.is-visible)').forEach(el => io.observe(el));
+    };
+    observe(document);
+    new MutationObserver((muts) => {
+        for (const m of muts) {
+            m.addedNodes.forEach(n => { if (n.nodeType === 1) observe(n); });
+        }
+    }).observe(document.body, { childList: true, subtree: true });
+}
+
 function initThemeToggle() {
-    let savedTheme = 'light';
+    let savedTheme = 'dark';
     let savedVariation = '';
     try {
-        savedTheme = localStorage.getItem('roonsage-theme') || 'light';
+        savedTheme = localStorage.getItem('roonsage-theme') || 'dark';
         savedVariation = localStorage.getItem('roonsage-variation') || '';
     } catch (e) {}
     document.documentElement.setAttribute('data-theme', savedTheme);
@@ -203,13 +231,22 @@ async function loadHomeHero() {
         const bgEl      = document.getElementById('home-hero-bg');
         const artImg    = document.getElementById('home-hero-art-img');
 
-        if (eyebrowEl) eyebrowEl.textContent = isLive ? '▶ Nu aan het spelen' : 'Onlangs gespeeld';
+        const eyebrowLabel = isLive ? 'Nu aan het spelen' : 'RoonSage Insight Selection';
+        if (eyebrowEl) eyebrowEl.innerHTML =
+            `<span class="material-symbols-outlined" style="font-size:18px">${isLive ? 'graphic_eq' : 'auto_awesome'}</span> ${eyebrowLabel}`;
         if (titleEl)   titleEl.textContent   = track.title;
 
         const metaParts = isLive
             ? [track.artist, track.zone].filter(Boolean)
             : [track.artist, track.year, track.genre].filter(Boolean);
         if (metaEl) metaEl.textContent = metaParts.join(' · ') || '—';
+
+        const insightEl = document.getElementById('home-hero-insight');
+        if (insightEl) {
+            insightEl.textContent = isLive
+                ? `Speelt nu in ${track.zone || 'je actieve zone'}. Ontdek vergelijkbare albums of bouw een playlist rond deze sfeer.`
+                : `Onlangs gespeeld uit je bibliotheek${track.genre ? ` · ${track.genre}` : ''}. Bekijk vergelijkbare muziek of start een nieuwe AI-playlist.`;
+        }
 
         if (track.image_key) {
             const artUrl = `/api/art/${track.image_key}?width=300&height=300`;
@@ -245,13 +282,13 @@ async function loadHomeHero() {
 async function loadRecentlyAdded() {
     try {
         const albumGrid = document.getElementById('home-album-grid');
-        const section = document.getElementById('home-recently-added');
-        if (!albumGrid || !section) return;
+        const bento = document.getElementById('home-bento');
+        if (!albumGrid || !bento) return;
 
         const history = await apiCall('/listening/history?days=90&limit=20').catch(() => null);
         const events = Array.isArray(history) ? history : (history?.events || []);
 
-        // Deduplicate by album
+        // Deduplicate by album, keep up to 4 (matches Stitch 4-col bento)
         const seen = new Set();
         const albums = [];
         for (const e of events) {
@@ -259,27 +296,78 @@ async function loadRecentlyAdded() {
             if (!seen.has(key) && e.album) {
                 seen.add(key);
                 albums.push(e);
-                if (albums.length >= 6) break;
+                if (albums.length >= 4) break;
             }
         }
 
         if (!albums.length) return;
-        section.style.display = '';
+        bento.style.display = '';
 
         albumGrid.innerHTML = albums.map(a => `
-            <div class="rs-album-card">
-                <div class="rs-album-art">
+            <button class="rs-home-disc__item" data-artist="${(a.artist || '').replace(/"/g, '&quot;')}" data-album="${(a.album || '').replace(/"/g, '&quot;')}">
+                <div class="rs-home-disc__art">
                     ${a.image_key
-                        ? `<img src="/api/art/${a.image_key}?width=200&height=200" alt="" loading="lazy" onerror="this.parentElement.innerHTML='<div class=rs-album-art-placeholder>&#9835;</div>'">`
-                        : `<div class="rs-album-art-placeholder">&#9835;</div>`}
+                        ? `<img src="/api/art/${a.image_key}?width=320&height=320" alt="" loading="lazy" onerror="this.style.display='none'">`
+                        : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:2.6rem">&#9835;</div>`}
+                    <div class="rs-home-disc__overlay">
+                        <span class="rs-home-disc__playbtn">
+                            <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">play_arrow</span>
+                        </span>
+                    </div>
                 </div>
-                <div class="rs-album-title" title="${(a.album || '').replace(/"/g, '&quot;')}">${a.album || 'Unknown Album'}</div>
-                <div class="rs-album-artist">${a.artist || ''}</div>
-            </div>
+                <div class="rs-home-disc__title" title="${(a.album || '').replace(/"/g, '&quot;')}">${a.album || 'Unknown Album'}</div>
+                <div class="rs-home-disc__artist">${a.artist || ''}</div>
+            </button>
         `).join('');
+
+        // Wire play on click
+        albumGrid.querySelectorAll('.rs-home-disc__item').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const artist = btn.dataset.artist;
+                const album = btn.dataset.album;
+                if (!artist || !album) return;
+                try { await apiCall(`/roon/play-album?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`, { method: 'POST' }); } catch (e) { /* silent */ }
+            });
+        });
     } catch (e) {
         console.warn('Recently added load failed:', e);
     }
+}
+
+/**
+ * Populate the bento Taste mini-radar with the user's top 5 genres.
+ * Polygon points are in viewBox 0..100; we scale a pentagon by score.
+ */
+function _renderHomeRadar(sortedGenres) {
+    const poly = document.getElementById('home-bento-radar-poly');
+    if (!poly || !sortedGenres || !sortedGenres.length) return;
+    const top5 = sortedGenres.slice(0, 5);
+    // Pentagon base coords (viewBox 100x100, center at 50,50, radius 40)
+    const base = [
+        { angle: -90, label: 'top' },
+        { angle: -18, label: 'right' },
+        { angle:  54, label: 'br' },
+        { angle: 126, label: 'bl' },
+        { angle: 198, label: 'left' },
+    ];
+    const pts = top5.map((entry, i) => {
+        const [, score] = entry;
+        const r = 8 + Math.min(Math.max(score || 0, 0), 1) * 35; // 8..43
+        const a = (base[i % 5].angle * Math.PI) / 180;
+        const x = 50 + Math.cos(a) * r;
+        const y = 50 + Math.sin(a) * r;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    poly.setAttribute('points', pts);
+    // Labels (top 3 visible)
+    const setLabel = (id, name) => {
+        const el = document.getElementById(id);
+        if (el && name) el.textContent = name;
+    };
+    setLabel('home-bento-radar-top',    top5[0]?.[0]);
+    setLabel('home-bento-radar-right',  top5[1]?.[0]);
+    setLabel('home-bento-radar-bottom', top5[2]?.[0]);
+    setLabel('home-bento-radar-left',   top5[4]?.[0]);
 }
 
 async function loadHomePreview() {
@@ -314,6 +402,9 @@ async function loadHomePreview() {
                     </div>`).join('');
             }
 
+            // Bento mini-radar (Stitch dashboard)
+            _renderHomeRadar(sorted);
+
             // Hours ring + meta
             const totalHours = taste.total_hours ?? taste.stats?.total_hours ?? null;
             if (totalHours != null) {
@@ -329,16 +420,22 @@ async function loadHomePreview() {
                 }
             }
             const peakHour = taste.peak_hour ?? taste.listening_patterns?.peak_hour ?? null;
+            const peakDay  = taste.peak_day ?? taste.listening_patterns?.peak_day ?? null;
+            // Format hour into "10:00" + AM/PM split for the Stitch peak tile
             if (peakHour != null) {
                 const h = peakHour;
-                const ampm = h >= 12 ? `${h > 12 ? h - 12 : h} PM` : `${h} AM`;
+                const hour12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+                const suffix = h >= 12 ? 'PM' : 'AM';
+                // Bento peak: number + AM/PM as unit
                 const peakEl = document.getElementById('home-peak-hour');
-                if (peakEl) peakEl.textContent = ampm;
-            }
-            const peakDay = taste.peak_day ?? taste.listening_patterns?.peak_day ?? null;
-            if (peakDay) {
+                if (peakEl) peakEl.textContent = `${hour12}:00`;
                 const dayEl = document.getElementById('home-peak-day');
-                if (dayEl) dayEl.textContent = peakDay.charAt(0).toUpperCase() + peakDay.slice(1) + 's';
+                if (dayEl) {
+                    const dayLabel = peakDay
+                        ? ` ${suffix} · ${peakDay.charAt(0).toUpperCase() + peakDay.slice(1)}s`
+                        : ` ${suffix}`;
+                    dayEl.textContent = dayLabel;
+                }
             }
         }
 
@@ -423,6 +520,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize theme + variation (before any rendering)
     initThemeToggle();
     initAppearanceControls();
+    initScrollReveal();
 
     // Register the service worker and wire install/update toasts. Safe to call
     // unconditionally — bails out on insecure contexts and unsupported browsers.
