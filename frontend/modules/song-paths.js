@@ -1,5 +1,5 @@
 // =============================================================================
-// Song Paths (v13.0+)
+// Song Paths (v13.0+ / redesigned UI)
 // =============================================================================
 
 import { apiCall } from './api.js';
@@ -14,12 +14,7 @@ async function searchTracks(q) {
     } catch { return []; }
 }
 
-/**
- * Wire up a custom autocomplete on inputEl / dropdownEl.
- * Returns { getKey, setTrack } — getKey() returns the selected item_key,
- * setTrack(track) programmatically selects a result.
- */
-function makeAutocomplete(inputEl, dropdownEl) {
+function makeAutocomplete(inputEl, dropdownEl, onSelect) {
     let selectedKey = null;
     let activeIdx = -1;
     let debTimer = null;
@@ -41,7 +36,7 @@ function makeAutocomplete(inputEl, dropdownEl) {
     function renderResults(tracks) {
         lastResults = tracks;
         if (!tracks.length) {
-            dropdownEl.innerHTML = '<div class="sp-ac-empty">Geen resultaten</div>';
+            dropdownEl.innerHTML = '<div class="sp-ac-empty">No results</div>';
             dropdownEl.hidden = false;
             return;
         }
@@ -69,6 +64,7 @@ function makeAutocomplete(inputEl, dropdownEl) {
         selectedKey = t.item_key;
         inputEl.value = `${t.artist} – ${t.title}`;
         close();
+        if (onSelect) onSelect(t);
     }
 
     inputEl.addEventListener('input', () => {
@@ -95,14 +91,11 @@ function makeAutocomplete(inputEl, dropdownEl) {
         inputEl.value = `${track.artist} – ${track.title}`;
         lastResults = [track];
         close();
+        if (onSelect) onSelect(track);
     }
 
     return { getKey: () => selectedKey, setTrack };
 }
-
-// ---------------------------------------------------------------------------
-// Zone loader
-// ---------------------------------------------------------------------------
 
 async function loadZones(zoneSel) {
     try {
@@ -112,13 +105,9 @@ async function loadZones(zoneSel) {
             `<option value="${z.zone_id}">${z.display_name}</option>`
         ).join('');
     } catch {
-        zoneSel.innerHTML = '<option value="">— niet beschikbaar —</option>';
+        zoneSel.innerHTML = '<option value="">— unavailable —</option>';
     }
 }
-
-// ---------------------------------------------------------------------------
-// Now Playing
-// ---------------------------------------------------------------------------
 
 async function fetchNowPlaying() {
     const zones = await apiCall('/roon/zones');
@@ -133,63 +122,82 @@ async function fetchNowPlaying() {
     return { title, artist, zone_id: playing.zone_id };
 }
 
-// ---------------------------------------------------------------------------
-// Transition quality indicator
-// ---------------------------------------------------------------------------
-
 function transitionBadge(dist) {
     if (dist == null) return '';
     let color, label;
     if (dist < 0.15) { color = '#4caf50'; label = 'smooth'; }
     else if (dist < 0.35) { color = '#e5a00d'; label = 'ok'; }
     else { color = '#e57373'; label = 'rough'; }
-    return `<div class="sp-transition" title="Transitie-afstand: ${dist.toFixed(2)}">
+    return `<div class="sp-transition" title="Transition distance: ${dist.toFixed(2)}">
         <span class="sp-transition-dot" style="background:${color}"></span>
         <span class="sp-transition-label" style="color:${color}">${label}</span>
     </div>`;
 }
 
-// ---------------------------------------------------------------------------
-// Render path
-// ---------------------------------------------------------------------------
-
 function renderPath(result) {
     const container = document.getElementById('song-paths-result');
+    const statsCount = document.getElementById('sp2-stats-count');
+
     if (!result || !result.path || !result.path.length) {
-        container.innerHTML = '<div class="cluster-empty">Geen pad gevonden.</div>';
+        container.innerHTML = '<div class="cluster-empty">No path found.</div>';
+        if (statsCount) statsCount.textContent = '—';
         return;
     }
+
+    const trackCount = result.path.length;
+    const requested = result.requested_steps || 0;
+    const shortNote = requested > 0 && trackCount < requested
+        ? `<span style="color:var(--amber);margin-left:8px" title="Not enough analyzed tracks in the library to fill the requested length">⚠ ${trackCount} of ${requested} requested</span>`
+        : '';
+
+    if (statsCount) statsCount.textContent = `${trackCount} tracks`;
+
     const rows = result.path.map((t, i) => {
-        const badge = i < result.path.length - 1 ? transitionBadge(t.transition_dist) : '';
+        const isFirst = i === 0;
+        const isLast = i === result.path.length - 1;
+        const badge = !isLast ? transitionBadge(t.transition_dist) : '';
+        const rowClass = isFirst ? 'song-paths-track song-paths-track--endpoint' : isLast ? 'song-paths-track song-paths-track--endpoint' : 'song-paths-track';
         return `
-        <div class="song-paths-track">
+        <div class="${rowClass}">
           <span class="song-paths-track-index">${(i + 1).toString().padStart(2, '0')}</span>
-          <div>
-            <div><strong>${t.title}</strong></div>
-            <div style="color:var(--text-muted);font-size:12px;">${t.artist}</div>
+          <div style="min-width:0;flex:1">
+            <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.title}</div>
+            <div style="color:var(--text-muted);font-size:12px">${t.artist}${t.album ? ' · ' + t.album : ''}</div>
+          </div>
+          <div class="song-paths-track-meta">
+            ${t.camelot ? `<span class="sp2-camelot-badge">${t.camelot}</span>` : ''}
+            ${t.bpm ? `<span style="color:var(--text-muted);font-size:11px">${Math.round(t.bpm)} BPM</span>` : ''}
           </div>
           <div class="song-paths-track-bars" title="Energy / Valence / BPM">
             <div class="song-paths-bar" title="Energy ${(t.energy ?? 0).toFixed(2)}">
               <span style="width:${((t.energy ?? 0) * 100).toFixed(0)}%"></span></div>
             <div class="song-paths-bar" title="Valence ${(t.valence ?? 0).toFixed(2)}">
               <span style="width:${((t.valence ?? 0) * 100).toFixed(0)}%;background:#4caf50;"></span></div>
-            <div class="song-paths-bar" title="BPM ${(t.bpm ?? 0).toFixed(0)}">
-              <span style="width:${Math.min(100, ((t.bpm ?? 0) / 200) * 100).toFixed(0)}%;background:#7aa6ff;"></span></div>
           </div>
           ${badge}
         </div>`;
     }).join('');
 
     container.innerHTML = `
-      <div style="margin-bottom:8px;color:var(--text-muted);font-size:13px;">
-        ${result.steps} tracks · method: ${result.method}
+      <div class="sp2-result-header">
+        <span>${trackCount} tracks · <span style="color:var(--accent)">${result.method}</span></span>
+        ${shortNote}
       </div>
       ${rows}`;
 }
 
-// ---------------------------------------------------------------------------
-// Init
-// ---------------------------------------------------------------------------
+function updateNodeDisplay(side, track) {
+    const artEl = document.getElementById(`sp2-${side}-art`);
+    const emptyEl = document.getElementById(`sp2-${side}-empty`);
+    const nameEl = document.getElementById(`sp2-${side}-name`);
+
+    if (artEl) {
+        artEl.src = `/api/art/${track.item_key}?width=160&height=160`;
+        artEl.hidden = false;
+    }
+    if (emptyEl) emptyEl.hidden = true;
+    if (nameEl) nameEl.textContent = `${track.artist} – ${track.title}`;
+}
 
 export async function initSongPathsView() {
     const fromInput = document.getElementById('song-paths-from');
@@ -204,95 +212,138 @@ export async function initSongPathsView() {
     const nowPlayingBtn = document.getElementById('song-paths-now-playing');
     const findBtn = document.getElementById('song-paths-find');
     const playBtn = document.getElementById('song-paths-play');
+    const moodPillsContainer = document.getElementById('sp2-mood-pills');
 
     if (!fromInput || !toInput) return;
 
-    // Guard against double-init on back-navigation (DOM-bound, not module-bound)
     if (fromInput.dataset.acInit) return;
     fromInput.dataset.acInit = '1';
 
-    const fromAc = makeAutocomplete(fromInput, fromDrop);
-    const toAc = makeAutocomplete(toInput, toDrop);
+    function updateFindBtn() {
+        if (findBtn) findBtn.disabled = !(fromAc.getKey() && toAc.getKey());
+    }
 
-    stepsRange.addEventListener('input', () => { stepsLabel.textContent = stepsRange.value; });
+    const fromAc = makeAutocomplete(fromInput, fromDrop, track => {
+        updateNodeDisplay('start', track);
+        updateFindBtn();
+    });
 
-    // Load zones
+    const toAc = makeAutocomplete(toInput, toDrop, track => {
+        updateNodeDisplay('end', track);
+        updateFindBtn();
+    });
+
+    // Clicking art/name focuses the search input
+    const startArtWrap = document.getElementById('sp2-start-art-wrap');
+    const endArtWrap = document.getElementById('sp2-end-art-wrap');
+    if (startArtWrap) startArtWrap.addEventListener('click', () => fromInput.focus());
+    if (endArtWrap) endArtWrap.addEventListener('click', () => toInput.focus());
+
+    // Steps slider
+    if (stepsRange) stepsRange.addEventListener('input', () => {
+        if (stepsLabel) stepsLabel.textContent = stepsRange.value;
+    });
+
+    // Method description
+    const METHOD_DESCS = {
+        features: 'Kiest stap voor stap de best passende track op tempo, energie en toonaard. Snel en voorspelbaar.',
+        clap: 'Vergelijkt hoe muziek écht klinkt — klankkleur, sfeer en instrumentatie. Vangt gelijkenissen die tempo en toon missen.',
+        hybrid: 'Combineert klankkleur met tempo en toonaard voor de rijkste sonische brug. Aanbevolen voor de beste kwaliteit.',
+    };
+    const methodDescEl = document.getElementById('sp2-method-desc');
+    function updateMethodDesc() {
+        if (methodDescEl && methodSel) methodDescEl.textContent = METHOD_DESCS[methodSel.value] ?? '';
+    }
+    if (methodSel) {
+        methodSel.addEventListener('change', updateMethodDesc);
+        updateMethodDesc();
+    }
+
+    // Mood pills
+    if (moodPillsContainer) {
+        moodPillsContainer.addEventListener('click', e => {
+            const pill = e.target.closest('.sp2-mood-pill');
+            if (!pill) return;
+            moodPillsContainer.querySelectorAll('.sp2-mood-pill').forEach(p => p.classList.remove('sp2-mood-pill-active'));
+            pill.classList.add('sp2-mood-pill-active');
+            if (moodSel) moodSel.value = pill.dataset.mood || '';
+        });
+    }
+
     await loadZones(zoneSel);
 
-    // Now Playing button
-    nowPlayingBtn.addEventListener('click', async () => {
-        nowPlayingBtn.disabled = true;
-        nowPlayingBtn.textContent = '…';
-        try {
-            const np = await fetchNowPlaying();
-            if (!np) { alert('Niets speelt momenteel af.'); return; }
-
-            // Search for the track to get its item_key
-            const results = await searchTracks(`${np.artist} ${np.title}`);
-            if (!results.length) { alert(`Kon "${np.title}" niet vinden in de library.`); return; }
-
-            // Pick the closest match (first result)
-            fromAc.setTrack(results[0]);
-
-            // Also switch to the playing zone
-            for (const opt of zoneSel.options) {
-                if (opt.value && zoneSel.options[zoneSel.selectedIndex].value === '') {
-                    // try to match zone if we know it
-                }
+    // Now Playing
+    if (nowPlayingBtn) {
+        nowPlayingBtn.addEventListener('click', async () => {
+            nowPlayingBtn.disabled = true;
+            const origHTML = nowPlayingBtn.innerHTML;
+            nowPlayingBtn.innerHTML = '<span class="material-symbols-outlined">hourglass_empty</span> Loading…';
+            try {
+                const np = await fetchNowPlaying();
+                if (!np) { alert('Nothing is playing right now.'); return; }
+                const results = await searchTracks(`${np.artist} ${np.title}`);
+                if (!results.length) { alert(`Could not find "${np.title}" in the library.`); return; }
+                fromAc.setTrack(results[0]);
+            } catch (err) {
+                alert(`Error: ${err.message}`);
+            } finally {
+                nowPlayingBtn.disabled = false;
+                nowPlayingBtn.innerHTML = origHTML;
             }
-        } catch (err) {
-            alert(`Fout: ${err.message}`);
-        } finally {
-            nowPlayingBtn.disabled = false;
-            nowPlayingBtn.innerHTML = '&#9654; Nu aan';
-        }
-    });
+        });
+    }
 
-    findBtn.addEventListener('click', async () => {
-        const fromKey = fromAc.getKey();
-        const toKey = toAc.getKey();
-        if (!fromKey || !toKey) {
-            alert('Kies beide tracks via de suggesties.');
-            return;
-        }
-        findBtn.disabled = true;
-        findBtn.textContent = 'Finding…';
-        try {
-            const mood = moodSel?.value || null;
-            const result = await apiCall('/song-path', {
-                method: 'POST',
-                body: JSON.stringify({
-                    from_track_id: fromKey,
-                    to_track_id: toKey,
-                    max_steps: parseInt(stepsRange.value, 10),
-                    method: methodSel.value,
-                    mood: mood || undefined,
-                }),
-            });
-            _lastPath = result;
-            renderPath(result);
-            playBtn.disabled = false;
-        } catch (err) {
-            document.getElementById('song-paths-result').innerHTML =
-                `<div class="cluster-error">Mislukt: ${err.message}</div>`;
-        } finally {
-            findBtn.disabled = false;
-            findBtn.textContent = 'Find path';
-        }
-    });
+    // Generate Path
+    if (findBtn) {
+        findBtn.addEventListener('click', async () => {
+            const fromKey = fromAc.getKey();
+            const toKey = toAc.getKey();
+            if (!fromKey || !toKey) {
+                alert('Select both tracks first.');
+                return;
+            }
+            findBtn.disabled = true;
+            findBtn.innerHTML = '<span class="material-symbols-outlined">hourglass_empty</span> Finding…';
+            try {
+                const mood = moodSel?.value || null;
+                const result = await apiCall('/song-path', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        from_track_id: fromKey,
+                        to_track_id: toKey,
+                        max_steps: parseInt(stepsRange?.value ?? 10, 10),
+                        method: methodSel?.value ?? 'features',
+                        mood: mood || undefined,
+                    }),
+                });
+                _lastPath = result;
+                renderPath(result);
+                if (playBtn) playBtn.disabled = false;
+            } catch (err) {
+                document.getElementById('song-paths-result').innerHTML =
+                    `<div class="cluster-error">Failed: ${err.message}</div>`;
+            } finally {
+                findBtn.disabled = !(fromAc.getKey() && toAc.getKey());
+                findBtn.innerHTML = '<span class="material-symbols-outlined fill">auto_awesome</span> Generate Path';
+            }
+        });
+    }
 
-    playBtn.addEventListener('click', async () => {
-        if (!_lastPath) return;
-        const zone = zoneSel.value;
-        if (!zone) { alert('Geen Roon zone geselecteerd.'); return; }
-        const itemKeys = _lastPath.path.map(t => t.item_key);
-        try {
-            await apiCall('/queue', {
-                method: 'POST',
-                body: JSON.stringify({ item_keys: itemKeys, zone_id: zone, mode: 'replace' }),
-            });
-        } catch (err) {
-            alert(`Afspelen mislukt: ${err.message}`);
-        }
-    });
+    // Play Path
+    if (playBtn) {
+        playBtn.addEventListener('click', async () => {
+            if (!_lastPath) return;
+            const zone = zoneSel?.value;
+            if (!zone) { alert('No Roon zone selected.'); return; }
+            const itemKeys = _lastPath.path.map(t => t.item_key);
+            try {
+                await apiCall('/queue', {
+                    method: 'POST',
+                    body: JSON.stringify({ item_keys: itemKeys, zone_id: zone, mode: 'replace' }),
+                });
+            } catch (err) {
+                alert(`Playback failed: ${err.message}`);
+            }
+        });
+    }
 }

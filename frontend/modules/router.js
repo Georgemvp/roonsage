@@ -11,7 +11,7 @@ import { renderHistoryFeed } from './history.js';
 
 // View-init imports are dynamic — each module only loads when the user
 // navigates to that view (see _loadView below).
-const VIEW_MODULES = {
+export const VIEW_MODULES = {
     'recommend':   () => import('./recommend.js').then(m => m.initRecommendView()),
     'playlists':   () => import('./playlists.js').then(m => m.initPlaylistsView()),
     'taste':       () => import('./taste.js').then(m => m.initTasteView()),

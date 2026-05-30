@@ -119,6 +119,20 @@ function _esc(s) {
     return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function _updateEstimatedOutput() {
+    const dur = parseInt(document.getElementById('dj-duration')?.value, 10) || 60;
+    const startBpm = parseFloat(document.getElementById('dj-start-bpm')?.value) || 110;
+    const endBpm   = parseFloat(document.getElementById('dj-end-bpm')?.value)   || 128;
+    const avgBpm = (startBpm + endBpm) / 2;
+    // ~3.5 min per track on average — adjust with BPM (faster sets pack slightly more).
+    const avgSec = Math.max(150, Math.min(300, 60 * (avgBpm / 30)));
+    const estTracks = Math.max(1, Math.round((dur * 60) / avgSec));
+    const durEl = document.getElementById('dj-est-duration');
+    const trkEl = document.getElementById('dj-est-tracks');
+    if (durEl) durEl.textContent = dur >= 60 ? `${Math.floor(dur / 60)}u ${dur % 60 ? `${dur % 60}m` : ''}`.trim() : `${dur} min`;
+    if (trkEl) trkEl.textContent = `~${estTracks}`;
+}
+
 function _updateGenreCountLabel() {
     const el = document.getElementById('dj-genre-selected-count');
     if (!el) return;
@@ -516,6 +530,137 @@ function _highlightTrack(idx) {
 }
 
 // ---------------------------------------------------------------------------
+// New visual results renderer (Energy Profile + Track Sequence)
+// ---------------------------------------------------------------------------
+
+function _buildEnergySvg(curve, tracks) {
+    const source = curve.length ? curve : tracks.map(t => ({ bpm: t.bpm || 120, energy: t.energy || 0.5 }));
+    if (!source.length) return '';
+    const W = 800, H = 90;
+    const bpms = source.map(p => p.bpm || 120);
+    const minB = Math.min(...bpms), maxB = Math.max(...bpms), rangeB = (maxB - minB) || 1;
+    const pts = source.map((p, i) => ({
+        x: (i / Math.max(source.length - 1, 1)) * W,
+        y: H - (((p.bpm || 120) - minB) / rangeB * H * 0.75 + H * 0.1),
+        energy: p.energy || 0,
+    }));
+    let pathD = `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+    for (let i = 1; i < pts.length; i++) {
+        const cx = (pts[i-1].x + pts[i].x) / 2;
+        pathD += ` C ${cx.toFixed(1)},${pts[i-1].y.toFixed(1)} ${cx.toFixed(1)},${pts[i].y.toFixed(1)} ${pts[i].x.toFixed(1)},${pts[i].y.toFixed(1)}`;
+    }
+    const fillD = `${pathD} L ${W},${H} L 0,${H} Z`;
+    const step = Math.max(1, Math.floor(pts.length / 8));
+    const nodes = pts.filter((_, i) => i % step === 0 || i === pts.length - 1).map(p => {
+        const col = p.energy > 0.65 ? '#ffba3e' : '#9ad1c6';
+        return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5" fill="${col}" stroke="#131313" stroke-width="1.5" style="filter:drop-shadow(0 0 8px ${col})"/>`;
+    }).join('');
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
+        <defs><linearGradient id="djcg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgba(255,186,62,0.22)"/>
+            <stop offset="100%" stop-color="transparent"/>
+        </linearGradient></defs>
+        <path d="${fillD}" fill="url(#djcg)"/>
+        <path d="${pathD}" fill="none" stroke="rgba(255,186,62,0.65)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        ${nodes}
+    </svg>`;
+}
+
+function _buildTrackSequenceHtml(tracks) {
+    if (!tracks.length) return `<p class="dj-seq-empty">Geen tracks gevonden.<br>Is <code>AUDIO_FEATURES_ENABLED=true</code> ingesteld en zijn er al tracks geanalyseerd?</p>`;
+    // Threshold: if track BPM < 75% of the set's min BPM it was matched via half-time (bpm×2 falls in range)
+    const minBpm = _lastPayload?.start_bpm || 0;
+    let html = '';
+    for (let i = 0; i < tracks.length; i++) {
+        const t = tracks[i];
+        const rawBpm = t.bpm != null ? Math.round(t.bpm) : null;
+        const isHalfTime = rawBpm != null && minBpm > 0 && rawBpm < minBpm * 0.75;
+        const bpm = isHalfTime ? rawBpm * 2 : rawBpm;
+        const bpmLabel = bpm ? `${bpm}${isHalfTime ? '<span class="dj-seq-bpm-tag">×2</span>' : ''}` : null;
+        const dur = _formatDuration(t.duration_ms);
+        html += `
+        <div class="dj-seq-track" data-item-key="${_esc(t.item_key)}">
+            <span class="material-symbols-outlined dj-seq-drag">drag_indicator</span>
+            <div class="dj-seq-art">
+                <img src="/api/art/${_esc(t.item_key)}" alt="" loading="lazy" onerror="this.style.opacity=0">
+            </div>
+            <div class="dj-seq-info">
+                <div class="dj-seq-title">${_esc(t.title || '')}</div>
+                <div class="dj-seq-artist">${_esc(t.artist || '')}${t.album ? ' · ' + _esc(t.album) : ''}</div>
+            </div>
+            <div class="dj-seq-meta">
+                ${bpmLabel ? `<span class="dj-seq-bpm">${bpmLabel}</span>` : ''}
+                ${t.camelot ? `<span class="dj-seq-key ${t.camelot.endsWith('A') ? 'dj-seq-key--minor' : 'dj-seq-key--major'}">${_esc(t.camelot)}</span>` : ''}
+            </div>
+            <div class="dj-seq-dur">${_esc(dur)}</div>
+        </div>`;
+        if (i < tracks.length - 1) {
+            const next = tracks[i + 1];
+            const q = _transitionQuality(t.camelot, next.camelot);
+            // Use effective BPM for delta so half-time tracks compare fairly
+            const nextRaw = next.bpm != null ? Math.round(next.bpm) : null;
+            const nextIsHalfTime = nextRaw != null && minBpm > 0 && nextRaw < minBpm * 0.75;
+            const effectiveCur = isHalfTime ? rawBpm * 2 : rawBpm;
+            const effectiveNext = nextIsHalfTime ? nextRaw * 2 : nextRaw;
+            const bpmDelta = (effectiveCur != null && effectiveNext != null) ? Math.round(effectiveNext - effectiveCur) : null;
+            const deltaStr = bpmDelta != null ? ` · ${bpmDelta > 0 ? '+' : ''}${bpmDelta} BPM` : '';
+            if (q === 'clash') {
+                html += `<div class="dj-seq-trans dj-seq-trans--clash"><div class="dj-seq-trans__line"></div><div class="dj-seq-trans__pill"><span class="material-symbols-outlined" style="font-size:13px">warning</span>Key clash gedetecteerd${deltaStr}</div></div>`;
+            } else if (q !== null) {
+                const label = q === 'same' ? 'Zelfde toonsoort' : 'Harmonische mix';
+                html += `<div class="dj-seq-trans dj-seq-trans--ok"><div class="dj-seq-trans__line"></div><div class="dj-seq-trans__pill"><span class="material-symbols-outlined" style="font-size:13px;font-variation-settings:'FILL' 1">auto_awesome</span>${label}${deltaStr}</div></div>`;
+            }
+        }
+    }
+    return html;
+}
+
+function _renderDJResults(data) {
+    const panel = document.getElementById('dj-results-panel');
+    if (!panel) return;
+    const tracks = data.tracks || [];
+    const curve  = data.curve  || [];
+    const bpms = tracks.map(t => t.bpm).filter(Boolean);
+    const peakBpm = bpms.length ? Math.round(Math.max(...bpms)) : null;
+    const avgBpm  = bpms.length ? Math.round(bpms.reduce((a,b)=>a+b,0) / bpms.length) : null;
+    const totalDur = _formatTotalDuration(data.total_duration_ms || 0);
+    const energySvg = (curve.length || tracks.some(t => t.bpm)) ? _buildEnergySvg(curve, tracks) : '';
+
+    panel.innerHTML = `
+        ${energySvg ? `
+        <div class="dj-energy-panel">
+            <div class="dj-energy-panel__header">
+                <div>
+                    <h3 class="dj-energy-panel__title">Set Energie Profiel</h3>
+                    <p class="dj-energy-panel__sub">BPM-verloop en energie over de set</p>
+                </div>
+                <div class="dj-energy-panel__badges">
+                    ${peakBpm ? `<span class="dj-ebadge dj-ebadge--amber">Piek: ${peakBpm} BPM</span>` : ''}
+                    ${avgBpm  ? `<span class="dj-ebadge">Gem: ${avgBpm} BPM</span>` : ''}
+                    ${totalDur ? `<span class="dj-ebadge">${_esc(totalDur)}</span>` : ''}
+                </div>
+            </div>
+            <div class="dj-energy-panel__graph">${energySvg}</div>
+        </div>` : ''}
+        <div class="dj-seq-panel">
+            <div class="dj-seq-panel__header">
+                <h3 class="dj-seq-panel__title">
+                    Track Volgorde
+                    <span class="dj-seq-panel__count">${tracks.length} tracks${totalDur ? ' · ' + totalDur : ''}</span>
+                </h3>
+                <button id="dj-seq-play-btn" type="button" class="dj-seq-panel__play-btn">
+                    <span class="material-symbols-outlined" style="font-size:17px;font-variation-settings:'FILL' 1">play_arrow</span>
+                    Afspelen
+                </button>
+            </div>
+            <div class="dj-seq-panel__list">${_buildTrackSequenceHtml(tracks)}</div>
+        </div>
+    `;
+    panel.style.display = '';
+    document.getElementById('dj-seq-play-btn')?.addEventListener('click', _openZoneModal);
+}
+
+// ---------------------------------------------------------------------------
 // Build
 // ---------------------------------------------------------------------------
 
@@ -555,12 +700,13 @@ async function _build(ev) {
         _lastResult = data;
         _lastPayload = payload;
         _savedId = null;
-        _renderTracks(data.tracks, data.curve || []);
-        _renderCurve(data.curve || [], data.tracks);
-        _renderSummary(data.tracks, data.total_duration_ms || 0);
+        _renderDJResults(data);
+        // keep legacy wheel update (highlights active keys)
+        const keys = (data.tracks || []).map(t => t.camelot).filter(Boolean);
+        renderCamelotWheel('dj-camelot-wheel', [...new Set(keys)]);
         if (status) {
-            status.textContent = `Set van ${data.returned} tracks (pool: ${data.total_matching}).`;
-            status.style.color = '#4caf50';
+            status.textContent = `Set van ${data.returned} tracks · pool: ${data.total_matching}`;
+            status.style.color = 'var(--teal)';
         }
         _showResultActions(payload);
     } catch (err) {
@@ -734,9 +880,9 @@ export function showTemplateBuildResult(data, template) {
         end_mood:   template?.end_mood   || null,
     };
     _savedId = null;
-    _renderTracks(data.tracks, data.curve || []);
-    _renderCurve(data.curve || [], data.tracks);
-    _renderSummary(data.tracks, data.total_duration_ms || 0);
+    _renderDJResults(data);
+    const keys = (data.tracks || []).map(t => t.camelot).filter(Boolean);
+    renderCamelotWheel('dj-camelot-wheel', [...new Set(keys)]);
     _showResultActions(_lastPayload);
     const status = document.getElementById('dj-status');
     if (status) {
@@ -782,7 +928,7 @@ export function renderCamelotWheel(containerId, activeKeys = []) {
         const txB = cx + (ro + rm) / 2 * Math.cos(midA), tyB = cy + (ro + rm) / 2 * Math.sin(midA);
         const keyB = `${n}B`;
         const activeB = activeKeys.includes(keyB);
-        paths += `<path d="M${x1oB.toFixed(1)},${y1oB.toFixed(1)} A${ro},${ro} 0 0,1 ${x2oB.toFixed(1)},${y2oB.toFixed(1)} L${x2mB.toFixed(1)},${y2mB.toFixed(1)} A${rm},${rm} 0 0,0 ${x1mB.toFixed(1)},${y1mB.toFixed(1)} Z" fill="${KEY_COLORS_B[n]}" opacity="${activeB ? 1 : 0.25}" stroke="var(--bg-primary)" stroke-width="1.5"/>`;
+        paths += `<path d="M${x1oB.toFixed(1)},${y1oB.toFixed(1)} A${ro},${ro} 0 0,1 ${x2oB.toFixed(1)},${y2oB.toFixed(1)} L${x2mB.toFixed(1)},${y2mB.toFixed(1)} A${rm},${rm} 0 0,0 ${x1mB.toFixed(1)},${y1mB.toFixed(1)} Z" fill="${KEY_COLORS_B[n]}" opacity="${activeB ? 1 : 0.40}" stroke="#131313" stroke-width="1.5"/>`;
         paths += `<text x="${txB.toFixed(1)}" y="${tyB.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="6.5" font-weight="700" fill="rgba(0,0,0,0.7)">${n}B</text>`;
 
         // Inner ring = A (minor)
@@ -793,20 +939,17 @@ export function renderCamelotWheel(containerId, activeKeys = []) {
         const txA = cx + (rm + ri) / 2 * Math.cos(midA), tyA = cy + (rm + ri) / 2 * Math.sin(midA);
         const keyA = `${n}A`;
         const activeA = activeKeys.includes(keyA);
-        paths += `<path d="M${x1mA.toFixed(1)},${y1mA.toFixed(1)} A${rm},${rm} 0 0,1 ${x2mA.toFixed(1)},${y2mA.toFixed(1)} L${x2iA.toFixed(1)},${y2iA.toFixed(1)} A${ri},${ri} 0 0,0 ${x1iA.toFixed(1)},${y1iA.toFixed(1)} Z" fill="${KEY_COLORS_A[n]}" opacity="${activeA ? 1 : 0.25}" stroke="var(--bg-primary)" stroke-width="1.5"/>`;
+        paths += `<path d="M${x1mA.toFixed(1)},${y1mA.toFixed(1)} A${rm},${rm} 0 0,1 ${x2mA.toFixed(1)},${y2mA.toFixed(1)} L${x2iA.toFixed(1)},${y2iA.toFixed(1)} A${ri},${ri} 0 0,0 ${x1iA.toFixed(1)},${y1iA.toFixed(1)} Z" fill="${KEY_COLORS_A[n]}" opacity="${activeA ? 1 : 0.40}" stroke="#131313" stroke-width="1.5"/>`;
         paths += `<text x="${txA.toFixed(1)}" y="${tyA.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="6.5" font-weight="700" fill="rgba(0,0,0,0.7)">${n}A</text>`;
     }
 
     container.innerHTML = `
-        <svg viewBox="0 0 220 220" width="190" height="190" style="display:block;margin:0 auto">
+        <svg viewBox="0 0 220 220" style="display:block;width:100%;height:100%">
             ${paths}
-            <circle cx="${cx}" cy="${cy}" r="${ri - 2}" fill="var(--bg-elevated)" stroke="var(--border)" stroke-width="1"/>
-            <text x="${cx}" y="${cy - 6}" text-anchor="middle" font-size="9" fill="var(--text-muted)" font-weight="600">Camelot</text>
-            <text x="${cx}" y="${cy + 6}" text-anchor="middle" font-size="8" fill="var(--text-muted)">Wheel</text>
+            <circle cx="${cx}" cy="${cy}" r="${ri - 2}" fill="#1c1b1b" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+            <text x="${cx}" y="${cy - 6}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.4)" font-weight="600">Camelot</text>
+            <text x="${cx}" y="${cy + 6}" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.3)">Wheel</text>
         </svg>
-        <p style="font-size:0.69rem;color:var(--text-muted);text-align:center;line-height:1.5;margin-top:8px">
-            Buiten = majeur (B) · Binnen = mineur (A)
-        </p>
     `;
 }
 
@@ -816,17 +959,17 @@ export function renderCamelotWheel(containerId, activeKeys = []) {
 
 const ENERGY_CURVES = [
     { id:'flat',         label:'Flat',         path:'M 2,50 L 98,50' },
-    { id:'ramp_up',      label:'Build',        path:'M 2,85 C 40,70 65,35 98,12' },
-    { id:'ramp_down',    label:'Wind Down',    path:'M 2,12 C 35,18 68,58 98,85' },
+    { id:'ramp_up',      label:'Build',        path:'M 2,68 C 40,62 65,35 98,12' },
+    { id:'ramp_down',    label:'Wind Down',    path:'M 2,12 C 35,18 68,58 98,65' },
     { id:'peak',         label:'Peak Hour',    path:'M 2,62 C 25,20 42,12 52,12 C 68,12 82,38 98,52' },
-    { id:'crescendo',    label:'Crescendo',    path:'M 2,80 C 55,75 75,40 98,5' },
-    { id:'wave',         label:'Wave',         path:'M 2,50 C 20,20 40,80 60,20 C 78,5 90,30 98,50' },
-    { id:'sunrise',      label:'Sunrise',      path:'M 2,90 C 30,85 55,50 70,25 C 82,8 92,10 98,15' },
+    { id:'crescendo',    label:'Crescendo',    path:'M 2,65 C 55,62 75,35 98,5' },
+    { id:'wave',         label:'Wave',         path:'M 2,50 C 20,20 40,65 60,20 C 78,5 90,30 98,50' },
+    { id:'sunrise',      label:'Sunrise',      path:'M 2,65 C 30,62 55,40 70,20 C 82,8 92,10 98,15' },
     { id:'marathon',     label:'Marathon',     path:'M 2,35 C 20,32 40,38 60,33 C 78,28 90,35 98,32' },
     { id:'rollercoaster',label:'Intervals',    path:'M 2,60 L 20,15 L 38,60 L 56,15 L 74,60 L 92,15 L 98,30' },
-    { id:'explosion',    label:'Explosion',    path:'M 2,70 C 15,65 30,20 45,5 C 55,5 70,50 98,70' },
-    { id:'afterparty',   label:'Afterparty',   path:'M 2,15 C 20,12 38,18 55,40 C 70,60 85,72 98,80' },
-    { id:'valley',       label:'Valley',       path:'M 2,20 C 25,25 40,70 52,80 C 65,70 80,25 98,20' },
+    { id:'explosion',    label:'Explosion',    path:'M 2,65 C 15,62 30,20 45,5 C 55,5 70,45 98,65' },
+    { id:'afterparty',   label:'Afterparty',   path:'M 2,15 C 20,12 38,18 55,40 C 70,60 85,65 98,68' },
+    { id:'valley',       label:'Valley',       path:'M 2,20 C 25,25 40,65 52,68 C 65,65 80,25 98,20' },
 ];
 
 function _renderCurveGrid() {
@@ -835,23 +978,13 @@ function _renderCurveGrid() {
     if (!grid || !hidden) return;
 
     const current = hidden.value || 'ramp_up';
-    grid.innerHTML = ENERGY_CURVES.map(c => `
-        <button type="button" class="dj-curve-btn${c.id === current ? ' active' : ''}" data-curve-id="${c.id}">
-            <svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px">
-                <path d="${c.path}" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span>${c.label}</span>
-        </button>
-    `).join('');
-
     grid.querySelectorAll('.dj-curve-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const id = btn.dataset.curveId;
-            hidden.value = id;
+        btn.classList.toggle('active', btn.dataset.curveId === current);
+        btn.onclick = () => {
+            hidden.value = btn.dataset.curveId;
             grid.querySelectorAll('.dj-curve-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            hidden.dispatchEvent(new Event('change', { bubbles: true }));
-        });
+        };
     });
 }
 
@@ -882,8 +1015,10 @@ export async function initDJSetView() {
                 if (hidden) hidden.value = dur;
                 document.querySelectorAll('.dj-duration-pill').forEach(p => p.classList.remove('active'));
                 pill.classList.add('active');
+                _updateEstimatedOutput();
             });
         });
+        _updateEstimatedOutput();
 
         document.querySelectorAll('#dj-set-view .rs-tab[data-dj-tab]').forEach(btn => {
             btn.addEventListener('click', () => switchDJTab(btn.dataset.djTab));
@@ -894,6 +1029,7 @@ export async function initDJSetView() {
                 _bpmUserEdited = true;
                 const hint = document.getElementById('dj-bpm-hint');
                 if (hint) hint.textContent = 'Handmatig ingesteld';
+                _updateEstimatedOutput();
             });
         });
 

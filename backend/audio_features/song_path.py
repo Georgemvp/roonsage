@@ -39,6 +39,7 @@ from __future__ import annotations
 import heapq
 import json
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -352,8 +353,107 @@ def _dijkstra(
 
 
 # ---------------------------------------------------------------------------
-# Path simplification
+# Path simplification / extension
 # ---------------------------------------------------------------------------
+
+
+_STRIP_SUFFIX_RE = re.compile(r'\s*[\(\[\{][^\)\]\}]*[\)\]\}]')
+
+
+def _song_key(meta: dict) -> tuple[str, str]:
+    """Normalised (title, primary_artist) for same-song deduplication.
+
+    Strips version suffixes like "(Live)", "[Album Version]", "(Remastered 2011)"
+    so that multiple editions of the same track are treated as one song.
+    """
+    raw_title = str(meta.get("title") or "")
+    title = _STRIP_SUFFIX_RE.sub("", raw_title).lower().strip()
+    artist = str(meta.get("artist") or "").split(",")[0].strip().lower()
+    return (title, artist)
+
+
+def _build_song_key_index(metadata: list[dict]) -> dict[tuple, set[int]]:
+    """Pre-compute song_key → set of track indices for O(1) duplicate blocking."""
+    index: dict[tuple, set[int]] = {}
+    for i, m in enumerate(metadata):
+        k = _song_key(m)
+        index.setdefault(k, set()).add(i)
+    return index
+
+
+def _block_song_duplicates(
+    dists_sq: np.ndarray,
+    path_idxs: list[int],
+    metadata: list[dict],
+    song_key_index: dict[tuple, set[int]],
+) -> None:
+    """Set dists_sq to inf for all tracks that share a song_key with path_idxs."""
+    seen_keys: set[tuple] = {_song_key(metadata[idx]) for idx in path_idxs}
+    for sk in seen_keys:
+        for dup_idx in song_key_index.get(sk, ()):
+            dists_sq[dup_idx] = float("inf")
+
+
+def _extend_path(
+    path: list[int],
+    matrix: np.ndarray,
+    target_len: int,
+    metadata: list[dict] | None = None,
+) -> list[int]:
+    """Extend a too-short path to target_len by inserting waypoints.
+
+    Finds the edge with the largest sonic gap and inserts the library track
+    closest to its midpoint (not already in the path). Repeats until the path
+    reaches target_len or no more insertable tracks exist.
+
+    When *metadata* is provided, same-song duplicates (identical normalised
+    title + primary artist) are blocked so that multiple versions of the same
+    track cannot all appear in the extended path.
+    """
+    path = list(path)
+    path_set = set(path)
+    song_key_index = _build_song_key_index(metadata) if metadata else None
+    path_song_keys: set[tuple] = (
+        {_song_key(metadata[idx]) for idx in path} if metadata else set()
+    )
+
+    while len(path) < target_len:
+        # Find the edge with the largest feature-space gap
+        best_edge_i = -1
+        best_edge_dist = -1.0
+        for i in range(len(path) - 1):
+            d = float(np.linalg.norm(matrix[path[i]] - matrix[path[i + 1]]))
+            if d > best_edge_dist:
+                best_edge_dist = d
+                best_edge_i = i
+
+        if best_edge_i == -1 or best_edge_dist < 1e-8:
+            break
+
+        a, b = path[best_edge_i], path[best_edge_i + 1]
+        midpoint = (matrix[a] + matrix[b]) * 0.5
+
+        diffs = matrix - midpoint
+        dists_sq = (diffs * diffs).sum(axis=1)
+        for idx in path_set:
+            dists_sq[idx] = float("inf")
+
+        # Block same-song duplicates
+        if song_key_index is not None:
+            for sk in path_song_keys:
+                for dup_idx in song_key_index.get(sk, ()):
+                    dists_sq[dup_idx] = float("inf")
+
+        best_mid = int(np.argmin(dists_sq))
+        if dists_sq[best_mid] == float("inf"):
+            break  # library exhausted
+
+        path.insert(best_edge_i + 1, best_mid)
+        path_set.add(best_mid)
+        if metadata:
+            path_song_keys.add(_song_key(metadata[best_mid]))
+
+    return path
 
 
 def _simplify_path_smooth(
@@ -400,16 +500,20 @@ def find_song_path(
     to_track_id: str,
     max_steps: int = 10,
     mood: str | None = None,
-    beam_width: int = 3,
+    beam_width: int = 5,
 ) -> list[dict[str, Any]]:
     """Beam-search nearest-neighbor walk biased toward the target track.
 
     At each step the algorithm keeps the top ``beam_width`` candidate beams
     (ranked by distance-to-target from the current tip) and expands each beam
-    by adding the best ``beam_width`` unvisited next-hops. This avoids the
-    local-minima trap of pure greedy search while remaining lightweight.
+    by adding the best ``beam_width`` unvisited next-hops.
 
-    Mood centroids are now normalised into library feature space (BPM fix).
+    Key guarantees:
+    - The destination is blocked from early selection until the final 2 steps,
+      so the user always gets close to the requested ``max_steps``.
+    - Alpha ramp is intentionally slow early (exploration) and fast late
+      (convergence), so cross-genre paths pick up meaningful intermediates
+      instead of jumping straight to the destination.
     """
     keys, matrix, key_to_idx, metadata, mins, maxs = _load_feature_table(conn)
     if not keys:
@@ -422,18 +526,29 @@ def find_song_path(
         if mood else None
     )
 
-    # Beam state: (dist_to_target, path_indices, visited_set)
-    beams: list[tuple[float, list[int], set[int]]] = [
-        (float(np.linalg.norm(matrix[src_idx] - target)), [src_idx], {src_idx})
+    # Pre-compute song_key → indices map once for same-song duplicate blocking.
+    song_key_index = _build_song_key_index(metadata)
+
+    # Beam state: (dist_to_target, path_indices, visited_set, song_keys_set)
+    beams: list[tuple[float, list[int], set[int], set[tuple]]] = [
+        (
+            float(np.linalg.norm(matrix[src_idx] - target)),
+            [src_idx],
+            {src_idx},
+            {_song_key(metadata[src_idx])},
+        )
     ]
 
     for step in range(max_steps):
-        alpha = 0.3 + 0.65 * (step / max(1, max_steps - 1))
-        next_beams: list[tuple[float, list[int], set[int]]] = []
+        # Slower ramp: stay exploratory longer, converge only near the end
+        t = step / max(1, max_steps - 1)
+        alpha = 0.15 + 0.75 * (t ** 1.5)
 
-        for _score, path, visited in beams:
+        next_beams: list[tuple[float, list[int], set[int], set[tuple]]] = []
+
+        for _score, path, visited, path_song_keys in beams:
             if path[-1] == dst_idx:
-                next_beams.append((_score, path, visited))
+                next_beams.append((_score, path, visited, path_song_keys))
                 continue
 
             current = matrix[path[-1]]
@@ -441,16 +556,32 @@ def find_song_path(
             if mood_vec is not None:
                 bias = bias + 0.15 * (mood_vec - bias)
 
-            # Vectorised distance from every track to the bias point
             diffs = matrix - bias
             dists_sq = (diffs * diffs).sum(axis=1)
-            # Block already-visited nodes
             for vis in visited:
                 dists_sq[vis] = float("inf")
 
+            # Block destination until the final 2 steps so the path reaches
+            # the requested length instead of short-circuiting early.
+            if step < max_steps - 2:
+                dists_sq[dst_idx] = float("inf")
+
+            # Block same-song duplicates (different versions of tracks in path).
+            for sk in path_song_keys:
+                for dup_idx in song_key_index.get(sk, ()):
+                    dists_sq[dup_idx] = float("inf")
+            # Always keep destination reachable when unblocking step allows it.
+            if step >= max_steps - 2:
+                dists_sq[dst_idx] = float(
+                    np.linalg.norm(matrix[dst_idx] - bias) ** 2
+                )
+
             top_count = min(beam_width, int((dists_sq < float("inf")).sum()))
             if top_count == 0:
-                next_beams.append((_score, path + [dst_idx], visited | {dst_idx}))
+                # All tracks exhausted — force-jump to destination
+                next_beams.append(
+                    (_score, path + [dst_idx], visited | {dst_idx}, path_song_keys)
+                )
                 continue
 
             top_idxs = np.argpartition(dists_sq, top_count - 1)[:top_count]
@@ -458,8 +589,9 @@ def find_song_path(
                 cand = int(cand)
                 new_path = path + [cand]
                 new_visited = visited | {cand}
+                new_song_keys = path_song_keys | {_song_key(metadata[cand])}
                 score = float(np.linalg.norm(matrix[cand] - target))
-                next_beams.append((score, new_path, new_visited))
+                next_beams.append((score, new_path, new_visited, new_song_keys))
 
         if not next_beams:
             break
@@ -472,6 +604,16 @@ def find_song_path(
     best_path = beams[0][1]
     if best_path[-1] != dst_idx:
         best_path.append(dst_idx)
+
+    # If the beam search terminated early, fill gaps up to the requested length.
+    target_len = max_steps + 1  # +1 because path includes both endpoints
+    if len(best_path) < target_len:
+        logger.debug(
+            "Greedy path short (%d < %d), extending via midpoint insertion",
+            len(best_path),
+            target_len,
+        )
+        best_path = _extend_path(best_path, matrix, target_len, metadata)
 
     return _add_transition_scores(best_path, matrix, metadata)
 
@@ -536,6 +678,10 @@ def find_song_path_graph(
     target_len = max_steps + 1
     if len(path) > target_len:
         path = _simplify_path_smooth(path, matrix, target_len)
+    elif len(path) < target_len:
+        # Dijkstra found the shortest path; extend it by inserting waypoints
+        # into the largest sonic gaps so the user gets the requested length.
+        path = _extend_path(path, matrix, target_len, metadata)
 
     return _add_transition_scores(path, matrix, metadata)
 
@@ -754,6 +900,8 @@ def find_song_path_clap(
     target_len = max_steps + 1
     if len(path) > target_len:
         path = _simplify_path_cosine(path, matrix, target_len)
+    elif len(path) < target_len:
+        path = _extend_path(path, matrix, target_len, metadata)
 
     # Attach CLAP cosine transition distances
     result = []
@@ -837,6 +985,8 @@ def find_song_path_hybrid(
     target_len = max_steps + 1
     if len(path) > target_len:
         path = _simplify_path_smooth(path, feat_matrix, target_len)
+    elif len(path) < target_len:
+        path = _extend_path(path, feat_matrix, target_len, metadata)
 
     return _add_transition_scores(path, feat_matrix, metadata)
 

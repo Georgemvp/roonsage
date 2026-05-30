@@ -1482,155 +1482,177 @@
                 <div id="dj-builder-pane" class="dj-tab-pane">
                     <form id="dj-form" autocomplete="off">
 
-                        <!-- Row 1: BPM Range + Duration + Camelot Wheel -->
-                        <div class="dj-top-row">
+                        <div class="dj-bento-grid">
 
-                            <!-- BPM Range card -->
-                            <div class="dj-card">
-                                <div class="dj-card-label">BPM Range</div>
-                                <div class="dj-bpm-range">
-                                    <input id="dj-start-bpm" type="number" class="dj-bpm-input" min="40" max="220" step="1" value="110" />
-                                    <span class="dj-bpm-sep">–</span>
-                                    <input id="dj-end-bpm" type="number" class="dj-bpm-input" min="40" max="220" step="1" value="128" />
-                                    <span class="dj-bpm-unit">BPM</span>
+                            <!-- Left column: stacked controls -->
+                            <div class="dj-bento-left">
+
+                                <!-- Sonic Parameters: BPM + Duration combined -->
+                                <div class="dj-card">
+                                    <div class="dj-card-label">Sonic Parameters</div>
+                                    <div class="dj-param-row">
+                                        <span class="dj-param-label">BPM Range</span>
+                                        <div class="dj-bpm-range">
+                                            <input id="dj-start-bpm" type="number" class="dj-bpm-input" min="40" max="220" step="1" value="110" />
+                                            <span class="dj-bpm-sep">–</span>
+                                            <input id="dj-end-bpm" type="number" class="dj-bpm-input" min="40" max="220" step="1" value="128" />
+                                            <span class="dj-bpm-unit">BPM</span>
+                                        </div>
+                                    </div>
+                                    <div id="dj-bpm-hint" style="font-size:0.72rem;color:var(--text-muted);margin-top:4px;min-height:1em;"></div>
+                                    <div class="dj-param-row" style="margin-top:16px;">
+                                        <span class="dj-param-label">Duur</span>
+                                        <div class="dj-duration-pills">
+                                            <button type="button" class="dj-duration-pill" data-dur="30">30m</button>
+                                            <button type="button" class="dj-duration-pill active" data-dur="60">60m</button>
+                                            <button type="button" class="dj-duration-pill" data-dur="90">90m</button>
+                                            <button type="button" class="dj-duration-pill" data-dur="120">120m</button>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div id="dj-bpm-hint" style="font-size:0.72rem;color:var(--text-muted);margin-top:6px;min-height:1.1em;"></div>
-                            </div>
 
-                            <!-- Duration card -->
-                            <div class="dj-card">
-                                <div class="dj-card-label">Duur</div>
-                                <div class="dj-duration-pills">
-                                    <button type="button" class="dj-duration-pill" data-dur="30">30m</button>
-                                    <button type="button" class="dj-duration-pill active" data-dur="60">60m</button>
-                                    <button type="button" class="dj-duration-pill" data-dur="90">90m</button>
-                                    <button type="button" class="dj-duration-pill" data-dur="120">120m</button>
+                                <!-- Energy Curve -->
+                                <div class="dj-card">
+                                    <div class="dj-card-label">Energiecurve</div>
+                                    <div id="dj-curve-grid" class="dj-curve-grid">
+                                        <button type="button" class="dj-curve-btn" data-curve-id="flat"><svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px"><path d="M 2,50 L 98,50" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Flat</span></button>
+                                        <button type="button" class="dj-curve-btn active" data-curve-id="ramp_up"><svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px"><path d="M 2,68 C 40,62 65,35 98,12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Build</span></button>
+                                        <button type="button" class="dj-curve-btn" data-curve-id="ramp_down"><svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px"><path d="M 2,12 C 35,18 68,58 98,65" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Wind Down</span></button>
+                                        <button type="button" class="dj-curve-btn" data-curve-id="peak"><svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px"><path d="M 2,62 C 25,20 42,12 52,12 C 68,12 82,38 98,52" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Peak</span></button>
+                                        <button type="button" class="dj-curve-btn" data-curve-id="crescendo"><svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px"><path d="M 2,65 C 55,62 75,35 98,5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Crescendo</span></button>
+                                        <button type="button" class="dj-curve-btn" data-curve-id="wave"><svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px"><path d="M 2,50 C 20,20 40,65 60,20 C 78,5 90,30 98,50" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Wave</span></button>
+                                        <button type="button" class="dj-curve-btn" data-curve-id="sunrise"><svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px"><path d="M 2,65 C 30,62 55,40 70,20 C 82,8 92,10 98,15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Sunrise</span></button>
+                                        <button type="button" class="dj-curve-btn" data-curve-id="marathon"><svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px"><path d="M 2,35 C 20,32 40,38 60,33 C 78,28 90,35 98,32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Marathon</span></button>
+                                        <button type="button" class="dj-curve-btn" data-curve-id="rollercoaster"><svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px"><path d="M 2,60 L 20,15 L 38,60 L 56,15 L 74,60 L 92,15 L 98,30" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Intervals</span></button>
+                                        <button type="button" class="dj-curve-btn" data-curve-id="explosion"><svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px"><path d="M 2,65 C 15,62 30,20 45,5 C 55,5 70,45 98,65" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Explosion</span></button>
+                                        <button type="button" class="dj-curve-btn" data-curve-id="afterparty"><svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px"><path d="M 2,15 C 20,12 38,18 55,40 C 70,60 85,65 98,68" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Afterparty</span></button>
+                                        <button type="button" class="dj-curve-btn" data-curve-id="valley"><svg viewBox="0 0 100 70" width="100%" height="30" style="display:block;margin-bottom:6px"><path d="M 2,20 C 25,25 40,65 52,68 C 65,65 80,25 98,20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Valley</span></button>
+                                    </div>
+                                    <input type="hidden" id="dj-curve" value="ramp_up">
                                 </div>
-                            </div>
 
-                            <!-- Camelot Wheel card -->
-                            <div class="dj-card dj-card--camelot">
+                                <!-- Mix Priority chips + Options toggles -->
+                                <div class="dj-card">
+                                    <div class="dj-card-label">Mix Prioriteit</div>
+                                    <div class="dj-priority-chips">
+                                        <label class="dj-priority-chip dj-priority-chip--harmonic">
+                                            <input type="radio" name="dj-mix-style" id="dj-mix-style-harmonic" value="harmonic" checked>
+                                            <span class="material-symbols-outlined" style="font-size:14px">music_note</span>
+                                            Harmonisch
+                                            <span class="dj-priority-chip__help dj-tooltip-wrap">
+                                                <span class="dj-tooltip-trigger">?</span>
+                                                <span class="dj-tooltip-box">Tracks geselecteerd op Camelot-compatibele toonsoorten voor vloeiende overgangen.</span>
+                                            </span>
+                                        </label>
+                                        <label class="dj-priority-chip dj-priority-chip--energy">
+                                            <input type="radio" name="dj-mix-style" id="dj-mix-style-energy" value="energy">
+                                            <span class="material-symbols-outlined" style="font-size:14px">bolt</span>
+                                            Energie
+                                            <span class="dj-priority-chip__help dj-tooltip-wrap">
+                                                <span class="dj-tooltip-trigger">?</span>
+                                                <span class="dj-tooltip-box">BPM en energie centraal; harmonie is secundair.</span>
+                                            </span>
+                                        </label>
+                                        <label class="dj-priority-chip dj-priority-chip--groove">
+                                            <input type="radio" name="dj-mix-style" id="dj-mix-style-groove" value="groove">
+                                            <span class="material-symbols-outlined" style="font-size:14px">graphic_eq</span>
+                                            Groove
+                                            <span class="dj-priority-chip__help dj-tooltip-wrap">
+                                                <span class="dj-tooltip-trigger">?</span>
+                                                <span class="dj-tooltip-box">Ritme en feel centraal, gestuurd op dansbaarheidsscore.</span>
+                                            </span>
+                                        </label>
+                                    </div>
+                                    <div class="dj-toggle-list" style="margin-top:18px;">
+                                        <label class="dj-toggle-item">
+                                            <span>Half-/dubbeltijd BPM</span>
+                                            <input type="checkbox" id="dj-opt-halfstep" checked class="dj-toggle-input">
+                                        </label>
+                                        <label class="dj-toggle-item">
+                                            <span>Max 2 tracks per artiest</span>
+                                            <input type="checkbox" id="dj-opt-max-artist" checked class="dj-toggle-input">
+                                        </label>
+                                        <label class="dj-toggle-item">
+                                            <span>Alleen geanalyseerde tracks</span>
+                                            <input type="checkbox" id="dj-opt-analyzed" class="dj-toggle-input">
+                                        </label>
+                                        <label class="dj-toggle-item">
+                                            <span>Live versies overslaan</span>
+                                            <input type="checkbox" id="dj-opt-no-live" checked class="dj-toggle-input">
+                                        </label>
+                                        <label class="dj-toggle-item">
+                                            <span>Recent gespeeld overslaan</span>
+                                            <input type="checkbox" id="dj-opt-no-recent" checked class="dj-toggle-input">
+                                        </label>
+                                    </div>
+                                </div>
+
+                            </div><!-- /dj-bento-left -->
+
+                            <!-- Right column: Camelot Wheel full height -->
+                            <div class="dj-card dj-card--camelot dj-bento-wheel">
                                 <div class="dj-card-label-row">
-                                    <span class="dj-card-label">Camelot Wiel</span>
+                                    <div>
+                                        <h3 class="dj-wheel-title">Harmonische As</h3>
+                                        <p class="dj-wheel-subtitle">Actieve toonsoorten na het bouwen</p>
+                                    </div>
                                     <div class="dj-tooltip-wrap">
                                         <div class="dj-tooltip-trigger">?</div>
                                         <div class="dj-tooltip-box">
                                             <strong style="color:var(--text-primary);display:block;margin-bottom:6px">Wat is het Camelot Wiel?</strong>
-                                            Elke toonsoort heeft een nummer (1–12) en letter (A of B). Nummers die naast elkaar staan klinken goed op elkaar. Zo kiest RoonSage tracks die muzikaal vloeiend in elkaar overlopen.
+                                            Nummers (1–12) en letters (A/B) markeren toonsoorten. Aangrenzende segmenten zijn harmonisch compatibel.
                                         </div>
                                     </div>
                                 </div>
-                                <div id="dj-camelot-wheel"></div>
-                                <p class="dj-camelot-hint">Aaneengesloten en naburige nummers zijn harmonisch compatibel</p>
-                            </div>
-
-                        </div><!-- /dj-top-row -->
-
-                        <!-- Row 2: Energy Curve (full width) -->
-                        <div class="dj-card dj-card--full">
-                            <div class="dj-card-label">Energiecurve</div>
-                            <div id="dj-curve-grid" class="dj-curve-grid"></div>
-                            <input type="hidden" id="dj-curve" value="ramp_up">
-                        </div>
-
-                        <!-- Row 3: Mix Style + Options -->
-                        <div class="dj-bottom-row">
-
-                            <!-- Mix Style card -->
-                            <div class="dj-card">
-                                <div class="dj-card-label">Mix Stijl</div>
-                                <div class="dj-mix-style-list">
-                                    <label class="dj-mix-style-item">
-                                        <input type="radio" name="dj-mix-style" id="dj-mix-style-harmonic" value="harmonic" checked>
-                                        <div class="dj-mix-style-info">
-                                            <span class="dj-mix-style-name">Harmonisch
-                                                <span class="dj-mix-style-help dj-tooltip-wrap">
-                                                    <span class="dj-tooltip-trigger">?</span>
-                                                    <span class="dj-tooltip-box">Tracks worden geselecteerd op basis van Camelot-compatibele toonsoorten voor vloeiende overgangen.</span>
-                                                </span>
-                                            </span>
-                                            <span class="dj-mix-style-sub">Camelot-compatible keys</span>
-                                        </div>
-                                    </label>
-                                    <label class="dj-mix-style-item">
-                                        <input type="radio" name="dj-mix-style" id="dj-mix-style-energy" value="energy">
-                                        <div class="dj-mix-style-info">
-                                            <span class="dj-mix-style-name">Energie
-                                                <span class="dj-mix-style-help dj-tooltip-wrap">
-                                                    <span class="dj-tooltip-trigger">?</span>
-                                                    <span class="dj-tooltip-box">BPM en energie staan centraal; harmonische compatibiliteit is secundair.</span>
-                                                </span>
-                                            </span>
-                                            <span class="dj-mix-style-sub">BPM en energie centraal</span>
-                                        </div>
-                                    </label>
-                                    <label class="dj-mix-style-item">
-                                        <input type="radio" name="dj-mix-style" id="dj-mix-style-groove" value="groove">
-                                        <div class="dj-mix-style-info">
-                                            <span class="dj-mix-style-name">Groove
-                                                <span class="dj-mix-style-help dj-tooltip-wrap">
-                                                    <span class="dj-tooltip-trigger">?</span>
-                                                    <span class="dj-tooltip-box">Ritme en feel staan centraal; gestuurd op dansbaarheidsscore.</span>
-                                                </span>
-                                            </span>
-                                            <span class="dj-mix-style-sub">Ritme en feel gestuurd</span>
-                                        </div>
-                                    </label>
+                                <div class="dj-camelot-stage">
+                                    <div class="dj-camelot-glow" aria-hidden="true"></div>
+                                    <div class="dj-camelot-orbit" aria-hidden="true">
+                                        <span class="dj-camelot-dot dj-camelot-dot--amber"></span>
+                                        <span class="dj-camelot-dot dj-camelot-dot--teal"></span>
+                                        <span class="dj-camelot-dot dj-camelot-dot--accent"></span>
+                                    </div>
+                                    <div id="dj-camelot-wheel" class="dj-camelot-wheel"></div>
                                 </div>
-                            </div>
+                                <p class="dj-camelot-hint">Buiten = majeur (B) · Binnen = mineur (A)</p>
+                            </div><!-- /dj-bento-wheel -->
 
-                            <!-- Options card -->
-                            <div class="dj-card">
-                                <div class="dj-card-label">Opties</div>
-                                <div class="dj-options-list">
-                                    <label class="dj-option-item">
-                                        <input type="checkbox" id="dj-opt-halfstep" checked>
-                                        <span>Halveertoonswijzigingen toestaan</span>
-                                    </label>
-                                    <label class="dj-option-item">
-                                        <input type="checkbox" id="dj-opt-max-artist" checked>
-                                        <span>Max 2 tracks per artiest</span>
-                                    </label>
-                                    <label class="dj-option-item">
-                                        <input type="checkbox" id="dj-opt-analyzed">
-                                        <span>Alleen audio-geanalyseerde tracks</span>
-                                    </label>
-                                    <label class="dj-option-item">
-                                        <input type="checkbox" id="dj-opt-no-live" checked>
-                                        <span>Live versies overslaan</span>
-                                    </label>
-                                    <label class="dj-option-item">
-                                        <input type="checkbox" id="dj-opt-no-recent" checked>
-                                        <span>Recent gespeeld overslaan</span>
-                                    </label>
-                                </div>
-                            </div>
-
-                        </div><!-- /dj-bottom-row -->
+                        </div><!-- /dj-bento-grid -->
 
                         <!-- Genre cloud (hidden, kept for JS) -->
                         <div id="dj-genre-cloud" class="rs-chips" style="display:none;"></div>
                         <input type="hidden" id="dj-duration" value="60">
 
-                        <!-- Action buttons -->
-                        <div class="dj-form-actions">
-                            <button id="dj-build-btn" type="submit" class="dj-btn-primary">&#9835; Set bouwen</button>
-                            <button id="dj-template-shortcut-btn" type="button" class="dj-btn-secondary">&#8801; Kies template</button>
-                            <button id="dj-play-btn" type="button" class="dj-btn-primary" style="display:none;">&#9654; Speel af op zone</button>
-                            <button id="dj-save-btn" type="button" class="dj-btn-secondary" style="display:none;">Opslaan</button>
-                            <button id="dj-arc-btn" type="button" class="dj-btn-secondary" style="display:none;">Opslaan in Arc &#8599;</button>
+                        <!-- Action bar with estimated output preview -->
+                        <div class="dj-action-bar">
+                            <div class="dj-action-preview" aria-live="polite">
+                                <div class="dj-action-preview__icon" aria-hidden="true">&#10024;</div>
+                                <div class="dj-action-preview__text">
+                                    <div class="dj-action-preview__title">Geschatte output</div>
+                                    <div class="dj-action-preview__sub"><span id="dj-est-tracks">~20</span> tracks &middot; <span id="dj-est-duration">60 min</span></div>
+                                </div>
+                            </div>
+                            <div class="dj-form-actions">
+                                <button id="dj-build-btn" type="submit" class="dj-btn-primary dj-btn-primary--gradient">&#9835; Set bouwen</button>
+                                <button id="dj-template-shortcut-btn" type="button" class="dj-btn-secondary">&#8801; Kies template</button>
+                                <button id="dj-play-btn" type="button" class="dj-btn-primary dj-btn-primary--gradient" style="display:none;">&#9654; Speel af op zone</button>
+                                <button id="dj-save-btn" type="button" class="dj-btn-secondary" style="display:none;">Opslaan</button>
+                                <button id="dj-arc-btn" type="button" class="dj-btn-secondary" style="display:none;">Opslaan in Arc &#8599;</button>
+                            </div>
                         </div>
 
                     </form>
 
-                    <!-- Result area (outside form) -->
-                    <canvas id="dj-curve-chart" style="max-height:200px;display:none;margin-bottom:12px"></canvas>
+                    <!-- Status + name save (keep for JS) -->
+                    <canvas id="dj-curve-chart" style="display:none;"></canvas>
                     <div id="dj-summary" style="display:none;"></div>
-                    <div id="dj-result" class="auto-list"></div>
-                    <div id="dj-result-actions" style="display:none;margin-top:var(--spacing-sm);">
+                    <div id="dj-result" style="display:none;"></div>
+                    <div id="dj-result-actions" style="display:none;">
                         <input id="dj-set-name" type="text" class="auto-form-input" style="width:100%;" placeholder="Naam voor deze set…" />
                     </div>
                     <div id="dj-status" class="enrich-result"></div>
+
+                    <!-- New results panel: Energy Profile + Track Sequence -->
+                    <div id="dj-results-panel" style="display:none;margin-top:16px;"></div>
 
                 </div> <!-- End #dj-builder-pane grid -->
 
@@ -1869,60 +1891,177 @@
                 </div>
             </div>
 
-            <!-- Song Paths View (v13.0) -->
+            <!-- Song Paths View (v13.0 / redesigned) -->
             <div id="song-paths-view" class="view">
-                <p class="rs-view-eyebrow">DISCOVER</p>
-                <h2 class="rs-view-title">Song Paths</h2>
-                <p class="rs-view-sub">Find the sonically smoothest bridge from one track to another.</p>
+                <div class="sp2-glow sp2-glow-tl" aria-hidden="true"></div>
+                <div class="sp2-glow sp2-glow-br" aria-hidden="true"></div>
 
-                <div class="song-paths-form">
-                    <div class="song-paths-row">
-                        <label>Start track</label>
-                        <div class="sp-ac-wrap">
-                            <input id="song-paths-from" type="text" class="auto-form-input" placeholder="Search artist, title or album…" autocomplete="off" />
-                            <div id="song-paths-from-dropdown" class="sp-ac-dropdown" hidden></div>
+                <header class="sp2-header">
+                    <div class="sp2-header-left">
+                        <div class="sp2-eyebrow">
+                            <span class="material-symbols-outlined">route</span>
+                            Sonic Bridge Builder
                         </div>
-                        <button id="song-paths-now-playing" class="btn btn-sm sp-now-playing-btn" title="Use currently playing track as start">&#9654; Nu aan</button>
+                        <h1 class="sp2-title">Song Paths</h1>
+                        <p class="sp2-subtitle">Construct an intelligent transition between two distinct tracks. RoonSage will curate a seamless musical journey bridging the gap.</p>
                     </div>
-                    <div class="song-paths-row">
-                        <label>End track</label>
-                        <div class="sp-ac-wrap">
-                            <input id="song-paths-to" type="text" class="auto-form-input" placeholder="Search artist, title or album…" autocomplete="off" />
-                            <div id="song-paths-to-dropdown" class="sp-ac-dropdown" hidden></div>
+                    <div class="sp2-header-actions">
+                        <button id="song-paths-now-playing" class="sp2-btn-ghost">
+                            <span class="material-symbols-outlined">speaker</span>
+                            Use Now Playing
+                        </button>
+                        <button id="song-paths-find" class="sp2-btn-primary" disabled>
+                            <span class="material-symbols-outlined fill">auto_awesome</span>
+                            Generate Path
+                        </button>
+                    </div>
+                </header>
+
+                <div class="sp2-bento">
+                    <!-- Trajectory Map -->
+                    <div class="sp2-map-panel glass-panel">
+                        <h3 class="sp2-panel-title">
+                            <span class="material-symbols-outlined">polyline</span>
+                            Trajectory Map
+                        </h3>
+                        <div class="sp2-arena">
+                            <svg class="sp2-path-svg" aria-hidden="true" preserveAspectRatio="none">
+                                <path class="sp2-path-line" d="M 160,110 Q 300,40 440,110" fill="none" stroke="rgba(235,220,255,0.35)" stroke-linecap="round" stroke-width="2"/>
+                                <circle class="sp2-path-dot" cx="222" cy="74" r="4" fill="#ffba3e"/>
+                                <circle class="sp2-path-dot" cx="300" cy="53" r="4" fill="#ffba3e" style="animation-delay:0.55s"/>
+                                <circle class="sp2-path-dot" cx="378" cy="62" r="4" fill="#ffba3e" style="animation-delay:1.1s"/>
+                            </svg>
+
+                            <!-- Start node -->
+                            <div class="sp2-node" id="sp2-start-node">
+                                <div class="sp2-node-art-wrap" id="sp2-start-art-wrap">
+                                    <div class="sp2-node-empty" id="sp2-start-empty">
+                                        <span class="material-symbols-outlined">add_circle</span>
+                                        <span>Select Start</span>
+                                    </div>
+                                    <img class="sp2-node-art" id="sp2-start-art" src="" alt="" hidden>
+                                    <div class="sp2-node-overlay"><span class="material-symbols-outlined">edit</span></div>
+                                </div>
+                                <div class="sp2-node-badge sp2-node-badge-start">Start Point</div>
+                                <div class="sp2-node-name" id="sp2-start-name">Start track</div>
+                                <div class="sp2-node-search">
+                                    <div class="sp-ac-wrap">
+                                        <input id="song-paths-from" type="text" class="sp2-search-input" placeholder="Search artist or title…" autocomplete="off">
+                                        <div id="song-paths-from-dropdown" class="sp-ac-dropdown" hidden></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Journey stats -->
+                            <div class="sp2-journey-stats">
+                                <span class="material-symbols-outlined sp2-stats-icon">radar</span>
+                                <div class="sp2-stats-count" id="sp2-stats-count">—</div>
+                                <div class="sp2-stats-desc">Estimated bridge length based on sonic distance</div>
+                            </div>
+
+                            <!-- End node -->
+                            <div class="sp2-node" id="sp2-end-node">
+                                <div class="sp2-node-art-wrap" id="sp2-end-art-wrap">
+                                    <div class="sp2-node-empty" id="sp2-end-empty">
+                                        <span class="material-symbols-outlined">add_circle</span>
+                                        <span>Select Target</span>
+                                    </div>
+                                    <img class="sp2-node-art" id="sp2-end-art" src="" alt="" hidden>
+                                    <div class="sp2-node-overlay"><span class="material-symbols-outlined">edit</span></div>
+                                </div>
+                                <div class="sp2-node-badge sp2-node-badge-end">End Point</div>
+                                <div class="sp2-node-name" id="sp2-end-name">End track</div>
+                                <div class="sp2-node-search">
+                                    <div class="sp-ac-wrap">
+                                        <input id="song-paths-to" type="text" class="sp2-search-input" placeholder="Search artist or title…" autocomplete="off">
+                                        <div id="song-paths-to-dropdown" class="sp-ac-dropdown" hidden></div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="song-paths-row song-paths-row--inline">
-                        <label>Steps</label>
-                        <input id="song-paths-steps" type="range" min="5" max="20" value="10" />
-                        <span id="song-paths-steps-value">10</span>
-                        <label style="margin-left:1rem;" title="Features: greedy walk over BPM/key/energy/etc. Fast, structural smoothness.&#10;CLAP: Dijkstra over CLAP audio embeddings. Captures timbre & instrumentation, ignores BPM/key.&#10;Hybrid: 60% CLAP + 40% features. Sounds natural AND keeps BPM/key smooth.">Method <span style="color:var(--text-muted);cursor:help;">&#9432;</span></label>
-                        <select id="song-paths-method" class="auto-form-input" title="Features: greedy walk over BPM/key/energy/etc. Fast, structural smoothness.&#10;CLAP: Dijkstra over CLAP audio embeddings. Captures timbre & instrumentation, ignores BPM/key.&#10;Hybrid: 60% CLAP + 40% features. Sounds natural AND keeps BPM/key smooth.">
-                            <option value="features" selected>Features</option>
-                            <option value="clap">CLAP</option>
-                            <option value="hybrid">Hybrid</option>
-                        </select>
-                        <label style="margin-left:1rem;">Mood</label>
-                        <select id="song-paths-mood" class="auto-form-input">
-                            <option value="">— geen —</option>
-                            <option value="calm">Calm</option>
-                            <option value="energetic">Energetic</option>
-                            <option value="happy">Happy</option>
-                            <option value="melancholic">Melancholic</option>
-                            <option value="aggressive">Aggressive</option>
-                            <option value="dreamy">Dreamy</option>
-                            <option value="groovy">Groovy</option>
-                            <option value="dark">Dark</option>
-                        </select>
-                        <label style="margin-left:1rem;">Zone</label>
-                        <select id="song-paths-zone" class="auto-form-input">
-                            <option value="">— laden —</option>
-                        </select>
-                        <button id="song-paths-find" class="btn btn-primary btn-sm">Find path</button>
-                        <button id="song-paths-play" class="btn btn-secondary btn-sm" disabled>Play path</button>
+
+                    <!-- Config sidebar -->
+                    <div class="sp2-sidebar">
+                        <!-- Parameters -->
+                        <div class="sp2-params-panel glass-panel">
+                            <h3 class="sp2-panel-title sp2-panel-title-sm">
+                                <span class="material-symbols-outlined">tune</span>
+                                Parameters
+                            </h3>
+                            <div class="sp2-param-group">
+                                <div class="sp2-param-row">
+                                    <span class="sp2-param-label">Path Length (Steps)</span>
+                                    <span class="sp2-param-value" id="song-paths-steps-value">10</span>
+                                </div>
+                                <input id="song-paths-steps" type="range" min="5" max="25" value="10" class="sp2-slider">
+                                <div class="sp2-slider-ends"><span>5</span><span>25</span></div>
+                            </div>
+                            <div class="sp2-divider"></div>
+                            <div class="sp2-param-group">
+                                <div class="sp2-param-label sp2-param-label-sm" style="margin-bottom:8px">Methode</div>
+                                <select id="song-paths-method" class="sp2-select">
+                                    <option value="features">Direct — tempo &amp; toonaard</option>
+                                    <option value="clap">Klankkleur — hoe muziek écht klinkt</option>
+                                    <option value="hybrid" selected>Rijkste match (aanbevolen)</option>
+                                </select>
+                                <p id="sp2-method-desc" style="margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.5"></p>
+                            </div>
+                            <div class="sp2-divider"></div>
+                            <div class="sp2-param-group sp2-param-group-last">
+                                <div class="sp2-param-label sp2-param-label-sm" style="margin-bottom:12px">Navigational Weights</div>
+                                <div class="sp2-weights">
+                                    <div class="sp2-weight-row"><span>CLAP</span><div class="sp2-weight-bar"><div class="sp2-weight-fill" style="width:80%;background:var(--amber)"></div></div></div>
+                                    <div class="sp2-weight-row"><span>Mood</span><div class="sp2-weight-bar"><div class="sp2-weight-fill" style="width:60%;background:var(--teal)"></div></div></div>
+                                    <div class="sp2-weight-row"><span>Genre</span><div class="sp2-weight-bar"><div class="sp2-weight-fill" style="width:30%;background:var(--lavender)"></div></div></div>
+                                    <div class="sp2-weight-row"><span>Hybrid</span><div class="sp2-weight-bar"><div class="sp2-weight-fill" style="width:50%;background:var(--accent-hover)"></div></div></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Context Target -->
+                        <div class="sp2-context-panel glass-panel">
+                            <h3 class="sp2-panel-title sp2-panel-title-sm">Context Target</h3>
+                            <div class="sp2-param-group">
+                                <div class="sp2-param-label sp2-param-label-sm" style="margin-bottom:8px">Target Zone</div>
+                                <select id="song-paths-zone" class="sp2-select">
+                                    <option value="">— loading —</option>
+                                </select>
+                            </div>
+                            <div class="sp2-param-group">
+                                <div class="sp2-param-label sp2-param-label-sm" style="margin-bottom:10px">Bridge Arc Mood</div>
+                                <div class="sp2-mood-pills" id="sp2-mood-pills">
+                                    <button class="sp2-mood-pill sp2-mood-pill-active" data-mood="">None</button>
+                                    <button class="sp2-mood-pill" data-mood="calm">Calm</button>
+                                    <button class="sp2-mood-pill" data-mood="energetic">Energetic</button>
+                                    <button class="sp2-mood-pill" data-mood="happy">Happy</button>
+                                    <button class="sp2-mood-pill" data-mood="melancholic">Melancholic</button>
+                                    <button class="sp2-mood-pill" data-mood="dreamy">Dreamy</button>
+                                    <button class="sp2-mood-pill" data-mood="groovy">Groovy</button>
+                                    <button class="sp2-mood-pill" data-mood="dark">Dark</button>
+                                    <button class="sp2-mood-pill" data-mood="aggressive">Aggressive</button>
+                                </div>
+                                <select id="song-paths-mood" hidden>
+                                    <option value="">— none —</option>
+                                    <option value="calm">Calm</option>
+                                    <option value="energetic">Energetic</option>
+                                    <option value="happy">Happy</option>
+                                    <option value="melancholic">Melancholic</option>
+                                    <option value="aggressive">Aggressive</option>
+                                    <option value="dreamy">Dreamy</option>
+                                    <option value="groovy">Groovy</option>
+                                    <option value="dark">Dark</option>
+                                </select>
+                            </div>
+                            <button id="song-paths-play" class="sp2-btn-play" disabled>
+                                <span class="material-symbols-outlined fill">play_arrow</span>
+                                Play Path
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div id="song-paths-result" class="song-paths-result"></div>
+                <div id="song-paths-result" class="song-paths-result sp2-result"></div>
             </div>
 
             <!-- Song Alchemy View (v13.0 / v13.4 / improved) -->

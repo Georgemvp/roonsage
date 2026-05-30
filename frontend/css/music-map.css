@@ -327,9 +327,9 @@
 .sp-transition-label { opacity: 0.85; }
 .song-paths-track {
     display: grid;
-    grid-template-columns: 32px 1fr 160px 60px;
+    grid-template-columns: 32px 1fr auto 80px 60px;
     gap: 10px;
-    padding: 6px 4px;
+    padding: 8px 4px;
     align-items: center;
     border-bottom: 1px solid var(--border);
 }

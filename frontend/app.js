@@ -9,7 +9,7 @@ import { state }                          from './modules/state.js';
 import { focusManager }                   from './modules/focus.js';
 import { artPlaceholderHtml }             from './modules/utils.js';
 import { fetchSetupStatus, apiCall }      from './modules/api.js';
-import { viewFromHash, modeFromHash, loadSavedResult } from './modules/router.js';
+import { viewFromHash, modeFromHash, loadSavedResult, VIEW_MODULES } from './modules/router.js';
 import { renderHistoryFeed }              from './modules/history.js';
 import {
     updateView, updateMode, updateStep,
@@ -546,6 +546,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateView();
     updateMode();
     updateStep();
+    // Run the view module init for the initial hash (navigateTo is not called on load)
+    if (VIEW_MODULES[state.view]) VIEW_MODULES[state.view]();
     renderPromptPills('playlist-prompt-pills', 'playlist-prompt-shuffle', PLAYLIST_PROMPT_GROUPS);
 
     // Load initial config

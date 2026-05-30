@@ -72,6 +72,7 @@ class SongPathTrack(BaseModel):
 class SongPathResponse(BaseModel):
     method: str
     steps: int
+    requested_steps: int = 0
     path: list[SongPathTrack]
 
 
@@ -140,6 +141,7 @@ async def find_path(req: SongPathRequest) -> SongPathResponse:
     return SongPathResponse(
         method=req.method,
         steps=len(path),
+        requested_steps=req.max_steps,
         path=[SongPathTrack(**t) for t in path],
     )
 

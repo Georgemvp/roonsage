@@ -4,7 +4,22 @@ import { getDefaultZoneId } from '../roon.js';
 
 const MOODS = ['calm', 'energetic', 'happy', 'melancholic', 'aggressive', 'dreamy', 'groovy', 'dark'];
 
-let _from = null; // {item_key, title, artist}
+const METHOD_INFO = {
+    greedy: {
+        label: 'DIRECT',
+        desc: 'Kiest stap voor stap de best passende volgende track op tempo, energie en toonaard. Snel en voorspelbaar — goed als je een korte, stijlvaste brug wil.',
+    },
+    graph: {
+        label: 'SLIM PAD',
+        desc: 'Berekent het soepelste traject door je hele bibliotheek in één keer. Beter bij grotere stijlverschillen en geeft meer muzikale variatie.',
+    },
+    hybrid: {
+        label: 'RIJKSTE MATCH',
+        desc: 'Vergelijkt hoe muziek écht klinkt — klankkleur, sfeer en textuur samen. Levert de rijkste brug, maar duurt iets langer.',
+    },
+};
+
+let _from = null;
 let _to = null;
 let _steps = 10;
 let _method = 'greedy';
@@ -14,7 +29,13 @@ let _searchTimers = {};
 
 export function render() {
     const moods = MOODS.map((m) =>
-        `<button data-mood="${m}" class="sp-mood shrink-0 px-md py-xs rounded-full glass-panel font-label-caps text-label-caps text-text-muted active:scale-95 transition-transform capitalize">${m}</button>`).join('');
+        `<button data-mood="${m}" class="sp-mood shrink-0 px-md py-xs rounded-full glass-panel font-label-caps text-label-caps text-text-muted active:scale-95 transition-transform capitalize">${m}</button>`
+    ).join('');
+
+    const methodBtns = Object.entries(METHOD_INFO).map(([key, info]) =>
+        `<button data-method="${key}" class="sp-method flex-1 px-md py-sm rounded-full glass-panel font-label-caps text-label-caps active:scale-95 transition-transform">${info.label}</button>`
+    ).join('');
+
     return `
     <div class="px-margin-mobile pt-md pb-xl flex flex-col gap-lg">
         <section class="flex flex-col gap-base">
@@ -36,10 +57,8 @@ export function render() {
 
         <section class="flex flex-col gap-sm">
             <span class="font-title-md text-title-md">Methode</span>
-            <div class="flex gap-sm">
-                <button data-method="greedy" class="sp-method flex-1 px-md py-sm rounded-full glass-panel font-label-caps text-label-caps active:scale-95 transition-transform">GREEDY</button>
-                <button data-method="graph" class="sp-method flex-1 px-md py-sm rounded-full glass-panel font-label-caps text-label-caps active:scale-95 transition-transform">GRAPH</button>
-            </div>
+            <div class="flex gap-sm">${methodBtns}</div>
+            <p id="sp-method-desc" class="font-body-sm text-body-sm text-text-muted">${METHOD_INFO[_method].desc}</p>
         </section>
 
         <section class="flex flex-col gap-sm">
@@ -80,9 +99,13 @@ function slot(which, label) {
 export function mount(root) {
     root.querySelectorAll('[data-slot]').forEach((slotEl) => wireSlot(slotEl));
 
-    const steps = root.querySelector('#sp-steps');
-    steps?.addEventListener('input', () => { _steps = Number(steps.value); root.querySelector('#sp-steps-val').textContent = `${_steps} tracks`; });
+    const stepsEl = root.querySelector('#sp-steps');
+    stepsEl?.addEventListener('input', () => {
+        _steps = Number(stepsEl.value);
+        root.querySelector('#sp-steps-val').textContent = `${_steps} tracks`;
+    });
 
+    const methodDesc = root.querySelector('#sp-method-desc');
     root.querySelectorAll('.sp-method').forEach((b) => b.addEventListener('click', () => {
         _method = b.dataset.method;
         root.querySelectorAll('.sp-method').forEach((x) => {
@@ -90,8 +113,9 @@ export function mount(root) {
             x.classList.toggle('viola-gradient', on);
             x.classList.toggle('text-on-primary', on);
         });
+        if (methodDesc) methodDesc.textContent = METHOD_INFO[_method]?.desc ?? '';
     }));
-    root.querySelector('.sp-method[data-method="greedy"]')?.classList.add('viola-gradient', 'text-on-primary');
+    root.querySelector(`.sp-method[data-method="${_method}"]`)?.classList.add('viola-gradient', 'text-on-primary');
 
     root.querySelectorAll('.sp-mood').forEach((b) => b.addEventListener('click', () => {
         _mood = (_mood === b.dataset.mood) ? null : b.dataset.mood;
@@ -129,7 +153,8 @@ function wireSlot(slotEl) {
                 `<button class="sp-opt text-left p-sm rounded-lg active:bg-surface-charcoal" data-idx="${i}">
                     <p class="font-body-sm text-body-sm text-text-primary truncate">${esc(t.title || '')}</p>
                     <p class="font-label-caps text-[10px] text-text-muted truncate">${esc(t.artist || '')}</p>
-                </button>`).join('');
+                </button>`
+            ).join('');
             suggest.querySelectorAll('.sp-opt').forEach((btn) => btn.addEventListener('click', () => {
                 const t = items[Number(btn.dataset.idx)];
                 const sel = { item_key: t.item_key, title: t.title, artist: t.artist };
@@ -169,22 +194,54 @@ async function findPath() {
     }
 }
 
+function transitionDot(dist) {
+    if (dist == null) return '';
+    let color;
+    if (dist < 0.15) color = '#4caf50';
+    else if (dist < 0.35) color = '#ffba3e';
+    else color = '#ef5350';
+    return `<span class="w-2 h-2 rounded-full flex-shrink-0" style="background:${color}" title="Overgang: ${dist.toFixed(2)}"></span>`;
+}
+
 function renderPath(el, result) {
-    if (!_path.length) { el.innerHTML = `<p class="font-body-sm text-body-sm text-text-muted">Geen pad gevonden tussen deze tracks.</p>`; return; }
-    const rows = _path.map((t, i) => `
-        <div class="flex items-center gap-md p-sm rounded-lg">
-            <span class="font-body-sm text-body-sm text-text-muted w-5 text-center flex-shrink-0">${i + 1}</span>
+    if (!_path.length) {
+        el.innerHTML = `<p class="font-body-sm text-body-sm text-text-muted">Geen pad gevonden tussen deze tracks.</p>`;
+        return;
+    }
+
+    const got = _path.length;
+    const req = result.requested_steps || _steps;
+    const shortWarning = got < req
+        ? `<div class="glass-panel rounded-xl p-sm flex items-start gap-sm">
+            <span class="material-symbols-outlined text-secondary text-[18px] flex-shrink-0 mt-px">warning</span>
+            <p class="font-body-sm text-body-sm text-text-muted">${got} van de ${req} gevraagde tracks gevonden. Analyseer meer tracks via <strong>Enrichment → Audio Features</strong> voor langere paden.</p>
+           </div>`
+        : '';
+
+    const rows = _path.map((t, i) => {
+        const isEndpoint = i === 0 || i === _path.length - 1;
+        const dot = !isEndpoint && i < _path.length - 1 ? transitionDot(t.transition_dist) : '';
+        return `
+        <div class="flex items-center gap-md p-sm rounded-lg ${isEndpoint ? 'bg-primary/5' : ''}">
+            <span class="font-body-sm text-body-sm text-text-muted w-5 text-center flex-shrink-0 font-mono">${i + 1}</span>
             <div class="flex-1 min-w-0">
-                <p class="font-body-lg text-body-lg text-text-primary truncate">${esc(t.title || '')}</p>
-                <p class="font-body-sm text-body-sm text-text-muted truncate">${esc(t.artist || '')}</p>
+                <p class="font-body-lg text-body-lg text-text-primary truncate font-semibold">${esc(t.title || '')}</p>
+                <p class="font-body-sm text-body-sm text-text-muted truncate">${esc(t.artist || '')}${t.album ? ' · ' + esc(t.album) : ''}</p>
             </div>
-            ${t.bpm != null ? `<span class="font-label-caps text-label-caps text-primary flex-shrink-0">${Math.round(t.bpm)} BPM</span>` : ''}
-        </div>`).join('');
+            <div class="flex items-center gap-sm flex-shrink-0">
+                ${t.camelot ? `<span class="font-label-caps text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary">${esc(t.camelot)}</span>` : ''}
+                ${t.bpm != null ? `<span class="font-label-caps text-label-caps text-text-muted">${Math.round(t.bpm)}</span>` : ''}
+                ${dot}
+            </div>
+        </div>`;
+    }).join('');
+
     el.innerHTML = `
         <div class="flex justify-between items-end">
-            <h2 class="font-title-md text-title-md text-text-primary">${_path.length} tracks</h2>
+            <h2 class="font-title-md text-title-md text-text-primary">${got} tracks</h2>
             <span class="font-body-sm text-body-sm text-text-muted">${esc(result.method || '')}</span>
         </div>
+        ${shortWarning}
         <button id="sp-play" class="w-full h-12 rounded-full viola-gradient text-on-primary font-title-md text-title-md flex items-center justify-center gap-2 active:scale-95 transition-transform">
             <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">play_arrow</span>
             Speel pad
