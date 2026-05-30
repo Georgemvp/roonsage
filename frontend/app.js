@@ -194,14 +194,18 @@ async function loadHomeHero() {
             }
         } catch (_) { /* ignore zone errors */ }
 
-        // Fallback: most recent history entry
+        // Fallback: most recent history entry. We pull a small window and
+        // pick the first event that actually has artist + (album|track_title)
+        // so a stray corrupt row can never blank out the hero.
         if (!track) {
-            const data = await apiCall('/listening/history?days=30&limit=1').catch(() => null);
+            const data = await apiCall('/listening/history?days=30&limit=5').catch(() => null);
             const events = Array.isArray(data) ? data : (data?.events || []);
-            const event = events[0];
+            const event = events.find(e =>
+                e && e.artist && (e.album || e.track_title || e.title)
+            ) || events[0];
             if (event) {
                 track = {
-                    title: event.album || event.title || '—',
+                    title: event.album || event.track_title || event.title || '—',
                     artist: event.artist || '',
                     year: event.year,
                     genre: event.genre,

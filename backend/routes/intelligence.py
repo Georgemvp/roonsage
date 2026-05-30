@@ -154,11 +154,17 @@ async def get_listening_history(
 
     conn = get_db_connection()
     try:
+        # Guard against historical SQLite page-level corruption (2026-05-28)
+        # that left a single row with a BLOB timestamp + CLAP-model zone_name.
+        # `typeof(timestamp) = 'text'` filters that out cheaply; the GLOB
+        # also catches any stray non-ISO values.
         sql = """
             SELECT id, timestamp, zone_name, track_title, artist, album,
                    genre, duration_seconds, played_seconds, skipped
             FROM listening_history
             WHERE timestamp >= ?
+              AND typeof(timestamp) = 'text'
+              AND timestamp GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-*'
         """
         params: list = [cutoff]
         if zone:
