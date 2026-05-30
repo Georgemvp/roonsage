@@ -5,6 +5,22 @@
 import { apiCall } from './api.js';
 
 let _lastPath = null;
+let _pendingRestore = null;
+
+/**
+ * Restore a previously saved song-path result into the view.
+ * If the view is already mounted, renders immediately.
+ * Otherwise, stores the snapshot so initSongPathsView() picks it up.
+ */
+export function queuePathRestore(snapshot) {
+    _pendingRestore = snapshot;
+    const el = document.getElementById('song-paths-result');
+    if (el) {
+        _lastPath = snapshot;
+        renderPath(el, snapshot);
+        _pendingRestore = null;
+    }
+}
 
 async function searchTracks(q) {
     if (!q || q.length < 2) return [];
@@ -345,5 +361,13 @@ export async function initSongPathsView() {
                 alert(`Playback failed: ${err.message}`);
             }
         });
+    }
+
+    // Restore a saved path that was queued before the view was mounted
+    if (_pendingRestore) {
+        _lastPath = _pendingRestore;
+        renderPath(_pendingRestore);
+        if (playBtn) playBtn.disabled = false;
+        _pendingRestore = null;
     }
 }

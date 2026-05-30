@@ -139,7 +139,13 @@ export async function loadSavedResult(resultId) {
     try {
         const data = await apiCall(`/results/${encodeURIComponent(resultId)}`);
 
-        if (data.type === 'album_recommendation') {
+        if (data.type === 'song_path') {
+            // Navigate to Song Paths view and restore the saved result
+            window.location.hash = 'song-paths';
+            import('./song-paths.js').then(m => m.queuePathRestore(data.snapshot));
+            window.scrollTo(0, 0);
+            return;
+        } else if (data.type === 'album_recommendation') {
             // Populate recommend state from snapshot
             state.view = 'recommend';
             state.rec.recommendations = data.snapshot.recommendations || [];

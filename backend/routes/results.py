@@ -14,7 +14,7 @@ from backend.models import (
 
 router = APIRouter(prefix="/api/results", tags=["results"])
 
-_VALID_RESULT_TYPES = {"prompt_playlist", "seed_playlist", "album_recommendation", "mcp_playlist"}
+_VALID_RESULT_TYPES = {"prompt_playlist", "seed_playlist", "album_recommendation", "mcp_playlist", "song_path"}
 _RESULT_ID_RE = re.compile(r"^[0-9a-f]{8,16}$")
 
 

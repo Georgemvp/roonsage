@@ -8,6 +8,7 @@ POST /api/song-path/play      same, then queue the path to a Roon zone
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Literal
 
@@ -16,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from backend.audio_features import song_path
 from backend.db import get_db_connection
+from backend.results import save_result
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +123,51 @@ def _find_path(req: SongPathRequest) -> list[dict]:
         conn.close()
 
 
+_METHOD_LABELS = {
+    "features": "Direct",
+    "greedy": "Direct",
+    "graph": "Slim pad",
+    "clap": "Klankkleur",
+    "hybrid": "Rijkste match",
+}
+
+
+async def _autosave_path(req: SongPathRequest, path: list[dict]) -> None:
+    """Persist a song-path result to the results table (fire-and-forget)."""
+    try:
+        from_track = path[0]
+        to_track = path[-1]
+        title = f"{from_track['title']} → {to_track['title']}"
+        method_label = _METHOD_LABELS.get(req.method, req.method)
+        bpms = [t["bpm"] for t in path if t.get("bpm")]
+        bpm_str = f"{round(min(bpms))}–{round(max(bpms))} BPM" if bpms else ""
+        parts = [method_label, f"{len(path)} tracks"]
+        if bpm_str:
+            parts.append(bpm_str)
+        if req.mood:
+            parts.append(req.mood)
+        subtitle = " · ".join(parts)
+        snapshot = {
+            "path": path,
+            "method": req.method,
+            "steps": len(path),
+            "requested_steps": req.max_steps,
+        }
+        await asyncio.to_thread(
+            save_result,
+            result_type="song_path",
+            title=title,
+            prompt=f"{method_label}{(' · ' + req.mood) if req.mood else ''}",
+            snapshot=snapshot,
+            track_count=len(path),
+            art_item_key=from_track.get("item_key"),
+            subtitle=subtitle,
+            source_mode="library",
+        )
+    except Exception:
+        logger.exception("Failed to auto-save song path result")
+
+
 @router.post("", response_model=SongPathResponse)
 async def find_path(req: SongPathRequest) -> SongPathResponse:
     """Compute the smoothest sonic path between two tracks."""
@@ -137,6 +184,8 @@ async def find_path(req: SongPathRequest) -> SongPathResponse:
             status_code=404,
             detail="No path could be computed — are both tracks fully analyzed?",
         )
+
+    asyncio.create_task(_autosave_path(req, path))
 
     return SongPathResponse(
         method=req.method,

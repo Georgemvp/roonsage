@@ -74,15 +74,17 @@ export function historyIcon(type) {
     if (type === 'album_recommendation') return `<svg ${attrs}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2"/></svg>`;
     if (type === 'seed_playlist') return `<svg ${attrs}><path d="M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3"/><path d="M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4"/><path d="M5 21h14"/></svg>`;
     if (type === 'mcp_playlist') return `<svg ${attrs}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>`;
+    if (type === 'song_path') return `<svg ${attrs}><circle cx="5" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><path d="M5 12c0-4 4-7 7-7"/><path d="M19 12c0 4-4 7-7 7"/><path d="M9 9l3-3 3 3"/><path d="M15 15l-3 3-3-3"/></svg>`;
     return `<svg ${attrs}><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/></svg>`;
 }
 
 /** Icon title for result type */
 export function historyIconTitle(type) {
-    if (type === 'album_recommendation') return 'Album recommendation';
-    if (type === 'seed_playlist') return 'Playlist from seed';
+    if (type === 'album_recommendation') return 'Album aanbeveling';
+    if (type === 'seed_playlist') return 'Playlist van seed-track';
     if (type === 'mcp_playlist') return 'MCP playlist (Claude Desktop)';
-    return 'Playlist from prompt';
+    if (type === 'song_path') return 'Song Pad';
+    return 'Playlist van prompt';
 }
 
 /** Scrub date suffix from playlist titles (e.g., "Title - Feb 2026") */
@@ -93,8 +95,9 @@ export function scrubDateSuffix(title) {
 /** Check if item passes the current filter */
 export function passesHistoryFilter(item) {
     if (_historyFilter === 'all') return true;
-    if (_historyFilter === 'playlists') return item.type !== 'album_recommendation';
+    if (_historyFilter === 'playlists') return item.type !== 'album_recommendation' && item.type !== 'song_path';
     if (_historyFilter === 'albums') return item.type === 'album_recommendation';
+    if (_historyFilter === 'paths') return item.type === 'song_path';
     return true;
 }
 
@@ -119,17 +122,21 @@ export function renderHistoryFeedFromCache() {
     }
 
     // Count by type for filter chips
-    const playlistCount = items.filter(i => i.type !== 'album_recommendation').length;
+    const playlistCount = items.filter(i => i.type !== 'album_recommendation' && i.type !== 'song_path').length;
     const albumCount = items.filter(i => i.type === 'album_recommendation').length;
+    const pathCount = items.filter(i => i.type === 'song_path').length;
 
     // Build HTML
     let html = '';
 
     // Filter chips
     html += '<div class="history-filters" role="group" aria-label="Filter history by type">';
-    html += `<button class="filter-chip${_historyFilter === 'all' ? ' selected' : ''}" data-hfilter="all">All <span class="filter-chip-count">${items.length}</span></button>`;
+    html += `<button class="filter-chip${_historyFilter === 'all' ? ' selected' : ''}" data-hfilter="all">Alles <span class="filter-chip-count">${items.length}</span></button>`;
     html += `<button class="filter-chip${_historyFilter === 'playlists' ? ' selected' : ''}" data-hfilter="playlists">Playlists <span class="filter-chip-count">${playlistCount}</span></button>`;
     html += `<button class="filter-chip${_historyFilter === 'albums' ? ' selected' : ''}" data-hfilter="albums">Albums <span class="filter-chip-count">${albumCount}</span></button>`;
+    if (pathCount > 0) {
+        html += `<button class="filter-chip${_historyFilter === 'paths' ? ' selected' : ''}" data-hfilter="paths">Paden <span class="filter-chip-count">${pathCount}</span></button>`;
+    }
     html += '</div>';
 
     // Group by date
