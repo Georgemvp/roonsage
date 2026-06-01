@@ -61,6 +61,8 @@ MODEL_CONTEXT_LIMITS = {
     "gemma4:31b": 256_000,
     "gemma4:31b-mlx": 256_000,
     "gemma4:latest": 128_000,
+    # RoonSage custom model (Gemma 4 E4B-MLX + tuned Modelfile, 16 GB RAM cap)
+    "roonsage": 65_536,
 }
 
 # Tokens per track (based on real-world testing, Feb 2026)
@@ -281,7 +283,7 @@ class LLMClient:
         if self._ollama_client is None:
             self._ollama_client = httpx.AsyncClient(timeout=httpx.Timeout(600.0))
 
-        num_ctx = get_model_context_limit(model, self.config)
+        num_ctx = min(get_model_context_limit(model, self.config), 65_536)
         response = await self._ollama_client.post(
             f"{ollama_url}/api/chat",
             json={

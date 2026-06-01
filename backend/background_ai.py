@@ -24,7 +24,7 @@ from backend.llm_client import get_llm_client, is_background_ai_enabled
 
 logger = logging.getLogger(__name__)
 
-BATCH_SIZE = 20
+BATCH_SIZE = 25
 
 # ---------------------------------------------------------------------------
 # Concurrency gate + night-window helpers
@@ -37,10 +37,10 @@ _LLM_SEMAPHORE: asyncio.Semaphore | None = None
 NIGHT_START = 1   # 01:00 local — heavy batch jobs may start
 NIGHT_END   = 7   # 07:00 local — heavy batch jobs must finish (or pause)
 
-BATCH_PAUSE     = 8    # seconds between vibe-tagging batches at night
-DAY_PAUSE       = 90   # seconds between vibe-tagging batches during the day
-LYRICS_PAUSE    = 15   # seconds between lyrics batches at night
-LYRICS_DAY_PAUSE = 120 # seconds between lyrics batches during the day
+BATCH_PAUSE     = 5    # seconds between vibe-tagging batches at night
+DAY_PAUSE       = 60   # seconds between vibe-tagging batches during the day
+LYRICS_PAUSE    = 10   # seconds between lyrics batches at night
+LYRICS_DAY_PAUSE = 90  # seconds between lyrics batches during the day
 
 
 def _get_semaphore() -> asyncio.Semaphore:
@@ -492,7 +492,7 @@ Return ONLY a JSON array:
   ...
 ]"""
 
-LYRICS_BATCH_SIZE = 5  # lyrics are long — keep batches small
+LYRICS_BATCH_SIZE = 8  # lyrics are long — keep batches small
 
 CLUSTER_LABEL_SYSTEM = """Name and describe audio feature clusters from a music library.
 

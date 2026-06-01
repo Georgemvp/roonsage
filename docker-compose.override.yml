@@ -4,3 +4,10 @@ services:
     # Backend code is still volume-mounted, so a `docker compose up -d roonsage`
     # (or `docker compose restart roonsage`) picks up backend edits.
     command: ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "5765"]
+    environment:
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-1}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-1}
+      - BACKGROUND_AI_ENABLED=${BACKGROUND_AI_ENABLED:-true}
+      - LLM_PROVIDER=${LLM_PROVIDER:-}
+      - OLLAMA_URL=${OLLAMA_URL:-}
