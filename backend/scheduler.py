@@ -177,6 +177,14 @@ async def _run_schedule(row: dict) -> None:
             # -------------------------------------------------------------------
             # 1. Generate playlist — consume the synchronous SSE generator
             # -------------------------------------------------------------------
+            from backend.llm_client import is_background_ai_enabled  # noqa: PLC0415
+
+            if not is_background_ai_enabled():
+                logger.info(
+                    "Schedule id=%d skipped — background AI disabled for paid provider", schedule_id
+                )
+                return
+
             from backend.generator import generate_playlist_stream  # noqa: PLC0415
 
             result_data: dict = {}

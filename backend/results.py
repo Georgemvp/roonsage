@@ -89,7 +89,8 @@ def get_result(result_id: str) -> dict[str, Any] | None:
     with get_connection() as conn:
         row = conn.execute(
             "SELECT id, type, title, prompt, snapshot, track_count, "
-            "artist, art_item_key, subtitle, source_mode, created_at "
+            "artist, art_item_key, subtitle, source_mode, created_at, "
+            "ai_description, ai_tags "
             "FROM results WHERE id = ?",
             (result_id,),
         ).fetchone()
@@ -109,6 +110,8 @@ def get_result(result_id: str) -> dict[str, Any] | None:
             "subtitle": row["subtitle"],
             "source_mode": row["source_mode"],
             "created_at": row["created_at"],
+            "ai_description": row["ai_description"],
+            "ai_tags": json.loads(row["ai_tags"]) if row["ai_tags"] else None,
         }
 
 
@@ -144,7 +147,8 @@ def list_results(
 
         rows = conn.execute(
             f"""SELECT id, type, title, prompt, track_count, artist,
-                       art_item_key, subtitle, source_mode, created_at
+                       art_item_key, subtitle, source_mode, created_at,
+                       ai_description, ai_tags
                 FROM results {where_clause}
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?""",
@@ -163,6 +167,8 @@ def list_results(
                 "subtitle": row["subtitle"],
                 "source_mode": row["source_mode"],
                 "created_at": row["created_at"],
+                "ai_description": row["ai_description"],
+                "ai_tags": json.loads(row["ai_tags"]) if row["ai_tags"] else None,
             }
             for row in rows
         ]

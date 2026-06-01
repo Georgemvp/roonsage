@@ -90,7 +90,8 @@ async function loadPlaylists() {
             rating: null,
             tracks: [],
             _is_result: true,
-            _subtitle: r.subtitle || '',
+            _subtitle: r.ai_description || r.subtitle || '',
+            _ai_tags: r.ai_tags || [],
         }));
 
         // Merge — saved IDs are integers, result IDs are hex strings so no collision

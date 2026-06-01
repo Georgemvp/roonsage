@@ -149,6 +149,22 @@ export function handleRefineSubmit() {
             if (response.result_id) {
                 history.replaceState(null, '', `#result/${response.result_id}`);
                 markHistoryStale();
+
+                // Fire-and-forget: generate AI description for this playlist result
+                if (state.playlist?.length) {
+                    apiCall('/background-ai/describe-playlist', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            title: state.playlistTitle || state.playlistName || '',
+                            tracks: state.playlist.map(t => ({
+                                artist: t.artist, title: t.title,
+                                album: t.album, year: t.year,
+                            })),
+                            origin: state.lastRequest?.prompt || '',
+                            result_id: response.result_id,
+                        }),
+                    }).catch(() => null);
+                }
             }
         },
         (error) => {

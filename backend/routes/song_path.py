@@ -76,6 +76,7 @@ class SongPathResponse(BaseModel):
     steps: int
     requested_steps: int = 0
     path: list[SongPathTrack]
+    narrative_key: str | None = None  # poll /api/background-ai/song-path-narrative/{key}
 
 
 class SongPathPlayResponse(SongPathResponse):
@@ -187,11 +188,28 @@ async def find_path(req: SongPathRequest) -> SongPathResponse:
 
     asyncio.create_task(_autosave_path(req, path))
 
+    # Fire narrative generation; client polls /api/background-ai/song-path-narrative/{key}
+    import hashlib as _hashlib  # noqa: PLC0415
+    narrative_key = _hashlib.md5(
+        f"{req.from_track_id}::{req.to_track_id}::{req.method}::{req.mood or ''}".encode()
+    ).hexdigest()
+    try:
+        from backend.background_ai import generate_song_path_narrative  # noqa: PLC0415
+        from backend.llm_client import is_background_ai_enabled  # noqa: PLC0415
+        if is_background_ai_enabled():
+            asyncio.create_task(
+                generate_song_path_narrative(narrative_key, path),
+                name=f"song_path_narrative_{narrative_key[:8]}",
+            )
+    except Exception as exc:
+        logger.debug("Narrative task could not be created: %s", exc)
+
     return SongPathResponse(
         method=req.method,
         steps=len(path),
         requested_steps=req.max_steps,
         path=[SongPathTrack(**t) for t in path],
+        narrative_key=narrative_key,
     )
 
 

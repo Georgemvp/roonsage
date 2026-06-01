@@ -1129,16 +1129,16 @@
                     <div class="taste-bento-stat taste-bento-stat--amber">
                         <span class="taste-bento-stat__glow"></span>
                         <div class="taste-bento-stat__head">
-                            <span class="taste-bento-stat__label">Hours Played</span>
+                            <span class="taste-bento-stat__label">Uren Gespeeld</span>
                             <span class="material-symbols-outlined taste-bento-stat__icon">schedule</span>
                         </div>
                         <div class="taste-bento-stat__value" id="ts-hours">—</div>
-                        <div class="taste-bento-stat__delta" id="ts-hours-delta">totaal</div>
+                        <div class="taste-bento-stat__delta" id="ts-hours-delta">~geschat via scrobbles</div>
                     </div>
                     <div class="taste-bento-stat taste-bento-stat--mint">
                         <span class="taste-bento-stat__glow"></span>
                         <div class="taste-bento-stat__head">
-                            <span class="taste-bento-stat__label">Unique Tracks</span>
+                            <span class="taste-bento-stat__label">Total Plays</span>
                             <span class="material-symbols-outlined taste-bento-stat__icon">music_note</span>
                         </div>
                         <div class="taste-bento-stat__value" id="ts-tracks">—</div>
@@ -1150,11 +1150,11 @@
                     <div class="taste-bento-stat taste-bento-stat--amber">
                         <span class="taste-bento-stat__glow"></span>
                         <div class="taste-bento-stat__head">
-                            <span class="taste-bento-stat__label">Artists Played</span>
+                            <span class="taste-bento-stat__label">Top Artiesten</span>
                             <span class="material-symbols-outlined taste-bento-stat__icon">person</span>
                         </div>
                         <div class="taste-bento-stat__value" id="ts-artists">—</div>
-                        <div class="taste-bento-stat__delta" id="ts-peak-chip">High-Fidelity Focused</div>
+                        <div class="taste-bento-stat__delta" id="ts-peak-chip">in smaakprofiel</div>
                     </div>
                 </div>
 
@@ -1278,15 +1278,6 @@
 
                 <!-- ── PATTERNS ───────────────────────────────────────────── -->
                 <h3 class="taste-group-header">Patterns</h3>
-
-                <!-- Listening Heatmap (full width, canvas) -->
-                <section class="taste-section taste-section--full">
-                    <h2 class="taste-section-title">Listening Patterns</h2>
-                    <div id="lb-heatmap-section" class="lb-heatmap-container">
-                        <canvas id="taste-heatmap-canvas" aria-label="Listening heatmap" role="img"></canvas>
-                        <p class="lb-no-data" id="heatmap-no-data">No heatmap data. Sync ListenBrainz to load data.</p>
-                    </div>
-                </section>
 
                 <!-- Below: Countries + Loved Tracks -->
                 <div class="taste-grid taste-grid--below">
@@ -2978,6 +2969,55 @@
                     <div id="lyrics-action-result" class="enrich-result"></div>
                 </section>
 
+                <!-- ── Background AI Control Center ───────────────────────── -->
+                <section class="rs-settings-card settings-section" id="background-ai-section">
+                    <div class="bg-ai-header">
+                        <div>
+                            <p class="rs-settings-eyebrow">AI Verrijking</p>
+                            <h3 class="rs-settings-card-title">
+                                Background AI
+                                <span class="bg-ai-provider-badge" id="bg-ai-provider-badge"></span>
+                            </h3>
+                            <p class="settings-section-desc">
+                                Lokale LLM-taken die je library automatisch verrijken.
+                                Zware taken (vibes, lyrics) draaien alleen 's nachts (01:00–07:00).
+                                Lichte taken draaien dagelijks of wekelijks.
+                                Vereist Ollama of een custom provider.
+                            </p>
+                        </div>
+                        <label class="toggle-switch" title="Background AI in- of uitschakelen">
+                            <input type="checkbox" id="bg-ai-toggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Paid provider warning -->
+                    <div id="bg-ai-paid-banner" class="bg-ai-banner bg-ai-banner--paid" style="display:none;">
+                        ⚠️ Background AI is alleen beschikbaar voor gratis providers (Ollama / custom).
+                        Bij Gemini, OpenAI en Anthropic zijn achtergrondtaken uitgeschakeld om kosten te vermijden.
+                    </div>
+
+                    <!-- User-disabled warning -->
+                    <div id="bg-ai-off-banner" class="bg-ai-banner bg-ai-banner--off" style="display:none;">
+                        Background AI is handmatig uitgeschakeld. Zet de schakelaar aan om taken te hervatten.
+                    </div>
+
+                    <!-- Active task widget (shown while something runs) -->
+                    <div id="bg-ai-active-task" class="bg-ai-active-task" style="display:none;">
+                        <div class="bg-ai-spinner"></div>
+                        <div class="bg-ai-active-info">
+                            <span id="bg-ai-active-label">Bezig…</span>
+                            <div class="bg-ai-progress-bar">
+                                <div class="bg-ai-progress-fill" id="bg-ai-active-fill" style="width:0%"></div>
+                            </div>
+                            <span id="bg-ai-active-pct"></span>
+                        </div>
+                    </div>
+
+                    <!-- Per-task cards (rendered by JS) -->
+                    <div class="bg-ai-task-list" id="bg-ai-task-list"></div>
+                </section>
+
                 <section class="rs-settings-card settings-section library-stats" id="library-stats-section" style="display: none;">
                     <p class="rs-settings-eyebrow">Library Statistics</p>
                     <h3 class="rs-settings-card-title">Library Statistics</h3>
@@ -3065,6 +3105,8 @@
                         <span class="atb-bar-label" id="atb-enrich-label"></span>
                     </div>
                 </div>
+                <!-- Background AI tasks (ollama/custom providers only) -->
+                <div id="bg-task-bar"></div>
             </div>
         </div>
 

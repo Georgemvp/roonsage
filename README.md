@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.128+-009688.svg)](https://fastapi.tiangolo.com)
-[![Version](https://img.shields.io/badge/Version-12.0-e5a00d.svg)](#changelog)
+[![Version](https://img.shields.io/badge/Version-13.2-e5a00d.svg)](#changelog)
 [![ListenBrainz](https://img.shields.io/badge/ListenBrainz-integrated-eb743b.svg)](https://listenbrainz.org)
 [![Last.fm](https://img.shields.io/badge/Last.fm-integrated-d51007.svg)](https://www.last.fm)
 
@@ -1253,6 +1253,20 @@ docker-compose up -d --build
 ---
 
 ## Changelog
+
+### v13.2 — Background AI enrichment system, trickle-mode scheduling, AI playlist descriptions
+
+- **Background AI enrichment** — six continuous enrichment tasks powered by your local LLM (Ollama / custom). All tasks share a global `asyncio.Semaphore(1)` so Gemma 4 is never overloaded:
+  - **Vibe & Context Tagging** — assigns 2–4 listening contexts + 1–2 mood labels to every library track (`track_vibes` table). Runs in trickle mode: one batch of 20 tracks every 90 s during the day, every 8 s at night.
+  - **Lyrics Theme Extraction** — extracts themes, emotional arc and language from embedded lyrics (`track_lyrics_themes`). One batch of 5 tracks every 2 min / 15 s.
+  - **Discovery AI Descriptions** — proactively generates taglines and descriptions for Deep Cuts, Forgotten Favorites and Genre Explorer. Cached in `discovery_descriptions`, refreshed every 24 h, shown immediately on the Discovery tab.
+  - **Cluster AI Labels** — names and describes each sonic cluster automatically after a cluster run (`cluster_ai_labels`).
+  - **Song Path Narratives** — writes a narrative about each computed Song Path on-demand, cached by path fingerprint (`song_path_narratives`).
+  - **Template Suggestions** — proposes 3 new playlist templates weekly from listening patterns (`template_suggestions_cache`).
+- **Background AI settings dashboard** — new unified control panel in Settings with an enable/disable toggle (persisted to `config.user.yaml`), live active-task widget with progress bar, and per-task status cards showing schedule, state badge and DB progress. Manual trigger buttons per task.
+- **Notification enrichment** — background AI personalises notification messages with an AI-written summary + emoji for playlist, release and milestone events (5 s timeout; graceful fallback).
+- **AI playlist descriptions** — after a playlist is saved, a fire-and-forget call generates a short description + tags stored in the `results` table (`ai_description`, `ai_tags`) and shown as the subtitle in the Playlists view.
+- **Taste profile stat cards** improved: hours derived from LB scrobble count when more complete than local Roon-logged hours; top genre and peak hour chips populated from best available source.
 
 ### v13.1 — Sonic Fingerprint, Mood-aware Song Paths, Docker build fix
 

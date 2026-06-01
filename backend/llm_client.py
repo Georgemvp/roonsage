@@ -512,6 +512,35 @@ def get_llm_client() -> LLMClient | None:
     return _llm_client
 
 
+# ---------------------------------------------------------------------------
+# Background AI gate — only free providers run background enrichment tasks.
+# Paid providers (gemini, anthropic, openai) skip all background AI work.
+# ---------------------------------------------------------------------------
+
+FREE_PROVIDERS = frozenset({"ollama", "custom"})
+
+
+def is_free_provider() -> bool:
+    """Return True if the current LLM provider is free (local)."""
+    client = get_llm_client()
+    if not client:
+        return False
+    return client.provider in FREE_PROVIDERS
+
+
+def is_background_ai_enabled() -> bool:
+    """Check both provider gate and explicit config override."""
+    from backend.config import get_background_ai_enabled  # noqa: PLC0415
+
+    # Explicit override takes priority
+    override = get_background_ai_enabled()
+    if override is not None:
+        return override
+
+    # Default: enabled for free providers only
+    return is_free_provider()
+
+
 def init_llm_client(config: LLMConfig) -> LLMClient:
     """Initialize or reinitialize the LLM client."""
     global _llm_client

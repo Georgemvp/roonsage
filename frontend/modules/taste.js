@@ -55,30 +55,96 @@ function _destroyChart(key) {
 }
 
 // ── Stat card population ─────────────────────────────────────────────────────
-function _populateStatCards(profile, stats) {
+function _populateStatCards(profile, stats, lbStatus) {
     const set = (id, val) => {
         const el = document.getElementById(id);
         if (el) el.textContent = val;
     };
 
-    const totalHours = profile?.total_hours ?? stats?.total_hours ?? null;
-    if (totalHours != null) set('ts-hours', Math.round(totalHours).toLocaleString());
+    // Hours: LB scrobble estimate (avg 4 min/track) is most complete source;
+    // local total_hours is often <10 h because it only counts Roon direct-logged plays
+    const scrobbles = lbStatus?.scrobble_count ?? profile?.stats?.total_tracks ?? null;
+    const scrobbleHours = scrobbles ? Math.round(scrobbles * 4 / 60) : null;
+    const localHours = profile?.stats?.total_hours ?? profile?.total_hours ?? stats?.total_hours
+        ?? (stats?.total_minutes != null ? Math.round(stats.total_minutes / 60) : null);
+    const totalHours = (scrobbleHours && scrobbleHours > (localHours ?? 0)) ? scrobbleHours : (localHours ?? scrobbleHours);
+    if (totalHours != null) set('ts-hours', (totalHours < 1 ? '<1' : Math.round(totalHours)).toLocaleString());
 
-    const uniqueTracks = profile?.unique_tracks ?? stats?.unique_tracks ?? null;
-    if (uniqueTracks != null) set('ts-tracks', uniqueTracks.toLocaleString());
+    // Unique tracks: LB all-time plays or library size
+    const uniqueTracks = profile?.unique_tracks ?? stats?.unique_tracks
+        ?? scrobbles ?? stats?.total_tracks ?? null;
+    if (uniqueTracks != null) set('ts-tracks', Number(uniqueTracks).toLocaleString());
 
-    const artistCount = profile?.unique_artists ?? stats?.unique_artists ?? null;
-    if (artistCount != null) set('ts-artists', artistCount.toLocaleString());
+    // Artists: count of scored artists in profile
+    const artistCount = profile?.unique_artists ?? stats?.unique_artists
+        ?? (profile?.artists ? Object.keys(profile.artists).length : null)
+        ?? (stats?.top_artists?.length ?? null);
+    if (artistCount != null) set('ts-artists', typeof artistCount === 'number' ? artistCount.toLocaleString() : artistCount);
 
-    const peakHour = profile?.peak_hour ?? profile?.listening_patterns?.peak_hour ?? null;
+    // Top genre chip in bento mint card
+    const topGenre = profile?.top_genres?.[0]?.name
+        || (Array.isArray(profile?.genres) ? profile.genres[0]?.name : null)
+        || (profile?.genres && typeof profile.genres === 'object' && !Array.isArray(profile.genres)
+            ? Object.entries(profile.genres).sort((a,b) => b[1] - a[1])[0]?.[0]
+            : null);
+    if (topGenre) set('ts-top-genre', topGenre);
+
+    // Peak hour chip in bento amber card
+    const peakHour = profile?.stats?.peak_hour ?? profile?.listening_patterns?.peak_hour ?? profile?.peak_hour ?? null;
     if (peakHour != null) {
-        const h = peakHour;
-        const ampm = h >= 12 ? `${h > 12 ? h - 12 : h}:00` : `${h}:00`;
-        set('ts-peak', ampm);
+        set('ts-peak', `${String(peakHour).padStart(2,'0')}:00`);
+        const chip = document.getElementById('ts-peak-chip');
+        if (chip) chip.textContent = `Peak: ${String(peakHour).padStart(2,'0')}:00`;
     }
 
     const streak = profile?.day_streak ?? profile?.listening_patterns?.day_streak ?? null;
     if (streak != null) set('ts-streak', streak);
+}
+
+// ── Audiophile Radar — top artist avatars row ───────────────────────────────
+function _renderAudiophileRow(stats, lbData) {
+    const row = document.getElementById('taste-audiophile-row');
+    if (!row) return;
+
+    let artists = [];
+    if (lbData?.top_artists?.length) {
+        artists = lbData.top_artists.slice(0, 12).map(a => ({
+            name:  a.artist_name || a.artist || a.name || '?',
+            count: a.listen_count || a.count || a.plays || 0,
+            image: a.image_url || a.image || null,
+        }));
+    } else if (stats?.top_artists?.length) {
+        artists = stats.top_artists.slice(0, 12).map(a => ({
+            name:  a.artist_name || a.name || a.artist || String(a),
+            count: a.listen_count || a.count || a.plays || 0,
+            image: a.image_url || a.image || null,
+        }));
+    }
+
+    if (!artists.length) {
+        row.innerHTML = '<p class="lb-no-data">No top artists yet — start listening!</p>';
+        return;
+    }
+
+    const badges = [
+        { cls: '',                                  label: '24-bit / 96kHz' },
+        { cls: ' taste-audiophile-artist__badge--mint',   label: 'Lossless' },
+        { cls: ' taste-audiophile-artist__badge--accent', label: 'MQA Studio' },
+    ];
+
+    row.innerHTML = artists.map((a, i) => {
+        const initial = (a.name || '?').trim().charAt(0).toUpperCase() || '?';
+        const avatar = a.image
+            ? `<img src="${escapeHtml(a.image)}" alt="" onerror="this.remove()">`
+            : `<span class="taste-audiophile-artist__avatar--placeholder">${escapeHtml(initial)}</span>`;
+        const badge = badges[i % badges.length];
+        return `
+        <div class="taste-audiophile-artist" title="${escapeHtml(a.name)} — ${a.count} plays">
+            <div class="taste-audiophile-artist__avatar">${avatar}</div>
+            <div class="taste-audiophile-artist__name">${escapeHtml(a.name)}</div>
+            <span class="taste-audiophile-artist__badge${badge.cls}">${badge.label}</span>
+        </div>`;
+    }).join('');
 }
 
 // ── Public init ──────────────────────────────────────────────────────────────
@@ -140,9 +206,8 @@ export async function initTasteView() {
             }
         }
 
-        _populateStatCards(profile, stats);
+        _populateStatCards(profile, stats, lbStatus);
         _renderIntelBanner(profile, stats, lbStatus);
-        _renderTasteStats(profile, stats);
         _renderHourlyBars(stats);
         _renderTimelineChart(stats);
         _renderGenreDistChart(profile);
@@ -152,6 +217,7 @@ export async function initTasteView() {
         _renderHistory(history);
         _renderTasteNotes(profile);
         _renderMoodTags(profile);
+        _renderAudiophileRow(stats, null);
 
         if (lbStatus?.configured) {
             _renderLbStatus(lbStatus);
@@ -161,6 +227,7 @@ export async function initTasteView() {
                 _renderEraDoughnut(profile, lb);
                 _renderHeatmap(lb.daily_activity);
                 _renderArtistChart(stats, lb);
+                _renderAudiophileRow(stats, lb);
                 _renderLbSections(lb, profile);
             }
         } else {

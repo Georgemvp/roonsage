@@ -19,6 +19,8 @@ from backend.routes import config_routes, generate, library, recommend, results,
 from backend.routes.alchemy import router as alchemy_router
 from backend.routes.audio_features import router as audio_features_router
 from backend.routes.automations import router as automations_router
+from backend.routes.background_ai_routes import router as background_ai_router
+from backend.routes.background_tasks import router as background_tasks_router
 from backend.routes.circadian import router as circadian_router
 from backend.routes.clap_search import router as clap_search_router
 from backend.routes.clustering import router as clustering_router
@@ -213,6 +215,8 @@ app.include_router(mood_router)
 app.include_router(sonic_fingerprint_router)
 app.include_router(sonic_radio_router)
 app.include_router(playback_intelligence_router)
+app.include_router(background_tasks_router)
+app.include_router(background_ai_router)
 
 
 # =============================================================================

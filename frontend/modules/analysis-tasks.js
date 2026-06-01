@@ -25,16 +25,18 @@ function _anyActive(statuses) {
 }
 
 async function _poll() {
-    const [af, cl, clap, lyr, enrich] = await Promise.allSettled([
+    const [af, cl, clap, lyr, enrich, vibes, lyrThemes] = await Promise.allSettled([
         apiCall('/audio-features/status').catch(() => null),
         apiCall('/clustering/status').catch(() => null),
         apiCall('/clap/status').catch(() => null),
         apiCall('/lyrics/status').catch(() => null),
         apiCall('/enrichment/status').catch(() => null),
+        apiCall('/background-ai/vibes-status').catch(() => null),
+        apiCall('/background-ai/lyrics-themes-status').catch(() => null),
     ]).then(rs => rs.map(r => r.value ?? null));
 
     _updateTaskBar(af, cl, clap, lyr, enrich);
-    _updateSettingsSections(cl, clap, lyr);
+    _updateSettingsSections(cl, clap, lyr, vibes, lyrThemes);
 
     const interval = _anyActive([af, cl, clap, lyr, enrich]) ? POLL_INTERVAL_ACTIVE : POLL_INTERVAL_IDLE;
     _pollTimer = setTimeout(_poll, interval);
@@ -172,7 +174,7 @@ function _setBadge(id, status) {
     el.dataset.state = status || 'idle';
 }
 
-function _updateSettingsSections(cl, clap, lyr) {
+function _updateSettingsSections(cl, clap, lyr, vibes, lyrThemes) {
     // Clustering
     if (cl) {
         _setText('cl-n-clusters', cl.n_clusters != null ? cl.n_clusters.toLocaleString() : '–');
@@ -225,6 +227,42 @@ function _updateSettingsSections(cl, clap, lyr) {
 
         const btn = document.getElementById('lyrics-start-btn');
         if (btn) btn.disabled = lyr.status === 'running';
+    }
+
+    // Vibe & Context Tagging
+    if (vibes !== null) {
+        const banner = document.getElementById('vibes-disabled-banner');
+        if (banner) banner.style.display = vibes.enabled ? 'none' : '';
+
+        _setText('vibes-tagged',   (vibes.tagged  ?? 0).toLocaleString());
+        _setText('vibes-untagged', (vibes.untagged ?? 0).toLocaleString());
+        _setText('vibes-total',    (vibes.total   ?? 0).toLocaleString());
+
+        const task = vibes.task;
+        const taskStatus = task?.status ?? (vibes.untagged === 0 ? 'complete' : 'idle');
+        _setBadge('vibes-status-badge', taskStatus);
+        _setText('vibes-status-text', task ? `${task.progress_pct}% — ${task.completed} / ${task.total}` : '');
+
+        const btn = document.getElementById('vibes-start-btn');
+        if (btn) btn.disabled = !vibes.enabled || taskStatus === 'running';
+    }
+
+    // Lyrics themes
+    if (lyrThemes !== null) {
+        const banner = document.getElementById('lyrics-themes-disabled-banner');
+        if (banner) banner.style.display = lyrThemes.enabled ? 'none' : '';
+
+        _setText('lyrics-themes-themed',   (lyrThemes.themed    ?? 0).toLocaleString());
+        _setText('lyrics-themes-unthemed', (lyrThemes.unthemed  ?? 0).toLocaleString());
+        _setText('lyrics-themes-total',    (lyrThemes.with_lyrics ?? 0).toLocaleString());
+
+        const task = lyrThemes.task;
+        const taskStatus = task?.status ?? (lyrThemes.unthemed === 0 ? 'complete' : 'idle');
+        _setBadge('lyrics-themes-status-badge', taskStatus);
+        _setText('lyrics-themes-status-text', task ? `${task.progress_pct}% — ${task.completed} / ${task.total}` : '');
+
+        const btn = document.getElementById('lyrics-themes-start-btn');
+        if (btn) btn.disabled = !lyrThemes.enabled || taskStatus === 'running';
     }
 }
 
@@ -305,6 +343,50 @@ async function _startLyrics() {
     }
 }
 
+async function _startLyricsThemes() {
+    const btn = document.getElementById('lyrics-themes-start-btn');
+    const result = document.getElementById('lyrics-themes-action-result');
+    if (!btn || !result) return;
+
+    btn.disabled = true;
+    result.textContent = 'Lyrics thema-extractie gestart…';
+    result.style.color = '';
+
+    try {
+        await apiCall('/background-ai/start-lyrics-themes', { method: 'POST' });
+        result.textContent = 'Extractie loopt op de achtergrond.';
+        const bar = document.getElementById('analysis-task-bar');
+        if (bar) { bar.classList.remove('hidden'); _dismissed = false; }
+        _restartPoll(POLL_INTERVAL_ACTIVE);
+    } catch (e) {
+        result.style.color = 'var(--error)';
+        result.textContent = `Fout: ${e.message || e}`;
+        btn.disabled = false;
+    }
+}
+
+async function _startVibes() {
+    const btn = document.getElementById('vibes-start-btn');
+    const result = document.getElementById('vibes-action-result');
+    if (!btn || !result) return;
+
+    btn.disabled = true;
+    result.textContent = 'Vibe tagging gestart…';
+    result.style.color = '';
+
+    try {
+        await apiCall('/background-ai/start-vibes', { method: 'POST' });
+        result.textContent = 'Tagging loopt op de achtergrond.';
+        const bar = document.getElementById('analysis-task-bar');
+        if (bar) { bar.classList.remove('hidden'); _dismissed = false; }
+        _restartPoll(POLL_INTERVAL_ACTIVE);
+    } catch (e) {
+        result.style.color = 'var(--error)';
+        result.textContent = `Fout: ${e.message || e}`;
+        btn.disabled = false;
+    }
+}
+
 function _restartPoll(intervalMs = POLL_INTERVAL_ACTIVE) {
     if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
     _pollTimer = setTimeout(_poll, intervalMs);
@@ -368,6 +450,8 @@ export function initAnalysisTasks() {
     document.getElementById('cl-run-btn')?.addEventListener('click', _runClustering);
     document.getElementById('clap-start-btn')?.addEventListener('click', _startClap);
     document.getElementById('lyrics-start-btn')?.addEventListener('click', _startLyrics);
+    document.getElementById('vibes-start-btn')?.addEventListener('click', _startVibes);
+    document.getElementById('lyrics-themes-start-btn')?.addEventListener('click', _startLyricsThemes);
 
     // Start polling
     startAnalysisTaskPoller();

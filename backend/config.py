@@ -500,6 +500,22 @@ def get_enrichment_skip_mb() -> bool:
     return _env_bool("ENRICHMENT_SKIP_MB", False)
 
 
+def get_background_ai_enabled() -> bool | None:
+    """None = use provider default (free only), True/False = explicit override.
+
+    Priority: BACKGROUND_AI_ENABLED env var > data/config.user.yaml > None.
+    """
+    raw = os.environ.get("BACKGROUND_AI_ENABLED")
+    if raw is not None and raw != "":
+        return raw.lower() in ("1", "true", "yes", "on")
+    # Fall back to user config persisted via the settings UI
+    user_cfg = load_user_yaml_config()
+    val = user_cfg.get("background_ai", {}).get("enabled")
+    if val is not None:
+        return bool(val)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # LLM response cache (v13.5)
 # ---------------------------------------------------------------------------

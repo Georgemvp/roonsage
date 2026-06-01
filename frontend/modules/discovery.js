@@ -73,6 +73,9 @@ function _render(view, data) {
     renderMoodsSection(document.getElementById('discovery-moods-pane'));
     _renderSimilarArtists();
 
+    // Inject AI-generated taglines for populated sections (fire-and-forget)
+    _enrichSectionDescriptions({ cuts, forgotten, genres });
+
     // Wire up play buttons after render
     view.querySelectorAll('[data-play-key]').forEach(btn => {
         btn.addEventListener('click', () => _playItem(btn));
@@ -613,5 +616,34 @@ async function _playItem(btn) {
         btn.textContent = '✗';
         btn.title = e.message;
         setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2500);
+    }
+}
+
+// ── AI section descriptions ───────────────────────────────────────────────────
+
+const _SECTION_DESC_MAP = {
+    deep_cuts:           'discovery-deepcuts-heading',
+    forgotten_favorites: 'discovery-forgotten-heading',
+    genre_explorer:      'discovery-genres-heading',
+};
+
+async function _enrichSectionDescriptions({ cuts, forgotten, genres }) {
+    const active = [
+        { type: 'deep_cuts',           show: cuts.length > 0 },
+        { type: 'forgotten_favorites', show: forgotten.length > 0 },
+        { type: 'genre_explorer',      show: genres.length > 0 },
+    ];
+
+    for (const { type, show } of active) {
+        if (!show) continue;
+        try {
+            const cached = await apiCall(`/background-ai/discovery-description/${type}`).catch(() => null);
+            if (!cached?.tagline) continue;
+            const heading = document.getElementById(_SECTION_DESC_MAP[type]);
+            const descEl = heading?.closest('section')?.querySelector('.discovery-section-desc');
+            if (descEl) {
+                descEl.innerHTML = `<strong>${escapeHtml(cached.tagline)}</strong> — ${escapeHtml(cached.description || '')}`;
+            }
+        } catch (_) { /* non-critical */ }
     }
 }

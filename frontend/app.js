@@ -31,6 +31,8 @@ import { initTemplates }                  from './modules/templates.js';
 import { startActivityMonitor }           from './modules/activity.js';
 import { initPWA }                        from './modules/pwa.js';
 import { initAnalysisTasks }              from './modules/analysis-tasks.js';
+import { initBackgroundTaskBar }          from './modules/background-tasks.js';
+import { initBackgroundAiSettings }       from './modules/background-ai-settings.js';
 import { loadHomeListenFeed }             from './modules/home-listen.js';
 
 // View modules are loaded on demand — keeps the initial JS payload small,
@@ -538,6 +540,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     initEnrichmentButtons();
     initAudioFeaturesButtons();
     initAnalysisTasks();
+    initBackgroundTaskBar('bg-task-bar');
+    initBackgroundAiSettings('background-ai-section');
     state.view = viewFromHash();
     state.mode = modeFromHash();
     if (!location.hash) {

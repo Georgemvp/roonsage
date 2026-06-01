@@ -827,6 +827,72 @@
 }
 
 /* =============================================================================
+   Background AI Task Bar (free providers: ollama / custom)
+   ============================================================================= */
+#bg-task-bar:empty { display: none; }
+
+.bg-tasks-bar {
+    margin-top: 8px;
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.07));
+    padding-top: 8px;
+}
+
+.bg-tasks-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.bg-tasks-header .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.bg-tasks-header .dot.green  { background: #4ade80; box-shadow: 0 0 4px #4ade8099; }
+.bg-tasks-header .dot.gray   { background: var(--text-muted); }
+
+.bg-tasks-header .task-count {
+    margin-left: auto;
+    color: var(--text-muted);
+}
+
+.bg-task {
+    display: grid;
+    grid-template-columns: 56px 1fr auto;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 0.72rem;
+}
+
+.bg-task-status {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-size: 0.65rem;
+    letter-spacing: 0.03em;
+}
+.bg-task--running  .bg-task-status { color: var(--color-accent, #e5a00d); }
+.bg-task--done     .bg-task-status { color: #4ade80; }
+.bg-task--failed   .bg-task-status { color: #f87171; }
+.bg-task--queued   .bg-task-status { color: var(--text-muted); }
+
+.bg-task-label    { color: var(--text-primary, #e0e0e0); }
+.bg-task-progress { color: var(--text-muted); text-align: right; }
+
+.bg-tasks-disabled {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    padding: 8px 0 4px;
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.07));
+    margin-top: 8px;
+    line-height: 1.5;
+}
+
+/* =============================================================================
    Settings card layout + status pills (Improvement 08)
    ============================================================================= */
 .rs-settings-section-card {
@@ -946,4 +1012,220 @@
 }
 .status-indicator .status-text {
     color: inherit;
+}
+
+/* ── Background AI Dashboard ────────────────────────────────────────────── */
+
+.bg-ai-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+.bg-ai-header > div { flex: 1; }
+
+/* Toggle switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+    margin-top: 6px;
+    cursor: pointer;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: #444;
+    border-radius: 24px;
+    transition: background 0.2s;
+}
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 18px; height: 18px;
+    left: 3px; bottom: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--color-accent); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
+.toggle-switch input:disabled + .toggle-slider { opacity: 0.35; cursor: not-allowed; }
+
+/* Provider badge */
+.bg-ai-provider-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    padding: 0.15rem 0.55rem;
+    border-radius: 4px;
+    margin-left: 0.4rem;
+    vertical-align: middle;
+    background: rgba(80,200,120,.14);
+    color: #50c878;
+}
+.bg-ai-provider-badge[data-free="0"] {
+    background: rgba(240,160,0,.14);
+    color: #f0a000;
+}
+
+/* Banners */
+.bg-ai-banner {
+    border-radius: 6px;
+    padding: 0.6rem 0.9rem;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+}
+.bg-ai-banner--paid {
+    background: rgba(240,160,0,.1);
+    border: 1px solid rgba(240,160,0,.3);
+    color: #f0a000;
+}
+.bg-ai-banner--off {
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.1);
+    color: var(--text-muted);
+}
+
+/* Active task widget */
+.bg-ai-active-task {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: rgba(229,160,13,.07);
+    border: 1px solid rgba(229,160,13,.22);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+}
+.bg-ai-spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(229,160,13,.3);
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    flex-shrink: 0;
+    animation: bg-ai-spin 0.8s linear infinite;
+}
+@keyframes bg-ai-spin { to { transform: rotate(360deg); } }
+.bg-ai-active-info { flex: 1; min-width: 0; }
+.bg-ai-active-info > #bg-ai-active-label {
+    display: block;
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: var(--color-accent);
+    margin-bottom: 0.3rem;
+}
+.bg-ai-progress-bar {
+    height: 4px;
+    background: rgba(255,255,255,.1);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 0.25rem;
+}
+.bg-ai-progress-fill {
+    height: 100%;
+    background: var(--color-accent);
+    border-radius: 2px;
+    transition: width .5s ease;
+}
+#bg-ai-active-pct {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Task list */
+.bg-ai-task-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    margin-top: 0.25rem;
+}
+.bg-ai-task-card {
+    background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
+    transition: border-color .2s;
+}
+.bg-ai-task-card--running {
+    border-color: rgba(229,160,13,.3);
+    background: rgba(229,160,13,.04);
+}
+.bg-ai-task-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+    flex-wrap: wrap;
+}
+.bg-ai-task-name {
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+.bg-ai-task-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.bg-ai-task-schedule {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    background: rgba(255,255,255,.06);
+    padding: 0.12rem 0.45rem;
+    border-radius: 4px;
+}
+.bg-ai-task-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    padding: 0.12rem 0.45rem;
+    border-radius: 4px;
+}
+.bg-ai-task-badge[data-state="running"],
+.bg-ai-task-badge[data-state="queued"]   { background: rgba(229,160,13,.2); color: var(--color-accent); }
+.bg-ai-task-badge[data-state="complete"] { background: rgba(80,200,120,.15); color: #50c878; }
+.bg-ai-task-badge[data-state="partial"]  { background: rgba(100,180,255,.12); color: #82bfff; }
+.bg-ai-task-badge[data-state="failed"]   { background: rgba(220,60,60,.15);  color: #f06060; }
+.bg-ai-task-badge[data-state="idle"]     { background: rgba(255,255,255,.06); color: var(--text-muted); }
+
+.bg-ai-task-bar-wrap {
+    height: 3px;
+    background: rgba(255,255,255,.07);
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 0.3rem 0;
+}
+.bg-ai-task-bar-fill {
+    height: 100%;
+    background: var(--color-accent);
+    border-radius: 2px;
+    transition: width .6s ease;
+}
+.bg-ai-task-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 0.1rem;
+}
+.bg-ai-task-count {
+    font-size: 0.77rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+.bg-ai-task-btn {
+    font-size: 0.75rem !important;
+    padding: 0.2rem 0.7rem !important;
+    height: auto !important;
+    min-height: unset !important;
 }

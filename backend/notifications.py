@@ -156,6 +156,8 @@ def _build_discord_embed(
     event_type: EventType, data: dict[str, Any]
 ) -> dict[str, Any]:
     title = _EVENT_LABELS.get(event_type, event_type.value)
+    if data.get("ai_emoji"):
+        title = f"{data['ai_emoji']} {title}"
     description = _build_description(event_type, data)
     return {
         "title": title,
@@ -174,6 +176,9 @@ def _build_telegram_text(event_type: EventType, data: dict[str, Any]) -> str:
 
 def _build_description(event_type: EventType, data: dict[str, Any]) -> str:
     """Return a human-readable body for any event type."""
+    if data.get("ai_message"):
+        return data["ai_message"]
+
     if event_type == EventType.PLAYLIST_GENERATED:
         name = data.get("playlist_name") or data.get("playlist_title", "Onbekend")
         count = data.get("track_count", "?")
@@ -366,15 +371,36 @@ class EventBus:
     # Internal dispatch
     # ------------------------------------------------------------------
 
+    _ENRICH_EVENTS = frozenset({
+        EventType.PLAYLIST_GENERATED,
+        EventType.NEW_RELEASE_FOUND,
+        EventType.LISTENING_MILESTONE,
+    })
+
     async def _dispatch(
         self,
         event_type: EventType,
         data: dict[str, Any],
         notifiers: list[tuple[NotificationChannel, Any]],
     ) -> None:
+        # Attempt AI personalisation for human-facing events.
+        # Hard 5 s timeout so a slow Ollama never delays notifications.
+        enriched = dict(data)
+        if event_type in self._ENRICH_EVENTS:
+            try:
+                from backend.background_ai import enrich_notification  # noqa: PLC0415
+                result = await asyncio.wait_for(
+                    enrich_notification(event_type.value, data), timeout=5.0
+                )
+                if result and result.get("message"):
+                    enriched["ai_message"] = result["message"]
+                    enriched["ai_emoji"]   = result.get("emoji", "")
+            except Exception:
+                pass  # enrichment is always best-effort
+
         for channel, notifier in notifiers:
             try:
-                success = await notifier.send(event_type, data)
+                success = await notifier.send(event_type, enriched)
                 _log_notification(event_type, channel, success)
             except Exception as exc:
                 logger.warning(

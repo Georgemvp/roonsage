@@ -6,6 +6,7 @@ other cache modules.
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 import sqlite3
@@ -859,6 +860,70 @@ def init_schema(conn: sqlite3.Connection) -> bool:
             ON llm_response_cache(kind);
     """)
 
+    # -----------------------------------------------------------------------
+    # Background AI enrichment (v13.2)
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS track_vibes (
+            item_key   TEXT PRIMARY KEY,
+            contexts   TEXT NOT NULL DEFAULT '[]',
+            moods      TEXT NOT NULL DEFAULT '[]',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS weekly_insights_cache (
+            id           INTEGER PRIMARY KEY CHECK (id = 1),
+            insights     TEXT NOT NULL DEFAULT '[]',
+            headline     TEXT NOT NULL DEFAULT '',
+            generated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS discovery_descriptions (
+            section_type TEXT PRIMARY KEY,
+            tagline      TEXT NOT NULL DEFAULT '',
+            description  TEXT NOT NULL DEFAULT '',
+            generated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS track_lyrics_themes (
+            item_key       TEXT PRIMARY KEY,
+            themes         TEXT NOT NULL DEFAULT '[]',
+            emotional_arc  TEXT NOT NULL DEFAULT '',
+            language       TEXT NOT NULL DEFAULT '',
+            abstract_level TEXT NOT NULL DEFAULT '',
+            updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS cluster_ai_labels (
+            cluster_id   INTEGER PRIMARY KEY,
+            label        TEXT NOT NULL DEFAULT '',
+            description  TEXT NOT NULL DEFAULT '',
+            color_hint   TEXT NOT NULL DEFAULT '',
+            generated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS song_path_narratives (
+            cache_key      TEXT PRIMARY KEY,
+            narrative      TEXT NOT NULL DEFAULT '',
+            arc_type       TEXT NOT NULL DEFAULT '',
+            key_transition TEXT NOT NULL DEFAULT '',
+            generated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS template_suggestions_cache (
+            id           INTEGER PRIMARY KEY CHECK (id = 1),
+            suggestions  TEXT NOT NULL DEFAULT '[]',
+            generated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+
+    conn.commit()
+
+    # Migration: add ai_description + ai_tags to results for playlist AI descriptions
+    for _col, _type in [("ai_description", "TEXT"), ("ai_tags", "TEXT")]:
+        with contextlib.suppress(sqlite3.OperationalError):
+            conn.execute(f"ALTER TABLE results ADD COLUMN {_col} {_type}")
+
     conn.commit()
 
     # stable_id: content-based track identity that survives Roon item_key churn
@@ -933,10 +998,8 @@ _STABLE_ID_TABLES: dict[str, str] = {
 def _ensure_stable_id_columns(conn: sqlite3.Connection) -> None:
     """Add a nullable stable_id column to tracks + every derived table (idempotent)."""
     for table in _STABLE_ID_TABLES:
-        try:
+        with contextlib.suppress(sqlite3.OperationalError):
             conn.execute(f"ALTER TABLE {table} ADD COLUMN stable_id TEXT")
-        except sqlite3.OperationalError:
-            pass  # column already exists
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tracks_stable_id ON tracks(stable_id)")
     for table in _STABLE_ID_TABLES:
         if table == "tracks":

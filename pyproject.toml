@@ -1,6 +1,6 @@
 [project]
 name = "roonsage"
-version = "13.1.0"
+version = "13.2.0"
 description = "AI-powered playlist curation and music intelligence for Roon"
 requires-python = ">=3.11"
 license = "MIT"

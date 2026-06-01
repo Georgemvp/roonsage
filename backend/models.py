@@ -1062,6 +1062,8 @@ class ResultListItem(BaseModel):
     subtitle: str | None = None
     source_mode: str | None = None
     created_at: str
+    ai_description: str | None = None
+    ai_tags: list[str] | None = None
 
 
 class ResultListResponse(BaseModel):
@@ -1085,6 +1087,8 @@ class ResultDetail(BaseModel):
     source_mode: str | None = None
     created_at: str
     snapshot: dict
+    ai_description: str | None = None
+    ai_tags: list[str] | None = None
 
 
 # =============================================================================

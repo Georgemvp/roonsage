@@ -92,6 +92,12 @@ def _row_to_dict(row) -> dict:
 
 async def _exec_generate_playlist(config: dict) -> str:
     """Generate a playlist from a prompt and optionally queue it in a zone."""
+    from backend.llm_client import is_background_ai_enabled  # noqa: PLC0415
+
+    if not is_background_ai_enabled():
+        logger.info("Automation generate_playlist skipped — background AI disabled for paid provider")
+        return "skipped: background AI disabled for paid provider"
+
     prompt = config.get("prompt", "Relaxing background music")
     track_count = int(config.get("track_count", 20))
     zone_name: str | None = config.get("zone_name") or config.get("zone")

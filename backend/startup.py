@@ -390,6 +390,93 @@ async def start_background_tasks(app: FastAPI) -> None:
     from backend.automation_engine import init_engine  # noqa: PLC0415
     init_engine()
 
+    # Background AI — trickle mode: one batch at a time, always making progress.
+    # Pause between batches is short at night (01:00–07:00) for fast catch-up,
+    # and longer during the day so Gemma 4 can breathe between requests.
+    # All jobs share a global asyncio.Semaphore(1) — no concurrent LLM calls.
+
+    async def _vibe_tagging_loop() -> None:
+        import datetime as _dt  # noqa: PLC0415
+
+        from backend.background_ai import (  # noqa: PLC0415
+            BATCH_PAUSE,
+            DAY_PAUSE,
+            NIGHT_END,
+            NIGHT_START,
+            enrich_vibes_batch,
+        )
+        from backend.llm_client import is_background_ai_enabled  # noqa: PLC0415
+        await asyncio.sleep(30)  # brief startup settle
+        while True:
+            if is_background_ai_enabled():
+                try:
+                    await enrich_vibes_batch(max_batches=1)
+                except Exception as exc:
+                    logger.warning("Vibe tagging batch failed: %s", exc)
+            h = _dt.datetime.now().hour
+            pause = BATCH_PAUSE if NIGHT_START <= h < NIGHT_END else DAY_PAUSE
+            await asyncio.sleep(pause)
+
+    _add_task(_vibe_tagging_loop(), "vibe_tagging_loop")
+    logger.info("Vibe tagging running continuously (night: %ds, day: 90s between batches)", 8)
+
+    async def _lyrics_themes_loop() -> None:
+        import datetime as _dt  # noqa: PLC0415
+
+        from backend.background_ai import (  # noqa: PLC0415
+            LYRICS_DAY_PAUSE,
+            LYRICS_PAUSE,
+            NIGHT_END,
+            NIGHT_START,
+            extract_lyrics_themes_batch,
+        )
+        from backend.llm_client import is_background_ai_enabled  # noqa: PLC0415
+        await asyncio.sleep(90)  # start slightly after vibes to stagger first batch
+        while True:
+            if is_background_ai_enabled():
+                try:
+                    await extract_lyrics_themes_batch(max_batches=1)
+                except Exception as exc:
+                    logger.warning("Lyrics themes batch failed: %s", exc)
+            h = _dt.datetime.now().hour
+            pause = LYRICS_PAUSE if NIGHT_START <= h < NIGHT_END else LYRICS_DAY_PAUSE
+            await asyncio.sleep(pause)
+
+    _add_task(_lyrics_themes_loop(), "lyrics_themes_loop")
+    logger.info("Lyrics themes running continuously (night: %ds, day: 120s between batches)", 15)
+
+    # Discovery section descriptions — light job, runs at startup then every 24 h
+    async def _discovery_descriptions_loop() -> None:
+        from backend.background_ai import refresh_discovery_descriptions  # noqa: PLC0415
+        from backend.llm_client import is_background_ai_enabled  # noqa: PLC0415
+        await asyncio.sleep(60)  # let library + taste profile settle
+        while True:
+            if is_background_ai_enabled():
+                try:
+                    await refresh_discovery_descriptions()
+                except Exception as exc:
+                    logger.warning("Discovery descriptions refresh failed: %s", exc)
+            await asyncio.sleep(24 * 3600)
+
+    _add_task(_discovery_descriptions_loop(), "discovery_descriptions_refresh")
+    logger.info("Discovery AI descriptions scheduled (first run in 60s, then every 24h)")
+
+    # Template suggestions — light job, runs weekly
+    async def _template_suggestions_loop() -> None:
+        from backend.background_ai import generate_template_suggestions  # noqa: PLC0415
+        from backend.llm_client import is_background_ai_enabled  # noqa: PLC0415
+        await asyncio.sleep(300)  # after startup settle + discovery descriptions
+        while True:
+            if is_background_ai_enabled():
+                try:
+                    await generate_template_suggestions()
+                except Exception as exc:
+                    logger.warning("Template suggestions failed: %s", exc)
+            await asyncio.sleep(7 * 24 * 3600)  # weekly
+
+    _add_task(_template_suggestions_loop(), "template_suggestions_loop")
+    logger.info("Template suggestions scheduled (first run in 5 min, then weekly)")
+
     # Periodic DB backup (every 4 hours)
     async def _db_backup_loop() -> None:
         import shutil  # noqa: PLC0415

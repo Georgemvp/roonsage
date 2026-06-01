@@ -2,6 +2,59 @@
 
 All notable changes to RoonSage are documented here.
 
+## [13.2.0] - 2026-06-01
+
+### Added
+
+- **Background AI enrichment system** — unified AI enrichment pipeline for free/local providers (Ollama, custom). Six independent tasks running continuously in trickle mode:
+  - **Vibe & Context Tagging** — LLM assigns 2–4 listening contexts ("late night coding", "Sunday cleaning") and 1–2 mood labels ("melancholic", "euphoric") to every library track. Stored in `track_vibes`.
+  - **Lyrics Theme Extraction** — extracts themes, emotional arc, language and abstraction level from embedded lyrics. Stored in `track_lyrics_themes`.
+  - **Discovery AI Descriptions** — proactively generates tagline + description for Deep Cuts, Forgotten Favorites and Genre Explorer sections. Cached in `discovery_descriptions`, refreshed every 24 h. Displayed immediately on the Discovery tab without a page reload.
+  - **Cluster AI Labels** — generates vivid names, descriptions and color hints for each sonic cluster after clustering runs. Stored in `cluster_ai_labels`.
+  - **Song Path Narratives** — writes a short narrative about the sonic journey for each Song Path. Generated on-demand after a path is computed; cached by MD5 of the path parameters in `song_path_narratives`.
+  - **Template Suggestions** — proposes 3 new playlist templates weekly based on listening patterns. Cached in `template_suggestions_cache`.
+
+- **Trickle mode scheduling** — batches run continuously (not just at night). Pause between batches is time-of-day aware: 8 s / 15 s at night (01:00–07:00), 90 s / 120 s during the day, so Gemma 4 is never overwhelmed during active hours.
+
+- **Global LLM semaphore** — `asyncio.Semaphore(1)` across all background AI tasks guarantees no concurrent Ollama calls regardless of which tasks are triggered simultaneously.
+
+- **Background AI settings dashboard** (`/settings` → Background AI section) — unified control panel with:
+  - Toggle to enable/disable background AI (persisted to `config.user.yaml`; disabled automatically for paid providers)
+  - Provider badge showing the active LLM provider
+  - Active task widget with live progress bar and `done / total` counter
+  - Per-task cards showing schedule, state badge (running / queued / failed / complete / partial / idle), and progress bar derived from DB counts
+  - Manual "Nu starten" / "Genereren" trigger buttons per task
+
+- **Notification enrichment** — the event bus optionally personalises notification messages with an AI-written summary + emoji when the notification type is `playlist_generated`, `new_release_found` or `listening_milestone`. Uses a 5 s timeout so it never blocks a notification.
+
+- **AI playlist descriptions** — after a playlist is saved to history (`/api/generate` or refine), a fire-and-forget call generates a short AI description + tags and persists them in the `results` table (`ai_description`, `ai_tags` columns). Shown as the subtitle in the Playlists view.
+
+- **Background task tracker** (`backend/background_tasks.py`) — thread-safe in-memory tracker that records status, progress percentage, elapsed time and error for every background AI task. Exposed via `/api/background-ai/status`.
+
+- **New API endpoints** (`/api/background-ai/`):
+  - `GET /config` — current enabled state + provider
+  - `POST /config` — persist enabled toggle
+  - `GET /status` — unified status for all 6 tasks (DB progress + task_tracker state)
+  - `POST /start-vibes` / `POST /start-lyrics-themes` — manual triggers
+  - `POST /generate-cluster-labels` / `POST /generate-template-suggestions` — manual triggers
+  - `GET /song-path-narrative/{cache_key}` — cached narrative lookup
+  - `GET /template-suggestions` — cached suggestions
+  - `POST /describe-playlist` — on-demand playlist description
+
+- **New DB tables**: `cluster_ai_labels`, `song_path_narratives`, `template_suggestions_cache`.
+
+- **`results` table extended** with `ai_description TEXT` and `ai_tags TEXT` (JSON) columns for AI-generated playlist metadata.
+
+### Changed
+
+- **Vibe & lyrics loops** replaced from nightly one-shot (`_sleep_until_night()` → run all → sleep 24 h) to continuous trickle (`max_batches=1` per tick, time-of-day pause). Tasks always make progress; full speed at night, gentle pace during the day.
+- **Clustering** (`/api/clustering/run`) now automatically fires `generate_cluster_labels()` after a successful cluster run.
+- **Song Paths** (`/api/song-path`) now generates and caches a narrative for every computed path when background AI is enabled.
+- **Scheduler + Automation Engine** now respect `is_background_ai_enabled()` — generation tasks are skipped (not errored) when background AI is disabled for paid providers.
+- **Playlists view** shows `ai_description` as subtitle when available, falling back to the stored subtitle.
+- **Taste profile stat cards** improved: hours now estimated from LB scrobble count (avg 4 min/track) when more complete than local Roon-logged hours; unique tracks and artist count use best available source across profile, LB and stats objects; top genre and peak hour chips populated.
+- **Analysis Tasks panel** extended with vibe tagging and lyrics themes status + trigger controls (in addition to the unified Background AI section).
+
 ## [13.1.0] - 2026-05-26
 
 ### Added

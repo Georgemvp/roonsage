@@ -153,11 +153,18 @@ async def trigger_clustering() -> ClusteringRunResponse:
             detail="A clustering run is already in progress.",
         )
 
-    # Fire-and-forget background task. Errors are captured into cluster_runs.
-    asyncio.create_task(  # noqa: RUF006 - background lifetime is bounded by the run
-        asyncio.to_thread(_run_clustering_sync),
-        name="clustering-run",
-    )
+    async def _run_and_label() -> None:
+        await asyncio.to_thread(_run_clustering_sync)
+        # After clustering, generate AI labels if a free provider is configured
+        try:
+            from backend.background_ai import generate_cluster_labels  # noqa: PLC0415
+            from backend.llm_client import is_background_ai_enabled  # noqa: PLC0415
+            if is_background_ai_enabled():
+                asyncio.create_task(generate_cluster_labels(), name="cluster_labels")
+        except Exception as exc:
+            logger.debug("cluster label trigger failed: %s", exc)
+
+    asyncio.create_task(_run_and_label(), name="clustering-run")
     return ClusteringRunResponse(
         started=True,
         message="Clustering started. Poll /api/clustering/status for progress.",
