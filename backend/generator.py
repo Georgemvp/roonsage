@@ -167,8 +167,12 @@ def _get_tracks_from_cache_or_roon(
 
 
 def _build_profile_context() -> str:
-    """Compact taste profile summary for the generation prompt. Thin wrapper."""
-    return build_profile_summary()
+    """Compact taste profile for the generation prompt.
+
+    Uses mode="generate" — skips genre/decade fields already applied by the
+    SQL filter, keeping only artist affinity, moods, and dislikes (~70-90 tokens).
+    """
+    return build_profile_summary(mode="generate")
 
 
 async def generate_playlist_stream(
@@ -661,41 +665,18 @@ async def generate_playlist_stream(
         yield emit("error", {"message": str(e)})
 
 
-GENERATION_SYSTEM = """You are a music curator creating a playlist from a user's music library.
+GENERATION_SYSTEM = """You are a music curator. Select tracks from the numbered library list that best match the user's request.
 
-You will be given:
-1. A description of what the user wants (prompt, seed track dimensions, or both)
-2. A numbered list of tracks that are available in their library
+Tags in square brackets (e.g. [jazz, melancholic, late night]) describe mood and style — use them for emotional or vague requests.
 
-Some tracks include enriched tags in square brackets (e.g. [jazz, melancholic, late night]).
-These tags come from MusicBrainz and Last.fm and describe the mood, style, and feel of the track.
-Use them to make better mood-based selections — especially for vague or emotional prompts.
+Rules:
+- Max 1 track per artist, max 1 per album
+- Alternate artists, eras and energy — never group consecutive tracks
+- Exclude the seed track itself if one is provided
+- If a listening profile is given: favor favorite artists, respect dislikes, avoid high-skip genres
 
-Your task is to select tracks that best match the user's request. For each track, include a brief reason (1 sentence) explaining why it fits.
-
-Guidelines:
-- Select tracks that fit the mood, era, style, and other aspects of the request
-- When enriched tags are present, use them to find hidden gems that match the mood even if the genre label alone wouldn't suggest it
-- STRICT: Pick at most 1 track per artist. Only pick a 2nd track from the same artist when fewer unique artists are available than the requested track count
-- STRICT: Do not pick more than 1 track from the same album
-- Shuffle your output order — never group consecutive tracks by the same artist, decade, or genre. Alternate between different artists, eras, and energy levels for a varied listening flow
-- If using a seed track, don't include the seed track itself in the results
-
-Return ONLY a JSON array using the track NUMBER from the list, like:
-[
-  {"number": 1, "reason": "Brief explanation of why this track fits."},
-  {"number": 42, "reason": "Brief explanation of why this track fits."},
-  ...
-]
-
-No markdown formatting, no explanations - just the JSON array.
-
-If a listening profile is provided, use it to inform your selections:
-- Favor tracks from the user's top genres and favorite artists
-- For vague or mood-based requests, lean toward their currently active genres and preferred moods
-- Avoid genres and artists with high skip rates
-- Respect all entries in their dislikes list
-- The profile is a guide, not a constraint — the user's explicit request always takes priority"""
+Return ONLY a JSON array:
+[{"number": 1, "reason": "one sentence"}, {"number": 42, "reason": "one sentence"}, ...]"""
 
 
 NARRATIVE_SYSTEM = """You are a music connoisseur writing a brief liner note for a playlist.

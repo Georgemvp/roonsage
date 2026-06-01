@@ -8,6 +8,7 @@ let _initialized = false;
 let _lastResults = null;
 let _zoneCache = null;
 let _pollTimer = null;
+let _searchAbort = null;
 
 async function getDefaultZone() {
     if (_zoneCache) return _zoneCache;
@@ -73,6 +74,37 @@ async function startAnalysis() {
     }, 3000);
 }
 
+function _esc(s) {
+    return (s == null ? '' : String(s))
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function _artThumb(imageKey) {
+    if (!imageKey) return '<div class="alchemy-art-placeholder">♪</div>';
+    return `<img class="alchemy-art-thumb" src="/api/art/${encodeURIComponent(imageKey)}?width=40&height=40" alt="" loading="lazy" onerror="this.parentElement.innerHTML='&lt;div class=alchemy-art-placeholder&gt;&#9834;&lt;/div&gt;'">`;
+}
+
+function renderSkeleton(count = 8) {
+    const out = document.getElementById('clap-results');
+    if (!out) return;
+    const row = `
+      <div class="alchemy-result-track" style="opacity:.55;">
+        <div class="alchemy-art-placeholder" style="background:linear-gradient(90deg,var(--border),var(--bg-surface),var(--border));background-size:200% 100%;animation:clapSkeleton 1.2s linear infinite;"></div>
+        <div class="alchemy-result-track-info">
+          <div style="height:12px;width:60%;background:var(--border);border-radius:3px;margin-bottom:4px;"></div>
+          <div style="height:10px;width:40%;background:var(--border);border-radius:3px;"></div>
+        </div>
+      </div>`;
+    out.innerHTML = `
+      <style>@keyframes clapSkeleton{0%{background-position:0 0}100%{background-position:-200% 0}}</style>
+      <div style="margin-bottom:8px;color:var(--text-muted);font-size:13px;">Searching…</div>
+      ${row.repeat(count)}
+    `;
+}
+
 function renderResults(data) {
     const out = document.getElementById('clap-results');
     if (!data.results || !data.results.length) {
@@ -81,40 +113,94 @@ function renderResults(data) {
     }
     out.innerHTML = `
       <div style="margin-bottom:8px;color:var(--text-muted);font-size:13px;">
-        ${data.results.length} matches for "${data.query}"
+        ${data.results.length} matches for "${_esc(data.query)}"
       </div>
       ${data.results.map(t => `
-        <div class="alchemy-result-track">
-          <div>
-            <strong>${t.title || ''}</strong>
-            <span style="color:var(--text-muted);"> · ${t.artist || ''}</span>
+        <div class="alchemy-result-track clap-result-row" data-item-key="${_esc(t.item_key)}" role="button" tabindex="0" title="Click to play this track" style="cursor:pointer;">
+          ${_artThumb(t.image_key)}
+          <div class="alchemy-result-track-info">
+            <div><strong>${_esc(t.title || '')}</strong> <span style="color:var(--text-muted);"> · ${_esc(t.artist || '')}</span></div>
+            <div style="color:var(--text-muted);font-size:11px;">${_esc(t.album || '')}${t.year ? ' · ' + t.year : ''}</div>
           </div>
           <span class="alchemy-score">${((t.similarity ?? 0) * 100).toFixed(1)}%</span>
         </div>
       `).join('')}
     `;
+    out.querySelectorAll('.clap-result-row').forEach(row => {
+        const playOne = async () => {
+            const key = row.dataset.itemKey;
+            const zone = await getDefaultZone();
+            if (!zone) { alert('No Roon zone available.'); return; }
+            row.style.opacity = '0.6';
+            try {
+                await apiCall('/queue', {
+                    method: 'POST',
+                    body: JSON.stringify({ item_keys: [key], zone_id: zone, mode: 'replace' }),
+                });
+            } catch (err) {
+                alert(`Play failed: ${err.message}`);
+            } finally {
+                row.style.opacity = '';
+            }
+        };
+        row.addEventListener('click', playOne);
+        row.addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playOne(); }
+        });
+    });
 }
 
 async function runSearch(query) {
     if (!query.trim()) return;
     const searchBtn = document.getElementById('clap-search-btn');
     const playBtn = document.getElementById('clap-play-btn');
+    const appendBtn = document.getElementById('clap-append-btn');
+    const limitSel = document.getElementById('clap-limit');
+    const limit = parseInt(limitSel?.value || '25', 10);
+
+    // Cancel any in-flight search so the latest query wins.
+    if (_searchAbort) _searchAbort.abort();
+    _searchAbort = new AbortController();
+    const myAbort = _searchAbort;
+
     searchBtn.disabled = true;
     searchBtn.textContent = 'Searching…';
+    renderSkeleton(Math.min(limit, 8));
     try {
         const data = await apiCall('/clap/search', {
             method: 'POST',
-            body: JSON.stringify({ query, limit: 25 }),
+            body: JSON.stringify({ query, limit }),
+            signal: myAbort.signal,
         });
+        if (myAbort.signal.aborted) return;
         _lastResults = data;
         renderResults(data);
         playBtn.disabled = !data.results.length;
+        appendBtn.disabled = !data.results.length;
     } catch (err) {
+        if (err.name === 'AbortError') return;
         document.getElementById('clap-results').innerHTML =
             `<div class="cluster-error">${err.message}</div>`;
     } finally {
-        searchBtn.disabled = false;
-        searchBtn.textContent = 'Search';
+        if (!myAbort.signal.aborted) {
+            searchBtn.disabled = false;
+            searchBtn.textContent = 'Search';
+        }
+    }
+}
+
+async function queueAll(mode) {
+    if (!_lastResults) return;
+    const zone = await getDefaultZone();
+    if (!zone) { alert('No Roon zone available.'); return; }
+    const itemKeys = _lastResults.results.map(t => t.item_key);
+    try {
+        await apiCall('/queue', {
+            method: 'POST',
+            body: JSON.stringify({ item_keys: itemKeys, zone_id: zone, mode }),
+        });
+    } catch (err) {
+        alert(`${mode === 'append' ? 'Append' : 'Play'} failed: ${err.message}`);
     }
 }
 
@@ -125,6 +211,7 @@ export async function initClapSearchView() {
     const input = document.getElementById('clap-search-input');
     const searchBtn = document.getElementById('clap-search-btn');
     const playBtn = document.getElementById('clap-play-btn');
+    const appendBtn = document.getElementById('clap-append-btn');
 
     searchBtn.addEventListener('click', () => runSearch(input.value));
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(input.value); });
@@ -136,20 +223,8 @@ export async function initClapSearchView() {
         });
     });
 
-    playBtn.addEventListener('click', async () => {
-        if (!_lastResults) return;
-        const zone = await getDefaultZone();
-        if (!zone) { alert('No Roon zone available.'); return; }
-        const itemKeys = _lastResults.results.map(t => t.item_key);
-        try {
-            await apiCall('/queue', {
-                method: 'POST',
-                body: JSON.stringify({ item_keys: itemKeys, zone_id: zone, mode: 'replace' }),
-            });
-        } catch (err) {
-            alert(`Play failed: ${err.message}`);
-        }
-    });
+    playBtn.addEventListener('click', () => queueAll('replace'));
+    appendBtn?.addEventListener('click', () => queueAll('append'));
 
     const s = await refreshStatus();
     if (s && s.status === 'running' && !_pollTimer) {

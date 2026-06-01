@@ -51,6 +51,16 @@ MODEL_CONTEXT_LIMITS = {
     "gemini-2.5-pro": 1_000_000,
     "gemini-2.5-flash": 1_000_000,
     "gemini-2.5-flash-lite": 1_000_000,
+    # Gemma 4 (local via Ollama — MLX-optimised for Apple Silicon)
+    "gemma4:e2b": 128_000,
+    "gemma4:e2b-mlx": 128_000,
+    "gemma4:e4b": 128_000,
+    "gemma4:e4b-mlx": 128_000,
+    "gemma4:26b": 256_000,
+    "gemma4:26b-mlx": 256_000,
+    "gemma4:31b": 256_000,
+    "gemma4:31b-mlx": 256_000,
+    "gemma4:latest": 128_000,
 }
 
 # Tokens per track (based on real-world testing, Feb 2026)
@@ -68,6 +78,7 @@ class LLMResponse:
     input_tokens: int
     output_tokens: int
     model: str
+    provider: str = ""
 
     @property
     def total_tokens(self) -> int:
@@ -75,7 +86,9 @@ class LLMResponse:
         return self.input_tokens + self.output_tokens
 
     def estimated_cost(self) -> float:
-        """Estimate cost in USD based on token usage."""
+        """Estimate cost in USD. Local providers (ollama, custom) are always free."""
+        if self.provider in ("ollama", "custom"):
+            return 0.0
         return estimate_cost_for_model(self.model, self.input_tokens, self.output_tokens)
 
 
@@ -159,6 +172,7 @@ class LLMClient:
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
             model=model,
+            provider="anthropic",
         )
 
     async def _complete_openai(
@@ -184,6 +198,7 @@ class LLMClient:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             model=model,
+            provider=self.provider,
         )
 
     async def _complete_gemini(
@@ -246,45 +261,49 @@ class LLMClient:
                 input_tokens=usage.prompt_token_count if usage else 0,
                 output_tokens=usage.candidates_token_count if usage else 0,
                 model=model,
+                provider="gemini",
             )
 
         raise RuntimeError(f"Gemini API failed after {max_retries} attempts: {last_error}")
 
     async def _complete_ollama(
-        self, prompt: str, system: str, model: str
+        self, prompt: str, system: str, model: str, temperature: float = 0.3
     ) -> LLMResponse:
-        """Make an async completion request to Ollama using the persistent AsyncClient.
+        """Make an async completion request to Ollama via the chat endpoint.
 
-        Args:
-            prompt: User prompt
-            system: System prompt
-            model: Model name (e.g., "llama3:8b")
-
-        Returns:
-            LLMResponse with content and token counts
+        Uses /api/chat so Gemma's instruction-tuned chat template is applied
+        correctly. Forces JSON output mode and passes num_ctx explicitly so
+        the full model context window is always available.
         """
-        logger.info("Calling Ollama API with %d char prompt", len(prompt))
+        logger.info("Calling Ollama /api/chat with %d char prompt (temp=%.1f)", len(prompt), temperature)
         ollama_url = self.config.ollama_url.rstrip("/")
 
         if self._ollama_client is None:
-            # Fallback: create a one-off client (should not happen in normal flow)
             self._ollama_client = httpx.AsyncClient(timeout=httpx.Timeout(600.0))
 
+        num_ctx = get_model_context_limit(model, self.config)
         response = await self._ollama_client.post(
-            f"{ollama_url}/api/generate",
+            f"{ollama_url}/api/chat",
             json={
                 "model": model,
-                "prompt": prompt,
-                "system": system,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
                 "stream": False,
+                "format": "json",
+                "options": {
+                    "num_ctx": num_ctx,
+                    "temperature": temperature,
+                },
             },
         )
         response.raise_for_status()
         data = response.json()
 
-        logger.debug("Ollama response received")
+        logger.debug("Ollama chat response received")
 
-        content = data.get("response", "")
+        content = data.get("message", {}).get("content", "")
         input_tokens = data.get("prompt_eval_count", 0)
         output_tokens = data.get("eval_count", 0)
 
@@ -301,9 +320,12 @@ class LLMClient:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             model=model,
+            provider="ollama",
         )
 
-    async def _complete(self, prompt: str, system: str, model: str) -> LLMResponse:
+    async def _complete(
+        self, prompt: str, system: str, model: str, temperature: float = 0.3
+    ) -> LLMResponse:
         """Dispatch async completion to the configured provider."""
         if self.provider == "anthropic":
             return await self._complete_anthropic(prompt, system, model)
@@ -312,7 +334,7 @@ class LLMClient:
         elif self.provider == "gemini":
             return await self._complete_gemini(prompt, system, model)
         elif self.provider == "ollama":
-            return await self._complete_ollama(prompt, system, model)
+            return await self._complete_ollama(prompt, system, model, temperature)
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
 
@@ -323,33 +345,23 @@ class LLMClient:
     async def analyze(self, prompt: str, system: str) -> LLMResponse:
         """Use the analysis model for understanding tasks (async).
 
-        Args:
-            prompt: User prompt to analyze
-            system: System prompt with instructions
-
-        Returns:
-            LLMResponse with content and token counts
+        Temperature 0.3 — slightly creative for genre/mood detection and
+        album discovery, but still consistent.
         """
         model = self.config.model_analysis
-        return await self._complete(prompt, system, model)
+        return await self._complete(prompt, system, model, temperature=0.3)
 
     async def generate(self, prompt: str, system: str) -> LLMResponse:
         """Use the generation model for track selection (async).
 
-        If smart_generation is enabled, uses the analysis model instead.
-
-        Args:
-            prompt: User prompt for generation
-            system: System prompt with instructions
-
-        Returns:
-            LLMResponse with content and token counts
+        Temperature 0.2 — deterministic curation; reduces random track
+        ordering and improves JSON reliability on large track lists.
         """
         if self.config.smart_generation:
             model = self.config.model_analysis
         else:
             model = self.config.model_generation
-        return await self._complete(prompt, system, model)
+        return await self._complete(prompt, system, model, temperature=0.2)
 
     # ------------------------------------------------------------------
     # Sync wrappers — for callers that run in a thread (e.g. recommender.py

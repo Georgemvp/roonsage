@@ -1121,36 +1121,85 @@
             <!-- My Taste View -->
             <div id="taste-view" class="view">
                 <p class="rs-view-eyebrow">INTELLIGENCE</p>
-                <h2 class="rs-view-title">My Taste</h2>
+                <h2 class="rs-view-title">Intelligence &amp; Taste</h2>
                 <p class="rs-view-sub">A deep look at your listening habits, genre profile, and audio preferences.</p>
-                <!-- Stat cards -->
-                <div class="rs-taste-stats" id="taste-stat-cards">
-                    <div class="rs-stat-card">
-                        <div class="rs-stat-value" id="ts-hours">—</div>
-                        <div class="rs-stat-label">Hours played</div>
-                        <div class="rs-stat-sub">this year</div>
+
+                <!-- Hero bento: 3 hero stat cards -->
+                <div class="taste-bento-stats">
+                    <div class="taste-bento-stat taste-bento-stat--amber">
+                        <span class="taste-bento-stat__glow"></span>
+                        <div class="taste-bento-stat__head">
+                            <span class="taste-bento-stat__label">Hours Played</span>
+                            <span class="material-symbols-outlined taste-bento-stat__icon">schedule</span>
+                        </div>
+                        <div class="taste-bento-stat__value" id="ts-hours">—</div>
+                        <div class="taste-bento-stat__delta" id="ts-hours-delta">totaal</div>
                     </div>
-                    <div class="rs-stat-card">
-                        <div class="rs-stat-value" id="ts-tracks">—</div>
-                        <div class="rs-stat-label">Unique tracks</div>
-                        <div class="rs-stat-sub">in library</div>
+                    <div class="taste-bento-stat taste-bento-stat--mint">
+                        <span class="taste-bento-stat__glow"></span>
+                        <div class="taste-bento-stat__head">
+                            <span class="taste-bento-stat__label">Unique Tracks</span>
+                            <span class="material-symbols-outlined taste-bento-stat__icon">music_note</span>
+                        </div>
+                        <div class="taste-bento-stat__value" id="ts-tracks">—</div>
+                        <div class="taste-bento-stat__delta">
+                            <span class="taste-bento-stat__delta-muted">Top Genre:</span>
+                            <span class="taste-bento-stat__delta-accent" id="ts-top-genre">—</span>
+                        </div>
                     </div>
-                    <div class="rs-stat-card">
-                        <div class="rs-stat-value" id="ts-artists">—</div>
-                        <div class="rs-stat-label">Artists</div>
-                        <div class="rs-stat-sub">played</div>
-                    </div>
-                    <div class="rs-stat-card">
-                        <div class="rs-stat-value" id="ts-peak">—</div>
-                        <div class="rs-stat-label">Peak time</div>
-                        <div class="rs-stat-sub">most active</div>
-                    </div>
-                    <div class="rs-stat-card">
-                        <div class="rs-stat-value" id="ts-streak">—</div>
-                        <div class="rs-stat-label">Day streak</div>
-                        <div class="rs-stat-sub">consecutive</div>
+                    <div class="taste-bento-stat taste-bento-stat--amber">
+                        <span class="taste-bento-stat__glow"></span>
+                        <div class="taste-bento-stat__head">
+                            <span class="taste-bento-stat__label">Artists Played</span>
+                            <span class="material-symbols-outlined taste-bento-stat__icon">person</span>
+                        </div>
+                        <div class="taste-bento-stat__value" id="ts-artists">—</div>
+                        <div class="taste-bento-stat__delta" id="ts-peak-chip">High-Fidelity Focused</div>
                     </div>
                 </div>
+
+                <!-- Hidden legacy stat IDs (peak/streak still populated by JS, kept for compatibility) -->
+                <span id="ts-peak" hidden></span>
+                <span id="ts-streak" hidden></span>
+
+                <!-- Hero vis grid: Sonic Profile (radar) + Listening Density (heatmap) -->
+                <div class="taste-vis-grid">
+                    <section class="taste-section taste-vis-radar">
+                        <div class="taste-section-head">
+                            <h2 class="taste-section-title">Sonic Profile</h2>
+                            <span class="material-symbols-outlined taste-section-more">more_horiz</span>
+                        </div>
+                        <div id="taste-radar-section" class="taste-radar-wrap"></div>
+                    </section>
+                    <section class="taste-section taste-vis-heatmap">
+                        <div class="taste-section-head">
+                            <div>
+                                <h2 class="taste-section-title">Listening Density</h2>
+                                <p class="taste-section-sub">Hour × Day-of-week</p>
+                            </div>
+                        </div>
+                        <div id="lb-heatmap-section" class="lb-heatmap-container taste-heatmap-wrap">
+                            <canvas id="taste-heatmap-canvas" aria-label="Listening heatmap" role="img"></canvas>
+                            <p class="lb-no-data" id="heatmap-no-data">No heatmap data. Sync ListenBrainz to load data.</p>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Audiophile Radar: top artists -->
+                <section class="taste-section taste-audiophile">
+                    <div class="taste-section-head">
+                        <div>
+                            <h2 class="taste-section-title">
+                                Audiophile Radar
+                                <span class="material-symbols-outlined taste-audiophile__hq">high_quality</span>
+                            </h2>
+                            <p class="taste-section-sub">Top artists from your listening history</p>
+                        </div>
+                    </div>
+                    <div id="taste-audiophile-row" class="taste-audiophile-row">
+                        <p class="lb-no-data">Loading top artists…</p>
+                    </div>
+                </section>
 
                 <!-- Intelligence Banner -->
                 <section class="taste-section taste-intel-banner">
@@ -1202,23 +1251,13 @@
                 <!-- ── TASTE PROFILE ──────────────────────────────────────── -->
                 <h3 class="taste-group-header">Taste Profile</h3>
 
-                <!-- 2-Column Grid: Genre Radar + Genre Distribution -->
-                <div class="taste-grid">
-                    <div class="taste-grid-col">
-                        <section class="taste-section">
-                            <h2 class="taste-section-title">Genre Radar</h2>
-                            <div id="taste-radar-section" class="taste-radar-wrap"></div>
-                        </section>
+                <!-- Genre Distribution (full width — Genre Radar lives in hero) -->
+                <section class="taste-section">
+                    <h2 class="taste-section-title">Genre Distribution</h2>
+                    <div class="taste-chart-wrap taste-chart-wrap--hbar">
+                        <canvas id="taste-genre-dist-chart" aria-label="Genre distribution chart" role="img"></canvas>
                     </div>
-                    <div class="taste-grid-col">
-                        <section class="taste-section">
-                            <h2 class="taste-section-title">Genre Distribution</h2>
-                            <div class="taste-chart-wrap taste-chart-wrap--hbar">
-                                <canvas id="taste-genre-dist-chart" aria-label="Genre distribution chart" role="img"></canvas>
-                            </div>
-                        </section>
-                    </div>
-                </div>
+                </section>
 
                 <!-- Era Distribution (full width doughnut) -->
                 <div class="taste-grid taste-grid--era">
@@ -2240,9 +2279,18 @@
                         <button class="rs-disc-chip clap-suggest" data-q="energetic guitar rock"><span class="rs-disc-chip__dot rs-disc-chip__dot--amber"></span>Energetic guitar rock</button>
                         <button class="rs-disc-chip clap-suggest" data-q="funky bass groove"><span class="rs-disc-chip__dot"></span>Funky bass groove</button>
                     </div>
-                    <div class="clap-search-actions" style="display:flex;gap:10px;justify-content:center">
+                    <div class="clap-search-actions" style="display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap">
                         <button id="clap-search-btn" class="btn btn-primary btn-sm">Search</button>
                         <button id="clap-play-btn" class="btn btn-secondary btn-sm" disabled>Play results</button>
+                        <button id="clap-append-btn" class="btn btn-secondary btn-sm" disabled>+ Queue</button>
+                        <label style="display:flex;align-items:center;gap:6px;color:var(--text-muted);font-size:12px;">
+                            Top
+                            <select id="clap-limit" class="auto-form-input" style="padding:2px 6px;font-size:12px;">
+                                <option value="25" selected>25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </label>
                     </div>
                 </div>
 

@@ -331,6 +331,69 @@ def load_all_embeddings(conn: sqlite3.Connection) -> tuple[list[str], Any]:
 
 
 # ---------------------------------------------------------------------------
+# In-memory matrix cache
+#
+# Loading 46k × 512 float32 vectors from SQLite + numpy.stack + L2 normalisation
+# costs ~300 ms per request. We cache the normalised matrix in process memory
+# (~94 MB) and invalidate by comparing the cached row count to the live one —
+# the batch worker runs out-of-process, so a TTL alone won't catch new rows.
+# ---------------------------------------------------------------------------
+
+_search_cache: dict[str, Any] = {}
+_search_cache_lock = None
+
+
+def _ensure_search_cache_lock():
+    global _search_cache_lock
+    if _search_cache_lock is None:
+        import threading  # noqa: PLC0415
+        _search_cache_lock = threading.Lock()
+    return _search_cache_lock
+
+
+def invalidate_search_cache() -> None:
+    """Drop the cached normalised matrix. Call from sync / analyze hooks."""
+    global _search_cache
+    _search_cache = {}
+
+
+def _get_normalised_matrix(conn: sqlite3.Connection) -> tuple[list[str], Any]:
+    """Return (keys, L2-normalised matrix), rebuilding from SQLite if stale."""
+    import numpy as np  # noqa: PLC0415
+
+    row_count = conn.execute("SELECT COUNT(*) FROM clap_embeddings").fetchone()[0]
+    if (
+        _search_cache
+        and _search_cache.get("row_count") == row_count
+        and _search_cache.get("matrix") is not None
+    ):
+        return _search_cache["keys"], _search_cache["matrix"]
+
+    lock = _ensure_search_cache_lock()
+    with lock:
+        # Re-check after acquiring the lock to avoid duplicate rebuilds.
+        if (
+            _search_cache
+            and _search_cache.get("row_count") == row_count
+            and _search_cache.get("matrix") is not None
+        ):
+            return _search_cache["keys"], _search_cache["matrix"]
+
+        keys, matrix = load_all_embeddings(conn)
+        if not keys:
+            _search_cache.clear()
+            _search_cache.update({"row_count": 0, "keys": [], "matrix": matrix})
+            return [], matrix
+
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-12
+        mat_norm = (matrix / norms).astype(np.float32, copy=False)
+        _search_cache.clear()
+        _search_cache.update({"row_count": row_count, "keys": keys, "matrix": mat_norm})
+        logger.info("CLAP search cache rebuilt: %d embeddings", row_count)
+        return keys, mat_norm
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -419,22 +482,28 @@ def search_by_text(
     if get_onnx_backend() is None and get_model() is None:
         raise RuntimeError("CLAP model not available — set CLAP_ENABLED=true")
 
-    keys, matrix = load_all_embeddings(conn)
+    keys, mat_norm = _get_normalised_matrix(conn)
     if not keys:
         return []
 
     text_emb = np.asarray(_embed_text(query), dtype=np.float32)
     text_norm = text_emb / (np.linalg.norm(text_emb) + 1e-12)
-    mat_norm = matrix / (np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-12)
-    scores = mat_norm @ text_norm  # cosine similarities
+    scores = mat_norm @ text_norm  # cosine similarities; matrix is pre-normalised
 
     # Fetch more candidates than needed so deduplication doesn't starve the result set.
-    top_idx = np.argsort(-scores)[:limit * 6]
+    n_candidates = min(limit * 6, scores.shape[0])
+    # argpartition + sort is O(n) vs argsort's O(n log n) — significant on 46k rows.
+    part = np.argpartition(-scores, n_candidates - 1)[:n_candidates]
+    top_idx = part[np.argsort(-scores[part])]
+
     placeholders = ",".join("?" for _ in top_idx)
     top_keys = [keys[i] for i in top_idx]
     rows = conn.execute(
-        f"""SELECT t.item_key, t.title, t.artist, t.album, t.year
-            FROM tracks t WHERE t.item_key IN ({placeholders})""",
+        f"""SELECT t.item_key, t.title, t.artist, t.album, t.year,
+                   alb.image_key
+            FROM tracks t
+            LEFT JOIN albums alb ON alb.item_key = t.parent_item_key
+            WHERE t.item_key IN ({placeholders})""",
         top_keys,
     ).fetchall()
     by_key = {r["item_key"]: dict(r) for r in rows}

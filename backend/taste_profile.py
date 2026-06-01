@@ -839,13 +839,16 @@ def _empty_profile() -> dict:
     }
 
 
-def build_profile_summary(profile: dict | None = None) -> str:
-    """Build a compact taste profile summary (~150-200 tokens) for LLM prompts.
+def build_profile_summary(profile: dict | None = None, mode: str = "full") -> str:
+    """Build a compact taste profile summary for LLM prompts.
 
-    Reused across generator, analyzer, recommender and the MCP filter_tracks tool
-    so that taste injection is consistent everywhere. Pass an existing *profile*
-    dict to avoid an extra DB read; otherwise loads via TasteProfile.get().
-    Returns an empty string when no usable signal exists.
+    mode="full"     (~150-200 tokens): all fields — for analyze and recommender calls
+                    where genre/decade selection still needs to happen.
+    mode="generate" (~70-90 tokens):   artist/mood/dislike fields only — for generate
+                    calls where genre filtering has already been applied via SQL.
+
+    Pass an existing *profile* dict to avoid an extra DB read; otherwise loads
+    via TasteProfile.get(). Returns an empty string when no usable signal exists.
     """
     if profile is None:
         try:
@@ -854,14 +857,15 @@ def build_profile_summary(profile: dict | None = None) -> str:
             return ""
     parts: list[str] = []
 
-    genres = profile.get("genres", {})
-    if genres:
-        top = sorted(genres.items(), key=lambda x: -x[1])[:8]
-        parts.append("Top genres: " + ", ".join(f"{g} ({s:.0%})" for g, s in top))
+    if mode == "full":
+        genres = profile.get("genres", {})
+        if genres:
+            top = sorted(genres.items(), key=lambda x: -x[1])[:8]
+            parts.append("Top genres: " + ", ".join(f"{g} ({s:.0%})" for g, s in top))
 
-    recent = profile.get("recently_active", {})
-    if recent.get("top_genres"):
-        parts.append("Currently active (7d): " + ", ".join(recent["top_genres"][:5]))
+        recent = profile.get("recently_active", {})
+        if recent.get("top_genres"):
+            parts.append("Currently active (7d): " + ", ".join(recent["top_genres"][:5]))
 
     artists = profile.get("artists", {})
     if artists:
@@ -879,17 +883,18 @@ def build_profile_summary(profile: dict | None = None) -> str:
         top_moods = sorted(moods.items(), key=lambda x: -x[1])[:4]
         parts.append("Preferred moods: " + ", ".join(f"{m} ({s:.0%})" for m, s in top_moods))
 
-    thematic = profile.get("thematic_moods", [])
-    if thematic:
-        parts.append("Lyrical themes: " + ", ".join(
-            f"{m['mood']} ({m['score']:.0%})" for m in thematic[:5]
-        ))
+    if mode == "full":
+        thematic = profile.get("thematic_moods", [])
+        if thematic:
+            parts.append("Lyrical themes: " + ", ".join(
+                f"{m['mood']} ({m['score']:.0%})" for m in thematic[:5]
+            ))
 
-    patterns = profile.get("listening_patterns", {})
-    if patterns.get("evening_genres"):
-        parts.append("Evening favorites: " + ", ".join(patterns["evening_genres"][:3]))
-    if patterns.get("weekend_genres"):
-        parts.append("Weekend favorites: " + ", ".join(patterns["weekend_genres"][:3]))
+        patterns = profile.get("listening_patterns", {})
+        if patterns.get("evening_genres"):
+            parts.append("Evening favorites: " + ", ".join(patterns["evening_genres"][:3]))
+        if patterns.get("weekend_genres"):
+            parts.append("Weekend favorites: " + ", ".join(patterns["weekend_genres"][:3]))
 
     dislikes = profile.get("dislikes", [])
     if dislikes:

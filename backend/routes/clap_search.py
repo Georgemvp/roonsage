@@ -52,6 +52,7 @@ class ClapTrack(BaseModel):
     artist: str | None = None
     album: str | None = None
     year: int | None = None
+    image_key: str | None = None
     similarity: float | None = None
 
 
