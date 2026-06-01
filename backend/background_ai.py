@@ -197,7 +197,7 @@ async def enrich_vibes_batch(
 
     If item_keys is None, processes untagged tracks.
     max_batches limits how many batches of BATCH_SIZE to process per call
-    (None = up to 2000 tracks, 1 = one batch of 20 for trickle mode).
+    (None = all untagged tracks, 1 = one batch of 20 for trickle mode).
     """
     if not is_background_ai_enabled():
         logger.debug("enrich_vibes_batch skipped — background AI disabled")
@@ -206,8 +206,6 @@ async def enrich_vibes_batch(
     client = get_llm_client()
     if not client:
         return
-
-    db_limit = (max_batches * BATCH_SIZE) if max_batches is not None else 2000
 
     conn = get_db_connection()
     try:
@@ -225,7 +223,7 @@ async def enrich_vibes_batch(
                 """,
                 item_keys,
             ).fetchall()
-        else:
+        elif max_batches is not None:
             rows = conn.execute(
                 """
                 SELECT t.item_key, t.title, t.artist, t.album, t.year,
@@ -237,7 +235,19 @@ async def enrich_vibes_batch(
                 GROUP BY t.item_key
                 LIMIT ?
                 """,
-                (db_limit,),
+                (max_batches * BATCH_SIZE,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT t.item_key, t.title, t.artist, t.album, t.year,
+                       GROUP_CONCAT(tg.genre, ', ') AS genres
+                FROM tracks t
+                LEFT JOIN track_genres tg ON tg.track_key = t.item_key
+                LEFT JOIN track_vibes tv ON tv.item_key = t.item_key
+                WHERE tv.item_key IS NULL
+                GROUP BY t.item_key
+                """
             ).fetchall()
     finally:
         conn.close()
@@ -767,7 +777,8 @@ async def extract_lyrics_themes_batch(
     """Extract themes, arc, language from lyrics and store in track_lyrics_themes.
 
     If item_keys is None, processes tracks with lyrics but no themes yet.
-    max_batches limits how many batches of LYRICS_BATCH_SIZE to process per call.
+    max_batches limits how many batches of LYRICS_BATCH_SIZE to process per call
+    (None = all untagged tracks, 1 = one batch of 5 for trickle mode).
     """
     if not is_background_ai_enabled():
         logger.debug("extract_lyrics_themes_batch skipped — background AI disabled")
@@ -776,8 +787,6 @@ async def extract_lyrics_themes_batch(
     client = get_llm_client()
     if not client:
         return
-
-    db_limit = (max_batches * LYRICS_BATCH_SIZE) if max_batches is not None else 5000
 
     conn = get_db_connection()
     try:
@@ -795,7 +804,7 @@ async def extract_lyrics_themes_batch(
                 """,
                 item_keys,
             ).fetchall()
-        else:
+        elif max_batches is not None:
             rows = conn.execute(
                 """
                 SELECT ld.item_key, t.title, t.artist, ld.lyrics
@@ -806,7 +815,18 @@ async def extract_lyrics_themes_batch(
                   AND lt.item_key IS NULL
                 LIMIT ?
                 """,
-                (db_limit,),
+                (max_batches * LYRICS_BATCH_SIZE,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT ld.item_key, t.title, t.artist, ld.lyrics
+                FROM lyrics_data ld
+                JOIN tracks t ON t.item_key = ld.item_key
+                LEFT JOIN track_lyrics_themes lt ON lt.item_key = ld.item_key
+                WHERE ld.lyrics IS NOT NULL AND ld.lyrics != ''
+                  AND lt.item_key IS NULL
+                """
             ).fetchall()
     finally:
         conn.close()
