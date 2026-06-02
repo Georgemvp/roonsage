@@ -124,7 +124,7 @@ async def get_library_status() -> LibraryCacheStatusResponse:
     """Get library cache status for UI polling."""
     roon_client = get_roon_client()
 
-    state = library_cache.get_sync_state()
+    state = await asyncio.to_thread(library_cache.get_sync_state)
 
     sync_progress = None
     if state["sync_progress"]:

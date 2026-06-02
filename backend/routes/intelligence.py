@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from backend.db import get_db_connection
+from backend.db import aget_connection, get_db_connection
 from backend.filter_sessions import get_session
 from backend.taste_profile import TasteProfile
 
@@ -98,7 +98,7 @@ class ModifyPlaylistRequest(BaseModel):
 @router.get("/taste/profile")
 async def get_taste_profile() -> dict:
     """Return the current taste profile (compact — fits in < 2 000 tokens)."""
-    profile = TasteProfile.get()
+    profile = await asyncio.to_thread(TasteProfile.get)
     # Keep top-N entries to stay token-compact
     profile["genres"]  = dict(sorted(profile.get("genres", {}).items(),  key=lambda x: -x[1])[:20])
     profile["artists"] = dict(sorted(profile.get("artists", {}).items(), key=lambda x: -x[1])[:30])
@@ -152,8 +152,7 @@ async def get_listening_history(
     """Return recent listening history rows."""
     cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
-    conn = get_db_connection()
-    try:
+    async with aget_connection() as conn:
         # Guard against historical SQLite page-level corruption (2026-05-28)
         # that left a single row with a BLOB timestamp + CLAP-model zone_name.
         # `typeof(timestamp) = 'text'` filters that out cheaply; the GLOB
@@ -173,29 +172,33 @@ async def get_listening_history(
         sql += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
 
-        rows = conn.execute(sql, params).fetchall()
+        cursor = await conn.execute(sql, params)
+        rows = await cursor.fetchall()
         result = []
         for r in rows:
             # Use the album image_key (from albums table) which is the correct Roon image key.
             # Fall back to track item_key if no album image_key is found.
             art_key = None
             if r[5] and r[4]:  # album and artist
-                art_row = conn.execute(
+                art_cursor = await conn.execute(
                     "SELECT image_key FROM albums WHERE title = ? AND artist = ? LIMIT 1",
                     (r[5], r[4]),
-                ).fetchone()
+                )
+                art_row = await art_cursor.fetchone()
                 if art_row and art_row[0]:
                     art_key = art_row[0]
             if not art_key and r[3] and r[4]:  # fallback: track item_key
-                art_row = conn.execute(
+                art_cursor = await conn.execute(
                     "SELECT t.parent_item_key FROM tracks t WHERE t.title = ? AND t.artist = ? LIMIT 1",
                     (r[3], r[4]),
-                ).fetchone()
+                )
+                art_row = await art_cursor.fetchone()
                 if art_row and art_row[0]:
-                    fallback = conn.execute(
+                    fb_cursor = await conn.execute(
                         "SELECT image_key FROM albums WHERE item_key = ? LIMIT 1",
                         (art_row[0],),
-                    ).fetchone()
+                    )
+                    fallback = await fb_cursor.fetchone()
                     if fallback and fallback[0]:
                         art_key = fallback[0]
             result.append(_sanitize({
@@ -212,17 +215,14 @@ async def get_listening_history(
                 "image_key":        art_key,
             }))
         return result
-    finally:
-        conn.close()
 
 
 @router.get("/listening/stats/zones")
 async def get_listening_stats_zones(days: int = Query(30, ge=1, le=3650)) -> list[dict]:
     """Return per-zone listening stats for the last *days* days."""
     cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
-    conn = get_db_connection()
-    try:
-        zone_rows = conn.execute(
+    async with aget_connection() as conn:
+        zone_cursor = await conn.execute(
             """
             SELECT zone_name,
                    COUNT(*) as total_plays,
@@ -234,14 +234,15 @@ async def get_listening_stats_zones(days: int = Query(30, ge=1, le=3650)) -> lis
             GROUP BY zone_name ORDER BY total_plays DESC
             """,
             (cutoff,),
-        ).fetchall()
+        )
+        zone_rows = await zone_cursor.fetchall()
 
         result = []
         for zr in zone_rows:
             zone_name, total, skipped_count, seconds, last_played = zr
             skip_rate = round(skipped_count / total * 100, 1) if total else 0.0
 
-            top_artists = conn.execute(
+            ta_cursor = await conn.execute(
                 """
                 SELECT artist, COUNT(*) as plays
                 FROM listening_history
@@ -250,9 +251,10 @@ async def get_listening_stats_zones(days: int = Query(30, ge=1, le=3650)) -> lis
                 GROUP BY artist ORDER BY plays DESC LIMIT 5
                 """,
                 (cutoff, zone_name),
-            ).fetchall()
+            )
+            top_artists = await ta_cursor.fetchall()
 
-            top_genres = conn.execute(
+            tg_cursor = await conn.execute(
                 """
                 SELECT genre, COUNT(*) as plays
                 FROM listening_history
@@ -261,7 +263,8 @@ async def get_listening_stats_zones(days: int = Query(30, ge=1, le=3650)) -> lis
                 GROUP BY genre ORDER BY plays DESC LIMIT 5
                 """,
                 (cutoff, zone_name),
-            ).fetchall()
+            )
+            top_genres = await tg_cursor.fetchall()
 
             result.append({
                 "zone_name":     zone_name,
@@ -273,8 +276,6 @@ async def get_listening_stats_zones(days: int = Query(30, ge=1, le=3650)) -> lis
                 "top_genres":    [{"genre": r[0], "plays": r[1]} for r in top_genres],
             })
         return result
-    finally:
-        conn.close()
 
 
 @router.get("/listening/stats")
@@ -292,9 +293,8 @@ async def get_listening_stats(
     zone_clause = "AND zone_name = ?" if zone else ""
     base_params: list = [cutoff, zone] if zone else [cutoff]
 
-    conn = get_db_connection()
-    try:
-        artist_rows = conn.execute(
+    async with aget_connection() as conn:
+        ar_cursor = await conn.execute(
             f"""
             SELECT artist, COUNT(*) as plays,
                    SUM(CASE WHEN skipped = 0 THEN 1 ELSE 0 END) as full_plays
@@ -304,9 +304,10 @@ async def get_listening_stats(
             GROUP BY artist ORDER BY plays DESC LIMIT 15
             """,
             base_params,
-        ).fetchall()
+        )
+        artist_rows = await ar_cursor.fetchall()
 
-        genre_rows = conn.execute(
+        gr_cursor = await conn.execute(
             f"""
             SELECT genre, COUNT(*) as plays
             FROM listening_history
@@ -315,9 +316,10 @@ async def get_listening_stats(
             GROUP BY genre ORDER BY plays DESC LIMIT 10
             """,
             base_params,
-        ).fetchall()
+        )
+        genre_rows = await gr_cursor.fetchall()
 
-        totals = conn.execute(
+        tot_cursor = await conn.execute(
             f"""
             SELECT COUNT(*) as total,
                    SUM(CASE WHEN skipped = 1 THEN 1 ELSE 0 END) as skipped,
@@ -325,9 +327,10 @@ async def get_listening_stats(
             FROM listening_history WHERE timestamp >= ? {zone_clause}
             """,
             base_params,
-        ).fetchone()
+        )
+        totals = await tot_cursor.fetchone()
 
-        daily_rows = conn.execute(
+        dr_cursor = await conn.execute(
             f"""
             SELECT date(timestamp) as day, COUNT(*) as plays
             FROM listening_history
@@ -335,7 +338,8 @@ async def get_listening_stats(
             GROUP BY day ORDER BY day
             """,
             base_params,
-        ).fetchall()
+        )
+        daily_rows = await dr_cursor.fetchall()
 
         total = totals[0] or 0
         skipped = totals[1] or 0
@@ -362,8 +366,6 @@ async def get_listening_stats(
                 {"genre": r[0], "plays": r[1]} for r in genre_rows
             ],
         }
-    finally:
-        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -377,10 +379,9 @@ async def list_saved_playlists(
     tag: str | None = Query(None),
 ) -> list[dict]:
     """Return saved playlists, optionally filtered by tag."""
-    conn = get_db_connection()
-    try:
+    async with aget_connection() as conn:
         if tag:
-            rows = conn.execute(
+            cursor = await conn.execute(
                 """
                 SELECT id, name, prompt, created_at, source_mode, track_count, tags, rating
                 FROM saved_playlists
@@ -388,15 +389,16 @@ async def list_saved_playlists(
                 ORDER BY created_at DESC LIMIT ?
                 """,
                 (f"%,{tag},%", limit),
-            ).fetchall()
+            )
         else:
-            rows = conn.execute(
+            cursor = await conn.execute(
                 """
                 SELECT id, name, prompt, created_at, source_mode, track_count, tags, rating
                 FROM saved_playlists ORDER BY created_at DESC LIMIT ?
                 """,
                 (limit,),
-            ).fetchall()
+            )
+        rows = await cursor.fetchall()
 
         return [
             {
@@ -411,8 +413,6 @@ async def list_saved_playlists(
             }
             for r in rows
         ]
-    finally:
-        conn.close()
 
 
 @router.post("/playlists/saved")
@@ -423,9 +423,8 @@ async def save_playlist(request: SavePlaylistRequest) -> dict:
         with contextlib.suppress(Exception):
             track_count = len(json.loads(request.tracks_json))
 
-    conn = get_db_connection()
-    try:
-        cursor = conn.execute(
+    async with aget_connection() as conn:
+        cursor = await conn.execute(
             """
             INSERT INTO saved_playlists (name, prompt, source_mode, track_count, tracks_json, tags)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -439,10 +438,8 @@ async def save_playlist(request: SavePlaylistRequest) -> dict:
                 request.tags or "",
             ),
         )
-        conn.commit()
+        await conn.commit()
         playlist_id = cursor.lastrowid
-    finally:
-        conn.close()
 
     # Log a taste event
     TasteProfile.add_event("playlist_created", {
@@ -469,20 +466,20 @@ async def save_playlist_from_session(request: SavePlaylistFromSessionRequest) ->
     if not item_keys:
         raise HTTPException(status_code=400, detail="No valid track numbers in session")
 
-    conn = get_db_connection()
-    try:
+    async with aget_connection() as conn:
         placeholders = ",".join("?" * len(item_keys))
-        rows = conn.execute(
+        tr_cursor = await conn.execute(
             f"SELECT item_key, title, artist, album FROM tracks WHERE item_key IN ({placeholders})",
             item_keys,
-        ).fetchall()
+        )
+        rows = await tr_cursor.fetchall()
         meta = {r[0]: {"item_key": r[0], "title": r[1], "artist": r[2], "album": r[3]} for r in rows}
 
         tracks_list = [meta.get(k, {"item_key": k, "title": "", "artist": "", "album": ""}) for k in item_keys]
         tracks_json = json.dumps(tracks_list, ensure_ascii=False)
         tags_str = ",".join(request.tags) if request.tags else ""
 
-        cursor = conn.execute(
+        cursor = await conn.execute(
             """
             INSERT INTO saved_playlists
                 (name, prompt, source_mode, track_count, tracks_json, tags)
@@ -497,10 +494,8 @@ async def save_playlist_from_session(request: SavePlaylistFromSessionRequest) ->
                 tags_str,
             ),
         )
-        conn.commit()
+        await conn.commit()
         playlist_id = cursor.lastrowid
-    finally:
-        conn.close()
 
     TasteProfile.add_event("playlist_created", {
         "playlist_id": playlist_id,
@@ -519,11 +514,11 @@ async def save_playlist_from_session(request: SavePlaylistFromSessionRequest) ->
 @router.put("/playlists/saved/{playlist_id}")
 async def update_saved_playlist(playlist_id: int, request: UpdatePlaylistRequest) -> dict:
     """Update mutable fields on a saved playlist (name, tags, rating, qobuz_playlist_id)."""
-    conn = get_db_connection()
-    try:
-        existing = conn.execute(
+    async with aget_connection() as conn:
+        ex_cursor = await conn.execute(
             "SELECT id FROM saved_playlists WHERE id = ?", (playlist_id,)
-        ).fetchone()
+        )
+        existing = await ex_cursor.fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Playlist not found")
 
@@ -543,8 +538,8 @@ async def update_saved_playlist(playlist_id: int, request: UpdatePlaylistRequest
         if updates:
             set_clause = ", ".join(f"{col} = ?" for col, _ in updates)
             values = [v for _, v in updates] + [playlist_id]
-            conn.execute(f"UPDATE saved_playlists SET {set_clause} WHERE id = ?", values)
-            conn.commit()
+            await conn.execute(f"UPDATE saved_playlists SET {set_clause} WHERE id = ?", values)
+            await conn.commit()
 
             if request.rating is not None:
                 updated_rating = request.rating
@@ -552,9 +547,6 @@ async def update_saved_playlist(playlist_id: int, request: UpdatePlaylistRequest
                     "playlist_id": playlist_id,
                     "rating": request.rating,
                 })
-
-    finally:
-        conn.close()
 
     result: dict = {"status": "updated", "playlist_id": playlist_id}
     if updated_rating is not None:
@@ -565,28 +557,25 @@ async def update_saved_playlist(playlist_id: int, request: UpdatePlaylistRequest
 @router.delete("/playlists/saved/{playlist_id}")
 async def delete_saved_playlist(playlist_id: int) -> dict:
     """Delete a saved playlist."""
-    conn = get_db_connection()
-    try:
-        result = conn.execute(
+    async with aget_connection() as conn:
+        cursor = await conn.execute(
             "DELETE FROM saved_playlists WHERE id = ?", (playlist_id,)
         )
-        conn.commit()
-        if result.rowcount == 0:
+        await conn.commit()
+        if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Playlist not found")
-    finally:
-        conn.close()
     return {"status": "deleted", "playlist_id": playlist_id}
 
 
 @router.get("/playlists/saved/{playlist_id}/tracks")
 async def get_saved_playlist_tracks(playlist_id: int) -> dict:
     """Return the full track list for a saved playlist."""
-    conn = get_db_connection()
-    try:
-        row = conn.execute(
+    async with aget_connection() as conn:
+        cursor = await conn.execute(
             "SELECT name, tracks_json, track_count, source_mode FROM saved_playlists WHERE id = ?",
             (playlist_id,),
-        ).fetchone()
+        )
+        row = await cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Playlist not found")
 
@@ -602,8 +591,6 @@ async def get_saved_playlist_tracks(playlist_id: int) -> dict:
             "source_mode": row[3],
             "tracks":      tracks,
         }
-    finally:
-        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -664,19 +651,17 @@ async def modify_playlist(request: ModifyPlaylistRequest) -> dict:
 
     # Resolve track metadata for the resulting list
     item_keys = [key_map.get(str(n), "") for n in working]
-    conn = get_db_connection()
-    try:
+    async with aget_connection() as conn:
         if item_keys:
             placeholders = ",".join("?" * len(item_keys))
-            meta_rows = conn.execute(
+            meta_cursor = await conn.execute(
                 f"SELECT item_key, title, artist FROM tracks WHERE item_key IN ({placeholders})",
                 item_keys,
-            ).fetchall()
+            )
+            meta_rows = await meta_cursor.fetchall()
             meta = {r[0]: {"title": r[1], "artist": r[2]} for r in meta_rows}
         else:
             meta = {}
-    finally:
-        conn.close()
 
     result_tracks = [
         {
@@ -712,10 +697,9 @@ async def get_intelligence_listening_stats(days: int = Query(30, ge=1, le=3650))
     """Combined local + ListenBrainz stats in one response."""
     cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
-    conn = get_db_connection()
-    try:
+    async with aget_connection() as conn:
         # Local stats
-        totals = conn.execute(
+        tot_cursor = await conn.execute(
             """
             SELECT COUNT(*) as total,
                    SUM(CASE WHEN skipped = 1 THEN 1 ELSE 0 END) as skipped,
@@ -723,9 +707,10 @@ async def get_intelligence_listening_stats(days: int = Query(30, ge=1, le=3650))
             FROM listening_history WHERE timestamp >= ?
             """,
             (cutoff,),
-        ).fetchone()
+        )
+        totals = await tot_cursor.fetchone()
 
-        artist_rows = conn.execute(
+        ar_cursor = await conn.execute(
             """
             SELECT artist, COUNT(*) as plays
             FROM listening_history
@@ -733,9 +718,10 @@ async def get_intelligence_listening_stats(days: int = Query(30, ge=1, le=3650))
             GROUP BY artist ORDER BY plays DESC LIMIT 15
             """,
             (cutoff,),
-        ).fetchall()
+        )
+        artist_rows = await ar_cursor.fetchall()
 
-        genre_rows = conn.execute(
+        gr_cursor = await conn.execute(
             """
             SELECT genre, COUNT(*) as plays
             FROM listening_history
@@ -743,9 +729,10 @@ async def get_intelligence_listening_stats(days: int = Query(30, ge=1, le=3650))
             GROUP BY genre ORDER BY plays DESC LIMIT 10
             """,
             (cutoff,),
-        ).fetchall()
+        )
+        genre_rows = await gr_cursor.fetchall()
 
-        decade_rows = conn.execute(
+        dr_cursor = await conn.execute(
             """
             SELECT decade, COUNT(*) as plays
             FROM listening_history
@@ -753,10 +740,11 @@ async def get_intelligence_listening_stats(days: int = Query(30, ge=1, le=3650))
             GROUP BY decade ORDER BY plays DESC
             """,
             (cutoff,),
-        ).fetchall()
+        )
+        decade_rows = await dr_cursor.fetchall()
 
         # Hour heatmap (local)
-        hour_rows = conn.execute(
+        hr_cursor = await conn.execute(
             """
             SELECT hour_of_day, COUNT(*) as plays
             FROM listening_history
@@ -764,7 +752,8 @@ async def get_intelligence_listening_stats(days: int = Query(30, ge=1, le=3650))
             GROUP BY hour_of_day ORDER BY hour_of_day
             """,
             (cutoff,),
-        ).fetchall()
+        )
+        hour_rows = await hr_cursor.fetchall()
 
         total = totals[0] or 0
         skipped_count = totals[1] or 0
@@ -781,8 +770,6 @@ async def get_intelligence_listening_stats(days: int = Query(30, ge=1, le=3650))
             "decades": [{"decade": r[0], "plays": r[1]} for r in decade_rows],
             "hour_heatmap": {str(r[0]): r[1] for r in hour_rows},
         }
-    finally:
-        conn.close()
 
     # ListenBrainz cached stats
     lb_data: dict = {}
@@ -842,7 +829,6 @@ async def trigger_listenbrainz_sync() -> dict:
     Returns sync summary.
     """
     try:
-        from backend.db import get_db_connection  # noqa: PLC0415
         from backend.listenbrainz_sync import get_sync_instance  # noqa: PLC0415
 
         lb_sync = get_sync_instance()
@@ -851,13 +837,10 @@ async def trigger_listenbrainz_sync() -> dict:
 
         # Clear the entire cache before a forced sync so that buggy/empty entries
         # from a previous deployment cannot survive as "fresh" data.
-        conn = get_db_connection()
-        try:
-            conn.execute("DELETE FROM lb_stats_cache")
-            conn.commit()
+        async with aget_connection() as conn:
+            await conn.execute("DELETE FROM lb_stats_cache")
+            await conn.commit()
             logger.info("Cleared lb_stats_cache for forced manual sync")
-        finally:
-            conn.close()
 
         # force=True bypasses the 6-hour TTL — the whole point of a manual sync.
         summary = await lb_sync.sync_all(force=True)
@@ -880,14 +863,12 @@ async def get_listenbrainz_status() -> dict:
 
     # Scrobble count (listens with source != null)
     scrobble_count = 0
-    conn = get_db_connection()
-    try:
-        row = conn.execute(
+    async with aget_connection() as conn:
+        cursor = await conn.execute(
             "SELECT COUNT(*) FROM listening_history WHERE source IS NOT NULL AND source != ''"
-        ).fetchone()
+        )
+        row = await cursor.fetchone()
         scrobble_count = row[0] if row else 0
-    finally:
-        conn.close()
 
     # Last sync time
     last_synced = None
@@ -1089,67 +1070,70 @@ async def enrich_listening_history() -> dict:
 
     from backend.scrobble_import import enrich_imported_genres  # noqa: PLC0415
 
-    conn = get_db_connection()
-    try:
-        # -- Pass 1: fast SQL exact match ----------------------------------
-        sql_updated = enrich_imported_genres(conn)
+    def _do_enrich() -> dict:
+        conn = get_db_connection()
+        try:
+            # -- Pass 1: fast SQL exact match ----------------------------------
+            sql_updated = enrich_imported_genres(conn)
 
-        # -- Pass 2: fuzzy match for remaining unmatched rows --------------
-        unmatched = conn.execute(
-            """
-            SELECT id, track_title, artist
-            FROM listening_history
-            WHERE (genre IS NULL OR genre = '')
-              AND source IN ('lastfm', 'listenbrainz')
-              AND track_title IS NOT NULL AND track_title != ''
-              AND artist IS NOT NULL AND artist != ''
-            LIMIT 5000
-            """
-        ).fetchall()
+            # -- Pass 2: fuzzy match for remaining unmatched rows --------------
+            unmatched = conn.execute(
+                """
+                SELECT id, track_title, artist
+                FROM listening_history
+                WHERE (genre IS NULL OR genre = '')
+                  AND source IN ('lastfm', 'listenbrainz')
+                  AND track_title IS NOT NULL AND track_title != ''
+                  AND artist IS NOT NULL AND artist != ''
+                LIMIT 5000
+                """
+            ).fetchall()
 
-        fuzzy_updated = 0
-        for row in unmatched:
-            hist_id, title, artist = row[0], row[1], row[2]
-            try:
-                candidates = conn.execute(
-                    "SELECT item_key, title, artist, year FROM tracks WHERE LOWER(artist) LIKE ? LIMIT 30",
-                    (f"%{artist[:20].lower()}%",),
-                ).fetchall()
-                best_key, best_score, best_year = None, 0, None
-                for c in candidates:
-                    score = fuzz.token_sort_ratio(
-                        f"{artist} {title}",
-                        f"{c['artist']} {c['title']}",
-                    )
-                    if score > best_score:
-                        best_score = score
-                        best_key = c["item_key"]
-                        best_year = c["year"]
-                if best_key and best_score >= 80:
-                    genre_rows = conn.execute(
-                        "SELECT genre FROM track_genres WHERE track_key = ?",
-                        (best_key,),
+            fuzzy_updated = 0
+            for row in unmatched:
+                hist_id, title, artist = row[0], row[1], row[2]
+                try:
+                    candidates = conn.execute(
+                        "SELECT item_key, title, artist, year FROM tracks WHERE LOWER(artist) LIKE ? LIMIT 30",
+                        (f"%{artist[:20].lower()}%",),
                     ).fetchall()
-                    genre = ", ".join(r[0] for r in genre_rows)
-                    decade = f"{(best_year // 10) * 10}s" if best_year else None
-                    conn.execute(
-                        "UPDATE listening_history SET genre=?, year=?, decade=? WHERE id=?",
-                        (genre or None, best_year, decade, hist_id),
-                    )
-                    fuzzy_updated += 1
-            except Exception as row_exc:
-                logger.debug("Enrich row %d failed: %s", hist_id, row_exc)
+                    best_key, best_score, best_year = None, 0, None
+                    for c in candidates:
+                        score = fuzz.token_sort_ratio(
+                            f"{artist} {title}",
+                            f"{c['artist']} {c['title']}",
+                        )
+                        if score > best_score:
+                            best_score = score
+                            best_key = c["item_key"]
+                            best_year = c["year"]
+                    if best_key and best_score >= 80:
+                        genre_rows = conn.execute(
+                            "SELECT genre FROM track_genres WHERE track_key = ?",
+                            (best_key,),
+                        ).fetchall()
+                        genre = ", ".join(r[0] for r in genre_rows)
+                        decade = f"{(best_year // 10) * 10}s" if best_year else None
+                        conn.execute(
+                            "UPDATE listening_history SET genre=?, year=?, decade=? WHERE id=?",
+                            (genre or None, best_year, decade, hist_id),
+                        )
+                        fuzzy_updated += 1
+                except Exception as row_exc:
+                    logger.debug("Enrich row %d failed: %s", hist_id, row_exc)
 
-        conn.commit()
-        return {
-            "status": "ok",
-            "sql_updated": sql_updated,
-            "fuzzy_checked": len(unmatched),
-            "fuzzy_updated": fuzzy_updated,
-            "total_updated": sql_updated + fuzzy_updated,
-        }
-    finally:
-        conn.close()
+            conn.commit()
+            return {
+                "status": "ok",
+                "sql_updated": sql_updated,
+                "fuzzy_checked": len(unmatched),
+                "fuzzy_updated": fuzzy_updated,
+                "total_updated": sql_updated + fuzzy_updated,
+            }
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_do_enrich)
 
 
 # ---------------------------------------------------------------------------
@@ -1184,14 +1168,12 @@ async def get_lastfm_import_status() -> dict:
 
     state = get_import_state("lastfm")
     state["is_running"] = is_running("lastfm")
-    conn = get_db_connection()
-    try:
-        row = conn.execute(
+    async with aget_connection() as conn:
+        cursor = await conn.execute(
             "SELECT COUNT(*) FROM listening_history WHERE source='lastfm' AND (genre IS NULL OR genre='')"
-        ).fetchone()
+        )
+        row = await cursor.fetchone()
         state["rows_missing_genre"] = row[0] if row else 0
-    finally:
-        conn.close()
     return state
 
 
@@ -1217,14 +1199,12 @@ async def get_lb_import_status() -> dict:
 
     state = get_import_state("listenbrainz")
     state["is_running"] = is_running("listenbrainz")
-    conn = get_db_connection()
-    try:
-        row = conn.execute(
+    async with aget_connection() as conn:
+        cursor = await conn.execute(
             "SELECT COUNT(*) FROM listening_history WHERE source='listenbrainz' AND (genre IS NULL OR genre='')"
-        ).fetchone()
+        )
+        row = await cursor.fetchone()
         state["rows_missing_genre"] = row[0] if row else 0
-    finally:
-        conn.close()
     return state
 
 
@@ -1257,14 +1237,12 @@ async def get_lastfm_tag_enrich_status() -> dict:
     from backend.scrobble_import import get_tag_enrich_state  # noqa: PLC0415
 
     state = get_tag_enrich_state()
-    conn = get_db_connection()
-    try:
-        row = conn.execute(
+    async with aget_connection() as conn:
+        cursor = await conn.execute(
             "SELECT COUNT(*) FROM listening_history WHERE source IN ('lastfm','listenbrainz') AND (genre IS NULL OR genre='')"
-        ).fetchone()
+        )
+        row = await cursor.fetchone()
         state["rows_still_missing_genre"] = row[0] if row else 0
-    finally:
-        conn.close()
     return state
 
 

@@ -292,7 +292,15 @@ async def serve_index():
     if index_path.exists():
         html = index_path.read_text()
         v = get_version()
-        html = html.replace("/static/style.css", f"/static/style.css?v={v}")
+        # Prefer the pre-bundled stylesheet when present (Docker build emits it
+        # via scripts/bundle_css.sh). Eliminates the 21 @import waterfall.
+        # In dev — when nobody has run the bundler — fall back to style.css.
+        css_href = (
+            f"/static/style.bundled.css?v={v}"
+            if (frontend_path / "style.bundled.css").exists()
+            else f"/static/style.css?v={v}"
+        )
+        html = html.replace("/static/style.css", css_href)
         html = html.replace("/static/app.js", f"/static/app.js?v={v}")
         # Expose the build version to JS so the service worker URL and cache
         # bust use the same identifier across page loads.

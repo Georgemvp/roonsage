@@ -75,6 +75,11 @@ COPY --chown=roonsage:roonsage scripts/ ./scripts/
 COPY --chown=roonsage:roonsage config.example.yaml ./
 COPY --chown=roonsage:roonsage data/mood_centroids.json ./data/mood_centroids.json
 
+# Pre-bundle CSS so production serves one stylesheet instead of 22 @imports.
+# serve_index() prefers style.bundled.css over style.css when it exists.
+RUN bash scripts/bundle_css.sh \
+    && chown roonsage:roonsage frontend/style.bundled.css
+
 EXPOSE 5765
 
 USER roonsage

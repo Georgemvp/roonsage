@@ -16,6 +16,7 @@ readability-lxml
 mcp[cli]
 pyacoustid
 slowapi
+aiosqlite
 # Audio feature analysis (BPM, key, energy) — used by audio_features worker
 librosa
 mutagen

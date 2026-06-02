@@ -1,19 +1,21 @@
 """Database connection and schema management for RoonSage.
 
 Provides get_db_connection(), init_schema(), ensure_db_initialized(),
-needs_resync(), and the get_connection() context manager used by all
-other cache modules.
+needs_resync(), get_connection() (sync context manager), aget_connection()
+(async context manager via aiosqlite), and execute_write().
 """
 
-import asyncio
+import asyncio  # noqa: F401 — kept for callers that import it from here
 import contextlib
 import logging
 import os
 import sqlite3
 import threading
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import Callable, Generator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
+
+import aiosqlite
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,8 @@ DB_PATH = DATA_DIR / "library_cache.db"
 _schema_initialized = False
 _schema_lock = threading.Lock()
 
-# True when init_schema() applied at least one ALTER TABLE migration.
+# True when init_schema() applied at least one ALTER TABLE migration that
+# touches the tracks table structure (signals need for re-sync).
 # Cleared by clear_migration_flag() after a successful library sync.
 _migration_applied = False
 
@@ -46,11 +49,7 @@ _migration_applied = False
 
 
 def get_db_connection() -> sqlite3.Connection:
-    """Open a WAL-mode SQLite connection with dict-like row access.
-
-    Returns:
-        sqlite3.Connection with row_factory=sqlite3.Row
-    """
+    """Open a WAL-mode SQLite connection with dict-like row access."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
@@ -85,9 +84,7 @@ def get_db_connection() -> sqlite3.Connection:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
 
-    # Busy timeout for lock contention
     conn.execute("PRAGMA busy_timeout=5000")
-    # Enforce referential integrity
     conn.execute("PRAGMA foreign_keys=ON")
 
     return conn
@@ -97,773 +94,556 @@ def get_db_connection() -> sqlite3.Connection:
 # Schema management
 # ---------------------------------------------------------------------------
 
+# Increment whenever a new migration is added at the bottom of _MIGRATIONS.
+SCHEMA_VERSION = 18
 
-def init_schema(conn: sqlite3.Connection) -> bool:
-    """Create tables and indexes if they don't exist; apply incremental migrations.
 
-    Args:
-        conn: An open database connection.
+def _create_schema_tables(conn: sqlite3.Connection) -> None:
+    """Create all tables and indexes using the latest schema.
 
-    Returns:
-        True if any ALTER TABLE migration was applied (signals need for re-sync),
-        False if the schema was already up-to-date or was freshly created.
+    This is always called at startup (CREATE TABLE IF NOT EXISTS is idempotent).
+    Column definitions already include every column that was added via
+    ALTER TABLE migrations, so fresh databases need no migrations at all.
+    Old databases still get missing columns through the numbered migrations.
     """
     conn.executescript("""
-        -- Tracks table: cached Roon track metadata
+        -- ----------------------------------------------------------------
+        -- Core library cache
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS tracks (
-            item_key TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            artist TEXT NOT NULL,
-            album TEXT NOT NULL,
-            duration_ms INTEGER,
-            year INTEGER,
-            genres TEXT,
-            is_live BOOLEAN,
+            item_key        TEXT PRIMARY KEY,
+            title           TEXT NOT NULL,
+            artist          TEXT NOT NULL,
+            album           TEXT NOT NULL,
+            duration_ms     INTEGER,
+            year            INTEGER,
+            genres          TEXT,
+            is_live         BOOLEAN,
             parent_item_key TEXT,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            track_index     INTEGER,
+            view_count      INTEGER DEFAULT 0,
+            last_viewed_at  TEXT,
+            image_key       TEXT,
+            stable_id       TEXT
         );
 
-        -- Indexes for common query patterns
-        CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
-        CREATE INDEX IF NOT EXISTS idx_tracks_year ON tracks(year);
-        CREATE INDEX IF NOT EXISTS idx_tracks_is_live ON tracks(is_live);
-
-        -- Expression indexes for discovery queries (LOWER joins)
-        CREATE INDEX IF NOT EXISTS idx_tracks_artist_lower ON tracks(LOWER(artist));
-        CREATE INDEX IF NOT EXISTS idx_tracks_title_lower ON tracks(LOWER(title));
+        CREATE INDEX IF NOT EXISTS idx_tracks_artist            ON tracks(artist);
+        CREATE INDEX IF NOT EXISTS idx_tracks_year              ON tracks(year);
+        CREATE INDEX IF NOT EXISTS idx_tracks_is_live           ON tracks(is_live);
+        CREATE INDEX IF NOT EXISTS idx_tracks_artist_lower      ON tracks(LOWER(artist));
+        CREATE INDEX IF NOT EXISTS idx_tracks_title_lower       ON tracks(LOWER(title));
         CREATE INDEX IF NOT EXISTS idx_tracks_title_artist_lower ON tracks(LOWER(title), LOWER(artist));
+        CREATE INDEX IF NOT EXISTS idx_tracks_parent_key        ON tracks(parent_item_key);
+        CREATE INDEX IF NOT EXISTS idx_tracks_stable_id         ON tracks(stable_id);
 
         -- Sync state: single-row metadata table
         CREATE TABLE IF NOT EXISTS sync_state (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            roon_core_id TEXT,
-            last_sync_at TIMESTAMP,
-            track_count INTEGER DEFAULT 0,
+            id              INTEGER PRIMARY KEY CHECK (id = 1),
+            roon_core_id    TEXT,
+            last_sync_at    TIMESTAMP,
+            track_count     INTEGER DEFAULT 0,
             sync_duration_ms INTEGER
         );
-
-        -- Ensure sync_state has exactly one row
         INSERT OR IGNORE INTO sync_state (id) VALUES (1);
 
-        -- Albums table: direct store of Roon album metadata (populated during sync)
         CREATE TABLE IF NOT EXISTS albums (
-            item_key TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            artist TEXT NOT NULL,
-            year INTEGER,
-            genres TEXT,
-            image_key TEXT,
+            item_key   TEXT PRIMARY KEY,
+            title      TEXT NOT NULL,
+            artist     TEXT NOT NULL,
+            year       INTEGER,
+            genres     TEXT,
+            image_key  TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
-
-        CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist);
+        CREATE INDEX IF NOT EXISTS idx_albums_artist       ON albums(artist);
         CREATE INDEX IF NOT EXISTS idx_albums_artist_lower ON albums(LOWER(artist));
 
-        -- Genre junction table: one row per (track, genre) for fast SQL filtering
+        -- Genre junction table
         CREATE TABLE IF NOT EXISTS track_genres (
             track_key TEXT NOT NULL,
-            genre TEXT NOT NULL,
+            genre     TEXT NOT NULL,
+            stable_id TEXT,
             PRIMARY KEY (track_key, genre),
             FOREIGN KEY (track_key) REFERENCES tracks(item_key)
         );
-        CREATE INDEX IF NOT EXISTS idx_track_genres_genre ON track_genres(genre);
+        CREATE INDEX IF NOT EXISTS idx_track_genres_genre     ON track_genres(genre);
+        CREATE INDEX IF NOT EXISTS idx_track_genres_track_key ON track_genres(track_key, genre);
+        CREATE INDEX IF NOT EXISTS idx_track_genres_stable_id ON track_genres(stable_id);
 
-        -- Results table: persistent storage for generated playlists and recommendations
         CREATE TABLE IF NOT EXISTS results (
-            id TEXT PRIMARY KEY,
-            type TEXT NOT NULL,
-            title TEXT NOT NULL,
-            prompt TEXT NOT NULL,
-            snapshot JSON NOT NULL,
-            track_count INTEGER NOT NULL,
-            artist TEXT,
-            art_item_key TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            id             TEXT PRIMARY KEY,
+            type           TEXT NOT NULL,
+            title          TEXT NOT NULL,
+            prompt         TEXT NOT NULL,
+            snapshot       JSON NOT NULL,
+            track_count    INTEGER NOT NULL,
+            artist         TEXT,
+            art_item_key   TEXT,
+            created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            subtitle       TEXT,
+            source_mode    TEXT,
+            ai_description TEXT,
+            ai_tags        TEXT
         );
-
         CREATE INDEX IF NOT EXISTS idx_results_type_created ON results(type, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at DESC);
-    """)
+        CREATE INDEX IF NOT EXISTS idx_results_created_at   ON results(created_at DESC);
 
-    # -----------------------------------------------------------------------
-    # Incremental migrations (ALTER TABLE — idempotent via try/except)
-    # -----------------------------------------------------------------------
-    migrated = False
+        -- ----------------------------------------------------------------
+        -- Intelligence layer
+        -- ----------------------------------------------------------------
 
-    # Migration: rename rating_key → item_key (Plex legacy → Roon naming)
-    try:
-        conn.execute("ALTER TABLE tracks RENAME COLUMN rating_key TO item_key")
-        migrated = True
-        logger.info("Migration applied: renamed rating_key to item_key in tracks")
-    except sqlite3.OperationalError:
-        pass  # Already renamed or column doesn't exist
-
-    # Migration: rename parent_rating_key → parent_item_key
-    try:
-        conn.execute("ALTER TABLE tracks RENAME COLUMN parent_rating_key TO parent_item_key")
-        migrated = True
-        logger.info("Migration applied: renamed parent_rating_key to parent_item_key in tracks")
-    except sqlite3.OperationalError:
-        pass
-
-    # Migration: rename art_rating_key → art_item_key in results table
-    try:
-        conn.execute("ALTER TABLE results RENAME COLUMN art_rating_key TO art_item_key")
-        logger.info("Migration applied: renamed art_rating_key to art_item_key in results")
-    except sqlite3.OperationalError:
-        pass
-
-    # Migration: add parent_item_key column if missing (very old databases)
-    try:
-        conn.execute("ALTER TABLE tracks ADD COLUMN parent_item_key TEXT")
-        migrated = True
-        logger.info("Migration applied: added parent_item_key column")
-    except sqlite3.OperationalError:
-        pass
-
-    # Migration: add track_index (position within its album, set during sync)
-    # so albums can be played back in their original running order.
-    try:
-        conn.execute("ALTER TABLE tracks ADD COLUMN track_index INTEGER")
-        migrated = True
-        logger.info("Migration applied: added track_index column")
-    except sqlite3.OperationalError:
-        pass
-
-    # Migration: add view_count and last_viewed_at columns for familiarity tracking
-    try:
-        conn.execute("ALTER TABLE tracks ADD COLUMN view_count INTEGER DEFAULT 0")
-        migrated = True
-        logger.info("Migration applied: added view_count column")
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        conn.execute("ALTER TABLE tracks ADD COLUMN last_viewed_at TEXT")
-        migrated = True
-        logger.info("Migration applied: added last_viewed_at column")
-    except sqlite3.OperationalError:
-        pass
-
-    # Migration: add subtitle column to results table
-    try:
-        conn.execute("ALTER TABLE results ADD COLUMN subtitle TEXT")
-        logger.info("Migration applied: added subtitle column to results")
-    except sqlite3.OperationalError:
-        pass
-
-    # Migration: add source_mode column to results table
-    try:
-        conn.execute("ALTER TABLE results ADD COLUMN source_mode TEXT")
-        logger.info("Migration applied: added source_mode column to results")
-    except sqlite3.OperationalError:
-        pass
-
-    # Migration: create track_genres table if it was added after the DB was created
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS track_genres (
-            track_key TEXT NOT NULL,
-            genre TEXT NOT NULL,
-            PRIMARY KEY (track_key, genre),
-            FOREIGN KEY (track_key) REFERENCES tracks(item_key)
-        );
-        CREATE INDEX IF NOT EXISTS idx_track_genres_genre ON track_genres(genre);
-    """)
-
-    # Migration: create albums table if it was added after the DB was created
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS albums (
-            item_key TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            artist TEXT NOT NULL,
-            year INTEGER,
-            genres TEXT,
-            image_key TEXT,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist);
-    """)
-
-    # Migration: rename plex_server_id to roon_core_id
-    try:
-        conn.execute("ALTER TABLE sync_state RENAME COLUMN plex_server_id TO roon_core_id")
-        logger.info("Migration applied: renamed plex_server_id to roon_core_id")
-    except sqlite3.OperationalError:
-        pass
-
-    # Index on parent_item_key (must come after migration adds the column)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_tracks_parent_key ON tracks(parent_item_key)")
-
-    # -----------------------------------------------------------------------
-    # Intelligence layer tables (MCP v5.0)
-    # -----------------------------------------------------------------------
-    conn.executescript("""
-        -- Persistent taste profile: one row, updated in-place
         CREATE TABLE IF NOT EXISTS taste_profile (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
             profile_json TEXT NOT NULL DEFAULT '{}'
         );
         INSERT OR IGNORE INTO taste_profile (id, profile_json) VALUES (1, '{}');
 
-        -- Event log: every taste signal (playlist rated, feedback, skip, etc.)
         CREATE TABLE IF NOT EXISTS taste_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp  TEXT NOT NULL DEFAULT (datetime('now')),
             event_type TEXT NOT NULL,
-            data_json TEXT NOT NULL DEFAULT '{}'
+            data_json  TEXT NOT NULL DEFAULT '{}'
         );
         CREATE INDEX IF NOT EXISTS idx_taste_events_ts ON taste_events(timestamp DESC);
 
-        -- Passive listening history from Roon zones
         CREATE TABLE IF NOT EXISTS listening_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-            zone_name TEXT,
-            track_title TEXT,
-            artist TEXT,
-            album TEXT,
-            genre TEXT,
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp       TEXT NOT NULL DEFAULT (datetime('now')),
+            zone_name       TEXT,
+            track_title     TEXT,
+            artist          TEXT,
+            album           TEXT,
+            genre           TEXT,
             duration_seconds INTEGER,
-            played_seconds INTEGER,
-            skipped INTEGER DEFAULT 0
+            played_seconds  INTEGER,
+            skipped         INTEGER DEFAULT 0,
+            year            INTEGER,
+            decade          TEXT,
+            hour_of_day     INTEGER,
+            day_of_week     INTEGER,
+            source          TEXT DEFAULT 'library',
+            played_pct      REAL
         );
-        CREATE INDEX IF NOT EXISTS idx_listening_ts ON listening_history(timestamp DESC);
-        CREATE INDEX IF NOT EXISTS idx_listening_artist ON listening_history(artist);
-
-        -- Expression indexes for discovery queries (LOWER joins)
+        CREATE INDEX IF NOT EXISTS idx_listening_ts           ON listening_history(timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_listening_artist       ON listening_history(artist);
         CREATE INDEX IF NOT EXISTS idx_listening_artist_lower ON listening_history(LOWER(artist));
-        CREATE INDEX IF NOT EXISTS idx_listening_title_lower ON listening_history(LOWER(track_title));
+        CREATE INDEX IF NOT EXISTS idx_listening_title_lower  ON listening_history(LOWER(track_title));
 
-        -- Saved playlists from curation sessions
         CREATE TABLE IF NOT EXISTS saved_playlists (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            prompt TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            source_mode TEXT DEFAULT 'library',
-            track_count INTEGER DEFAULT 0,
-            tracks_json TEXT,
-            tags TEXT DEFAULT '',
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            name            TEXT NOT NULL,
+            prompt          TEXT,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            source_mode     TEXT DEFAULT 'library',
+            track_count     INTEGER DEFAULT 0,
+            tracks_json     TEXT,
+            tags            TEXT DEFAULT '',
             qobuz_playlist_id TEXT,
-            rating INTEGER
+            rating          INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_saved_playlists_created ON saved_playlists(created_at DESC);
 
-        -- Similar artists for seed-based recommendations
         CREATE TABLE IF NOT EXISTS similar_artists (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
             artist_name TEXT NOT NULL,
-            similar_to TEXT NOT NULL,
-            score REAL DEFAULT 0.5,
-            source TEXT DEFAULT 'musicbrainz',
+            similar_to  TEXT NOT NULL,
+            score       REAL DEFAULT 0.5,
+            source      TEXT DEFAULT 'musicbrainz',
             UNIQUE(artist_name, similar_to)
         );
-    """)
 
-    # -----------------------------------------------------------------------
-    # ListenBrain v6.0 migrations: enriched listening_history + lb_stats_cache
-    # -----------------------------------------------------------------------
+        -- ----------------------------------------------------------------
+        -- ListenBrainz / Last.fm caches
+        -- ----------------------------------------------------------------
 
-    # New columns in listening_history
-    for col_def in [
-        ("year", "INTEGER"),
-        ("decade", "TEXT"),
-        ("hour_of_day", "INTEGER"),
-        ("day_of_week", "INTEGER"),
-        ("source", "TEXT DEFAULT 'library'"),
-    ]:
-        col_name, col_type = col_def
-        try:
-            conn.execute(
-                f"ALTER TABLE listening_history ADD COLUMN {col_name} {col_type}"
-            )
-            logger.info("Migration applied: added %s column to listening_history", col_name)
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-    # Migration: add played_pct column (skip detection v2 — proportional threshold)
-    try:
-        conn.execute("ALTER TABLE listening_history ADD COLUMN played_pct REAL")
-        logger.info("Migration applied: added played_pct column to listening_history")
-    except sqlite3.OperationalError:
-        pass  # Column already exists
-
-    # ListenBrainz stats cache table (single-row JSON cache per stat type)
-    conn.executescript("""
         CREATE TABLE IF NOT EXISTS lb_stats_cache (
-            stat_type TEXT PRIMARY KEY,
-            data_json TEXT NOT NULL DEFAULT '{}',
-            range TEXT DEFAULT 'all_time',
-            synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+            stat_type  TEXT PRIMARY KEY,
+            data_json  TEXT NOT NULL DEFAULT '{}',
+            range      TEXT DEFAULT 'all_time',
+            synced_at  TEXT NOT NULL DEFAULT (datetime('now'))
         );
-    """)
 
-    # Last.fm stats cache table (single-row JSON cache per stat type)
-    conn.executescript("""
         CREATE TABLE IF NOT EXISTS lastfm_stats_cache (
-            stat_type TEXT PRIMARY KEY,
-            data_json TEXT NOT NULL DEFAULT '{}',
-            synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+            stat_type  TEXT PRIMARY KEY,
+            data_json  TEXT NOT NULL DEFAULT '{}',
+            synced_at  TEXT NOT NULL DEFAULT (datetime('now'))
         );
-    """)
 
-    # Scrobble import state table (tracks background history import per source)
-    conn.executescript("""
         CREATE TABLE IF NOT EXISTS scrobble_import_state (
-            source TEXT PRIMARY KEY,
-            status TEXT DEFAULT 'idle',
-            total_imported INTEGER DEFAULT 0,
-            last_ts INTEGER,
-            started_at TEXT,
-            completed_at TEXT,
-            error_message TEXT
+            source           TEXT PRIMARY KEY,
+            status           TEXT DEFAULT 'idle',
+            total_imported   INTEGER DEFAULT 0,
+            last_ts          INTEGER,
+            started_at       TEXT,
+            completed_at     TEXT,
+            error_message    TEXT
         );
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_listening_external_dedup
             ON listening_history(source, timestamp)
             WHERE source IN ('lastfm', 'listenbrainz');
-    """)
 
-    # -----------------------------------------------------------------------
-    # Notification log table (v7.0)
-    # -----------------------------------------------------------------------
-    conn.executescript("""
+        -- ----------------------------------------------------------------
+        -- Notifications
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS notification_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-            event_type TEXT NOT NULL,
-            channel TEXT NOT NULL,
-            success INTEGER NOT NULL DEFAULT 1,
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp     TEXT NOT NULL DEFAULT (datetime('now')),
+            event_type    TEXT NOT NULL,
+            channel       TEXT NOT NULL,
+            success       INTEGER NOT NULL DEFAULT 1,
             error_message TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_notification_log_ts
-            ON notification_log(timestamp DESC);
-    """)
+        CREATE INDEX IF NOT EXISTS idx_notification_log_ts ON notification_log(timestamp DESC);
 
-    # -----------------------------------------------------------------------
-    # Artist Watchlist tables (v8.0)
-    # -----------------------------------------------------------------------
-    conn.executescript("""
-        -- Artists the user wants to monitor for new Qobuz releases
+        -- ----------------------------------------------------------------
+        -- Artist Watchlist
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS artist_watchlist (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            artist_name TEXT NOT NULL UNIQUE,
-            added_at TEXT NOT NULL DEFAULT (datetime('now')),
-            auto_added INTEGER DEFAULT 0,
-            monitor_albums INTEGER DEFAULT 1,
-            monitor_eps INTEGER DEFAULT 1,
-            monitor_singles INTEGER DEFAULT 0,
-            last_checked TEXT,
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            artist_name      TEXT NOT NULL UNIQUE,
+            added_at         TEXT NOT NULL DEFAULT (datetime('now')),
+            auto_added       INTEGER DEFAULT 0,
+            monitor_albums   INTEGER DEFAULT 1,
+            monitor_eps      INTEGER DEFAULT 1,
+            monitor_singles  INTEGER DEFAULT 0,
+            last_checked     TEXT,
             last_new_release TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_watchlist_artist
-            ON artist_watchlist(artist_name);
+        CREATE INDEX IF NOT EXISTS idx_watchlist_artist ON artist_watchlist(artist_name);
 
-        -- Cache of every release ever seen for watched artists
         CREATE TABLE IF NOT EXISTS artist_releases_cache (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            artist_name TEXT NOT NULL,
-            album_title TEXT NOT NULL,
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            artist_name  TEXT NOT NULL,
+            album_title  TEXT NOT NULL,
             release_date TEXT,
             release_type TEXT,
-            qobuz_id TEXT,
-            item_key TEXT,
+            qobuz_id     TEXT,
+            item_key     TEXT,
             first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
-            notified INTEGER DEFAULT 0,
+            notified     INTEGER DEFAULT 0,
             UNIQUE(artist_name, album_title)
         );
-        CREATE INDEX IF NOT EXISTS idx_releases_artist
-            ON artist_releases_cache(artist_name);
-        CREATE INDEX IF NOT EXISTS idx_releases_notified
-            ON artist_releases_cache(notified);
-    """)
+        CREATE INDEX IF NOT EXISTS idx_releases_artist   ON artist_releases_cache(artist_name);
+        CREATE INDEX IF NOT EXISTS idx_releases_notified ON artist_releases_cache(notified);
 
-    # -----------------------------------------------------------------------
-    # Scheduled Playlists (v9.0)
-    # -----------------------------------------------------------------------
-    conn.executescript("""
+        -- ----------------------------------------------------------------
+        -- Scheduled Playlists
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS scheduled_playlists (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            prompt TEXT NOT NULL,
-            filters TEXT,
-            track_count INTEGER DEFAULT 25,
-            schedule TEXT NOT NULL,
-            zone_name TEXT,
-            save_to_qobuz INTEGER DEFAULT 1,
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            name              TEXT NOT NULL,
+            prompt            TEXT NOT NULL,
+            filters           TEXT,
+            track_count       INTEGER DEFAULT 25,
+            schedule          TEXT NOT NULL,
+            zone_name         TEXT,
+            save_to_qobuz     INTEGER DEFAULT 1,
             qobuz_playlist_id TEXT,
-            enabled INTEGER DEFAULT 1,
-            last_run TEXT,
-            last_status TEXT,
-            last_error TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            enabled           INTEGER DEFAULT 1,
+            last_run          TEXT,
+            last_status       TEXT,
+            last_error        TEXT,
+            created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+            schedule_type     TEXT DEFAULT 'prompt'
         );
-        CREATE INDEX IF NOT EXISTS idx_scheduled_playlists_enabled
-            ON scheduled_playlists(enabled);
-    """)
+        CREATE INDEX IF NOT EXISTS idx_scheduled_playlists_enabled ON scheduled_playlists(enabled);
 
-    # -----------------------------------------------------------------------
-    # Automation Engine (v11.0)
-    # -----------------------------------------------------------------------
-    conn.executescript("""
+        -- ----------------------------------------------------------------
+        -- Automation Engine
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS automations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            trigger_type TEXT NOT NULL,
-            trigger_config TEXT NOT NULL DEFAULT '{}',
-            action_type TEXT NOT NULL,
-            action_config TEXT NOT NULL DEFAULT '{}',
-            enabled INTEGER DEFAULT 1,
-            last_triggered TEXT,
-            last_status TEXT,
-            run_count INTEGER DEFAULT 0,
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            name            TEXT NOT NULL,
+            trigger_type    TEXT NOT NULL,
+            trigger_config  TEXT NOT NULL DEFAULT '{}',
+            action_type     TEXT NOT NULL,
+            action_config   TEXT NOT NULL DEFAULT '{}',
+            enabled         INTEGER DEFAULT 1,
+            last_triggered  TEXT,
+            last_status     TEXT,
+            run_count       INTEGER DEFAULT 0,
             cooldown_seconds INTEGER DEFAULT 300,
-            created_at TEXT DEFAULT (datetime('now'))
+            created_at      TEXT DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_automations_enabled
-            ON automations(enabled);
-        CREATE INDEX IF NOT EXISTS idx_automations_trigger
-            ON automations(trigger_type);
+        CREATE INDEX IF NOT EXISTS idx_automations_enabled ON automations(enabled);
+        CREATE INDEX IF NOT EXISTS idx_automations_trigger ON automations(trigger_type);
 
         CREATE TABLE IF NOT EXISTS automation_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
             automation_id INTEGER,
-            triggered_at TEXT NOT NULL DEFAULT (datetime('now')),
-            trigger_type TEXT,
-            action_type TEXT,
-            status TEXT,
-            duration_ms INTEGER,
+            triggered_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            trigger_type  TEXT,
+            action_type   TEXT,
+            status        TEXT,
+            duration_ms   INTEGER,
             error_message TEXT,
             FOREIGN KEY(automation_id) REFERENCES automations(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_automation_log_ts
-            ON automation_log(triggered_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_automation_log_automation
-            ON automation_log(automation_id);
-    """)
+        CREATE INDEX IF NOT EXISTS idx_automation_log_ts        ON automation_log(triggered_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_automation_log_automation ON automation_log(automation_id);
 
-    # -----------------------------------------------------------------------
-    # Metadata Enrichment Pipeline (v10.0)
-    # -----------------------------------------------------------------------
-    conn.executescript("""
-        -- Enriched metadata from MusicBrainz and Last.fm per track
+        -- ----------------------------------------------------------------
+        -- Metadata Enrichment Pipeline
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS track_metadata_ext (
-            item_key TEXT PRIMARY KEY,
-            musicbrainz_id TEXT,
-            mb_tags TEXT,          -- JSON array: ["jazz", "cool jazz", "modal jazz"]
-            mb_release_date TEXT,
-            mb_country TEXT,
-            lastfm_tags TEXT,      -- JSON array: ["melancholic", "atmospheric", "late night"]
-            lastfm_listeners INTEGER,
-            lastfm_playcount INTEGER,
-            enriched_at TEXT NOT NULL DEFAULT (datetime('now')),
-            enrichment_source TEXT -- "musicbrainz", "lastfm", "both"
+            item_key            TEXT PRIMARY KEY,
+            musicbrainz_id      TEXT,
+            mb_tags             TEXT,
+            mb_release_date     TEXT,
+            mb_country          TEXT,
+            lastfm_tags         TEXT,
+            lastfm_listeners    INTEGER,
+            lastfm_playcount    INTEGER,
+            enriched_at         TEXT NOT NULL DEFAULT (datetime('now')),
+            enrichment_source   TEXT,
+            stable_id           TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_track_metadata_ext_key
-            ON track_metadata_ext(item_key);
+        CREATE INDEX IF NOT EXISTS idx_track_metadata_ext_key      ON track_metadata_ext(item_key);
+        CREATE INDEX IF NOT EXISTS idx_track_metadata_ext_stable_id ON track_metadata_ext(stable_id);
 
-        -- Queue of tracks pending enrichment
         CREATE TABLE IF NOT EXISTS enrichment_queue (
-            item_key TEXT PRIMARY KEY,
-            artist TEXT NOT NULL,
-            title TEXT NOT NULL,
-            album TEXT,
-            status TEXT DEFAULT 'pending',  -- pending, processing, complete, failed
+            item_key      TEXT PRIMARY KEY,
+            artist        TEXT NOT NULL,
+            title         TEXT NOT NULL,
+            album         TEXT,
+            status        TEXT DEFAULT 'pending',
             error_message TEXT,
-            attempts INTEGER DEFAULT 0,
-            created_at TEXT DEFAULT (datetime('now')),
-            processed_at TEXT
+            attempts      INTEGER DEFAULT 0,
+            created_at    TEXT DEFAULT (datetime('now')),
+            processed_at  TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_enrichment_queue_status
-            ON enrichment_queue(status);
-    """)
+        CREATE INDEX IF NOT EXISTS idx_enrichment_queue_status ON enrichment_queue(status);
 
-    # -----------------------------------------------------------------------
-    # Audio Feature Analysis (v13.0)
-    # Stores BPM, musical key (Camelot notation), energy/loudness/danceability
-    # extracted from the actual audio files via librosa / essentia.
-    # See backend/audio_features/ for the worker that populates these tables.
-    # -----------------------------------------------------------------------
-    conn.executescript("""
+        -- ----------------------------------------------------------------
+        -- Audio Feature Analysis
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS track_audio_features (
-            item_key TEXT PRIMARY KEY,
-            file_path TEXT,
-            bpm REAL,
-            bpm_confidence REAL,
-            key_root TEXT,            -- "C", "C#", "D", ...
-            key_mode TEXT,            -- "major" | "minor"
-            camelot TEXT,             -- "8A", "5B", ... for harmonic mixing
-            energy REAL,              -- 0.0 (calm) – 1.0 (intense)
-            danceability REAL,        -- 0.0 – 1.0
-            valence REAL,             -- 0.0 (sad) – 1.0 (happy)
-            acousticness REAL,        -- 0.0 (electric) – 1.0 (acoustic)
-            instrumentalness REAL,    -- 0.0 (vocal) – 1.0 (instrumental)
-            loudness_lufs REAL,       -- integrated LUFS, typically -30…-5
-            analyzed_at TEXT NOT NULL DEFAULT (datetime('now')),
-            analysis_version INTEGER DEFAULT 1,
-            error_message TEXT
+            item_key          TEXT PRIMARY KEY,
+            file_path         TEXT,
+            bpm               REAL,
+            bpm_confidence    REAL,
+            key_root          TEXT,
+            key_mode          TEXT,
+            camelot           TEXT,
+            energy            REAL,
+            danceability      REAL,
+            valence           REAL,
+            acousticness      REAL,
+            instrumentalness  REAL,
+            loudness_lufs     REAL,
+            analyzed_at       TEXT NOT NULL DEFAULT (datetime('now')),
+            analysis_version  INTEGER DEFAULT 1,
+            error_message     TEXT,
+            cluster_id        INTEGER,
+            x_2d              REAL,
+            y_2d              REAL,
+            stable_id         TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_audio_features_bpm
-            ON track_audio_features(bpm);
-        CREATE INDEX IF NOT EXISTS idx_audio_features_camelot
-            ON track_audio_features(camelot);
-        CREATE INDEX IF NOT EXISTS idx_audio_features_energy
-            ON track_audio_features(energy);
-        CREATE INDEX IF NOT EXISTS idx_audio_features_valence
-            ON track_audio_features(valence);
-        CREATE INDEX IF NOT EXISTS idx_audio_features_bpm_valence
-            ON track_audio_features(bpm, valence);
-        CREATE INDEX IF NOT EXISTS idx_track_genres_track_key
-            ON track_genres(track_key, genre);
+        CREATE INDEX IF NOT EXISTS idx_audio_features_bpm        ON track_audio_features(bpm);
+        CREATE INDEX IF NOT EXISTS idx_audio_features_camelot    ON track_audio_features(camelot);
+        CREATE INDEX IF NOT EXISTS idx_audio_features_energy     ON track_audio_features(energy);
+        CREATE INDEX IF NOT EXISTS idx_audio_features_valence    ON track_audio_features(valence);
+        CREATE INDEX IF NOT EXISTS idx_audio_features_bpm_valence ON track_audio_features(bpm, valence);
+        CREATE INDEX IF NOT EXISTS idx_audio_features_cluster    ON track_audio_features(cluster_id);
+        CREATE INDEX IF NOT EXISTS idx_audio_features_stable_id  ON track_audio_features(stable_id);
 
         CREATE TABLE IF NOT EXISTS audio_features_queue (
-            item_key TEXT PRIMARY KEY,
-            file_path TEXT,
-            status TEXT DEFAULT 'pending',
-                -- pending | resolving | analyzing | complete | failed | unresolved
-            attempts INTEGER DEFAULT 0,
+            item_key      TEXT PRIMARY KEY,
+            file_path     TEXT,
+            status        TEXT DEFAULT 'pending',
+            attempts      INTEGER DEFAULT 0,
             error_message TEXT,
-            created_at TEXT DEFAULT (datetime('now')),
-            processed_at TEXT
+            created_at    TEXT DEFAULT (datetime('now')),
+            processed_at  TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_audio_features_queue_status
-            ON audio_features_queue(status);
+        CREATE INDEX IF NOT EXISTS idx_audio_features_queue_status ON audio_features_queue(status);
 
-        -- Sonic clustering (v13.0): per-run metadata for the UMAP+HDBSCAN
-        -- pipeline. cluster_id / x_2d / y_2d live on track_audio_features.
         CREATE TABLE IF NOT EXISTS cluster_runs (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            started_at TEXT,
+            id          INTEGER PRIMARY KEY CHECK (id = 1),
+            started_at  TEXT,
             finished_at TEXT,
-            status TEXT DEFAULT 'idle',  -- idle | running | complete | failed
-            n_tracks INTEGER DEFAULT 0,
-            n_clusters INTEGER DEFAULT 0,
-            n_noise INTEGER DEFAULT 0,
+            status      TEXT DEFAULT 'idle',
+            n_tracks    INTEGER DEFAULT 0,
+            n_clusters  INTEGER DEFAULT 0,
+            n_noise     INTEGER DEFAULT 0,
             params_json TEXT DEFAULT '{}',
             error_message TEXT
         );
         INSERT OR IGNORE INTO cluster_runs (id, status) VALUES (1, 'idle');
 
         CREATE TABLE IF NOT EXISTS dj_sets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            name             TEXT NOT NULL,
+            created_at       TEXT NOT NULL DEFAULT (datetime('now')),
             duration_minutes INTEGER NOT NULL DEFAULT 0,
-            track_count INTEGER NOT NULL DEFAULT 0,
-            start_bpm REAL,
-            end_bpm REAL,
-            start_mood TEXT,
-            end_mood TEXT,
-            genres_json TEXT NOT NULL DEFAULT '[]',
-            tracks_json TEXT NOT NULL DEFAULT '[]',
-            curve_json TEXT NOT NULL DEFAULT '[]'
+            track_count      INTEGER NOT NULL DEFAULT 0,
+            start_bpm        REAL,
+            end_bpm          REAL,
+            start_mood       TEXT,
+            end_mood         TEXT,
+            genres_json      TEXT NOT NULL DEFAULT '[]',
+            tracks_json      TEXT NOT NULL DEFAULT '[]',
+            curve_json       TEXT NOT NULL DEFAULT '[]'
         );
-        CREATE INDEX IF NOT EXISTS idx_dj_sets_created
-            ON dj_sets(created_at DESC);
-    """)
+        CREATE INDEX IF NOT EXISTS idx_dj_sets_created ON dj_sets(created_at DESC);
 
-    # -----------------------------------------------------------------------
-    # CLAP text-to-audio embeddings (v13.0)
-    # -----------------------------------------------------------------------
-    conn.executescript("""
+        -- ----------------------------------------------------------------
+        -- CLAP text-to-audio embeddings
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS clap_embeddings (
-            item_key TEXT PRIMARY KEY,
-            embedding BLOB NOT NULL,
-            model TEXT,
-            analyzed_at TEXT NOT NULL DEFAULT (datetime('now'))
+            item_key    TEXT PRIMARY KEY,
+            embedding   BLOB NOT NULL,
+            model       TEXT,
+            analyzed_at TEXT NOT NULL DEFAULT (datetime('now')),
+            stable_id   TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_clap_embeddings_analyzed
-            ON clap_embeddings(analyzed_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_clap_embeddings_analyzed  ON clap_embeddings(analyzed_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_clap_embeddings_stable_id ON clap_embeddings(stable_id);
 
-        -- Single-row run state, mirrors cluster_runs / audio_features
         CREATE TABLE IF NOT EXISTS clap_runs (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            status TEXT DEFAULT 'idle',
-            started_at TEXT,
+            id          INTEGER PRIMARY KEY CHECK (id = 1),
+            status      TEXT DEFAULT 'idle',
+            started_at  TEXT,
             finished_at TEXT,
-            n_total INTEGER DEFAULT 0,
-            n_done INTEGER DEFAULT 0,
-            n_failed INTEGER DEFAULT 0,
+            n_total     INTEGER DEFAULT 0,
+            n_done      INTEGER DEFAULT 0,
+            n_failed    INTEGER DEFAULT 0,
             error_message TEXT
         );
         INSERT OR IGNORE INTO clap_runs (id, status) VALUES (1, 'idle');
-    """)
 
-    # -----------------------------------------------------------------------
-    # Mood tagging via CLAP K-Means (v13.2)
-    # -----------------------------------------------------------------------
-    conn.executescript("""
+        -- ----------------------------------------------------------------
+        -- Mood tagging
+        -- track_mood_tags intentionally has NO FK to tracks (full-replace
+        -- resync does DELETE FROM tracks, which would cascade-delete mood rows).
+        -- Mood rows survive via stable_id instead.
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS track_mood_tags (
-            track_id TEXT PRIMARY KEY,
-            mood_primary TEXT NOT NULL,
+            track_id       TEXT PRIMARY KEY,
+            mood_primary   TEXT NOT NULL,
             mood_secondary TEXT,
-            confidence REAL,
-            cluster_id INTEGER,
-            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (track_id) REFERENCES tracks(item_key)
+            confidence     REAL,
+            cluster_id     INTEGER,
+            updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+            stable_id      TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_track_mood_primary
-            ON track_mood_tags(mood_primary);
-        CREATE INDEX IF NOT EXISTS idx_track_mood_secondary
-            ON track_mood_tags(mood_secondary);
+        CREATE INDEX IF NOT EXISTS idx_track_mood_primary    ON track_mood_tags(mood_primary);
+        CREATE INDEX IF NOT EXISTS idx_track_mood_secondary  ON track_mood_tags(mood_secondary);
+        CREATE INDEX IF NOT EXISTS idx_track_mood_tags_stable_id ON track_mood_tags(stable_id);
 
         CREATE TABLE IF NOT EXISTS mood_runs (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            status TEXT DEFAULT 'idle',
-            started_at TEXT,
+            id          INTEGER PRIMARY KEY CHECK (id = 1),
+            status      TEXT DEFAULT 'idle',
+            started_at  TEXT,
             finished_at TEXT,
-            n_tracks INTEGER DEFAULT 0,
-            n_clusters INTEGER DEFAULT 0,
+            n_tracks    INTEGER DEFAULT 0,
+            n_clusters  INTEGER DEFAULT 0,
             error_message TEXT
         );
         INSERT OR IGNORE INTO mood_runs (id, status) VALUES (1, 'idle');
-    """)
 
-    # Migration: existing installs may have track_mood_tags without cluster_id.
-    try:
-        conn.execute("ALTER TABLE track_mood_tags ADD COLUMN cluster_id INTEGER")
-        logger.info("Migration applied: added cluster_id column to track_mood_tags")
-    except sqlite3.OperationalError:
-        pass
+        -- ----------------------------------------------------------------
+        -- Lyrics extraction + semantic embeddings
+        -- ----------------------------------------------------------------
 
-    # -----------------------------------------------------------------------
-    # Lyrics extraction + semantic embeddings (v13.0)
-    # -----------------------------------------------------------------------
-    conn.executescript("""
         CREATE TABLE IF NOT EXISTS lyrics_data (
-            item_key TEXT PRIMARY KEY,
-            lyrics TEXT,
-            language TEXT,
-            source TEXT,        -- "tag" | "external" — currently always "tag"
-            extracted_at TEXT NOT NULL DEFAULT (datetime('now'))
+            item_key     TEXT PRIMARY KEY,
+            lyrics       TEXT,
+            language     TEXT,
+            source       TEXT,
+            extracted_at TEXT NOT NULL DEFAULT (datetime('now')),
+            stable_id    TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_lyrics_data_lang ON lyrics_data(language);
+        CREATE INDEX IF NOT EXISTS idx_lyrics_data_lang      ON lyrics_data(language);
+        CREATE INDEX IF NOT EXISTS idx_lyrics_data_stable_id ON lyrics_data(stable_id);
 
         CREATE TABLE IF NOT EXISTS lyrics_embeddings (
-            item_key TEXT PRIMARY KEY,
-            embedding BLOB NOT NULL,
+            item_key      TEXT PRIMARY KEY,
+            embedding     BLOB NOT NULL,
             model_version TEXT,
-            embedded_at TEXT NOT NULL DEFAULT (datetime('now'))
+            embedded_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            stable_id     TEXT
         );
+        CREATE INDEX IF NOT EXISTS idx_lyrics_embeddings_stable_id ON lyrics_embeddings(stable_id);
 
         CREATE TABLE IF NOT EXISTS lyrics_runs (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            status TEXT DEFAULT 'idle',
-            started_at TEXT,
-            finished_at TEXT,
-            n_total INTEGER DEFAULT 0,
-            n_extracted INTEGER DEFAULT 0,
-            n_embedded INTEGER DEFAULT 0,
-            n_no_lyrics INTEGER DEFAULT 0,
-            n_failed INTEGER DEFAULT 0,
+            id           INTEGER PRIMARY KEY CHECK (id = 1),
+            status       TEXT DEFAULT 'idle',
+            started_at   TEXT,
+            finished_at  TEXT,
+            n_total      INTEGER DEFAULT 0,
+            n_extracted  INTEGER DEFAULT 0,
+            n_embedded   INTEGER DEFAULT 0,
+            n_no_lyrics  INTEGER DEFAULT 0,
+            n_failed     INTEGER DEFAULT 0,
             error_message TEXT
         );
         INSERT OR IGNORE INTO lyrics_runs (id, status) VALUES (1, 'idle');
-    """)
 
-    # -----------------------------------------------------------------------
-    # Sonic clustering migrations (v13.0)
-    # -----------------------------------------------------------------------
-    for col_name, col_type in [
-        ("cluster_id", "INTEGER"),
-        ("x_2d", "REAL"),
-        ("y_2d", "REAL"),
-    ]:
-        try:
-            conn.execute(
-                f"ALTER TABLE track_audio_features ADD COLUMN {col_name} {col_type}"
-            )
-            logger.info(
-                "Migration applied: added %s column to track_audio_features", col_name
-            )
-        except sqlite3.OperationalError:
-            pass
+        -- ----------------------------------------------------------------
+        -- Cluster labels
+        -- ----------------------------------------------------------------
 
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_audio_features_cluster "
-        "ON track_audio_features(cluster_id)"
-    )
-
-    # -----------------------------------------------------------------------
-    # Cluster labels (v13.3 — cluster auto-tagging)
-    # -----------------------------------------------------------------------
-    conn.executescript("""
         CREATE TABLE IF NOT EXISTS cluster_labels (
-            cluster_id INTEGER PRIMARY KEY,
-            label_primary TEXT,
-            label_secondary TEXT,
-            label_tertiary TEXT,
-            track_count INTEGER DEFAULT 0,
-            source TEXT,                -- "lastfm" | "roon_genres" | "mixed"
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            cluster_id       INTEGER PRIMARY KEY,
+            label_primary    TEXT,
+            label_secondary  TEXT,
+            label_tertiary   TEXT,
+            track_count      INTEGER DEFAULT 0,
+            source           TEXT,
+            updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
         );
-    """)
 
-    # -----------------------------------------------------------------------
-    # Saved Song Alchemy profiles (v13.4)
-    # Each row is a frozen averaged feature vector (and the original source
-    # track ids) that can be re-applied to the library without re-selecting
-    # tracks. Optional zone_id binds a profile to a default playback zone.
-    # -----------------------------------------------------------------------
-    conn.executescript("""
+        -- ----------------------------------------------------------------
+        -- Song Alchemy profiles
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS alchemy_profiles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            zone_id TEXT,
-            add_features TEXT NOT NULL,       -- JSON: {feature: value, ...}
-            subtract_features TEXT,           -- JSON or NULL
-            add_track_ids TEXT,               -- JSON list of source item_keys
-            subtract_track_ids TEXT,          -- JSON list of source item_keys
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            name               TEXT NOT NULL UNIQUE,
+            zone_id            TEXT,
+            add_features       TEXT NOT NULL,
+            subtract_features  TEXT,
+            add_track_ids      TEXT,
+            subtract_track_ids TEXT,
+            created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_alchemy_profiles_zone
-            ON alchemy_profiles(zone_id);
-    """)
+        CREATE INDEX IF NOT EXISTS idx_alchemy_profiles_zone ON alchemy_profiles(zone_id);
 
-    # -----------------------------------------------------------------------
-    # Scheduled playlists migration (v13.4): support new schedule_type column
-    # for circadian (audio-feature-aware) schedules. ``prompt`` becomes
-    # optional at the application layer once schedule_type='circadian'.
-    # -----------------------------------------------------------------------
-    try:
-        conn.execute(
-            "ALTER TABLE scheduled_playlists ADD COLUMN schedule_type TEXT DEFAULT 'prompt'"
-        )
-        logger.info(
-            "Migration applied: added schedule_type column to scheduled_playlists"
-        )
-    except sqlite3.OperationalError:
-        pass
+        -- ----------------------------------------------------------------
+        -- LLM response cache
+        -- ----------------------------------------------------------------
 
-    # -----------------------------------------------------------------------
-    # LLM response cache (v13.5): keyed by SHA-256 of (prompt + system + model)
-    # so repeated playlist / album-recommendation requests skip the provider
-    # call. created_at is a unix timestamp; entries expire on read against
-    # the configured TTL.
-    # -----------------------------------------------------------------------
-    conn.executescript("""
         CREATE TABLE IF NOT EXISTS llm_response_cache (
-            cache_key TEXT PRIMARY KEY,
-            kind TEXT NOT NULL,
-            content TEXT NOT NULL,
-            model TEXT NOT NULL,
-            input_tokens INTEGER DEFAULT 0,
+            cache_key     TEXT PRIMARY KEY,
+            kind          TEXT NOT NULL,
+            content       TEXT NOT NULL,
+            model         TEXT NOT NULL,
+            input_tokens  INTEGER DEFAULT 0,
             output_tokens INTEGER DEFAULT 0,
-            created_at INTEGER NOT NULL,
-            hit_count INTEGER DEFAULT 0
+            created_at    INTEGER NOT NULL,
+            hit_count     INTEGER DEFAULT 0
         );
-        CREATE INDEX IF NOT EXISTS idx_llm_response_cache_created
-            ON llm_response_cache(created_at);
-        CREATE INDEX IF NOT EXISTS idx_llm_response_cache_kind
-            ON llm_response_cache(kind);
-    """)
+        CREATE INDEX IF NOT EXISTS idx_llm_response_cache_created ON llm_response_cache(created_at);
+        CREATE INDEX IF NOT EXISTS idx_llm_response_cache_kind    ON llm_response_cache(kind);
 
-    # -----------------------------------------------------------------------
-    # Background AI enrichment (v13.2)
-    # -----------------------------------------------------------------------
-    conn.executescript("""
+        -- ----------------------------------------------------------------
+        -- Background AI enrichment
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS track_vibes (
             item_key   TEXT PRIMARY KEY,
             contexts   TEXT NOT NULL DEFAULT '[]',
@@ -915,91 +695,319 @@ def init_schema(conn: sqlite3.Connection) -> bool:
             suggestions  TEXT NOT NULL DEFAULT '[]',
             generated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
-    """)
 
-    conn.commit()
+        -- ----------------------------------------------------------------
+        -- Circadian auto-playlists (v13.6)
+        -- ----------------------------------------------------------------
 
-    # Migration: add ai_description + ai_tags to results for playlist AI descriptions
-    for _col, _type in [("ai_description", "TEXT"), ("ai_tags", "TEXT")]:
-        with contextlib.suppress(sqlite3.OperationalError):
-            conn.execute(f"ALTER TABLE results ADD COLUMN {_col} {_type}")
-
-    conn.commit()
-
-    # -----------------------------------------------------------------------
-    # Circadian Auto-Playlists (v13.6) — 3 LLM-curated playlists per day
-    # generated at a configurable schedule_hour, biased by the user's taste
-    # profile listening_patterns. One row per (date, time_block).
-    # -----------------------------------------------------------------------
-    conn.executescript("""
         CREATE TABLE IF NOT EXISTS circadian_playlists (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            time_block TEXT NOT NULL,        -- 'morning' | 'afternoon' | 'evening'
-            prompt_used TEXT NOT NULL DEFAULT '',
-            result_id TEXT,                  -- FK to results.id (nullable on failure)
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            date          TEXT NOT NULL,
+            time_block    TEXT NOT NULL,
+            prompt_used   TEXT NOT NULL DEFAULT '',
+            result_id     TEXT,
             queued_to_zone TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at    TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(date, time_block)
         );
-        CREATE INDEX IF NOT EXISTS idx_circadian_playlists_date
-            ON circadian_playlists(date DESC);
-    """)
+        CREATE INDEX IF NOT EXISTS idx_circadian_playlists_date ON circadian_playlists(date DESC);
 
-    # -----------------------------------------------------------------------
-    # Listening Session Summaries (v13.6) — auto-detected playback sessions
-    # (gap > 30 min terminates a session) with an LLM-generated summary.
-    # -----------------------------------------------------------------------
-    conn.executescript("""
+        -- ----------------------------------------------------------------
+        -- Listening sessions (v13.6)
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS listening_sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            started_at TEXT NOT NULL,
-            ended_at TEXT NOT NULL,
-            zone_name TEXT,
-            track_count INTEGER NOT NULL DEFAULT 0,
+            id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at             TEXT NOT NULL,
+            ended_at               TEXT NOT NULL,
+            zone_name              TEXT,
+            track_count            INTEGER NOT NULL DEFAULT 0,
             total_duration_minutes REAL NOT NULL DEFAULT 0,
-            genres_json TEXT NOT NULL DEFAULT '[]',
-            summary_text TEXT NOT NULL DEFAULT '',
-            mood_arc TEXT NOT NULL DEFAULT '',
-            standout_tracks_json TEXT NOT NULL DEFAULT '[]',
-            energy_curve_json TEXT NOT NULL DEFAULT '[]',
-            summarized INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            genres_json            TEXT NOT NULL DEFAULT '[]',
+            summary_text           TEXT NOT NULL DEFAULT '',
+            mood_arc               TEXT NOT NULL DEFAULT '',
+            standout_tracks_json   TEXT NOT NULL DEFAULT '[]',
+            energy_curve_json      TEXT NOT NULL DEFAULT '[]',
+            summarized             INTEGER NOT NULL DEFAULT 0,
+            created_at             TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_listening_sessions_ended
-            ON listening_sessions(ended_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_listening_sessions_summarized
-            ON listening_sessions(summarized, ended_at);
-    """)
+        CREATE INDEX IF NOT EXISTS idx_listening_sessions_ended      ON listening_sessions(ended_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_listening_sessions_summarized ON listening_sessions(summarized, ended_at);
 
-    # -----------------------------------------------------------------------
-    # Smart Queue Continuation cooldown ledger — last fired timestamp per
-    # zone so a flapping zone monitor can't spam the LLM.
-    # -----------------------------------------------------------------------
-    conn.executescript("""
+        -- ----------------------------------------------------------------
+        -- Queue continuation cooldown ledger
+        -- ----------------------------------------------------------------
+
         CREATE TABLE IF NOT EXISTS queue_continuation_log (
-            zone_id TEXT PRIMARY KEY,
-            zone_name TEXT,
-            last_fired_at TEXT NOT NULL,
-            last_result_id TEXT,
+            zone_id          TEXT PRIMARY KEY,
+            zone_name        TEXT,
+            last_fired_at    TEXT NOT NULL,
+            last_result_id   TEXT,
             last_track_count INTEGER NOT NULL DEFAULT 0,
-            last_status TEXT NOT NULL DEFAULT 'ok',
-            last_error TEXT
+            last_status      TEXT NOT NULL DEFAULT 'ok',
+            last_error       TEXT
         );
+
+        -- ----------------------------------------------------------------
+        -- Schema version tracking (added at end to avoid executescript commit
+        -- ordering issues with INSERT OR IGNORE on other tables)
+        -- ----------------------------------------------------------------
+
+        CREATE TABLE IF NOT EXISTS schema_version (
+            id      INTEGER PRIMARY KEY CHECK (id = 1),
+            version INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, 0);
     """)
 
-    conn.commit()
 
-    # stable_id: content-based track identity that survives Roon item_key churn
-    # (see backend/stable_id.py). Additive columns + one-shot in-place backfill
-    # from the CURRENT item_keys while they still match the cached derived rows.
-    # Deliberately does NOT set `migrated` — no resync is needed to populate it,
-    # and the old sync path can't resync yet.
+# ---------------------------------------------------------------------------
+# Individual migration functions
+# Each returns True if it actually changed something, False if it was a no-op.
+# ---------------------------------------------------------------------------
+
+def _m01_rename_rating_key(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute("ALTER TABLE tracks RENAME COLUMN rating_key TO item_key")
+        logger.info("Migration 1: renamed rating_key → item_key in tracks")
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
+def _m02_rename_parent_rating_key(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute("ALTER TABLE tracks RENAME COLUMN parent_rating_key TO parent_item_key")
+        logger.info("Migration 2: renamed parent_rating_key → parent_item_key in tracks")
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
+def _m03_rename_art_rating_key(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute("ALTER TABLE results RENAME COLUMN art_rating_key TO art_item_key")
+        logger.info("Migration 3: renamed art_rating_key → art_item_key in results")
+    except sqlite3.OperationalError:
+        pass
+    return False  # results rename never required a library resync
+
+
+def _m04_add_parent_item_key(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute("ALTER TABLE tracks ADD COLUMN parent_item_key TEXT")
+        logger.info("Migration 4: added parent_item_key to tracks")
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
+def _m05_add_track_index(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute("ALTER TABLE tracks ADD COLUMN track_index INTEGER")
+        logger.info("Migration 5: added track_index to tracks")
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
+def _m06_add_view_count(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute("ALTER TABLE tracks ADD COLUMN view_count INTEGER DEFAULT 0")
+        logger.info("Migration 6: added view_count to tracks")
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
+def _m07_add_last_viewed_at(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute("ALTER TABLE tracks ADD COLUMN last_viewed_at TEXT")
+        logger.info("Migration 7: added last_viewed_at to tracks")
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
+def _m08_add_image_key_tracks(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute("ALTER TABLE tracks ADD COLUMN image_key TEXT")
+        logger.info("Migration 8: added image_key to tracks")
+    except sqlite3.OperationalError:
+        pass
+    return False
+
+
+def _m09_add_results_subtitle_source_mode(conn: sqlite3.Connection) -> bool:
+    for col, ctype in [("subtitle", "TEXT"), ("source_mode", "TEXT")]:
+        try:
+            conn.execute(f"ALTER TABLE results ADD COLUMN {col} {ctype}")
+            logger.info("Migration 9: added %s to results", col)
+        except sqlite3.OperationalError:
+            pass
+    return False
+
+
+def _m10_rename_plex_server_id(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute("ALTER TABLE sync_state RENAME COLUMN plex_server_id TO roon_core_id")
+        logger.info("Migration 10: renamed plex_server_id → roon_core_id in sync_state")
+    except sqlite3.OperationalError:
+        pass
+    return False
+
+
+def _m11_lb_columns(conn: sqlite3.Connection) -> bool:
+    for col, ctype in [
+        ("year", "INTEGER"),
+        ("decade", "TEXT"),
+        ("hour_of_day", "INTEGER"),
+        ("day_of_week", "INTEGER"),
+        ("source", "TEXT DEFAULT 'library'"),
+        ("played_pct", "REAL"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE listening_history ADD COLUMN {col} {ctype}")
+            logger.info("Migration 11: added %s to listening_history", col)
+        except sqlite3.OperationalError:
+            pass
+    return False
+
+
+def _m12_mood_tags_cluster_id(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute("ALTER TABLE track_mood_tags ADD COLUMN cluster_id INTEGER")
+        logger.info("Migration 12: added cluster_id to track_mood_tags")
+    except sqlite3.OperationalError:
+        pass
+    return False
+
+
+def _m13_audio_features_cluster_columns(conn: sqlite3.Connection) -> bool:
+    for col, ctype in [("cluster_id", "INTEGER"), ("x_2d", "REAL"), ("y_2d", "REAL")]:
+        try:
+            conn.execute(f"ALTER TABLE track_audio_features ADD COLUMN {col} {ctype}")
+            logger.info("Migration 13: added %s to track_audio_features", col)
+        except sqlite3.OperationalError:
+            pass
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_audio_features_cluster "
+        "ON track_audio_features(cluster_id)"
+    )
+    return False
+
+
+def _m14_scheduled_playlists_schedule_type(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute(
+            "ALTER TABLE scheduled_playlists ADD COLUMN schedule_type TEXT DEFAULT 'prompt'"
+        )
+        logger.info("Migration 14: added schedule_type to scheduled_playlists")
+    except sqlite3.OperationalError:
+        pass
+    return False
+
+
+def _m15_results_ai_columns(conn: sqlite3.Connection) -> bool:
+    for col in ("ai_description", "ai_tags"):
+        with contextlib.suppress(sqlite3.OperationalError):
+            conn.execute(f"ALTER TABLE results ADD COLUMN {col} TEXT")
+            logger.info("Migration 15: added %s to results", col)
+    return False
+
+
+def _m16_stable_id_columns(conn: sqlite3.Connection) -> bool:
     _ensure_stable_id_columns(conn)
-    _backfill_stable_ids(conn)
-    _drop_track_mood_tags_fk(conn)
+    return False
 
-    return migrated
+
+def _m17_stable_id_backfill(conn: sqlite3.Connection) -> bool:
+    _backfill_stable_ids(conn)
+    return False
+
+
+def _m18_drop_track_mood_tags_fk(conn: sqlite3.Connection) -> bool:
+    _drop_track_mood_tags_fk(conn)
+    return False
+
+
+# Ordered list of (version_number, migration_fn).
+# Append new entries here; bump SCHEMA_VERSION accordingly.
+_MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], bool]]] = [
+    (1,  _m01_rename_rating_key),
+    (2,  _m02_rename_parent_rating_key),
+    (3,  _m03_rename_art_rating_key),
+    (4,  _m04_add_parent_item_key),
+    (5,  _m05_add_track_index),
+    (6,  _m06_add_view_count),
+    (7,  _m07_add_last_viewed_at),
+    (8,  _m08_add_image_key_tracks),
+    (9,  _m09_add_results_subtitle_source_mode),
+    (10, _m10_rename_plex_server_id),
+    (11, _m11_lb_columns),
+    (12, _m12_mood_tags_cluster_id),
+    (13, _m13_audio_features_cluster_columns),
+    (14, _m14_scheduled_playlists_schedule_type),
+    (15, _m15_results_ai_columns),
+    (16, _m16_stable_id_columns),
+    (17, _m17_stable_id_backfill),
+    (18, _m18_drop_track_mood_tags_fk),
+]
+
+# Migrations that change the tracks table structure and require a library
+# re-sync to repopulate newly added / renamed columns.
+_RESYNC_MIGRATIONS: frozenset[int] = frozenset({1, 2, 4, 5, 6, 7})
+
+
+def init_schema(conn: sqlite3.Connection) -> bool:
+    """Create tables and run any pending incremental migrations.
+
+    Args:
+        conn: An open database connection.
+
+    Returns:
+        True if a migration that requires a library re-sync was applied,
+        False otherwise.
+    """
+    # 1. Always create / verify all tables (idempotent).
+    _create_schema_tables(conn)
+
+    # 2. Determine the highest migration already applied to this DB.
+    row = conn.execute("SELECT version FROM schema_version").fetchone()
+    current_version: int = row[0] if row else 0
+
+    # 3. Fresh-database shortcut: all tables were just created with the full
+    #    schema, so no migrations are needed. Jump straight to SCHEMA_VERSION.
+    if current_version == 0 and not conn.execute("SELECT 1 FROM tracks LIMIT 1").fetchone():
+        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        conn.commit()
+        logger.info("Fresh database: schema initialised at version %d", SCHEMA_VERSION)
+        return False
+
+    # 4. Run only the migrations that have not been applied yet.
+    resync_triggered = False
+    for version, migration_fn in _MIGRATIONS:
+        if version <= current_version:
+            continue
+        changed = migration_fn(conn)
+        if changed and version in _RESYNC_MIGRATIONS:
+            resync_triggered = True
+        conn.execute("UPDATE schema_version SET version = ?", (version,))
+        conn.commit()
+
+    if current_version < SCHEMA_VERSION:
+        logger.info(
+            "Database migrated from version %d to %d (resync=%s)",
+            current_version, SCHEMA_VERSION, resync_triggered,
+        )
+
+    return resync_triggered
+
+
+# ---------------------------------------------------------------------------
+# Private helpers used by migration functions
+# (kept after init_schema so they can be referenced by the _mXX functions)
+# ---------------------------------------------------------------------------
 
 
 def _drop_track_mood_tags_fk(conn: sqlite3.Connection) -> None:
@@ -1020,13 +1028,13 @@ def _drop_track_mood_tags_fk(conn: sqlite3.Connection) -> None:
             """
             BEGIN;
             CREATE TABLE track_mood_tags_new (
-                track_id TEXT PRIMARY KEY,
-                mood_primary TEXT NOT NULL,
+                track_id       TEXT PRIMARY KEY,
+                mood_primary   TEXT NOT NULL,
                 mood_secondary TEXT,
-                confidence REAL,
-                cluster_id INTEGER,
-                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-                stable_id TEXT
+                confidence     REAL,
+                cluster_id     INTEGER,
+                updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+                stable_id      TEXT
             );
             INSERT INTO track_mood_tags_new
                 (track_id, mood_primary, mood_secondary, confidence, cluster_id, updated_at, stable_id)
@@ -1034,9 +1042,9 @@ def _drop_track_mood_tags_fk(conn: sqlite3.Connection) -> None:
                 FROM track_mood_tags;
             DROP TABLE track_mood_tags;
             ALTER TABLE track_mood_tags_new RENAME TO track_mood_tags;
-            CREATE INDEX idx_track_mood_primary ON track_mood_tags(mood_primary);
-            CREATE INDEX idx_track_mood_secondary ON track_mood_tags(mood_secondary);
-            CREATE INDEX idx_track_mood_tags_stable_id ON track_mood_tags(stable_id);
+            CREATE INDEX idx_track_mood_primary         ON track_mood_tags(mood_primary);
+            CREATE INDEX idx_track_mood_secondary        ON track_mood_tags(mood_secondary);
+            CREATE INDEX idx_track_mood_tags_stable_id   ON track_mood_tags(stable_id);
             COMMIT;
             """
         )
@@ -1075,19 +1083,16 @@ def _ensure_stable_id_columns(conn: sqlite3.Connection) -> None:
 
 
 def _backfill_stable_ids(conn: sqlite3.Connection) -> None:
-    """Populate stable_id for tracks and propagate to the derived tables by
+    """Populate stable_id for tracks and propagate to derived tables by
     joining on the (still-valid) item_key.
 
-    Idempotent and self-healing: each table is backfilled independently and
-    only where stable_id is still NULL, and per-table errors are logged without
-    aborting the rest. Cheap no-op once complete.
+    Idempotent: only updates rows where stable_id IS NULL.
     """
-    # 1) tracks — compute from metadata in Python.
     track_pending = conn.execute(
         "SELECT COUNT(*) FROM tracks WHERE stable_id IS NULL"
     ).fetchone()[0]
     if track_pending:
-        from backend.stable_id import compute_stable_id
+        from backend.stable_id import compute_stable_id  # noqa: PLC0415
 
         logger.info("Backfilling stable_id for %d tracks…", track_pending)
         rows = conn.execute(
@@ -1106,9 +1111,6 @@ def _backfill_stable_ids(conn: sqlite3.Connection) -> None:
         )
         conn.commit()
 
-    # 2) derived tables — propagate from tracks via the current item_key. Done
-    # per-table so one failure can't strand the others (and self-heals on a
-    # later startup if a prior run was interrupted).
     for table, keycol in _STABLE_ID_TABLES.items():
         if table == "tracks":
             continue
@@ -1130,15 +1132,13 @@ def _backfill_stable_ids(conn: sqlite3.Connection) -> None:
             logger.warning("stable_id backfill skipped for %s: %s", table, e)
 
 
-def repair_corrupt_indexes(conn: sqlite3.Connection) -> list[str]:
-    """Run PRAGMA integrity_check and REINDEX any tables flagged as broken.
+# ---------------------------------------------------------------------------
+# Corruption repair
+# ---------------------------------------------------------------------------
 
-    Index corruption can occur when SQLite is interrupted mid-write — common
-    during uvicorn --reload restarts on busy worker tables. This helper
-    detects the most frequent failure mode ("wrong # of entries in index X")
-    and rebuilds the affected indexes' parent tables. Returns the list of
-    tables that were reindexed.
-    """
+
+def repair_corrupt_indexes(conn: sqlite3.Connection) -> list[str]:
+    """Run PRAGMA integrity_check and REINDEX any tables flagged as broken."""
     rows = conn.execute("PRAGMA integrity_check").fetchall()
     issues = [r[0] for r in rows if r[0] != "ok"]
     if not issues:
@@ -1147,7 +1147,6 @@ def repair_corrupt_indexes(conn: sqlite3.Connection) -> list[str]:
     logger.warning("SQLite integrity_check reported %d issue(s): %s",
                    len(issues), issues[:3])
 
-    # Extract index names mentioned in the issues and map them back to tables.
     affected_tables: set[str] = set()
     import re  # noqa: PLC0415
     for msg in issues:
@@ -1167,7 +1166,6 @@ def repair_corrupt_indexes(conn: sqlite3.Connection) -> list[str]:
         conn.execute(f"REINDEX {tbl}")
     conn.commit()
 
-    # Re-verify; log if anything still broken.
     rows2 = conn.execute("PRAGMA integrity_check").fetchall()
     issues_after = [r[0] for r in rows2 if r[0] != "ok"]
     if issues_after:
@@ -1179,6 +1177,11 @@ def repair_corrupt_indexes(conn: sqlite3.Connection) -> list[str]:
         logger.info("SQLite integrity restored via REINDEX on: %s",
                     sorted(affected_tables))
     return sorted(affected_tables)
+
+
+# ---------------------------------------------------------------------------
+# Initialization helpers
+# ---------------------------------------------------------------------------
 
 
 def ensure_db_initialized() -> sqlite3.Connection:
@@ -1201,54 +1204,24 @@ def ensure_db_initialized() -> sqlite3.Connection:
 
 
 def needs_resync() -> bool:
-    """Return True if a schema migration requires the library to be re-synced.
-
-    Safe for fresh databases: _migration_applied is False when CREATE TABLE
-    already includes all columns (ALTER TABLE operations are no-ops).
-    """
+    """Return True if a schema migration requires the library to be re-synced."""
     return _migration_applied
 
 
 def clear_migration_flag() -> None:
-    """Clear the migration flag after a successful library sync.
-
-    Called by backend.sync.sync_library() once all tracks have been
-    written with the new schema columns populated.
-    """
+    """Clear the migration flag after a successful library sync."""
     global _migration_applied
     _migration_applied = False
 
 
 # ---------------------------------------------------------------------------
-# Context manager
+# Context managers
 # ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Async write serialization
-# ---------------------------------------------------------------------------
-
-# Module-level lock to serialize writes from async callers across the process.
-# SQLite WAL allows concurrent readers + a single writer; this lock keeps the
-# event loop from issuing overlapping writes that would otherwise spin on the
-# busy_timeout retry loop.
-_write_lock = asyncio.Lock()
-
-
-async def execute_write(query: str, params: tuple | list | None = None) -> None:
-    """Run a single write statement under the module-level async write lock."""
-    async with _write_lock:
-        conn = ensure_db_initialized()
-        try:
-            conn.execute(query, params or ())
-            conn.commit()
-        finally:
-            conn.close()
 
 
 @contextmanager
 def get_connection() -> Generator[sqlite3.Connection, None, None]:
-    """Yield an initialized connection and close it on exit.
+    """Yield an initialized sync connection and close it on exit.
 
     Usage::
 
@@ -1260,3 +1233,33 @@ def get_connection() -> Generator[sqlite3.Connection, None, None]:
         yield conn
     finally:
         conn.close()
+
+
+@asynccontextmanager
+async def aget_connection():
+    """Async context manager that yields an aiosqlite connection.
+
+    Moves SQLite I/O off the event-loop thread via aiosqlite's internal
+    thread executor. Schema must already be initialised (ensure_db_initialized
+    is called at startup before any route handler runs).
+
+    Usage::
+
+        async with aget_connection() as conn:
+            cursor = await conn.execute("SELECT ...")
+            rows   = await cursor.fetchall()
+    """
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    async with aiosqlite.connect(str(DB_PATH), timeout=30.0) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA busy_timeout=5000")
+        await conn.execute("PRAGMA foreign_keys=ON")
+        yield conn
+
+
+async def execute_write(query: str, params: tuple | list | None = None) -> None:
+    """Run a single write statement on an aiosqlite connection."""
+    async with aget_connection() as conn:
+        await conn.execute(query, params or ())
+        await conn.commit()
