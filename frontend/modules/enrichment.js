@@ -29,6 +29,7 @@ async function _loadAll() {
     _applyStatus(status);
     await Promise.all([
         _loadTags(),
+        _loadVibeView(),
         _loadFailed(),
         _loadMissingList(),
     ]);
@@ -163,6 +164,60 @@ async function _loadTags() {
 
     if (total) total.textContent = `${data.total_unique.toLocaleString()} unique tags`;
     if (card)  card.style.display = '';
+}
+
+// ---------------------------------------------------------------------------
+// Vibe & context tag explorer
+// ---------------------------------------------------------------------------
+
+async function _loadVibeView() {
+    const card    = document.getElementById('enrich2-vibes-card');
+    const totalEl = document.getElementById('enrich2-vibes-total');
+    const ctxEl   = document.getElementById('enrich2-vibes-contexts');
+    const moodEl  = document.getElementById('enrich2-vibes-moods');
+    const recentEl= document.getElementById('enrich2-vibes-recent');
+    if (!card) return;
+
+    const data = await apiCall('/background-ai/vibes-explore').catch(() => null);
+    if (!data || !data.total_tagged) return;
+
+    if (totalEl) totalEl.textContent = `${data.total_tagged.toLocaleString()} tracks getagd`;
+
+    if (ctxEl && data.top_contexts?.length) {
+        const max = data.top_contexts[0].count;
+        ctxEl.innerHTML = data.top_contexts.map(c => {
+            const size = 11 + Math.round((c.count / max) * 9);
+            return `<span class="chip" style="font-size:${size}px;cursor:default;background:rgba(99,102,241,.12);color:#818cf8" title="${c.count} tracks">${escapeHtml(c.name)}</span>`;
+        }).join('');
+    }
+
+    if (moodEl && data.top_moods?.length) {
+        const max = data.top_moods[0].count;
+        moodEl.innerHTML = data.top_moods.map(m => {
+            const size = 11 + Math.round((m.count / max) * 9);
+            return `<span class="chip" style="font-size:${size}px;cursor:default;background:rgba(236,72,153,.10);color:#f472b6" title="${m.count} tracks">${escapeHtml(m.name)}</span>`;
+        }).join('');
+    }
+
+    if (recentEl && data.recent_tracks?.length) {
+        recentEl.innerHTML = data.recent_tracks.map(t => {
+            const allTags = [...(t.contexts || []), ...(t.moods || [])];
+            const tagHtml = allTags.map(tag =>
+                `<span class="chip" style="font-size:10px;padding:1px 6px;cursor:default">${escapeHtml(tag)}</span>`
+            ).join('');
+            return `
+                <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--color-border)">
+                    <div style="flex:1;min-width:0">
+                        <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(t.title || '')}</div>
+                        <div style="font-size:11px;color:var(--text-muted)">${escapeHtml(t.artist || '')}</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${tagHtml}</div>
+                    </div>
+                    <span style="font-size:10px;color:var(--text-muted);flex-shrink:0;padding-top:2px">${_fmtTime(t.updated_at)}</span>
+                </div>`;
+        }).join('');
+    }
+
+    card.style.display = '';
 }
 
 // ---------------------------------------------------------------------------

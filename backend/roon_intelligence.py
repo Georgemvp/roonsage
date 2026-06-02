@@ -148,6 +148,25 @@ class RoonIntelligenceMixin:
         state = zone.get("state", "stopped")
         now_playing: dict | None = zone.get("now_playing")
 
+        # Smart Queue Continuation: if the queue is at its last item (or
+        # empty) while the zone is playing, fire a continuation request.
+        # Fire-and-forget — never blocks the monitor.
+        try:
+            queue_items = zone.get("queue_items_remaining")
+            if queue_items is None:
+                # Roon-API exposes this via the api's "queue" key — fall back to
+                # checking now_playing's remaining tracks if available.
+                queue_items = (now_playing or {}).get("queue_items_remaining")
+            if state == "playing" and isinstance(queue_items, int) and queue_items <= 1:
+                _fire_queue_continuation(
+                    zone_id,
+                    zone.get("display_name", zone_id),
+                    int(queue_items),
+                    now_playing,
+                )
+        except Exception as _qe:
+            logger.debug("queue_ending detection skipped: %s", _qe)
+
         if not now_playing or state != "playing":
             # Zone stopped/paused — log whatever was playing
             prev = self._last_zone_states.pop(zone_id, None)
@@ -547,6 +566,39 @@ def _handle_sonic_radio_track_end(zone_id: str, prev: dict, *, skipped: bool) ->
     if session is None:
         return
     _fire_and_forget(_sonic_radio_track_end_async(session, prev, skipped))
+
+
+def _fire_queue_continuation(
+    zone_id: str,
+    zone_name: str | None,
+    remaining: int,
+    now_playing: dict | None,
+) -> None:
+    """Sync wrapper — schedules Smart Queue Continuation when applicable.
+
+    Also dispatches a QUEUE_ENDING automation event so user-defined
+    automations can react. Both are gated by feature flags inside their
+    own modules.
+    """
+    # Automation event (cheap)
+    try:
+        from backend.automation_engine import TriggerType, get_engine  # noqa: PLC0415
+        eng = get_engine()
+        if eng:
+            eng.on_event(TriggerType.QUEUE_ENDING, {
+                "zone_id": zone_id,
+                "zone_name": zone_name,
+                "remaining": remaining,
+            })
+    except Exception as _ae:
+        logger.debug("AutomationEngine QUEUE_ENDING event failed: %s", _ae)
+
+    # Built-in continuation feature
+    try:
+        from backend.queue_continuation import maybe_fire_continuation  # noqa: PLC0415
+    except Exception:
+        return
+    _fire_and_forget(maybe_fire_continuation(zone_id, zone_name, remaining, now_playing))
 
 
 async def _sonic_radio_track_end_async(session, prev: dict, skipped: bool) -> None:

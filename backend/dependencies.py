@@ -67,6 +67,7 @@ def _build_config_response(config, roon_client) -> ConfigResponse:
         defaults=config.defaults,
         ollama_url=config.llm.ollama_url,
         ollama_context_window=config.llm.ollama_context_window,
+        fast_model=config.llm.fast_model,
         custom_url=config.llm.custom_url,
         custom_context_window=config.llm.custom_context_window,
         is_local_provider=is_local,

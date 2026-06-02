@@ -287,6 +287,7 @@ export async function handleSaveSettings() {
     const ollamaUrl = document.getElementById('ollama-url').value.trim();
     const ollamaModelAnalysis = document.getElementById('ollama-model-analysis').value;
     const ollamaModelGeneration = document.getElementById('ollama-model-generation').value;
+    const ollamaModelFast = document.getElementById('ollama-model-fast')?.value ?? '';
 
     // Custom provider settings
     const customUrl = document.getElementById('custom-url').value.trim();
@@ -304,6 +305,7 @@ export async function handleSaveSettings() {
         if (ollamaUrl) updates.ollama_url = ollamaUrl;
         if (ollamaModelAnalysis) updates.model_analysis = ollamaModelAnalysis;
         if (ollamaModelGeneration) updates.model_generation = ollamaModelGeneration;
+        updates.fast_model = ollamaModelFast;
     } else if (llmProvider === 'custom') {
         // Validate custom provider inputs
         const validationErrors = validateCustomProviderInputs();

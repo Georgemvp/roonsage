@@ -387,6 +387,59 @@ async def get_template_suggestions() -> dict:
     }
 
 
+@router.get("/vibes-explore")
+async def vibes_explore() -> dict:
+    """Aggregate view of vibe tags: top contexts, top moods, recently tagged tracks."""
+    import json as _json  # noqa: PLC0415
+
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT tv.item_key, tv.contexts, tv.moods, tv.updated_at,
+                   t.title, t.artist
+              FROM track_vibes tv
+              JOIN tracks t ON t.item_key = tv.item_key
+             ORDER BY tv.updated_at DESC
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    ctx_counts: dict[str, int] = {}
+    mood_counts: dict[str, int] = {}
+    recent: list[dict] = []
+
+    for row in rows:
+        ctxs = _json.loads(row["contexts"] or "[]")
+        moods = _json.loads(row["moods"] or "[]")
+        for c in ctxs:
+            if c:
+                ctx_counts[c] = ctx_counts.get(c, 0) + 1
+        for m in moods:
+            if m:
+                mood_counts[m] = mood_counts.get(m, 0) + 1
+        if len(recent) < 30:
+            recent.append({
+                "item_key": row["item_key"],
+                "title": row["title"],
+                "artist": row["artist"],
+                "contexts": ctxs,
+                "moods": moods,
+                "updated_at": row["updated_at"],
+            })
+
+    top_contexts = sorted(ctx_counts.items(), key=lambda x: -x[1])[:25]
+    top_moods = sorted(mood_counts.items(), key=lambda x: -x[1])[:20]
+
+    return {
+        "total_tagged": len(rows),
+        "top_contexts": [{"name": k, "count": v} for k, v in top_contexts],
+        "top_moods": [{"name": k, "count": v} for k, v in top_moods],
+        "recent_tracks": recent,
+    }
+
+
 @router.post("/generate-template-suggestions")
 async def start_template_suggestions() -> dict:
     """Trigger template suggestion generation (fire-and-forget)."""

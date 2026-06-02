@@ -333,6 +333,8 @@ async def filter_tracks(
     artist_limit: int = 2,
     exclude_keywords: list[str] | None = None,
     include_taste_profile: bool = True,
+    vibe_contexts: list[str] | None = None,
+    vibe_moods: list[str] | None = None,
 ) -> str:
     """Filter the Roon library by genre, decade, and/or live-version exclusion.
 
@@ -379,6 +381,12 @@ async def filter_tracks(
                           signal — it removes the need for a separate
                           get_taste_profile call. Set to False for raw filtering
                           without taste bias.
+        vibe_contexts:    Filter by AI-generated listening context keywords, e.g.
+                          ["late night", "morning commute", "workout"]. Matched
+                          against the vibe-tagged context labels on each track.
+                          OR-combined with genre filter when both are given.
+        vibe_moods:       Filter by AI-generated mood keywords, e.g. ["melancholic",
+                          "euphoric", "energetic"]. OR-combined with vibe_contexts.
     """
     logger.info("FILTER_TRACKS: genres=%s decades=%s format=%s max=%d", genres, decades, output_format, max_tracks)
     # Default max_tracks for compact/ultra modes
@@ -396,6 +404,10 @@ async def filter_tracks(
         body["decades"] = decades
     if exclude_keywords:
         body["exclude_keywords"] = exclude_keywords
+    if vibe_contexts:
+        body["vibe_contexts"] = vibe_contexts
+    if vibe_moods:
+        body["vibe_moods"] = vibe_moods
 
     try:
         response = await _get_client().post(f"{ROONSAGE_URL}/api/library/filter", json=body)
@@ -4322,6 +4334,130 @@ async def sonic_radio_status() -> str:
     """List every active Sonic Radio session with their drift + skip stats."""
     logger.info("SONIC_RADIO_STATUS called")
     result = await _api_call("GET", "/api/sonic-radio/status")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
+# Circadian Auto-Playlists (v13.6) — distinct from the hourly /api/circadian
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_circadian_playlists() -> str:
+    """Return today's three auto-generated circadian playlists.
+
+    Each day at the configured schedule_hour (default 06:00), RoonSage
+    generates a morning, afternoon, and evening playlist sized to the
+    user's actual listening patterns at those hours. Returns each block's
+    title, track count, result_id, and the prompt that produced it.
+
+    Use this when the user asks "what did you make for me today?" or
+    "show me today's circadian set".
+    """
+    logger.info("GET_CIRCADIAN_PLAYLISTS called")
+    result = await _api_call("GET", "/api/circadian-auto/today")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def generate_circadian_playlists(track_count: int = 25, queue_morning_to_zone: str | None = None) -> str:
+    """Manually trigger the daily circadian set generation for today.
+
+    Builds (and persists) the morning / afternoon / evening playlists right
+    now, overwriting today's rows if they already exist. Optionally queues
+    the morning playlist to a Roon zone.
+
+    Args:
+        track_count:           Tracks per playlist (5-100, default 25).
+        queue_morning_to_zone: Optional Roon zone name (substring match).
+                               When set, the morning playlist is queued there.
+    """
+    logger.info("GENERATE_CIRCADIAN_PLAYLISTS: tracks=%d zone=%s", track_count, queue_morning_to_zone)
+    body: dict = {"track_count": track_count}
+    if queue_morning_to_zone:
+        body["queue_morning_to_zone"] = queue_morning_to_zone
+    result = await _api_call(
+        "POST", "/api/circadian-auto/generate", json=body, retryable=False
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
+# Smart Queue Continuation (v13.6)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def trigger_smart_continuation(
+    zone_name: str,
+    track_count: int = 12,
+    skip_cooldown: bool = False,
+) -> str:
+    """Manually trigger Smart Queue Continuation for a named Roon zone.
+
+    Looks at the zone's last 8-10 played tracks, computes their average
+    audio features (BPM, energy, valence) and Camelot keys, asks the local
+    LLM to write a continuation prompt, then appends ~12 sonically-adjacent
+    tracks to the queue.
+
+    Use this when the user says "keep this going", "extend the queue", or
+    "continue this mood". For zones with the feature enabled this fires
+    automatically when the queue nears empty.
+
+    Args:
+        zone_name:     Roon zone display name (e.g. "Living Room").
+        track_count:   How many tracks to append (default 12).
+        skip_cooldown: When True, bypasses the 30-minute per-zone cooldown.
+    """
+    logger.info("TRIGGER_SMART_CONTINUATION: zone=%s tracks=%d", zone_name, track_count)
+    zones_resp = await _api_call("GET", "/api/roon/zones")
+    if isinstance(zones_resp, str):
+        return zones_resp
+    zone_id: str | None = None
+    needle = zone_name.lower()
+    for z in zones_resp:
+        if isinstance(z, dict) and needle in (z.get("display_name", "") or "").lower():
+            zone_id = z.get("zone_id")
+            break
+    if not zone_id:
+        return f"Zone {zone_name!r} not found. Use list_zones to see available zones."
+
+    result = await _api_call(
+        "POST",
+        "/api/continuation/generate",
+        json={
+            "zone_id": zone_id,
+            "zone_name": zone_name,
+            "track_count": track_count,
+            "skip_cooldown": skip_cooldown,
+        },
+        retryable=False,
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
+# Listening Session Summaries (v13.6)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_listening_sessions(limit: int = 10) -> str:
+    """Return recent listening sessions with their AI-generated summaries.
+
+    A session is a contiguous stretch of playback bounded by a gap > 30 min
+    of silence. Each session card includes start/end time, zone, track
+    count, top genres, mood arc (ascending/descending/steady/...) and a
+    2-3 sentence summary written by the local LLM.
+
+    Use this when the user asks "what did I listen to yesterday?",
+    "summarize last night's session", or to surface their music journal.
+
+    Args:
+        limit: Max sessions to return (default 10, max 200).
+    """
+    logger.info("GET_LISTENING_SESSIONS: limit=%d", limit)
+    result = await _api_call("GET", "/api/sessions", params={"limit": limit})
     return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
 
 

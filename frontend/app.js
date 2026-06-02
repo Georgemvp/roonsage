@@ -491,6 +491,22 @@ async function loadHomePreview() {
             const el = document.getElementById('home-discovery-count');
             if (el) el.textContent = `${discovery.undiscovered_albums.length} undiscovered albums`;
         }
+
+        // Circadian Auto today
+        const circadianToday = await apiCall('/circadian-auto/today').catch(() => null);
+        const caEl = document.getElementById('home-circadian-auto-count');
+        if (caEl) {
+            const n = (circadianToday?.playlists || []).length;
+            caEl.textContent = n ? `${n}/3 vandaag` : 'Nog niet gegenereerd';
+        }
+
+        // Journal sessions count
+        const stats = await apiCall('/sessions/stats').catch(() => null);
+        const jEl = document.getElementById('home-journal-count');
+        if (jEl) {
+            const n = stats?.total_sessions || 0;
+            jEl.textContent = n ? `${n} sessies` : 'Nog geen sessies';
+        }
     } catch (e) {
         console.warn('Home preview load failed:', e);
     }

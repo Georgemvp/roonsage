@@ -926,6 +926,70 @@ def init_schema(conn: sqlite3.Connection) -> bool:
 
     conn.commit()
 
+    # -----------------------------------------------------------------------
+    # Circadian Auto-Playlists (v13.6) — 3 LLM-curated playlists per day
+    # generated at a configurable schedule_hour, biased by the user's taste
+    # profile listening_patterns. One row per (date, time_block).
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS circadian_playlists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            time_block TEXT NOT NULL,        -- 'morning' | 'afternoon' | 'evening'
+            prompt_used TEXT NOT NULL DEFAULT '',
+            result_id TEXT,                  -- FK to results.id (nullable on failure)
+            queued_to_zone TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(date, time_block)
+        );
+        CREATE INDEX IF NOT EXISTS idx_circadian_playlists_date
+            ON circadian_playlists(date DESC);
+    """)
+
+    # -----------------------------------------------------------------------
+    # Listening Session Summaries (v13.6) — auto-detected playback sessions
+    # (gap > 30 min terminates a session) with an LLM-generated summary.
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS listening_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT NOT NULL,
+            ended_at TEXT NOT NULL,
+            zone_name TEXT,
+            track_count INTEGER NOT NULL DEFAULT 0,
+            total_duration_minutes REAL NOT NULL DEFAULT 0,
+            genres_json TEXT NOT NULL DEFAULT '[]',
+            summary_text TEXT NOT NULL DEFAULT '',
+            mood_arc TEXT NOT NULL DEFAULT '',
+            standout_tracks_json TEXT NOT NULL DEFAULT '[]',
+            energy_curve_json TEXT NOT NULL DEFAULT '[]',
+            summarized INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_listening_sessions_ended
+            ON listening_sessions(ended_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_listening_sessions_summarized
+            ON listening_sessions(summarized, ended_at);
+    """)
+
+    # -----------------------------------------------------------------------
+    # Smart Queue Continuation cooldown ledger — last fired timestamp per
+    # zone so a flapping zone monitor can't spam the LLM.
+    # -----------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS queue_continuation_log (
+            zone_id TEXT PRIMARY KEY,
+            zone_name TEXT,
+            last_fired_at TEXT NOT NULL,
+            last_result_id TEXT,
+            last_track_count INTEGER NOT NULL DEFAULT 0,
+            last_status TEXT NOT NULL DEFAULT 'ok',
+            last_error TEXT
+        );
+    """)
+
+    conn.commit()
+
     # stable_id: content-based track identity that survives Roon item_key churn
     # (see backend/stable_id.py). Additive columns + one-shot in-place backfill
     # from the CURRENT item_keys while they still match the cached derived rows.

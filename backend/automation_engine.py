@@ -48,6 +48,7 @@ class TriggerType(StrEnum):
     LB_SYNCED = "lb_synced"
     WATCHLIST_MATCH = "watchlist_match"
     CLUSTERING_COMPLETE = "clustering_complete"
+    QUEUE_ENDING = "queue_ending"
 
 
 class ActionType(StrEnum):
@@ -63,6 +64,8 @@ class ActionType(StrEnum):
     RUN_ALCHEMY_PROFILE = "run_alchemy_profile"
     SURPRISE_ME = "surprise_me"
     CIRCADIAN_PLAYLIST = "circadian_playlist"
+    GENERATE_CIRCADIAN_SET = "generate_circadian_set"
+    SMART_CONTINUATION = "smart_continuation"
 
 
 # ---------------------------------------------------------------------------
@@ -572,6 +575,55 @@ async def _exec_circadian_playlist(config: dict) -> str:
     )
 
 
+async def _exec_generate_circadian_set(config: dict) -> str:
+    """Run the daily 3-playlist circadian generator.
+
+    Config:
+      - track_count (int, default 25)
+      - zone_name (str, optional — overrides settings)
+      - queue_morning (bool, optional — overrides settings)
+    """
+    from backend import circadian_auto  # noqa: PLC0415
+    from backend.config import get_circadian_auto_config  # noqa: PLC0415
+
+    cfg = get_circadian_auto_config()
+    track_count = int(config.get("track_count") or cfg.get("track_count") or 25)
+    zone = config.get("zone_name") or config.get("zone") or (
+        cfg.get("zone") if (config.get("queue_morning") if "queue_morning" in config else cfg.get("queue_morning"))
+        else None
+    )
+
+    results = await circadian_auto.run_daily_circadian(
+        queue_morning_to_zone=zone or None,
+        track_count=track_count,
+    )
+    ok = sum(1 for r in results if not r.get("error"))
+    return f"Circadian daily set: {ok}/{len(results)} blocks generated"
+
+
+async def _exec_smart_continuation(config: dict) -> str:
+    """Trigger smart continuation for a configured zone.
+
+    Config:
+      - zone_id (str, required)
+      - zone_name (str, optional)
+      - track_count (int, optional)
+      - skip_cooldown (bool, default False)
+    """
+    from backend import queue_continuation  # noqa: PLC0415
+
+    zone_id = config.get("zone_id")
+    if not zone_id:
+        raise ValueError("smart_continuation action requires zone_id")
+    result = await queue_continuation.trigger_continuation(
+        zone_id,
+        zone_name=config.get("zone_name") or config.get("zone"),
+        track_count=config.get("track_count"),
+        skip_cooldown=bool(config.get("skip_cooldown", False)),
+    )
+    return f"Smart continuation -> {result.get('status')} ({result.get('track_count', 0)} tracks)"
+
+
 _ACTION_EXECUTORS = {
     ActionType.GENERATE_PLAYLIST: _exec_generate_playlist,
     ActionType.PLAY_TEMPLATE: _exec_play_template,
@@ -585,6 +637,8 @@ _ACTION_EXECUTORS = {
     ActionType.RUN_ALCHEMY_PROFILE: _exec_run_alchemy_profile,
     ActionType.SURPRISE_ME: _exec_surprise_me,
     ActionType.CIRCADIAN_PLAYLIST: _exec_circadian_playlist,
+    ActionType.GENERATE_CIRCADIAN_SET: _exec_generate_circadian_set,
+    ActionType.SMART_CONTINUATION: _exec_smart_continuation,
 }
 
 

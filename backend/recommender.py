@@ -445,7 +445,7 @@ class RecommendationPipeline:
             f"Which genres and decades are relevant?"
         )
 
-        response = self.llm_client.generate_sync(user_prompt, system)
+        response = self.llm_client.generate_fast_sync(user_prompt, system)
         self._log_cost("prompt_filter_analysis", response, "n/a")
 
         raw = self.llm_client.parse_json_response(response)

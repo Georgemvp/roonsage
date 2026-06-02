@@ -1033,6 +1033,7 @@ export async function checkOllamaStatus(url) {
 export async function populateOllamaModelDropdowns(url) {
     const analysisSelect = document.getElementById('ollama-model-analysis');
     const generationSelect = document.getElementById('ollama-model-generation');
+    const fastSelect = document.getElementById('ollama-model-fast');
 
     try {
         const response = await fetchOllamaModels(url);
@@ -1044,13 +1045,16 @@ export async function populateOllamaModelDropdowns(url) {
         const models = response.models || [];
         const options = models.map(m => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join('');
         const defaultOption = '<option value="">-- Select model --</option>';
+        const noneOption = '<option value="">(zelfde als generatie)</option>';
 
         analysisSelect.innerHTML = defaultOption + options;
         generationSelect.innerHTML = defaultOption + options;
+        if (fastSelect) fastSelect.innerHTML = noneOption + options;
 
         // Enable the dropdowns
         analysisSelect.disabled = false;
         generationSelect.disabled = false;
+        if (fastSelect) fastSelect.disabled = false;
 
         // Restore saved model selections from config
         if (state.config?.model_analysis) {
@@ -1058,6 +1062,25 @@ export async function populateOllamaModelDropdowns(url) {
         }
         if (state.config?.model_generation) {
             generationSelect.value = state.config.model_generation;
+        }
+        if (fastSelect && state.config?.fast_model) {
+            fastSelect.value = state.config.fast_model;
+        }
+
+        // Auto-save fast_model on change
+        if (fastSelect && !fastSelect.dataset.autoSaveWired) {
+            fastSelect.dataset.autoSaveWired = '1';
+            fastSelect.addEventListener('change', async () => {
+                try {
+                    await updateConfig({ fast_model: fastSelect.value });
+                    state.config = state.config || {};
+                    state.config.fast_model = fastSelect.value;
+                    const lbl = fastSelect.value || '(zelfde als generatie)';
+                    fastSelect.title = `Opgeslagen: ${lbl}`;
+                } catch (e) {
+                    console.error('fast_model save failed', e);
+                }
+            });
         }
 
         // If neither model is configured and models are available, default both to first model

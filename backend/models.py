@@ -130,6 +130,7 @@ class LLMConfig(BaseModel):
     # Local provider settings
     ollama_url: str = "http://localhost:11434"
     ollama_context_window: int = 32768  # Detected from model, can be overridden
+    fast_model: str = ""  # Optional fast/small model for background tasks (empty = use model_generation)
     custom_url: str = ""
     custom_context_window: int = 32768
 
@@ -274,6 +275,8 @@ class FilterLibraryRequest(BaseModel):
     valence_min: float | None = None
     valence_max: float | None = None
     instrumentalness_min: float | None = None
+    vibe_contexts: list[str] | None = None
+    vibe_moods: list[str] | None = None
 
 
 class FilterLibraryResponse(BaseModel):
@@ -695,6 +698,7 @@ class ConfigResponse(BaseModel):
     # Local provider fields
     ollama_url: str = "http://localhost:11434"
     ollama_context_window: int = 32768
+    fast_model: str = ""
     custom_url: str = ""
     custom_context_window: int = 32768
     is_local_provider: bool = False
@@ -720,6 +724,7 @@ class UpdateConfigRequest(BaseModel):
     llm_api_key: str | None = None
     model_analysis: str | None = None
     model_generation: str | None = None
+    fast_model: str | None = None
     # Local provider fields
     ollama_url: str | None = None
     ollama_context_window: int | None = None

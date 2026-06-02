@@ -24,9 +24,11 @@ export const VIEW_MODULES = {
     'song-paths':  () => import('./song-paths.js').then(m => m.initSongPathsView()),
     'alchemy':     () => import('./alchemy.js').then(m => m.initAlchemyView()),
     'circadian':   () => import('./circadian.js').then(m => m.initCircadianView()),
+    'circadian-auto': () => import('./circadian-auto.js').then(m => m.initCircadianAutoView()),
     'clap-search': () => import('./clap-search.js').then(m => m.initClapSearchView()),
     'lyrics-search': () => import('./lyrics-search.js').then(m => m.initLyricsSearchView()),
     'sonic-fingerprint': () => import('./sonic-fingerprint.js').then(m => m.initSonicFingerprintView()),
+    'journal':     () => import('./journal.js').then(m => m.initJournalView()),
 };
 
 export const HASH_TO_VIEW = {
@@ -47,9 +49,11 @@ export const HASH_TO_VIEW = {
     'song-paths': 'song-paths',
     'alchemy': 'alchemy',
     'circadian': 'circadian',
+    'circadian-auto': 'circadian-auto',
     'clap-search': 'clap-search',
     'lyrics-search': 'lyrics-search',
     'sonic-fingerprint': 'sonic-fingerprint',
+    'journal': 'journal',
     // Backward compat
     'make-playlist': 'create',
 };
@@ -74,9 +78,11 @@ export const VIEW_TO_HASH = {
     'song-paths': 'song-paths',
     'alchemy': 'alchemy',
     'circadian': 'circadian',
+    'circadian-auto': 'circadian-auto',
     'clap-search': 'clap-search',
     'lyrics-search': 'lyrics-search',
     'sonic-fingerprint': 'sonic-fingerprint',
+    'journal': 'journal',
 };
 
 export function hashForCurrentState() {

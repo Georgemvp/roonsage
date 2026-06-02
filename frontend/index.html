@@ -164,6 +164,14 @@
                         <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/></svg></span>
                         <span>Enrichment</span>
                     </button>
+                    <button class="rs-nav-item" data-nav="journal" aria-label="Journal">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2h7l3 3v9H3z"/><path d="M5 6h6M5 9h6M5 12h4"/></svg></span>
+                        <span>Journal</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="circadian-auto" aria-label="Vandaag">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l3 1.5"/><path d="M4 8h.01M12 8h.01M8 4h.01M8 12h.01"/></svg></span>
+                        <span>Vandaag</span>
+                    </button>
                 </div>
 
                 <!-- Tasks -->
@@ -587,6 +595,26 @@
                             <div class="rs-feature-title card-title">Enrichment</div>
                             <div class="rs-feature-desc card-desc">Enrich your library with MusicBrainz and Last.fm metadata</div>
                             <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-enrich-count">—</span></div>
+                        </button>
+
+                        <!-- Card 11: Vandaag — Circadian Auto-Playlists (amber) -->
+                        <button class="rs-feature-card feature-card feature-card--amber" data-nav="circadian-auto">
+                            <div class="rs-feature-icon card-icon card-icon--amber">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg>
+                            </div>
+                            <div class="rs-feature-title card-title">Vandaag</div>
+                            <div class="rs-feature-desc card-desc">Drie playlists per dag, automatisch afgestemd op jouw luisterpatroon</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--amber"></span><span id="home-circadian-auto-count">—</span></div>
+                        </button>
+
+                        <!-- Card 12: Journal — Listening Session Summaries (teal) -->
+                        <button class="rs-feature-card feature-card feature-card--teal" data-nav="journal">
+                            <div class="rs-feature-icon card-icon card-icon--teal">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12l4 4v12H4z"/><path d="M16 4v4h4"/><path d="M7 12h10M7 16h7"/></svg>
+                            </div>
+                            <div class="rs-feature-title card-title">Journal</div>
+                            <div class="rs-feature-desc card-desc">Muziekdagboek met AI-samenvattingen van je luistersessies</div>
+                            <div class="card-preview"><span class="card-preview-dot card-preview-dot--teal"></span><span id="home-journal-count">—</span></div>
                         </button>
                     </div>
 
@@ -1829,6 +1857,23 @@
                     <div id="enrich2-tags-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
                 </div>
 
+                <!-- Vibe & Context Tags -->
+                <div class="rs-settings-card" id="enrich2-vibes-card" style="display:none">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px">
+                        <h3 class="rs-settings-card-title" style="margin:0">AI Vibe Tags</h3>
+                        <span id="enrich2-vibes-total" style="font-size:12px;color:var(--text-muted)"></span>
+                    </div>
+
+                    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:8px">Contexts</div>
+                    <div id="enrich2-vibes-contexts" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px"></div>
+
+                    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:8px">Moods</div>
+                    <div id="enrich2-vibes-moods" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px"></div>
+
+                    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:8px">Recently Tagged</div>
+                    <div id="enrich2-vibes-recent" style="max-height:320px;overflow-y:auto"></div>
+                </div>
+
                 <!-- Failed tracks -->
                 <div class="rs-settings-card" id="enrich2-failed-card" style="display:none">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -2251,6 +2296,34 @@
                 <div id="circadian-results" class="circadian-results"></div>
             </div>
 
+            <!-- Vandaag (Circadian Auto-Playlist) View -->
+            <div id="circadian-auto-view" class="view">
+                <header class="rs-disc-hero rs-reveal" style="text-align:left;padding:24px;">
+                    <h1 style="margin:0;font-size:1.8rem;">Vandaag</h1>
+                    <p style="color:var(--text-muted);margin-top:6px;">Drie playlists die elke ochtend automatisch worden samengesteld op basis van wat je doorgaans op dat moment van de dag luistert.</p>
+                    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;">
+                        <button id="circadian-auto-generate-btn" class="btn btn-primary btn-sm">Genereer nu</button>
+                        <button id="circadian-auto-settings-btn" class="btn btn-secondary btn-sm">Instellingen</button>
+                    </div>
+                </header>
+                <div id="circadian-auto-blocks" class="circadian-auto-blocks" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;padding:0 24px 24px;"></div>
+                <div id="circadian-auto-settings" class="circadian-auto-settings" style="padding:0 24px 24px;display:none;"></div>
+            </div>
+
+            <!-- Journal (Listening Session Summaries) View -->
+            <div id="journal-view" class="view">
+                <header class="rs-disc-hero rs-reveal" style="text-align:left;padding:24px;">
+                    <h1 style="margin:0;font-size:1.8rem;">Journal</h1>
+                    <p style="color:var(--text-muted);margin-top:6px;">Een muziekdagboek dat zichzelf bijhoudt. Elke luistersessie krijgt automatisch een korte samenvatting van de AI.</p>
+                    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                        <button id="journal-refresh-btn" class="btn btn-primary btn-sm">Vernieuwen</button>
+                        <button id="journal-detect-btn" class="btn btn-secondary btn-sm">Sessies detecteren</button>
+                        <span id="journal-stats" style="color:var(--text-muted);font-size:13px;"></span>
+                    </div>
+                </header>
+                <div id="journal-feed" class="journal-feed" style="display:flex;flex-direction:column;gap:14px;padding:0 24px 24px;"></div>
+            </div>
+
             <!-- CLAP Search View (Stitch: Sonic Match) -->
             <div id="clap-search-view" class="view">
                 <div class="rs-disc-hero rs-reveal">
@@ -2481,6 +2554,12 @@
                             <label for="ollama-model-generation">Generation Model</label>
                             <select id="ollama-model-generation" disabled>
                                 <option value="">-- Select model --</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="ollama-model-fast">Fast Model <span style="color:var(--text-muted);font-size:11px;">(achtergrondtaken: vibe tagging, sessies, circadian prompt)</span></label>
+                            <select id="ollama-model-fast" disabled>
+                                <option value="">(zelfde als generatie)</option>
                             </select>
                         </div>
                         <div class="form-group">

@@ -22,6 +22,7 @@ from backend.routes.automations import router as automations_router
 from backend.routes.background_ai_routes import router as background_ai_router
 from backend.routes.background_tasks import router as background_tasks_router
 from backend.routes.circadian import router as circadian_router
+from backend.routes.circadian_auto import router as circadian_auto_router
 from backend.routes.clap_search import router as clap_search_router
 from backend.routes.clustering import router as clustering_router
 from backend.routes.discovery import router as discovery_router
@@ -34,7 +35,9 @@ from backend.routes.mood import router as mood_router
 from backend.routes.notifications import router as notifications_router
 from backend.routes.playback_intelligence import router as playback_intelligence_router
 from backend.routes.qobuz_playlist import router as qobuz_playlist_router
+from backend.routes.queue_continuation import router as queue_continuation_router
 from backend.routes.scheduler import router as scheduler_router
+from backend.routes.sessions import router as sessions_router
 from backend.routes.song_path import router as song_path_router
 from backend.routes.sonic_fingerprint import router as sonic_fingerprint_router
 from backend.routes.sonic_radio import router as sonic_radio_router
@@ -209,6 +212,9 @@ app.include_router(clustering_router)
 app.include_router(song_path_router)
 app.include_router(alchemy_router)
 app.include_router(circadian_router)
+app.include_router(circadian_auto_router)
+app.include_router(queue_continuation_router)
+app.include_router(sessions_router)
 app.include_router(clap_search_router)
 app.include_router(lyrics_router)
 app.include_router(mood_router)

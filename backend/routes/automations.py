@@ -113,6 +113,12 @@ _BUILT_IN_PRESETS = [
         "trigger": {"type": "schedule", "cron": "0 12 * * *"},
         "action": {"type": "scan_watchlist"},
     },
+    {
+        "name": "Daily circadian playlists at 6am",
+        "description": "Generate morning, afternoon and evening playlists each day at 06:00",
+        "trigger": {"type": "schedule", "cron": "0 6 * * *"},
+        "action": {"type": "generate_circadian_set", "track_count": 25},
+    },
 ]
 
 

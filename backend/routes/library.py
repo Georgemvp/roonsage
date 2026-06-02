@@ -293,6 +293,8 @@ async def filter_library_tracks(request: FilterLibraryRequest) -> FilterLibraryR
         valence_min=request.valence_min,
         valence_max=request.valence_max,
         instrumentalness_min=request.instrumentalness_min,
+        vibe_contexts=request.vibe_contexts,
+        vibe_moods=request.vibe_moods,
     )
 
     # --- Wijziging 3: exclude-keywords filter ---

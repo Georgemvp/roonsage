@@ -493,6 +493,78 @@ async def start_background_tasks(app: FastAPI) -> None:
 
     _add_task(_db_backup_loop(), "db_backup")
 
+    # ── Circadian Auto-Playlists (v13.6) ──────────────────────────────
+    # Runs the 3-playlist generator once per day at the configured
+    # schedule_hour. Each tick checks the local hour and skips if it
+    # isn't time yet; uses a date-stamped sentinel to avoid double-fires.
+    async def _circadian_auto_loop() -> None:
+        import datetime as _dt  # noqa: PLC0415
+
+        from backend import circadian_auto  # noqa: PLC0415
+        from backend.config import get_circadian_auto_config  # noqa: PLC0415
+
+        last_run_date: str | None = None
+        await asyncio.sleep(120)  # let library + taste profile warm up
+        while True:
+            try:
+                cfg = get_circadian_auto_config()
+                if cfg["enabled"]:
+                    now = _dt.datetime.now()
+                    today = now.date().isoformat()
+                    if now.hour >= cfg["schedule_hour"] and last_run_date != today:
+                        logger.info("Circadian auto: triggering daily run for %s", today)
+                        zone = cfg["zone"] if cfg["queue_morning"] and cfg["zone"] else None
+                        await circadian_auto.run_daily_circadian(
+                            queue_morning_to_zone=zone,
+                            track_count=cfg["track_count"],
+                            skip_existing=True,
+                        )
+                        last_run_date = today
+            except Exception as exc:
+                logger.warning("Circadian auto loop error: %s", exc)
+            await asyncio.sleep(15 * 60)  # check every 15 min
+
+    _add_task(_circadian_auto_loop(), "circadian_auto_loop")
+    logger.info("Circadian auto-playlist loop scheduled (15-min checks)")
+
+    # ── Listening Session detection (v13.6) ───────────────────────────
+    async def _session_detect_loop() -> None:
+        from backend import session_summarizer  # noqa: PLC0415
+        from backend.config import get_session_summary_config  # noqa: PLC0415
+
+        await asyncio.sleep(180)
+        while True:
+            try:
+                cfg = get_session_summary_config()
+                if cfg["enabled"]:
+                    await asyncio.to_thread(session_summarizer.detect_sessions)
+            except Exception as exc:
+                logger.warning("Session detect loop error: %s", exc)
+            await asyncio.sleep(5 * 60)
+
+    _add_task(_session_detect_loop(), "session_detect_loop")
+
+    # ── Listening Session summarisation (v13.6) ───────────────────────
+    # Trickle: at most 1 summary per minute via the shared LLM semaphore.
+    # Idle-friendly: only summarises when background AI is enabled.
+    async def _session_summarize_loop() -> None:
+        from backend import session_summarizer  # noqa: PLC0415
+        from backend.config import get_session_summary_config  # noqa: PLC0415
+        from backend.llm_client import is_background_ai_enabled  # noqa: PLC0415
+
+        await asyncio.sleep(240)
+        while True:
+            try:
+                cfg = get_session_summary_config()
+                if cfg["enabled"] and is_background_ai_enabled():
+                    await session_summarizer.summarize_pending_sessions(limit=5)
+            except Exception as exc:
+                logger.warning("Session summarize loop error: %s", exc)
+            await asyncio.sleep(10 * 60)
+
+    _add_task(_session_summarize_loop(), "session_summarize_loop")
+    logger.info("Listening session detection + summarisation loops scheduled")
+
     # LLM response cache: purge expired entries every 6 hours
     async def _llm_cache_purge_loop() -> None:
         from backend import llm_cache  # noqa: PLC0415

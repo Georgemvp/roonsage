@@ -277,7 +277,7 @@ class LLMClient:
         correctly. Forces JSON output mode and passes num_ctx explicitly so
         the full model context window is always available.
         """
-        logger.info("Calling Ollama /api/chat with %d char prompt (temp=%.1f)", len(prompt), temperature)
+        logger.info("Calling Ollama /api/chat [%s] with %d char prompt (temp=%.1f)", model, len(prompt), temperature)
         ollama_url = self.config.ollama_url.rstrip("/")
 
         if self._ollama_client is None:
@@ -365,6 +365,15 @@ class LLMClient:
             model = self.config.model_generation
         return await self._complete(prompt, system, model, temperature=0.2)
 
+    async def generate_fast(self, prompt: str, system: str) -> LLMResponse:
+        """Use the fast/small model for lightweight background tasks.
+
+        Falls back to the generation model when no fast_model is configured.
+        Temperature 0.2 for consistent JSON output.
+        """
+        model = self.config.fast_model or self.config.model_generation
+        return await self._complete(prompt, system, model, temperature=0.2)
+
     # ------------------------------------------------------------------
     # Sync wrappers — for callers that run in a thread (e.g. recommender.py
     # via asyncio.to_thread).  They start a fresh event loop per call which
@@ -378,6 +387,10 @@ class LLMClient:
     def generate_sync(self, prompt: str, system: str) -> LLMResponse:
         """Sync wrapper around :meth:`generate` for thread-pool callers."""
         return asyncio.run(self.generate(prompt, system))
+
+    def generate_fast_sync(self, prompt: str, system: str) -> LLMResponse:
+        """Sync wrapper around :meth:`generate_fast` for thread-pool callers."""
+        return asyncio.run(self.generate_fast(prompt, system))
 
     # ------------------------------------------------------------------
     # JSON parsing helpers (stateless — no async needed)

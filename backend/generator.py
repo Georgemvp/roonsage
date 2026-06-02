@@ -130,6 +130,8 @@ def _get_tracks_from_cache_or_roon(
     decades: list[str] | None,
     exclude_live: bool,
     max_tracks_to_ai: int,
+    vibe_contexts: list[str] | None = None,
+    vibe_moods: list[str] | None = None,
 ) -> list[Track]:
     """Get tracks from cache if available, otherwise from Roon.
 
@@ -145,6 +147,8 @@ def _get_tracks_from_cache_or_roon(
         cached_tracks = library_cache.get_tracks_by_filters(
             genres=genres,
             decades=decades,
+            vibe_contexts=vibe_contexts,
+            vibe_moods=vibe_moods,
             exclude_live=exclude_live,
             limit=effective_limit,
         )
@@ -183,6 +187,8 @@ async def generate_playlist_stream(
     refinement_answers: list[str | None] | None = None,
     genres: list[str] | None = None,
     decades: list[str] | None = None,
+    vibe_contexts: list[str] | None = None,
+    vibe_moods: list[str] | None = None,
     track_count: int = 25,
     exclude_live: bool = True,
     max_tracks_to_ai: int = 500,
@@ -253,6 +259,8 @@ async def generate_playlist_stream(
                     roon_client=roon_client,
                     genres=genres,
                     decades=decades,
+                    vibe_contexts=vibe_contexts,
+                    vibe_moods=vibe_moods,
                     exclude_live=exclude_live,
                     max_tracks_to_ai=max_tracks_to_ai,
                 )
@@ -317,12 +325,31 @@ async def generate_playlist_stream(
                     len(_mood_tags) / max(len(_keys), 1) * 100,
                 )
 
+            # Vibe tags (contexts + moods) from the background AI tagger.
+            try:
+                from backend.db import get_connection
+                from backend.tracks import get_vibe_tags_for_keys
+                with get_connection() as _vibe_conn:
+                    _vibe_tags = get_vibe_tags_for_keys(_vibe_conn, _keys)
+            except Exception:
+                _vibe_tags = {}
+            if _vibe_tags:
+                logger.info(
+                    "Vibe tag coverage: %d/%d tracks (%.0f%%)",
+                    len(_vibe_tags), len(_keys),
+                    len(_vibe_tags) / max(len(_keys), 1) * 100,
+                )
+
             def _fmt_track(i: int, t) -> str:  # type: ignore[no-untyped-def]
                 base = f"{i+1}. {t.artist} - {t.title} ({t.album}, {t.year or 'Unknown year'})"
                 tags: list[str] = list(_enriched_tags.get(t.item_key, []))
                 for m in _mood_tags.get(t.item_key, []):
                     if m and m not in tags:
                         tags.append(m)
+                vibe = _vibe_tags.get(t.item_key, {})
+                for v in vibe.get("contexts", [])[:2] + vibe.get("moods", [])[:1]:
+                    if v and v not in tags:
+                        tags.append(v)
                 if tags:
                     return f"{base} [{', '.join(tags)}]"
                 return base

@@ -275,6 +275,12 @@ def load_config(config_path: Path | None = None) -> AppConfig:
             provider_defaults["generation"],
         )
 
+    fast_model = get_env_or_yaml(
+        "LLM_FAST_MODEL",
+        llm_yaml.get("fast_model"),
+        "",
+    )
+
     llm_config = LLMConfig(
         provider=provider,
         api_key=api_key,
@@ -283,6 +289,7 @@ def load_config(config_path: Path | None = None) -> AppConfig:
         smart_generation=llm_yaml.get("smart_generation", False),
         ollama_url=ollama_url,
         ollama_context_window=ollama_context_window,
+        fast_model=fast_model,
         custom_url=custom_url,
         custom_context_window=custom_context_window,
     )
@@ -614,6 +621,93 @@ def get_lyrics_use_onnx() -> bool:
     return _env_bool("LYRICS_USE_ONNX", True)
 
 
+# ---------------------------------------------------------------------------
+# Circadian Auto-Playlists (v13.6) — three-times-a-day generation
+# ---------------------------------------------------------------------------
+
+
+def get_circadian_auto_config() -> dict[str, Any]:
+    """Settings for the daily 3-playlist generator (morning/afternoon/evening).
+
+    Reads from data/config.user.yaml under the ``circadian_playlists`` key.
+    """
+    user_cfg = load_user_yaml_config()
+    cp = user_cfg.get("circadian_playlists", {}) or {}
+    return {
+        "enabled":       bool(cp.get("enabled", False)),
+        "zone":          str(cp.get("zone", "") or ""),
+        "schedule_hour": int(cp.get("schedule_hour", 6)),
+        "track_count":   int(cp.get("track_count", 25)),
+        "queue_morning": bool(cp.get("queue_morning", False)),
+    }
+
+
+def save_circadian_auto_config(updates: dict[str, Any]) -> None:
+    """Persist circadian auto-playlist settings."""
+    keep = {}
+    for key in ("enabled", "zone", "schedule_hour", "track_count", "queue_morning"):
+        if key in updates:
+            keep[key] = updates[key]
+    if keep:
+        save_user_config({"circadian_playlists": keep})
+
+
+# ---------------------------------------------------------------------------
+# Smart Queue Continuation (v13.6) — auto-extend queue when ending
+# ---------------------------------------------------------------------------
+
+
+def get_queue_continuation_config() -> dict[str, Any]:
+    """Settings for the auto-queue-extension feature."""
+    user_cfg = load_user_yaml_config()
+    sc = user_cfg.get("smart_continuation", {}) or {}
+    raw_zones = sc.get("zones") or []
+    if isinstance(raw_zones, str):
+        raw_zones = [z.strip() for z in raw_zones.split(",") if z.strip()]
+    return {
+        "enabled":           bool(sc.get("enabled", False)),
+        "track_count":       int(sc.get("track_count", 12)),
+        "zones":             list(raw_zones),
+        "cooldown_seconds":  int(sc.get("cooldown_seconds", 1800)),
+        "bpm_window":        int(sc.get("bpm_window", 10)),
+    }
+
+
+def save_queue_continuation_config(updates: dict[str, Any]) -> None:
+    keep = {}
+    for key in ("enabled", "track_count", "zones", "cooldown_seconds", "bpm_window"):
+        if key in updates:
+            keep[key] = updates[key]
+    if keep:
+        save_user_config({"smart_continuation": keep})
+
+
+# ---------------------------------------------------------------------------
+# Listening Session Summaries (v13.6)
+# ---------------------------------------------------------------------------
+
+
+def get_session_summary_config() -> dict[str, Any]:
+    """Settings for the auto-journal of listening sessions."""
+    user_cfg = load_user_yaml_config()
+    s = user_cfg.get("session_summaries", {}) or {}
+    return {
+        "enabled":            bool(s.get("enabled", True)),
+        "gap_minutes":        int(s.get("gap_minutes", 30)),
+        "min_tracks":         int(s.get("min_tracks", 3)),
+        "delay_minutes":      int(s.get("delay_minutes", 5)),
+    }
+
+
+def save_session_summary_config(updates: dict[str, Any]) -> None:
+    keep = {}
+    for key in ("enabled", "gap_minutes", "min_tracks", "delay_minutes"):
+        if key in updates:
+            keep[key] = updates[key]
+    if keep:
+        save_user_config({"session_summaries": keep})
+
+
 def is_llm_provider_from_env() -> bool:
     """True when LLM_PROVIDER is set as an environment variable."""
     return os.environ.get("LLM_PROVIDER") is not None
@@ -678,6 +772,8 @@ def update_config_values(updates: dict[str, Any]) -> AppConfig:
         llm_updates["model_analysis"] = updates["model_analysis"]
     if "model_generation" in updates and updates["model_generation"]:
         llm_updates["model_generation"] = updates["model_generation"]
+    if "fast_model" in updates and updates["fast_model"] is not None:
+        llm_updates["fast_model"] = updates["fast_model"]  # allow clearing with ""
 
     # Local provider settings
     if "ollama_url" in updates and updates["ollama_url"]:

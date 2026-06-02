@@ -9,18 +9,34 @@ async function fetchCircadianTracks(hour, count) {
     return unique.slice(0, count);
 }
 
+const BLOCK_META = {
+    morning:   { label: 'Ochtend',  icon: 'wb_sunny',   hours: '06–12' },
+    afternoon: { label: 'Middag',   icon: 'wb_cloudy',  hours: '12–18' },
+    evening:   { label: 'Avond',    icon: 'nights_stay', hours: '18–24' },
+};
+
 let _profile = null;
 let _count = 25;
+let _todayPlaylists = [];
 
 export function render() {
     const hour = new Date().getHours();
     return `
     <div class="px-margin-mobile pt-md pb-xl flex flex-col gap-lg">
         <section class="flex flex-col gap-base">
-            <h1 class="font-headline-lg-mobile text-headline-lg-mobile text-text-primary">Circadian Rhythm</h1>
-            <p class="font-body-sm text-body-sm text-text-muted">Muziek afgestemd op je luisterpatroon per uur van de dag.</p>
+            <h1 class="font-headline-lg-mobile text-headline-lg-mobile text-text-primary">Circadian</h1>
+            <p class="font-body-sm text-body-sm text-text-muted">AI-gemaakte playlists voor ochtend, middag en avond — plus muziek afgestemd op dit uur.</p>
         </section>
 
+        <!-- Today's AI playlists -->
+        <section class="flex flex-col gap-sm">
+            <h2 class="font-label-caps text-label-caps text-text-muted">VANDAAG</h2>
+            <div id="circ-today" class="flex flex-col gap-sm">
+                <p class="font-body-sm text-body-sm text-text-muted px-xs">Playlists laden…</p>
+            </div>
+        </section>
+
+        <!-- Audio-feature hourly profile -->
         <section id="circ-vibe" class="glass-panel rounded-xl p-md flex items-center justify-between">
             <div class="space-y-base">
                 <p class="font-label-caps text-label-caps text-text-muted">HUIDIG UUR • ${String(hour).padStart(2, '0')}:00</p>
@@ -40,12 +56,12 @@ export function render() {
             </div>
             <button id="circ-play" class="w-full py-md rounded-full viola-gradient text-on-primary font-title-md text-title-md flex items-center justify-center gap-xs active:scale-95 transition-transform">
                 <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">play_arrow</span>
-                Speel nu
+                Speel dit uur
             </button>
         </section>
 
         <section class="flex flex-col gap-sm">
-            <h2 class="font-title-md text-title-md text-text-primary">Preview</h2>
+            <h2 class="font-title-md text-title-md text-text-primary">Preview dit uur</h2>
             <div id="circ-preview" class="flex flex-col gap-xs"><p class="font-body-sm text-body-sm text-text-muted">Tracks voor dit uur verschijnen hier.</p></div>
         </section>
     </div>`;
@@ -69,9 +85,127 @@ export async function mount(root) {
     const playBtn = root.querySelector('#circ-play');
     if (playBtn) playBtn.addEventListener('click', () => play(playBtn));
 
-    _profile = await apiCall('/circadian/profile').catch(() => null);
-    renderVibe();
+    loadTodayPlaylists();
     loadPreview();
+    apiCall('/circadian/profile').catch(() => null).then((p) => { _profile = p; renderVibe(); });
+}
+
+async function loadTodayPlaylists() {
+    const el = document.getElementById('circ-today');
+    if (!el) return;
+    const data = await apiCall('/circadian-auto/today').catch(() => null);
+    const playlists = data?.playlists || [];
+    _todayPlaylists = playlists;
+
+    if (!playlists.length) {
+        el.innerHTML = `<p class="font-body-sm text-body-sm text-text-muted px-xs">Nog geen playlists voor vandaag gegenereerd.</p>`;
+        return;
+    }
+
+    const hour = new Date().getHours();
+    const activeBlock = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+
+    el.innerHTML = playlists.map((p) => {
+        const meta = BLOCK_META[p.time_block] || { label: p.time_block, icon: 'music_note', hours: '' };
+        const isActive = p.time_block === activeBlock;
+        const trackCount = p.track_count ?? 0;
+        const art = p.art_item_key ? `<img src="/api/art/${p.art_item_key}?width=96&height=96" alt="" class="w-full h-full object-cover" onerror="this.style.display='none'">` : '';
+
+        return `
+        <div class="glass-panel rounded-xl overflow-hidden${isActive ? ' ring-1 ring-primary/40' : ''}">
+            <div class="flex items-center gap-md p-md">
+                <div class="circ-block-header flex-1 flex items-center gap-md min-w-0 cursor-pointer active:opacity-70 transition-opacity" data-result-id="${esc(p.result_id || '')}">
+                    <div class="w-14 h-14 rounded-lg bg-surface-container-high overflow-hidden flex-shrink-0 flex items-center justify-center">
+                        ${art || `<span class="material-symbols-outlined text-text-muted text-[28px]" style="font-variation-settings:'FILL' 1;">${meta.icon}</span>`}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-xs mb-xs">
+                            <p class="font-label-caps text-[10px] ${isActive ? 'text-primary' : 'text-text-muted'}">${meta.label.toUpperCase()} • ${meta.hours}</p>
+                            ${isActive ? '<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>' : ''}
+                        </div>
+                        <p class="font-title-md text-text-primary truncate">${esc(p.playlist_title || meta.label)}</p>
+                        <p class="font-body-sm text-body-sm text-text-muted">${trackCount} tracks</p>
+                    </div>
+                    <span class="circ-chevron material-symbols-outlined text-text-muted text-[20px] transition-transform flex-shrink-0">expand_more</span>
+                </div>
+                <button class="circ-block-play w-10 h-10 flex items-center justify-center rounded-full viola-gradient text-on-primary active:scale-95 transition-transform flex-shrink-0" data-result-id="${esc(p.result_id || '')}" data-label="${esc(meta.label)}">
+                    <span class="material-symbols-outlined text-[20px]" style="font-variation-settings:'FILL' 1;">play_arrow</span>
+                </button>
+            </div>
+            <div class="circ-tracklist hidden border-t border-white/5" data-result-id="${esc(p.result_id || '')}">
+                <div class="circ-tracks-inner px-md py-sm flex flex-col">
+                    <p class="font-body-sm text-body-sm text-text-muted py-sm">Laden…</p>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+
+    el.querySelectorAll('.circ-block-play').forEach((btn) => {
+        btn.addEventListener('click', () => playBlock(btn));
+    });
+    el.querySelectorAll('.circ-block-header').forEach((header) => {
+        header.addEventListener('click', () => toggleTracklist(header));
+    });
+}
+
+async function playBlock(btn) {
+    const resultId = btn.dataset.resultId;
+    const label = btn.dataset.label || 'playlist';
+    if (!resultId) { toast('Geen playlist beschikbaar', 'error'); return; }
+    btn.disabled = true;
+    try {
+        const zoneId = await getDefaultZoneId();
+        if (!zoneId) { toast('Geen zone gevonden', 'error'); return; }
+        const result = await apiCall(`/results/${resultId}`).catch(() => null);
+        const tracks = (result?.snapshot?.tracks || []);
+        const keys = tracks.map((t) => t.item_key).filter(Boolean);
+        if (!keys.length) { toast('Geen tracks in playlist', 'error'); return; }
+        await createPlayQueue(keys, zoneId, 'replace');
+        toast(`${label} gestart — ${keys.length} tracks`);
+    } catch (e) {
+        toast(e.message || 'Afspelen mislukt', 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function toggleTracklist(header) {
+    const resultId = header.dataset.resultId;
+    if (!resultId) return;
+    const panel = header.closest('.glass-panel');
+    const tracklist = panel?.querySelector('.circ-tracklist');
+    const chevron = header.querySelector('.circ-chevron');
+    if (!tracklist) return;
+
+    const isOpen = !tracklist.classList.contains('hidden');
+    tracklist.classList.toggle('hidden', isOpen);
+    if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+    if (isOpen) return;
+
+    const inner = tracklist.querySelector('.circ-tracks-inner');
+    if (!inner || inner.dataset.loaded) return;
+    inner.dataset.loaded = '1';
+
+    const result = await apiCall(`/results/${resultId}`).catch(() => null);
+    const tracks = result?.snapshot?.tracks || [];
+    if (!tracks.length) {
+        inner.innerHTML = `<p class="font-body-sm text-body-sm text-text-muted py-sm">Geen tracks gevonden.</p>`;
+        return;
+    }
+    inner.innerHTML = tracks.map((t, i) => {
+        const src = t.art_url || (t.item_key ? `/api/art/${t.item_key}?width=64&height=64` : '');
+        return `
+        <div class="flex items-center gap-md py-sm border-b border-white/5 last:border-0">
+            <span class="font-label-caps text-[10px] text-text-muted w-5 text-right flex-shrink-0">${i + 1}</span>
+            <div class="w-8 h-8 rounded bg-surface-container-high overflow-hidden flex-shrink-0 flex items-center justify-center">
+                ${src ? `<img src="${src}" alt="" loading="lazy" class="w-full h-full object-cover" onerror="this.style.display='none'">` : '<span class="material-symbols-outlined text-text-muted text-[16px]">music_note</span>'}
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="font-body-sm text-text-primary truncate">${esc(t.title || '')}</p>
+                <p class="font-label-caps text-[10px] text-text-muted truncate">${esc(t.artist || '')}</p>
+            </div>
+        </div>`;
+    }).join('');
 }
 
 // Describe the current hour from its dominant audio features.

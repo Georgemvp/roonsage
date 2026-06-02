@@ -41,6 +41,25 @@ export function render() {
             <h2 class="font-label-caps text-label-caps text-text-muted">LAST.FM TAG CLOUD</h2>
             <div id="enr-tags" class="glass-panel rounded-xl p-lg flex flex-wrap gap-md justify-center items-center"></div>
         </section>
+
+        <section id="enr-vibes" class="hidden flex flex-col gap-sm">
+            <div class="flex items-center justify-between">
+                <h2 class="font-label-caps text-label-caps text-text-muted">AI VIBE TAGS</h2>
+                <span id="enr-vibes-count" class="font-label-caps text-label-caps text-primary"></span>
+            </div>
+            <div class="glass-panel rounded-xl p-lg flex flex-col gap-lg">
+                <div>
+                    <p class="font-label-caps text-[10px] text-text-muted mb-sm">CONTEXTEN</p>
+                    <div id="enr-vibes-contexts" class="flex flex-wrap gap-sm"></div>
+                </div>
+                <div>
+                    <p class="font-label-caps text-[10px] text-text-muted mb-sm">MOODS</p>
+                    <div id="enr-vibes-moods" class="flex flex-wrap gap-sm"></div>
+                </div>
+            </div>
+            <h2 class="font-label-caps text-label-caps text-text-muted mt-xs">RECENT GETAGD</h2>
+            <div id="enr-vibes-recent" class="glass-panel rounded-xl divide-y divide-white/5"></div>
+        </section>
     </div>`;
 }
 
@@ -49,6 +68,7 @@ export async function mount() {
     document.getElementById('enr-run')?.addEventListener('click', start);
     document.getElementById('enr-pause')?.addEventListener('click', pauseResume);
     loadTags();
+    loadVibes();
     _timer = setInterval(refresh, 4000);
 }
 
@@ -141,6 +161,64 @@ async function loadTags() {
         const strong = t.count >= max * 0.5;
         return `<span class="${strong ? 'text-primary font-bold' : 'text-text-primary/70 font-medium'}" style="font-size:${size}px;line-height:1">${esc(t.name)}</span>`;
     }).join('');
+}
+
+async function loadVibes() {
+    const section = document.getElementById('enr-vibes');
+    if (!section) return;
+    const data = await apiCall('/background-ai/vibes-explore').catch(() => null);
+    if (!data?.total_tagged) return;
+
+    const countEl = document.getElementById('enr-vibes-count');
+    if (countEl) countEl.textContent = `${data.total_tagged.toLocaleString('nl-NL')} tracks`;
+
+    const ctxEl = document.getElementById('enr-vibes-contexts');
+    if (ctxEl && data.top_contexts?.length) {
+        const max = data.top_contexts[0].count;
+        ctxEl.innerHTML = data.top_contexts.slice(0, 16).map((c) => {
+            const bold = c.count >= max * 0.5;
+            return `<span class="${bold ? 'text-[#a78bfa] font-semibold' : 'text-[#7c6dca]'} font-body-sm" style="font-size:${11 + Math.round((c.count / max) * 7)}px" title="${c.count} tracks">${esc(c.name)}</span>`;
+        }).join('');
+    }
+
+    const moodEl = document.getElementById('enr-vibes-moods');
+    if (moodEl && data.top_moods?.length) {
+        const max = data.top_moods[0].count;
+        moodEl.innerHTML = data.top_moods.slice(0, 12).map((m) => {
+            const bold = m.count >= max * 0.5;
+            return `<span class="${bold ? 'text-[#f472b6] font-semibold' : 'text-[#be6090]'} font-body-sm" style="font-size:${11 + Math.round((m.count / max) * 7)}px" title="${m.count} tracks">${esc(m.name)}</span>`;
+        }).join('');
+    }
+
+    const recentEl = document.getElementById('enr-vibes-recent');
+    if (recentEl && data.recent_tracks?.length) {
+        recentEl.innerHTML = data.recent_tracks.slice(0, 15).map((t) => {
+            const allTags = [...(t.contexts || []), ...(t.moods || [])].slice(0, 4);
+            const chips = allTags.map((tag) => `<span class="px-xs py-0.5 rounded-full bg-white/5 border border-white/10 font-label-caps text-[9px] text-text-muted">${esc(tag)}</span>`).join('');
+            return `
+            <div class="px-md py-sm flex flex-col gap-xs">
+                <div class="flex items-center justify-between">
+                    <p class="font-body-sm text-text-primary truncate flex-1 mr-sm">${esc(t.title || '')}</p>
+                    <p class="font-label-caps text-[10px] text-text-muted flex-shrink-0">${_relTime(t.updated_at)}</p>
+                </div>
+                <p class="font-body-sm text-[11px] text-text-muted truncate">${esc(t.artist || '')}</p>
+                ${chips ? `<div class="flex flex-wrap gap-xs mt-xs">${chips}</div>` : ''}
+            </div>`;
+        }).join('');
+    }
+
+    section.classList.remove('hidden');
+}
+
+function _relTime(ts) {
+    if (!ts) return '';
+    try {
+        const diff = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+        if (diff < 1) return 'zojuist';
+        if (diff < 60) return `${diff}m`;
+        if (diff < 1440) return `${Math.round(diff / 60)}u`;
+        return `${Math.round(diff / 1440)}d`;
+    } catch { return ''; }
 }
 
 async function start() {

@@ -274,7 +274,7 @@ async def enrich_vibes_batch(
             prompt = "\n".join(prompt_lines)
             try:
                 async with _get_semaphore():
-                    resp = await client.generate(prompt, ENRICHMENT_VIBE_SYSTEM)
+                    resp = await client.generate_fast(prompt, ENRICHMENT_VIBE_SYSTEM)
                 parsed = _parse_json_response(resp.content)
                 if not isinstance(parsed, list):
                     raise ValueError("Expected JSON array")
@@ -624,7 +624,7 @@ async def generate_discovery_description(
 
     try:
         async with _get_semaphore():
-            resp = await client.generate(prompt, DISCOVERY_DESCRIPTION_SYSTEM)
+            resp = await client.generate_fast(prompt, DISCOVERY_DESCRIPTION_SYSTEM)
         parsed = _parse_json_response(resp.content)
         if isinstance(parsed, dict) and "tagline" in parsed:
             conn = get_db_connection()
@@ -742,7 +742,7 @@ async def generate_playlist_description(
 
     try:
         async with _get_semaphore():
-            resp = await client.generate(prompt, PLAYLIST_DESCRIPTION_SYSTEM)
+            resp = await client.generate_fast(prompt, PLAYLIST_DESCRIPTION_SYSTEM)
         parsed = _parse_json_response(resp.content)
         if isinstance(parsed, dict) and "description" in parsed:
             if result_id:
@@ -848,7 +848,7 @@ async def extract_lyrics_themes_batch(
             prompt = "\n\n---\n\n".join(prompt_parts)
             try:
                 async with _get_semaphore():
-                    resp = await client.generate(prompt, LYRICS_THEME_SYSTEM)
+                    resp = await client.generate_fast(prompt, LYRICS_THEME_SYSTEM)
                 parsed = _parse_json_response(resp.content)
                 if not isinstance(parsed, list):
                     raise ValueError("Expected JSON array")
@@ -990,7 +990,7 @@ async def generate_cluster_labels(cluster_ids: list[int] | None = None) -> None:
     task_tracker.start("cluster_labels", total=len(clusters_data))
     try:
         async with _get_semaphore():
-            resp = await client.generate(prompt, CLUSTER_LABEL_SYSTEM)
+            resp = await client.generate_fast(prompt, CLUSTER_LABEL_SYSTEM)
         parsed = _parse_json_response(resp.content)
         if not isinstance(parsed, list):
             raise ValueError("Expected JSON array")
@@ -1069,7 +1069,7 @@ async def generate_song_path_narrative(
 
     try:
         async with _get_semaphore():
-            resp = await client.generate(prompt, SONG_PATH_NARRATIVE_SYSTEM)
+            resp = await client.generate_fast(prompt, SONG_PATH_NARRATIVE_SYSTEM)
         parsed = _parse_json_response(resp.content)
         if isinstance(parsed, dict) and "narrative" in parsed:
             conn = get_db_connection()
@@ -1156,7 +1156,7 @@ async def generate_template_suggestions() -> list[dict] | None:
     task_tracker.start("template_suggestions", total=1)
     try:
         async with _get_semaphore():
-            resp = await client.generate(prompt, TEMPLATE_SUGGESTION_SYSTEM)
+            resp = await client.generate_fast(prompt, TEMPLATE_SUGGESTION_SYSTEM)
         parsed = _parse_json_response(resp.content)
         if isinstance(parsed, list) and parsed:
             conn = get_db_connection()
@@ -1210,7 +1210,7 @@ async def enrich_notification(event_type: str, event_data: dict) -> dict | None:
 
     try:
         async with _get_semaphore():
-            resp = await client.generate(prompt, NOTIFICATION_ENRICH_SYSTEM)
+            resp = await client.generate_fast(prompt, NOTIFICATION_ENRICH_SYSTEM)
         parsed = _parse_json_response(resp.content)
         if isinstance(parsed, dict) and "message" in parsed:
             return parsed

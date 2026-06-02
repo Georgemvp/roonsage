@@ -97,7 +97,7 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
             config.roon.token,
         )
 
-    if any(k in updates for k in ["llm_provider", "llm_api_key", "model_analysis", "model_generation", "ollama_url", "custom_url"]):
+    if any(k in updates for k in ["llm_provider", "llm_api_key", "model_analysis", "model_generation", "fast_model", "ollama_url", "custom_url"]):
         init_llm_client(config.llm)
 
     if any(k in updates for k in ["qobuz_app_id", "qobuz_email", "qobuz_password"]):

@@ -55,6 +55,27 @@ def has_cached_tracks() -> bool:
 # ---------------------------------------------------------------------------
 
 
+def get_vibe_tags_for_keys(conn: sqlite3.Connection, keys: list[str]) -> dict[str, dict]:
+    """Return {item_key: {"contexts": [...], "moods": [...]}} for the given keys.
+
+    Used by the generator to inject vibe labels into the numbered track list.
+    """
+    if not keys:
+        return {}
+    ph = ",".join("?" for _ in keys)
+    rows = conn.execute(
+        f"SELECT item_key, contexts, moods FROM track_vibes WHERE item_key IN ({ph})",
+        keys,
+    ).fetchall()
+    result: dict[str, dict] = {}
+    for row in rows:
+        result[row["item_key"]] = {
+            "contexts": json.loads(row["contexts"] or "[]"),
+            "moods": json.loads(row["moods"] or "[]"),
+        }
+    return result
+
+
 def get_tracks_by_filters(
     genres: list[str] | None = None,
     decades: list[str] | None = None,
@@ -69,6 +90,8 @@ def get_tracks_by_filters(
     valence_min: float | None = None,
     valence_max: float | None = None,
     instrumentalness_min: float | None = None,
+    vibe_contexts: list[str] | None = None,
+    vibe_moods: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return tracks matching the given filters.
 
@@ -155,6 +178,8 @@ def get_tracks_by_filters(
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 
+        tracks: list[dict[str, Any]] = []
+
         if genres:
             has_genre_index = conn.execute(
                 "SELECT EXISTS(SELECT 1 FROM track_genres LIMIT 1)"
@@ -170,54 +195,70 @@ def get_tracks_by_filters(
                     f"WHERE {where_clause} "
                     f"AND LOWER(tg.genre) IN ({genre_placeholders})"
                 )
-                params.extend(genres_lower)
-                if limit > 0:
+                genre_params = list(params) + list(genres_lower)
+                if limit > 0 and not (vibe_contexts or vibe_moods):
                     query += " ORDER BY RANDOM() LIMIT ?"
-                    params.append(limit)
-
-                rows = conn.execute(query, params).fetchall()
-                tracks = []
+                    genre_params.append(limit)
+                rows = conn.execute(query, genre_params).fetchall()
                 for row in rows:
                     track = dict(row)
-                    track["genres"] = (
-                        json.loads(track["genres"]) if track.get("genres") else []
-                    )
+                    track["genres"] = json.loads(track["genres"]) if track.get("genres") else []
                     tracks.append(track)
-                return tracks
-
-            # Fallback: junction table empty — filter in Python
-            logger.debug(
-                "track_genres empty, falling back to Python-side genre filtering"
-            )
-            base_query = f"SELECT t.* FROM tracks t{audio_join} WHERE {where_clause}"
-            rows = conn.execute(base_query, params).fetchall()
-            tracks = []
-            genres_lower_set = {g.lower() for g in genres}
+            else:
+                # Fallback: junction table empty — filter in Python
+                logger.debug("track_genres empty, falling back to Python-side genre filtering")
+                base_query = f"SELECT t.* FROM tracks t{audio_join} WHERE {where_clause}"
+                rows = conn.execute(base_query, params).fetchall()
+                genres_lower_set = {g.lower() for g in genres}
+                for row in rows:
+                    track = dict(row)
+                    track["genres"] = json.loads(track["genres"]) if track.get("genres") else []
+                    if any(g.lower() in genres_lower_set for g in track["genres"]):
+                        tracks.append(track)
+        else:
+            # No genre filter
+            query = f"SELECT t.* FROM tracks t{audio_join} WHERE {where_clause}"
+            if limit > 0 and not (vibe_contexts or vibe_moods):
+                query += " ORDER BY RANDOM() LIMIT ?"
+                params.append(limit)
+            rows = conn.execute(query, params).fetchall()
             for row in rows:
                 track = dict(row)
-                track["genres"] = (
-                    json.loads(track["genres"]) if track.get("genres") else []
-                )
-                if any(g.lower() in genres_lower_set for g in track["genres"]):
-                    tracks.append(track)
-            if limit > 0 and len(tracks) > limit:
-                tracks = random.sample(tracks, limit)
-            return tracks
+                track["genres"] = json.loads(track["genres"]) if track.get("genres") else []
+                tracks.append(track)
 
-        # No genre filter
-        query = f"SELECT t.* FROM tracks t{audio_join} WHERE {where_clause}"
-        if limit > 0:
-            query += " ORDER BY RANDOM() LIMIT ?"
-            params.append(limit)
+        # Vibe-context/mood merge: OR-union with the genre results above.
+        if vibe_contexts or vibe_moods:
+            vibe_kw_conds: list[str] = []
+            vibe_kw_params: list[Any] = []
+            for kw in (vibe_contexts or []):
+                vibe_kw_conds.append("LOWER(tv.contexts) LIKE ?")
+                vibe_kw_params.append(f"%{kw.lower()}%")
+            for kw in (vibe_moods or []):
+                vibe_kw_conds.append("LOWER(tv.moods) LIKE ?")
+                vibe_kw_params.append(f"%{kw.lower()}%")
+            if vibe_kw_conds:
+                base = ["t.is_live = 0"] if exclude_live else []
+                vibe_where = (" AND ".join(base) + " AND " if base else "") + f"({' OR '.join(vibe_kw_conds)})"
+                vibe_rows = conn.execute(
+                    f"SELECT DISTINCT t.* FROM tracks t "
+                    f"JOIN track_vibes tv ON tv.item_key = t.item_key "
+                    f"WHERE {vibe_where}",
+                    vibe_kw_params,
+                ).fetchall()
+                seen = {t["item_key"] for t in tracks}
+                for row in vibe_rows:
+                    vt = dict(row)
+                    vt["genres"] = json.loads(vt["genres"]) if vt.get("genres") else []
+                    if vt["item_key"] not in seen:
+                        tracks.append(vt)
+                        seen.add(vt["item_key"])
 
-        rows = conn.execute(query, params).fetchall()
-        tracks = []
-        for row in rows:
-            track = dict(row)
-            track["genres"] = (
-                json.loads(track["genres"]) if track.get("genres") else []
-            )
-            tracks.append(track)
+        # Apply limit + shuffle after potential vibe merge
+        if limit > 0 and len(tracks) > limit:
+            random.shuffle(tracks)
+            tracks = tracks[:limit]
+
         return tracks
 
 
