@@ -72,7 +72,38 @@ export async function initAutomationsView() {
         _bindEvents();
         _initialized = true;
     }
-    await Promise.all([_loadAutomations(), _loadLog()]);
+    await Promise.all([_loadPipelines(), _loadAutomations(), _loadLog()]);
+}
+
+// ---------------------------------------------------------------------------
+// Pipelines — one-click bundles of automations
+// ---------------------------------------------------------------------------
+
+async function _loadPipelines() {
+    const container = document.getElementById('pipelines-list');
+    if (!container) return;
+    try {
+        const pipelines = await apiCall('/pipelines');
+        container.innerHTML = (pipelines || []).map(_renderPipeline).join('');
+    } catch (e) {
+        container.innerHTML = `<p class="auto-error">Could not load pipelines: ${_esc(e.message)}</p>`;
+    }
+}
+
+function _renderPipeline(p) {
+    const steps = (p.steps || [])
+        .map(s => `<li>${_esc(s.name)} <span class="pipeline-step-meta">${_esc(s.trigger)} → ${_esc(s.action)}</span></li>`)
+        .join('');
+    return `<div class="rs-glass-card pipeline-card">
+        <div class="pipeline-head">
+            <span class="pipeline-name">${_esc(p.name)}</span>
+            <span class="pipeline-count">${p.step_count} steps</span>
+        </div>
+        <p class="pipeline-desc">${_esc(p.description)}</p>
+        <ul class="pipeline-steps">${steps}</ul>
+        <button class="btn btn-primary btn-sm" data-pipeline-install="${_esc(p.id)}">Install pipeline</button>
+        <span class="pipeline-result" data-pipeline-result="${_esc(p.id)}"></span>
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -450,6 +481,33 @@ function _buildActionConfig(actionType) {
 // ---------------------------------------------------------------------------
 
 function _bindEvents() {
+    // Pipeline install (delegated — cards are rendered dynamically)
+    document.getElementById('pipelines-list')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-pipeline-install]');
+        if (!btn) return;
+        const id = btn.dataset.pipelineInstall;
+        const result = document.querySelector(`[data-pipeline-result="${id}"]`);
+        btn.disabled = true;
+        const orig = btn.textContent;
+        btn.textContent = 'Installing…';
+        try {
+            const res = await apiCall(`/pipelines/${encodeURIComponent(id)}/install`, { method: 'POST' });
+            if (result) {
+                result.textContent = `✓ ${res.installed} added${res.skipped ? `, ${res.skipped} already present` : ''}`;
+                result.className = 'pipeline-result pipeline-result--ok';
+            }
+            _loadAutomations();  // refresh the active list to show the new automations
+        } catch (err) {
+            if (result) {
+                result.textContent = `Error: ${_esc(err.message)}`;
+                result.className = 'pipeline-result pipeline-result--err';
+            }
+        } finally {
+            btn.disabled = false;
+            btn.textContent = orig;
+        }
+    });
+
     // Trigger type change → update trigger config fields
     const triggerSel = document.getElementById('auto-new-trigger');
     const actionSel  = document.getElementById('auto-new-action');

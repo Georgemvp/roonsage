@@ -1,0 +1,88 @@
+/* Worker dashboard (Phase 2.3). Glass cards with queue progress + controls. */
+
+.rs-worker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-md);
+}
+
+.rs-worker-card {
+    padding: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.rs-worker-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+}
+
+.rs-worker-name {
+    font-weight: 600;
+    font-size: 1.02rem;
+    color: var(--text-primary);
+}
+
+.rs-worker-badge {
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    border-radius: var(--radius-full);
+    white-space: nowrap;
+}
+.rs-worker-badge--ok     { background: rgba(67, 160, 71, 0.16);  color: var(--success); }
+.rs-worker-badge--paused { background: rgba(251, 140, 0, 0.16);  color: var(--warning); }
+.rs-worker-badge--off    { background: var(--bg-hover);          color: var(--text-muted); }
+.rs-worker-badge--err    { background: rgba(233, 92, 89, 0.16);  color: var(--error); }
+
+.rs-worker-detail {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.rs-worker-bar {
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--bg-hover);
+    overflow: hidden;
+}
+.rs-worker-bar-fill {
+    height: 100%;
+    border-radius: var(--radius-full);
+    background: linear-gradient(90deg, var(--amber), var(--amber-hover));
+    transition: width var(--transition-slow);
+}
+.rs-worker-pct {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-align: right;
+    margin-top: -2px;
+}
+
+.rs-worker-queue {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.rs-worker-q {
+    font-size: 0.7rem;
+    padding: 2px 7px;
+    border-radius: var(--radius-full);
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+}
+.rs-worker-q--pending { color: #4ea3ff; }
+.rs-worker-q--proc    { color: var(--amber); }
+.rs-worker-q--failed  { color: var(--error); }
+.rs-worker-q--done    { color: var(--success); }
+
+.rs-worker-controls {
+    margin-top: var(--spacing-xs);
+}

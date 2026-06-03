@@ -33,6 +33,60 @@
    ============================================================================= */
 
 /* Header */
+/* Pipelines — one-click automation bundles (Phase 2.5) */
+.pipelines-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--spacing-md);
+}
+.pipeline-card {
+    padding: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+.pipeline-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+}
+.pipeline-name { font-weight: 600; color: var(--text-primary); }
+.pipeline-count {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    background: var(--bg-hover);
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+}
+.pipeline-desc { font-size: var(--font-size-sm); color: var(--text-secondary); margin: 0; }
+.pipeline-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.pipeline-steps li {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    padding-left: 14px;
+    position: relative;
+}
+.pipeline-steps li::before {
+    content: '→';
+    position: absolute;
+    left: 0;
+    color: var(--amber);
+}
+.pipeline-step-meta { color: var(--text-muted); font-size: 0.7rem; }
+.pipeline-result { font-size: 0.78rem; min-height: 1em; }
+.pipeline-result--ok  { color: var(--success); }
+.pipeline-result--err { color: var(--error); }
+
 .auto-header {
     display: flex;
     align-items: flex-start;

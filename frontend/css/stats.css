@@ -1,0 +1,124 @@
+/* Listening stats dashboard (Phase 2.4). */
+
+.rs-stat-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+}
+.rs-stat-ranges { display: flex; gap: 4px; }
+.rs-stat-ranges .btn.active {
+    background: var(--amber);
+    color: #1a1a1a;
+    border-color: var(--amber);
+}
+
+.rs-stat-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: var(--spacing-md);
+    margin: var(--spacing-lg) 0;
+}
+.rs-stat-kpi { padding: var(--spacing-md) var(--spacing-lg); }
+.rs-stat-kpi-val {
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.1;
+}
+.rs-stat-kpi-label { font-size: var(--font-size-sm); color: var(--text-secondary); margin-top: 4px; }
+.rs-stat-kpi-sub   { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+
+.rs-stat-charts {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+@media (max-width: 900px) { .rs-stat-charts { grid-template-columns: 1fr; } }
+
+.rs-stat-chart-card, .rs-stat-list-card, .rs-stat-health-card { padding: var(--spacing-lg); }
+.rs-stat-chart-title {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin: 0 0 var(--spacing-md);
+}
+.rs-stat-canvas-wrap { position: relative; height: 240px; }
+
+.rs-stat-lists {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+@media (max-width: 900px) { .rs-stat-lists { grid-template-columns: 1fr; } }
+
+.rs-stat-list { display: flex; flex-direction: column; gap: 2px; }
+.rs-stat-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: 6px 4px;
+    border-radius: var(--radius-sm);
+}
+.rs-stat-row:hover { background: var(--bg-hover); }
+.rs-stat-rank {
+    width: 22px;
+    text-align: right;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    flex-shrink: 0;
+}
+.rs-stat-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rs-stat-row-name { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs-stat-row-sub  { font-size: 0.72rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs-stat-row-plays {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+.rs-stat-play {
+    flex-shrink: 0;
+    width: 26px; height: 26px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--amber);
+    cursor: pointer;
+    font-size: 0.7rem;
+    transition: background var(--transition), transform var(--transition);
+}
+.rs-stat-play:hover { background: var(--amber); color: #1a1a1a; transform: scale(1.08); }
+
+.rs-stat-health-row {
+    display: flex;
+    gap: var(--spacing-xl);
+    flex-wrap: wrap;
+}
+.rs-stat-health { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.rs-stat-ring {
+    --pct: 0;
+    width: 84px; height: 84px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: conic-gradient(var(--amber) calc(var(--pct) * 1%), var(--bg-hover) 0);
+    color: var(--text-primary);
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+.rs-stat-ring span {
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    background: var(--bg-surface);
+    display: grid;
+    place-items: center;
+}
+.rs-stat-health-label { font-size: var(--font-size-sm); color: var(--text-secondary); }
+.rs-stat-health-sub   { font-size: 0.72rem; color: var(--text-muted); }
+
+.rs-stat-empty { color: var(--text-muted); font-size: var(--font-size-sm); padding: var(--spacing-md); }
+.rs-stat-loading { opacity: 0.5; pointer-events: none; }

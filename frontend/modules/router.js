@@ -30,6 +30,8 @@ export const VIEW_MODULES = {
     'sonic-fingerprint': () => import('./sonic-fingerprint.js').then(m => m.initSonicFingerprintView()),
     'journal':     () => import('./journal.js').then(m => m.initJournalView()),
     'logs':        () => import('./logs.js').then(m => m.initLogsView()),
+    'workers':     () => import('./workers.js').then(m => m.initWorkersView()),
+    'stats':       () => import('./stats.js').then(m => m.initStatsView()),
 };
 
 export const HASH_TO_VIEW = {
@@ -56,6 +58,8 @@ export const HASH_TO_VIEW = {
     'sonic-fingerprint': 'sonic-fingerprint',
     'journal': 'journal',
     'logs': 'logs',
+    'workers': 'workers',
+    'stats': 'stats',
     // Backward compat
     'make-playlist': 'create',
 };
@@ -86,6 +90,8 @@ export const VIEW_TO_HASH = {
     'sonic-fingerprint': 'sonic-fingerprint',
     'journal': 'journal',
     'logs': 'logs',
+    'workers': 'workers',
+    'stats': 'stats',
 };
 
 export function hashForCurrentState() {
