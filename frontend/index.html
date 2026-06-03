@@ -1540,6 +1540,15 @@
                 <div id="dj-builder-pane" class="dj-tab-pane">
                     <form id="dj-form" autocomplete="off">
 
+                        <!-- Genre filter — shown before the bento grid so it's the first thing to set -->
+                        <div class="dj-card" style="margin-bottom:16px;">
+                            <div class="dj-card-label-row">
+                                <div class="dj-card-label">Genre <span id="dj-genre-selected-count" style="font-weight:400;color:var(--text-muted);font-size:0.78rem;margin-left:6px;"></span></div>
+                                <span style="font-size:0.75rem;color:var(--text-muted);">Leeg = alle genres</span>
+                            </div>
+                            <div id="dj-genre-cloud" class="rs-chips" style="margin-top:10px;"></div>
+                        </div>
+
                         <div class="dj-bento-grid">
 
                             <!-- Left column: stacked controls -->
@@ -1676,8 +1685,6 @@
 
                         </div><!-- /dj-bento-grid -->
 
-                        <!-- Genre cloud (hidden, kept for JS) -->
-                        <div id="dj-genre-cloud" class="rs-chips" style="display:none;"></div>
                         <input type="hidden" id="dj-duration" value="60">
 
                         <!-- Action bar with estimated output preview -->
