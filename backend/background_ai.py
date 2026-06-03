@@ -607,13 +607,17 @@ async def generate_discovery_description(
 
     track_lines = []
     for t in tracks[:20]:
-        parts = [f"{t.get('artist', '—')} — {t.get('title') or t.get('album', '—')}"]
-        if t.get("play_count") is not None:
-            parts.append(f"({t['play_count']} plays)")
-        if t.get("total_plays") is not None:
-            parts.append(f"({t['total_plays']} plays)")
-        if t.get("last_played_at"):
-            parts.append(f"last: {t['last_played_at'][:10]}")
+        if "genre" in t and "artist_count" in t:
+            # genre_explorer format: {genre, artist_count, track_count}
+            parts = [f"{t['genre']}: {t.get('artist_count', 0)} artists, {t.get('track_count', 0)} tracks"]
+        else:
+            parts = [f"{t.get('artist', '—')} — {t.get('title') or t.get('album', '—')}"]
+            if t.get("play_count") is not None:
+                parts.append(f"({t['play_count']} plays)")
+            if t.get("total_plays") is not None:
+                parts.append(f"({t['total_plays']} plays)")
+            if t.get("last_played_at"):
+                parts.append(f"last: {t['last_played_at'][:10]}")
         track_lines.append(" ".join(parts))
 
     prompt = (
@@ -641,6 +645,12 @@ async def generate_discovery_description(
             finally:
                 conn.close()
             return parsed
+        else:
+            logger.warning(
+                "generate_discovery_description: unexpected LLM response for %s: %r",
+                section_type,
+                (resp.content or "")[:200],
+            )
     except Exception as exc:
         logger.warning("generate_discovery_description error: %s", exc)
 
@@ -701,6 +711,7 @@ async def refresh_discovery_descriptions(force: bool = False) -> None:
             continue
 
         if not tracks:
+            logger.info("Discovery section %s returned no tracks — skipping", section_type)
             continue
 
         logger.info("Refreshing discovery description: %s (%d items)", section_type, len(tracks))
@@ -1109,13 +1120,12 @@ async def generate_template_suggestions() -> list[dict] | None:
     conn = get_db_connection()
     try:
         pattern_rows = conn.execute("""
-            SELECT strftime('%w', listened_at) AS dow,
-                   strftime('%H', listened_at) AS hour,
-                   tg.genre,
+            SELECT strftime('%w', timestamp) AS dow,
+                   strftime('%H', timestamp) AS hour,
+                   genre,
                    COUNT(*) AS n
-            FROM listening_history lh
-            LEFT JOIN track_genres tg ON tg.track_key = lh.item_key
-            WHERE lh.listened_at > datetime('now', '-60 days')
+            FROM listening_history
+            WHERE timestamp > datetime('now', '-60 days')
             GROUP BY dow, hour, genre
             ORDER BY n DESC
             LIMIT 80

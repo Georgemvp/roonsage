@@ -446,8 +446,10 @@ async def start_background_tasks(app: FastAPI) -> None:
     logger.info("Lyrics themes running continuously (night: %ds, day: 120s between batches)", 15)
 
     # Discovery section descriptions — light job, runs at startup then every 24 h
+    # Retries every 2h when any of the 3 sections is still missing
     async def _discovery_descriptions_loop() -> None:
         from backend.background_ai import refresh_discovery_descriptions  # noqa: PLC0415
+        from backend.db import get_db_connection as _gdc  # noqa: PLC0415
         from backend.llm_client import is_background_ai_enabled  # noqa: PLC0415
         await asyncio.sleep(60)  # let library + taste profile settle
         while True:
@@ -456,14 +458,23 @@ async def start_background_tasks(app: FastAPI) -> None:
                     await refresh_discovery_descriptions()
                 except Exception as exc:
                     logger.warning("Discovery descriptions refresh failed: %s", exc)
-            await asyncio.sleep(24 * 3600)
+            _conn = _gdc()
+            try:
+                n_desc = _conn.execute(
+                    "SELECT COUNT(*) FROM discovery_descriptions"
+                ).fetchone()[0]
+            finally:
+                _conn.close()
+            sleep_secs = 24 * 3600 if n_desc >= 3 else 2 * 3600
+            await asyncio.sleep(sleep_secs)
 
     _add_task(_discovery_descriptions_loop(), "discovery_descriptions_refresh")
     logger.info("Discovery AI descriptions scheduled (first run in 60s, then every 24h)")
 
-    # Template suggestions — light job, runs weekly
+    # Template suggestions — light job, runs weekly (retries every 6h until first success)
     async def _template_suggestions_loop() -> None:
         from backend.background_ai import generate_template_suggestions  # noqa: PLC0415
+        from backend.db import get_db_connection as _gdc  # noqa: PLC0415
         from backend.llm_client import is_background_ai_enabled  # noqa: PLC0415
         await asyncio.sleep(300)  # after startup settle + discovery descriptions
         while True:
@@ -472,20 +483,35 @@ async def start_background_tasks(app: FastAPI) -> None:
                     await generate_template_suggestions()
                 except Exception as exc:
                     logger.warning("Template suggestions failed: %s", exc)
-            await asyncio.sleep(7 * 24 * 3600)  # weekly
+                # If no suggestions exist yet, retry in 6h; otherwise weekly
+                _conn = _gdc()
+                try:
+                    has_suggestions = _conn.execute(
+                        "SELECT 1 FROM template_suggestions_cache WHERE id = 1"
+                    ).fetchone()
+                finally:
+                    _conn.close()
+                sleep_secs = 7 * 24 * 3600 if has_suggestions else 6 * 3600
+            else:
+                sleep_secs = 6 * 3600
+            await asyncio.sleep(sleep_secs)
 
     _add_task(_template_suggestions_loop(), "template_suggestions_loop")
     logger.info("Template suggestions scheduled (first run in 5 min, then weekly)")
 
     # Periodic DB backup (every 4 hours)
+    # Backup always goes to the bind-mounted /app/data/ so it survives
+    # named-volume loss or Docker Desktop restarts.
     async def _db_backup_loop() -> None:
         import shutil  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
 
         from backend.db import DB_PATH  # noqa: PLC0415
+        bind_data = Path("/app/data")
+        backup = (bind_data if bind_data.is_dir() else DB_PATH.parent) / "library_cache.db.bak"
         while True:
             await asyncio.sleep(4 * 3600)
             try:
-                backup = DB_PATH.with_suffix(".db.bak")
                 shutil.copy2(str(DB_PATH), str(backup))
                 logger.info("DB backup written to %s", backup)
             except Exception as exc:
