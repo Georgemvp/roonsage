@@ -1,4 +1,27 @@
 
+/* Glass card — SoulSync-inspired premium surface for cards/tool tiles/stat tiles.
+   Drop the class on any block; opt-in `--interactive` adds hover lift. */
+.rs-glass-card {
+    background: var(--rs-glass-bg);
+    backdrop-filter: var(--rs-glass-blur);
+    -webkit-backdrop-filter: var(--rs-glass-blur);
+    border: 1px solid var(--rs-glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--rs-glass-shadow);
+}
+.rs-glass-card--interactive {
+    transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+    cursor: pointer;
+}
+.rs-glass-card--interactive:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-accent);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+}
+@media (prefers-reduced-motion: reduce) {
+    .rs-glass-card--interactive { transition: none; }
+    .rs-glass-card--interactive:hover { transform: none; }
+}
 
 /* AI badge — marks features that use an LLM (prompt-based generation, seed song, album recommendation) */
 .ai-badge {

@@ -1,0 +1,97 @@
+/* Live log viewer (Phase 2.2). Monospace terminal-style with level colour coding. */
+
+.rs-log-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    align-items: center;
+    padding: var(--spacing-md);
+    margin: var(--spacing-md) 0;
+}
+
+.rs-log-select,
+.rs-log-input {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    font-size: var(--font-size-sm);
+    font-family: var(--font-family);
+}
+
+.rs-log-input { flex: 1 1 180px; min-width: 140px; }
+.rs-log-select { min-width: 130px; }
+
+.rs-log-counter {
+    margin-left: auto;
+    font-family: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.rs-log-paused {
+    border-color: var(--warning) !important;
+    color: var(--warning) !important;
+}
+
+.rs-log-list {
+    height: calc(100vh - 320px);
+    min-height: 320px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: var(--spacing-sm);
+    font-family: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    scroll-behavior: smooth;
+}
+
+.rs-log-entry {
+    display: grid;
+    grid-template-columns: 90px 70px 180px 1fr;
+    gap: var(--spacing-sm);
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rs-log-entry:hover { background: var(--bg-hover); }
+
+.rs-log-ts    { color: var(--text-muted); }
+.rs-log-level { font-weight: 700; }
+.rs-log-name  { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
+.rs-log-msg   { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; }
+
+.rs-log-debug    .rs-log-level { color: #7b7b86; }
+.rs-log-info     .rs-log-level { color: #4ea3ff; }
+.rs-log-warning  .rs-log-level { color: var(--warning); }
+.rs-log-error    .rs-log-level,
+.rs-log-critical .rs-log-level { color: var(--error); }
+
+.rs-log-warning { background: rgba(251, 140, 0, 0.05); }
+.rs-log-error,
+.rs-log-critical { background: rgba(233, 92, 89, 0.07); }
+
+.rs-log-exc {
+    grid-column: 1 / -1;
+    margin: 4px 0 4px 90px;
+    padding: 8px 10px;
+    background: rgba(233, 92, 89, 0.08);
+    color: var(--error);
+    border-left: 2px solid var(--error);
+    white-space: pre-wrap;
+    font-size: 0.72rem;
+    border-radius: 3px;
+}
+
+/* Narrow screens: stack the columns vertically. */
+@media (max-width: 720px) {
+    .rs-log-entry { grid-template-columns: 1fr; gap: 2px; padding: 6px; white-space: normal; }
+    .rs-log-entry > * { overflow: visible; text-overflow: clip; white-space: normal; }
+}

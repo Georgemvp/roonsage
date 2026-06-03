@@ -172,6 +172,10 @@
                         <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l3 1.5"/><path d="M4 8h.01M12 8h.01M8 4h.01M8 12h.01"/></svg></span>
                         <span>Vandaag</span>
                     </button>
+                    <button class="rs-nav-item" data-nav="logs" aria-label="Logs">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2h7l3 3v9H3z"/><path d="M5 7h6M5 10h6"/></svg></span>
+                        <span>Logs</span>
+                    </button>
                 </div>
 
                 <!-- Tasks -->
@@ -1772,6 +1776,30 @@
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Logs View -->
+            <div id="logs-view" class="view">
+                <p class="rs-view-eyebrow">DIAGNOSTICS</p>
+                <h2 class="rs-view-title">Logs</h2>
+                <p class="rs-view-sub">Real-time backend log stream. Tails the last 2000 entries from the ring buffer.</p>
+
+                <div class="rs-glass-card rs-log-toolbar">
+                    <select id="logs-level" class="rs-log-select" aria-label="Minimum log level">
+                        <option value="DEBUG">All (DEBUG)</option>
+                        <option value="INFO" selected>INFO</option>
+                        <option value="WARNING">WARNING</option>
+                        <option value="ERROR">ERROR</option>
+                    </select>
+                    <input id="logs-logger" class="rs-log-input" type="text" placeholder="Filter logger name…" aria-label="Filter by logger name" />
+                    <input id="logs-q" class="rs-log-input" type="text" placeholder="Search message…" aria-label="Search message text" />
+                    <button id="logs-pause" class="btn btn-secondary btn-sm" type="button">❚❚ Pause</button>
+                    <button id="logs-clear" class="btn btn-secondary btn-sm" type="button">Clear</button>
+                    <button id="logs-copy"  class="btn btn-secondary btn-sm" type="button">Copy</button>
+                    <span id="logs-counter" class="rs-log-counter" title="Buffered / capacity">0/2000</span>
+                </div>
+
+                <div id="logs-list" class="rs-log-list rs-glass-card" role="log" aria-live="polite" aria-atomic="false"></div>
             </div>
 
             <!-- Enrichment View -->

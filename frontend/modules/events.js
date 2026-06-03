@@ -26,7 +26,9 @@ import {
     handleSaveSettings, handleValidateQobuz, generatePlaylistName
 } from './playlist.js';
 import { showTimedStepLoading, showStepLoading, hideStepLoading, updateStepProgress, PLAYLIST_STEPS, PLAYLIST_STEP_MAP } from './loading.js';
-import { resetRecState, initRecommendView, PLAYLIST_PROMPT_GROUPS, shufflePromptPills, handlePlaylistRefineNext, setupQuestionEventHandlers, renderPlaylistQuestions } from './recommend.js';
+// recommend.js (~1178 LOC) is lazy-loaded at each call site so it stays out of
+// the bootstrap import graph. All usages here fire from user interaction or
+// async flows, so the dynamic import latency is hidden.
 import { checkLibraryStatus, handleRefreshLibrary, showSyncModal } from './library.js';
 import { initDiscoveryView } from './discovery.js';
 import { viewFromHash, modeFromHash, navigateTo, loadSavedResult } from './router.js';
@@ -85,7 +87,7 @@ export function setupEventListeners() {
                 if (state.rec.step !== 'prompt' || state.rec.loading) {
                     if (!state.rec.sessionId) {
                         // Saved result — nothing to lose, go straight to step 1
-                        resetRecState();
+                        import('./recommend.js').then(m => m.resetRecState());
                         history.replaceState(null, '', '#recommend-album');
                     } else {
                         openRecRestartModal();
@@ -206,14 +208,20 @@ export function setupEventListeners() {
     }
     const playlistShuffleBtn = document.getElementById('playlist-prompt-shuffle');
     if (playlistShuffleBtn) {
-        playlistShuffleBtn.addEventListener('click', () => shufflePromptPills('playlist-prompt-pills', PLAYLIST_PROMPT_GROUPS));
+        playlistShuffleBtn.addEventListener('click', async () => {
+            const m = await import('./recommend.js');
+            m.shufflePromptPills('playlist-prompt-pills', m.PLAYLIST_PROMPT_GROUPS);
+        });
     }
 
     // Prompt analysis
     document.getElementById('analyze-prompt-btn').addEventListener('click', handleAnalyzePrompt);
 
-    // Refine step (prompt mode)
-    document.getElementById('refine-next-btn')?.addEventListener('click', handlePlaylistRefineNext);
+    // Refine step (prompt mode) — recommend.js loads on first click.
+    document.getElementById('refine-next-btn')?.addEventListener('click', async () => {
+        const m = await import('./recommend.js');
+        m.handlePlaylistRefineNext();
+    });
     const playlistQuestionsContainer = document.getElementById('playlist-questions-container');
     if (playlistQuestionsContainer) {
         const playlistQState = {
@@ -221,7 +229,11 @@ export function setupEventListeners() {
             get answers() { return state.questionAnswers; },
             get answerTexts() { return state.questionTexts; },
         };
-        setupQuestionEventHandlers(playlistQuestionsContainer, playlistQState, renderPlaylistQuestions);
+        // Defer setup until recommend.js is loaded (fire-and-forget; the
+        // questions container is hidden until the user reaches the refine step).
+        import('./recommend.js').then(m =>
+            m.setupQuestionEventHandlers(playlistQuestionsContainer, playlistQState, m.renderPlaylistQuestions)
+        );
     }
 
     // Track search
@@ -759,7 +771,8 @@ export async function handleAnalyzePrompt() {
         state.questionAnswers = data.questions.map(() => null);
         state.questionTexts = data.questions.map(() => '');
 
-        renderPlaylistQuestions();
+        const m = await import('./recommend.js');
+        m.renderPlaylistQuestions();
         state.step = 'refine';
         updateStep();
     } catch (error) {

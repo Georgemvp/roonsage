@@ -19,15 +19,15 @@ import {
 import { checkLibraryStatus }             from './modules/library.js';
 import { setupEventListeners }            from './modules/events.js';
 import { loadSettings, loadNotificationSettings, initNotificationButtons, initEnrichmentButtons } from './modules/playlist.js';
-import { initAudioFeaturesButtons } from './modules/audio-features.js';
+// audio-features (DJ-set helpers), recommend (1178 lines), and templates are
+// deferred to after first paint via setTimeout below — they only matter once
+// the user reaches their views or interacts with related controls.
 import {
     dismissClientPicker, dismissPlayChoice, dismissPlaySuccess, setSaveMode
 } from './modules/instant-queue.js';
-import { setupRecEventListeners, renderPromptPills, PLAYLIST_PROMPT_GROUPS } from './modules/recommend.js';
 import { setupHistoryEventListeners }     from './modules/history.js';
 import { enterSetupWizard }               from './modules/setup-wizard.js';
 import { startNowPlaying, openZonePicker } from './modules/nowplaying.js';
-import { initTemplates }                  from './modules/templates.js';
 import { startActivityMonitor }           from './modules/activity.js';
 import { initPWA }                        from './modules/pwa.js';
 import { initAnalysisTasks }              from './modules/analysis-tasks.js';
@@ -549,12 +549,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     initPWA();
 
     setupEventListeners();
-    setupRecEventListeners();
     setupHistoryEventListeners();
-    initTemplates();
     initNotificationButtons();
     initEnrichmentButtons();
-    initAudioFeaturesButtons();
     initAnalysisTasks();
     initBackgroundTaskBar('bg-task-bar');
     initBackgroundAiSettings('background-ai-section');
@@ -568,7 +565,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateStep();
     // Run the view module init for the initial hash (navigateTo is not called on load)
     if (VIEW_MODULES[state.view]) VIEW_MODULES[state.view]();
-    renderPromptPills('playlist-prompt-pills', 'playlist-prompt-shuffle', PLAYLIST_PROMPT_GROUPS);
+
+    // Defer heavy view-specific listener wiring (recommend ~1178 LOC, templates
+    // ~417 LOC, audio-features) until after first paint so initial load is fast.
+    setTimeout(async () => {
+        const [rec, tpl, af] = await Promise.all([
+            import('./modules/recommend.js'),
+            import('./modules/templates.js'),
+            import('./modules/audio-features.js'),
+        ]);
+        rec.setupRecEventListeners();
+        rec.renderPromptPills('playlist-prompt-pills', 'playlist-prompt-shuffle', rec.PLAYLIST_PROMPT_GROUPS);
+        tpl.initTemplates();
+        af.initAudioFeaturesButtons();
+    }, 50);
 
     // Load initial config
     try {

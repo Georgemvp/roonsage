@@ -6,7 +6,7 @@ import { focusManager } from './focus.js';
 import { lockScroll, removeNoScrollIfNoModals, dismissModal } from './instant-queue.js';
 import { renderSourceModeStep } from './events.js';
 import { loadSettings } from './playlist.js';
-import { updateRecAlbumPreview } from './recommend.js';
+// recommend.js (~1178 LOC) is lazy-loaded where used — see updateRecAlbumPreview callsite below.
 
 // Maps data-nav hash → whether it should be active given current state
 function _navHashIsActive(hash) {
@@ -387,7 +387,7 @@ export function updateAlbumLimitButtons() {
 
             const limit = parseInt(btn.dataset.limit);
             state.rec.maxAlbumsToAI = limit === 0 ? maxAllowed : limit;
-            updateRecAlbumPreview();
+            import('./recommend.js').then(m => m.updateRecAlbumPreview());
         });
     });
 }

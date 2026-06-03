@@ -5,9 +5,9 @@
 import { state } from './state.js';
 import { apiCall } from './api.js';
 import { updateView, updateMode, updateStep, resetPlaylistState, updatePlaylist, showError } from './ui.js';
-import { resetRecState, updateRecStep, renderRecResults } from './recommend.js';
-import { loadSettings } from './playlist.js';
 import { renderHistoryFeed } from './history.js';
+// recommend.js (1178 lines) and playlist.js (703 lines) are lazy-loaded inside
+// the route handlers that need them — keeps them out of the bootstrap graph.
 
 // View-init imports are dynamic — each module only loads when the user
 // navigates to that view (see _loadView below).
@@ -29,6 +29,7 @@ export const VIEW_MODULES = {
     'lyrics-search': () => import('./lyrics-search.js').then(m => m.initLyricsSearchView()),
     'sonic-fingerprint': () => import('./sonic-fingerprint.js').then(m => m.initSonicFingerprintView()),
     'journal':     () => import('./journal.js').then(m => m.initJournalView()),
+    'logs':        () => import('./logs.js').then(m => m.initLogsView()),
 };
 
 export const HASH_TO_VIEW = {
@@ -54,6 +55,7 @@ export const HASH_TO_VIEW = {
     'lyrics-search': 'lyrics-search',
     'sonic-fingerprint': 'sonic-fingerprint',
     'journal': 'journal',
+    'logs': 'logs',
     // Backward compat
     'make-playlist': 'create',
 };
@@ -83,6 +85,7 @@ export const VIEW_TO_HASH = {
     'lyrics-search': 'lyrics-search',
     'sonic-fingerprint': 'sonic-fingerprint',
     'journal': 'journal',
+    'logs': 'logs',
 };
 
 export function hashForCurrentState() {
@@ -122,7 +125,7 @@ export function navigateTo(view, mode) {
             resetPlaylistState();
         }
         if (view === 'recommend' && state.rec.step !== 'prompt') {
-            resetRecState();
+            import('./recommend.js').then(m => m.resetRecState());
         }
     }
     if (modeChanged) {
@@ -131,7 +134,7 @@ export function navigateTo(view, mode) {
         updateStep();
     }
     if (view === 'settings') {
-        loadSettings();
+        import('./playlist.js').then(m => m.loadSettings());
         import('./scheduler.js').then(m => m.initSchedulerSection());
     } else if (view === 'home') {
         renderHistoryFeed();
@@ -163,8 +166,9 @@ export async function loadSavedResult(resultId) {
             state.rec.loading = false;
 
             updateView();
-            updateRecStep();
-            renderRecResults();
+            const recMod = await import('./recommend.js');
+            recMod.updateRecStep();
+            recMod.renderRecResults();
         } else {
             // prompt_playlist or seed_playlist — populate playlist state
             state.view = 'create';

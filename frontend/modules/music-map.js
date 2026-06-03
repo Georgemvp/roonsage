@@ -432,8 +432,19 @@ export async function initMusicMapView() {
         lastY: 0,
     };
 
+    // Coalesce high-frequency draw calls (wheel/drag/touchmove) into one per frame.
+    let _drawPending = false;
+    function scheduleDraw() {
+        if (_drawPending) return;
+        _drawPending = true;
+        requestAnimationFrame(() => {
+            _drawPending = false;
+            draw(ctx, _state);
+        });
+    }
+
     function rerender() {
-        draw(ctx, _state);
+        scheduleDraw();
         renderLegend(_state);
         renderSelectionChip(_state);
     }
@@ -566,7 +577,7 @@ export async function initMusicMapView() {
         _state.viewport.offsetX += dx - dx * k;
         _state.viewport.offsetY += dy - dy * k;
         _state.viewport.scale = newScale;
-        draw(ctx, _state);
+        scheduleDraw();
     }, { passive: false });
 
     canvas.addEventListener('mousedown', (e) => {
@@ -589,7 +600,7 @@ export async function initMusicMapView() {
             _state.lastX = e.clientX;
             _state.lastY = e.clientY;
             tooltip.hidden = true;
-            draw(ctx, _state);
+            scheduleDraw();
             return;
         }
         const hit = findNearest(_state, mx, my, 10);
@@ -655,7 +666,7 @@ export async function initMusicMapView() {
             _state.viewport.offsetX += x - touchLastX;
             _state.viewport.offsetY += y - touchLastY;
             touchLastX = x; touchLastY = y;
-            draw(ctx, _state);
+            scheduleDraw();
         } else if (e.touches.length === 2) {
             const dx = e.touches[0].clientX - e.touches[1].clientX;
             const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -663,13 +674,13 @@ export async function initMusicMapView() {
             const factor = dist / (touchDist || dist);
             _state.viewport.scale = Math.max(0.3, Math.min(40, _state.viewport.scale * factor));
             touchDist = dist;
-            draw(ctx, _state);
+            scheduleDraw();
         }
     }, { passive: true });
 
     search.addEventListener('input', () => {
         _state.search = search.value;
-        draw(ctx, _state);
+        scheduleDraw();
     });
 
     colorSel.addEventListener('change', () => {
@@ -684,7 +695,7 @@ export async function initMusicMapView() {
 
     labelsToggle.addEventListener('change', () => {
         _state.showLabels = labelsToggle.checked;
-        draw(ctx, _state);
+        scheduleDraw();
     });
 
     await loadData();

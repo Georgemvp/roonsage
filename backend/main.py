@@ -227,6 +227,11 @@ if not frontend_path.exists():
 
 # Mount static files if frontend directory exists
 if frontend_path.exists():
+    # Regenerate style.bundled.css if any source CSS is newer (no-op when fresh).
+    # Gives dev the same single-file CSS as Docker without manual `bundle_css.sh` runs.
+    from backend.css_bundle import regenerate_if_stale  # noqa: PLC0415
+    regenerate_if_stale(frontend_path)
+
     app.mount(
         "/static",
         StaticFiles(directory=frontend_path),
