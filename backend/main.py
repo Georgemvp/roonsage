@@ -15,35 +15,6 @@ from fastapi.staticfiles import StaticFiles
 from backend.config import get_cors_origins, get_roonsage_password
 from backend.dependencies import limiter
 from backend.exceptions import RoonSageError
-from backend.routes import config_routes, generate, library, recommend, results, roon, setup
-from backend.routes.alchemy import router as alchemy_router
-from backend.routes.audio_features import router as audio_features_router
-from backend.routes.automations import router as automations_router
-from backend.routes.background_ai_routes import router as background_ai_router
-from backend.routes.background_tasks import router as background_tasks_router
-from backend.routes.circadian import router as circadian_router
-from backend.routes.circadian_auto import router as circadian_auto_router
-from backend.routes.clap_search import router as clap_search_router
-from backend.routes.clustering import router as clustering_router
-from backend.routes.discovery import router as discovery_router
-from backend.routes.dj_sets import router as dj_sets_router
-from backend.routes.dj_templates import router as dj_templates_router
-from backend.routes.enrichment import router as enrichment_router
-from backend.routes.intelligence import router as intelligence_router
-from backend.routes.lyrics import router as lyrics_router
-from backend.routes.mood import router as mood_router
-from backend.routes.notifications import router as notifications_router
-from backend.routes.playback_intelligence import router as playback_intelligence_router
-from backend.routes.qobuz_playlist import router as qobuz_playlist_router
-from backend.routes.queue_continuation import router as queue_continuation_router
-from backend.routes.scheduler import router as scheduler_router
-from backend.routes.sessions import router as sessions_router
-from backend.routes.song_path import router as song_path_router
-from backend.routes.sonic_fingerprint import router as sonic_fingerprint_router
-from backend.routes.sonic_radio import router as sonic_radio_router
-from backend.routes.templates import router as templates_router
-from backend.routes.verify import router as verify_router
-from backend.routes.watchlist import router as watchlist_router
 from backend.startup import init_clients, shutdown, start_background_tasks
 from backend.version import get_version
 
@@ -187,42 +158,20 @@ async def optional_basic_auth(request: Request, call_next):
     return await call_next(request)
 
 
+def _discover_routers(app: FastAPI) -> None:
+    """Auto-register every routes/*.py module that exposes a FastAPI router."""
+    import importlib
+    routes_dir = Path(__file__).parent / "routes"
+    for path in sorted(routes_dir.glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        module = importlib.import_module(f"backend.routes.{path.stem}")
+        if hasattr(module, "router"):
+            app.include_router(module.router)
+
+
 # Register all routers
-app.include_router(setup.router)
-app.include_router(library.router)
-app.include_router(generate.router)
-app.include_router(recommend.router)
-app.include_router(roon.router)
-app.include_router(config_routes.router)
-app.include_router(results.router)
-app.include_router(qobuz_playlist_router)
-app.include_router(intelligence_router)
-app.include_router(discovery_router)
-app.include_router(templates_router)
-app.include_router(notifications_router)
-app.include_router(watchlist_router)
-app.include_router(scheduler_router)
-app.include_router(enrichment_router)
-app.include_router(automations_router)
-app.include_router(verify_router)
-app.include_router(audio_features_router)
-app.include_router(dj_sets_router)
-app.include_router(dj_templates_router)
-app.include_router(clustering_router)
-app.include_router(song_path_router)
-app.include_router(alchemy_router)
-app.include_router(circadian_router)
-app.include_router(circadian_auto_router)
-app.include_router(queue_continuation_router)
-app.include_router(sessions_router)
-app.include_router(clap_search_router)
-app.include_router(lyrics_router)
-app.include_router(mood_router)
-app.include_router(sonic_fingerprint_router)
-app.include_router(sonic_radio_router)
-app.include_router(playback_intelligence_router)
-app.include_router(background_tasks_router)
-app.include_router(background_ai_router)
+_discover_routers(app)
 
 
 # =============================================================================
