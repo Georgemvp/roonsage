@@ -62,6 +62,11 @@ async def init_clients(app: FastAPI) -> None:
     configure_from_settings(get_notifications_config())
     event_bus.set_event_loop(asyncio.get_event_loop())
 
+    # Worker → WebSocket fan-out bus. Producers in worker threads call
+    # publish_threadsafe() which hops back into this loop.
+    from backend import event_bus as ws_event_bus  # noqa: PLC0415
+    ws_event_bus.set_event_loop(asyncio.get_event_loop())
+
     # Roon client
     if config.roon.host:
         init_roon_client(
@@ -121,6 +126,22 @@ async def init_clients(app: FastAPI) -> None:
 
     # DB schema — initialise early so migration flag is set
     library_cache.ensure_db_initialized().close()
+
+    # Refresh query-planner statistics. SQLite's planner needs ANALYZE results to
+    # pick the right index for the multi-column filter queries; without it the
+    # 46k-track library can fall back to full scans. PRAGMA optimize is cheap —
+    # it only ANALYZEs tables flagged as stale internally.
+    try:
+        from backend.db import get_db_connection as _gdc  # noqa: PLC0415
+        _stat_conn = _gdc()
+        try:
+            _stat_conn.execute("PRAGMA optimize")
+            _stat_conn.commit()
+            logger.info("SQLite query planner refreshed (PRAGMA optimize)")
+        finally:
+            _stat_conn.close()
+    except Exception as exc:
+        logger.warning("PRAGMA optimize failed: %s", exc)
 
     # Self-heal corrupt SQLite indexes from interrupted writes (uvicorn reload,
     # container kill, etc.). Also resets stuck 'processing'/'analyzing' rows
@@ -518,6 +539,41 @@ async def start_background_tasks(app: FastAPI) -> None:
                 logger.warning("DB backup failed: %s", exc)
 
     _add_task(_db_backup_loop(), "db_backup")
+
+    # Daily VACUUM + ANALYZE. Reclaims pages freed by enrichment/audio-features
+    # churn and refreshes planner stats. Runs at idle (3 AM local) to avoid
+    # contending with the listening-monitor write path.
+    async def _db_maintenance_loop() -> None:
+        import datetime as _dt  # noqa: PLC0415
+
+        from backend.db import get_db_connection as _gdc  # noqa: PLC0415
+
+        await asyncio.sleep(60 * 60)  # don't run within first hour of boot
+        while True:
+            now = _dt.datetime.now()
+            target = now.replace(hour=3, minute=0, second=0, microsecond=0)
+            if target <= now:
+                target += _dt.timedelta(days=1)
+            wait = (target - now).total_seconds()
+            await asyncio.sleep(wait)
+            try:
+                def _vacuum() -> None:
+                    conn = _gdc()
+                    try:
+                        # VACUUM cannot run inside a transaction; the helper opens a
+                        # fresh connection without an autocommit-disabling write op,
+                        # so this is fine.
+                        conn.execute("VACUUM")
+                        conn.execute("PRAGMA optimize")
+                        conn.commit()
+                    finally:
+                        conn.close()
+                await asyncio.to_thread(_vacuum)
+                logger.info("SQLite VACUUM + ANALYZE complete")
+            except Exception as exc:
+                logger.warning("SQLite maintenance failed: %s", exc)
+
+    _add_task(_db_maintenance_loop(), "db_maintenance")
 
     # ── Circadian Auto-Playlists (v13.6) ──────────────────────────────
     # Runs the 3-playlist generator once per day at the configured

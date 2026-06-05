@@ -9,12 +9,14 @@ POST /api/templates/{id}/generate — generate a playlist from a template
 
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
+from backend.analyzer import analyze_prompt as do_analyze_prompt
 from backend.dependencies import limiter
 from backend.generator import generate_playlist_stream
 from backend.llm_client import get_llm_client
@@ -185,21 +187,54 @@ async def generate_from_template(
         t.id, t.name, track_count, source_mode,
     )
 
-    def event_stream():
-        yield from generate_playlist_stream(
+    def _sse(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+    async def event_stream():
+        # Auto-analyze the template prompt to extract smart filters when none are set.
+        # This ensures the 100-track Ollama pool is relevant instead of purely random.
+        analyzed_genres = genres
+        analyzed_decades = decades
+        analyzed_vibe_contexts: list[str] | None = None
+        analyzed_vibe_moods: list[str] | None = None
+        analyzed_lastfm_tags: list[str] | None = None
+
+        if not genres and not decades:
+            try:
+                yield _sse("progress", {"step": "analyzing", "message": "Analysing playlist context..."})
+                analysis = await do_analyze_prompt(t.prompt, use_taste_profile=True)
+                analyzed_genres = analysis.suggested_genres or []
+                analyzed_decades = analysis.suggested_decades or []
+                analyzed_vibe_contexts = analysis.suggested_vibe_contexts or None
+                analyzed_vibe_moods = analysis.suggested_vibe_moods or None
+                analyzed_lastfm_tags = analysis.suggested_lastfm_tags or None
+                logger.info(
+                    "TEMPLATE AUTO-ANALYZE: genres=%s decades=%s vibes=%s/%s lf=%s",
+                    analyzed_genres, analyzed_decades,
+                    analyzed_vibe_contexts, analyzed_vibe_moods, analyzed_lastfm_tags,
+                )
+            except Exception as exc:
+                logger.warning("Template auto-analyze failed, using unfiltered pool: %s", exc)
+
+        async for chunk in generate_playlist_stream(
             prompt=t.prompt,
             seed_track=None,
             selected_dimensions=None,
             additional_notes=None,
             refinement_answers=None,
-            genres=genres,
-            decades=decades,
+            genres=analyzed_genres,
+            decades=analyzed_decades,
+            vibe_contexts=analyzed_vibe_contexts,
+            vibe_moods=analyzed_vibe_moods,
+            lastfm_tags=analyzed_lastfm_tags,
             track_count=track_count,
             exclude_live=exclude_live,
             max_tracks_to_ai=500,
             source_mode=source_mode,
             qobuz_percentage=qobuz_percentage,
-        )
+            auto_analyze=False,
+        ):
+            yield chunk
 
     return StreamingResponse(
         event_stream(),

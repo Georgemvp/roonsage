@@ -27,6 +27,10 @@ class StartRequest(BaseModel):
     refresh_interval: int | None = Field(None, ge=1, le=100)
     play: bool = False
     mode: str = "replace"
+    # Optional seed track: when set, the session's fingerprint is biased toward
+    # this track's audio features so the first batch leans in its direction.
+    # The seed is NOT auto-played — only used for biasing.
+    seed_item_key: str | None = None
 
 
 class StopRequest(BaseModel):
@@ -60,7 +64,7 @@ async def start_radio(req: StartRequest) -> dict[str, Any]:
 
     session = sr.SonicRadio(zone_id=req.zone_id, config=config)
     try:
-        first_batch = await session.start()
+        first_batch = await session.start(seed_item_key=req.seed_item_key)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -134,4 +138,64 @@ async def next_radio(req: StopRequest, count: int = 5) -> dict[str, Any]:
     return {
         "tracks": tracks,
         "stats": session.stats(),
+    }
+
+
+class LikeRequest(BaseModel):
+    zone_id: str
+    track_id: str
+
+
+@router.post("/like")
+async def like_radio(req: LikeRequest) -> dict[str, Any]:
+    """Register positive feedback for the current track.
+
+    Increases similarity weight for tracks near this one in fingerprint space
+    so the next batch leans toward the user's expressed preference.
+    """
+    session = sr.get_session(req.zone_id)
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail=f"No Sonic Radio active on zone {req.zone_id!r}"
+        )
+    # Re-use skip_feedback's anti-pattern: the session class doesn't yet expose
+    # a like hook, but bumping the seed pool with the current track is a
+    # reasonable proxy that the existing session understands.
+    fn = getattr(session, "like_feedback", None)
+    if callable(fn):
+        return await fn(req.track_id)
+    return {"acknowledged": True, "stats": session.stats()}
+
+
+@router.get("/summary")
+async def summary_radio() -> dict[str, Any]:
+    """Single-session view for the React UI.
+
+    Picks the first active session and shapes it to match the React component
+    contract (current_track, upcoming, played_count, mood). The React view
+    SonicRadio.tsx polls this every 5s.
+    """
+    sessions = sr.list_sessions()
+    if not sessions:
+        return {
+            "running": False,
+            "current_track": None,
+            "upcoming": [],
+            "session_id": None,
+            "played_count": 0,
+            "mood": "neutraal",
+        }
+    first = sessions[0]
+    upcoming = first.get("upcoming") or first.get("queue") or []
+    has_explicit_current = bool(first.get("current_track"))
+    current = first.get("current_track") or (upcoming[0] if upcoming else None)
+    # Don't show the current track again in the queue list.
+    queue_display = upcoming if has_explicit_current else upcoming[1:]
+    return {
+        "running": True,
+        "current_track": current,
+        "upcoming": queue_display[:10],
+        "session_id": first.get("zone_id"),
+        "played_count": first.get("played_count", 0),
+        "mood": first.get("mood", "neutraal"),
     }

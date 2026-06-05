@@ -75,6 +75,19 @@ def get_db_connection() -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")
 
+    # Performance PRAGMAs (best-effort). cache_size=-65536 → 64 MB page cache;
+    # temp_store=MEMORY keeps sort/temp tables out of slow Docker bind mounts.
+    # Wrapped per-pragma so a restricted runtime (read-only FS, test sandbox)
+    # gracefully loses the optimisation rather than crashing on setup.
+    for pragma in (
+        "PRAGMA cache_size = -65536",
+        "PRAGMA temp_store = MEMORY",
+    ):
+        try:
+            conn.execute(pragma)
+        except sqlite3.DatabaseError as exc:
+            logger.debug("Optional PRAGMA failed (%s): %s", pragma, exc)
+
     return conn
 
 
@@ -98,6 +111,15 @@ async def aget_connection():
         await conn.execute("PRAGMA journal_mode=WAL")
         await conn.execute("PRAGMA busy_timeout=5000")
         await conn.execute("PRAGMA foreign_keys=ON")
+        # Match get_db_connection() so the query planner sees the same cache.
+        for pragma in (
+            "PRAGMA cache_size = -65536",
+            "PRAGMA temp_store = MEMORY",
+        ):
+            try:
+                await conn.execute(pragma)
+            except sqlite3.DatabaseError as exc:
+                logger.debug("Optional async PRAGMA failed (%s): %s", pragma, exc)
         yield conn
 
 

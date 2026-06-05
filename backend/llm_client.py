@@ -4,6 +4,8 @@ import asyncio
 import json
 import logging
 import re
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +25,38 @@ from backend.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Ollama processes requests serially — concurrent calls queue inside Ollama and
+# can exceed the httpx timeout when a large prompt is already in flight.
+# This semaphore ensures only one Ollama request is active at a time.
+# User-initiated requests get priority: background tasks yield when a user gen is active.
+_ollama_semaphore: asyncio.Semaphore | None = None
+_user_gen_active: int = 0  # count of active user-initiated generations
+_is_user_request: ContextVar[bool] = ContextVar("is_user_request", default=False)
+
+
+def _get_ollama_semaphore() -> asyncio.Semaphore:
+    global _ollama_semaphore
+    if _ollama_semaphore is None:
+        _ollama_semaphore = asyncio.Semaphore(1)
+    return _ollama_semaphore
+
+
+@asynccontextmanager
+async def user_generation_context():
+    """Mark the current async context as a user-initiated generation.
+
+    While active, background Ollama calls will yield immediately rather
+    than queuing behind this request.
+    """
+    global _user_gen_active
+    token = _is_user_request.set(True)
+    _user_gen_active += 1
+    try:
+        yield
+    finally:
+        _user_gen_active -= 1
+        _is_user_request.reset(token)
 
 
 # Cost per million tokens (updated Feb 2026)
@@ -61,6 +95,20 @@ MODEL_CONTEXT_LIMITS = {
     "gemma4:31b": 256_000,
     "gemma4:31b-mlx": 256_000,
     "gemma4:latest": 128_000,
+    # Qwen 3 (strong structured-JSON + reasoning; faster than Gemma 4)
+    "qwen3:4b": 128_000,
+    "qwen3:4b-mlx": 128_000,
+    "qwen3:8b": 128_000,
+    "qwen3:8b-mlx": 128_000,
+    "qwen3:14b": 128_000,
+    "qwen3:14b-mlx": 128_000,
+    "qwen3:30b": 128_000,
+    "qwen3:30b-mlx": 128_000,
+    # Qwen 3.5 MLX (optimised for Apple Silicon; faster than Qwen 3 GGUF)
+    "qwen3.5:4b-mlx": 128_000,
+    "qwen3.5:8b-mlx": 128_000,
+    "qwen3.5:9b-mlx": 128_000,
+    "qwen3.5:14b-mlx": 128_000,
     # RoonSage custom model (Gemma 4 E4B-MLX + tuned Modelfile, 16 GB RAM cap)
     "roonsage": 65_536,
 }
@@ -281,27 +329,52 @@ class LLMClient:
         ollama_url = self.config.ollama_url.rstrip("/")
 
         if self._ollama_client is None:
-            self._ollama_client = httpx.AsyncClient(timeout=httpx.Timeout(600.0))
+            self._ollama_client = httpx.AsyncClient(timeout=httpx.Timeout(1200.0))
 
-        num_ctx = min(get_model_context_limit(model, self.config), 65_536)
-        response = await self._ollama_client.post(
-            f"{ollama_url}/api/chat",
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": prompt},
-                ],
-                "stream": False,
-                "format": "json",
-                "options": {
-                    "num_ctx": num_ctx,
-                    "temperature": temperature,
-                },
-            },
+        # Size num_ctx to just cover this prompt + expected output (≈2 K tokens),
+        # with a minimum of 4 096. Over-allocating (e.g. 65 K for a 4 K-token prompt)
+        # means Ollama reserves a huge KV cache, slowing prefill & generation significantly.
+        # Use sum of prompt + system (both count against the context window) and a
+        # conservative 2-char-per-token estimate to avoid clipping long prompts.
+        prompt_tokens_est = (len(prompt) + len(system)) // 2
+        num_ctx = min(
+            max(prompt_tokens_est + 3_000, 4_096),
+            get_model_context_limit(model, self.config),
+            65_536,
         )
-        response.raise_for_status()
-        data = response.json()
+        sem = _get_ollama_semaphore()
+        is_user = _is_user_request.get()
+        if not is_user and _user_gen_active > 0:
+            raise RuntimeError(
+                "Ollama background call skipped: user generation in progress"
+            )
+        async with sem:
+            # Re-check after acquiring in case a user request arrived while waiting
+            if not is_user and _user_gen_active > 0:
+                raise RuntimeError(
+                    "Ollama background call skipped: user generation started while queued"
+                )
+            logger.debug("Ollama semaphore acquired for model %s (user=%s)", model, is_user)
+            response = await self._ollama_client.post(
+                f"{ollama_url}/api/chat",
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "stream": False,
+                    "format": "json",
+                    "think": False,
+                    "options": {
+                        "num_ctx": num_ctx,
+                        "num_predict": 3000,
+                        "temperature": temperature,
+                    },
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
 
         logger.debug("Ollama chat response received")
 
@@ -561,6 +634,25 @@ def init_llm_client(config: LLMConfig) -> LLMClient:
     global _llm_client
     _llm_client = LLMClient(config)
     return _llm_client
+
+
+def create_client_for_override(provider: str, model: str) -> LLMClient:
+    """Create a one-off LLMClient for a per-request provider/model override.
+
+    Inherits API keys and URLs from the global config so the caller doesn't
+    have to pass credentials.  The returned client is NOT the global singleton
+    and must not replace it.
+    """
+    base = _llm_client
+    if base is None:
+        raise RuntimeError("LLM client not initialized")
+
+    cfg = base.config.model_copy(update={
+        "provider": provider,  # type: ignore[arg-type]
+        "model_generation": model,
+        "model_analysis": model,
+    })
+    return LLMClient(cfg)
 
 
 def get_max_tracks_for_model(

@@ -186,6 +186,8 @@ class SonicRadio:
         self._genres_seen: set[str] = set()
         self._duration_seconds = 0
         self._started_at = time.time()
+        # Most recently generated batch — exposed via stats() for the UI.
+        self._upcoming_metadata: list[dict[str, Any]] = []
         # Lock so concurrent next_tracks / skip_feedback don't race.
         self._lock = threading.Lock()
 
@@ -193,17 +195,40 @@ class SonicRadio:
     # Public surface
     # ------------------------------------------------------------------ #
 
-    async def start(self) -> dict[str, Any]:
-        """Compute the initial fingerprint and return the first batch of tracks."""
+    async def start(self, seed_item_key: str | None = None) -> dict[str, Any]:
+        """Compute the initial fingerprint and return the first batch of tracks.
+
+        If *seed_item_key* is given the first batch is biased directly toward
+        that track's audio features (raw cosine target) rather than the user's
+        overall fingerprint.  After the first batch the current fingerprint
+        resets to the original so subsequent picks drift back to the user's
+        taste.
+        """
         with self._open_conn() as conn:
             self._original_fingerprint = _initial_fingerprint(conn)
-        if not self._original_fingerprint:
-            raise RuntimeError(
-                "Sonic Radio: not enough listening history with audio features "
-                "to build a fingerprint."
-            )
-        self._current_fingerprint = list(self._original_fingerprint)
+            if not self._original_fingerprint:
+                raise RuntimeError(
+                    "Sonic Radio: not enough listening history with audio features "
+                    "to build a fingerprint."
+                )
+            if seed_item_key:
+                # Load raw features so the seed fingerprint is in the same
+                # space as the per-track feature vectors used in next_tracks.
+                keys, _norm, metadata, _pc = _load_normalised_features(conn)
+                if seed_item_key in metadata:
+                    self._current_fingerprint = list(metadata[seed_item_key]["features"])
+                else:
+                    self._current_fingerprint = list(self._original_fingerprint)
+            else:
+                self._current_fingerprint = list(self._original_fingerprint)
+
         first_batch = await self.next_tracks(self.queue_ahead)
+
+        # After the seeded first batch, reset so future picks follow the user's
+        # overall fingerprint and the radio doesn't get stuck near the seed.
+        if seed_item_key and self._original_fingerprint:
+            self._current_fingerprint = list(self._original_fingerprint)
+
         return {
             "zone_id": self.zone_id,
             "discovery_ratio": self.discovery_ratio,
@@ -237,18 +262,37 @@ class SonicRadio:
 
                 # Build candidate list excluding already-played tracks.
                 played = set(self._played_keys)
+                # Also exclude same (artist, title) from different album versions.
+                played_at: set[tuple[str, str]] = {
+                    (metadata[k]["artist"].lower(), metadata[k]["title"].lower())
+                    for k in self._played_keys
+                    if k in metadata
+                }
                 # Rank: cosine similarity to the current fingerprint.
                 similarities: list[tuple[float, int]] = []
                 for i, key in enumerate(keys):
                     if key in played:
+                        continue
+                    at = (metadata[key]["artist"].lower(), metadata[key]["title"].lower())
+                    if at in played_at:
                         continue
                     fv = metadata[key]["features"]
                     sim = _cosine(fv, fp)
                     similarities.append((sim, i))
                 similarities.sort(key=lambda x: -x[0])
 
+                # Deduplicate by (artist, title) within the pool so the same
+                # song from multiple albums doesn't fill consecutive slots.
+                seen_at: set[tuple[str, str]] = set()
+                deduped: list[tuple[float, int]] = []
+                for sim, i in similarities:
+                    at = (metadata[keys[i]]["artist"].lower(), metadata[keys[i]]["title"].lower())
+                    if at not in seen_at:
+                        seen_at.add(at)
+                        deduped.append((sim, i))
+
                 pool_size = max(count * 5, 50)
-                top_pool = similarities[:pool_size]
+                top_pool = deduped[:pool_size]
 
                 familiar_idx: list[int] = []
                 unplayed_idx: list[int] = []
@@ -303,6 +347,7 @@ class SonicRadio:
                             "from_discovery_section": key in discovery_keys,
                         }
                     )
+                self._upcoming_metadata = list(result)
                 return result
 
     async def skip_feedback(self, track_id: str) -> dict[str, Any]:
@@ -337,11 +382,14 @@ class SonicRadio:
         return {
             "zone_id": self.zone_id,
             "tracks_played": len(self._played_keys),
+            "played_count": len(self._played_keys),
             "tracks_skipped": self._n_skipped,
             "duration_seconds": int(time.time() - self._started_at),
             "genres_covered": sorted(self._genres_seen),
             "discovery_ratio": self.discovery_ratio,
             "fingerprint_drift": self._fingerprint_drift_distance(),
+            "upcoming": self._upcoming_metadata[:10],
+            "mood": "neutraal",
         }
 
     # ------------------------------------------------------------------ #

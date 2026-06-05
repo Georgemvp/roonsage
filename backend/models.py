@@ -49,6 +49,7 @@ class Track(BaseModel):
     year: int | None = None
     genres: list[str] = []
     art_url: str | None = None
+    image_key: str | None = None
     source: str = "library"  # "library" or "qobuz"
 
     @property
@@ -198,9 +199,14 @@ class AnalyzePromptResponse(BaseModel):
     suggested_genres: list[str]
     suggested_decades: list[str]
     suggested_moods: list[str] = []
+    suggested_vibe_contexts: list[str] = []
+    suggested_vibe_moods: list[str] = []
+    suggested_lastfm_tags: list[str] = []
     available_genres: list[GenreCount]
     available_decades: list[DecadeCount]
     available_moods: list[str] = []
+    available_vibe_contexts: list[str] = []
+    available_vibe_moods: list[str] = []
     reasoning: str
     token_count: int = 0
     estimated_cost: float = 0.0
@@ -312,6 +318,8 @@ class DJSetRequest(BaseModel):
     max_per_artist: int | None = None  # override default artist cap (2 or 3)
     allow_half_step: bool = True       # also match tracks at half/double BPM
     skip_recent: bool = False          # exclude tracks played in the last 7 days
+    vibe_contexts: list[str] | None = None
+    vibe_moods: list[str] | None = None
 
 
 class DJTrack(BaseModel):
@@ -361,12 +369,17 @@ class GenerateRequest(BaseModel):
     refinement_answers: list[str | None] | None = None
     genres: list[str] = []
     decades: list[str] = []
+    vibe_contexts: list[str] | None = None
+    vibe_moods: list[str] | None = None
+    lastfm_tags: list[str] | None = None
     track_count: int = 25
     exclude_live: bool = True
     max_tracks_to_ai: int = 500  # 0 = no limit
     source_mode: str = "library"  # "library", "hybrid", or "qobuz"
     qobuz_percentage: int = 30    # % of Qobuz tracks in "hybrid" mode (10-70)
     use_taste_profile: bool = True
+    llm_provider: str | None = None   # override: "gemini", "ollama", "anthropic", etc.
+    llm_model: str | None = None      # override: specific model name
 
     @model_validator(mode="after")
     def check_flow(self) -> "GenerateRequest":

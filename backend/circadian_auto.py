@@ -52,6 +52,13 @@ BLOCK_VIBE_CONTEXTS: dict[str, list[str]] = {
     "evening":   ["evening", "dinner", "late night", "wind-down", "relax", "night", "chill"],
 }
 
+# Mood keywords matched against track_vibes.moods (OR-union).
+BLOCK_VIBE_MOODS: dict[str, list[str]] = {
+    "morning":   ["energetic", "uplifting", "positive", "bright", "motivating"],
+    "afternoon": ["focused", "steady", "confident", "driving"],
+    "evening":   ["relaxed", "mellow", "warm", "introspective", "dreamy"],
+}
+
 
 PROMPT_BUILDER_SYSTEM = """You design playlist curation prompts.
 
@@ -174,6 +181,8 @@ async def _consume_stream_async(
     max_tracks_to_ai: int = 150,
     genres: list[str] | None = None,
     vibe_contexts: list[str] | None = None,
+    vibe_moods: list[str] | None = None,
+    lastfm_tags: list[str] | None = None,
 ) -> dict:
     """Consume the SSE playlist generator directly in the current event loop."""
     from backend.generator import generate_playlist_stream  # noqa: PLC0415
@@ -189,10 +198,14 @@ async def _consume_stream_async(
         track_count=track_count,
         genres=genres,
         vibe_contexts=vibe_contexts,
+        vibe_moods=vibe_moods,
+        lastfm_tags=lastfm_tags,
         max_tracks_to_ai=max_tracks_to_ai,
         exclude_live=True,
         source_mode="library",
         use_taste_profile=True,
+        is_background=True,
+        auto_analyze=False,
     ):
         for line in chunk.splitlines():
             line = line.strip()
@@ -226,11 +239,13 @@ async def _consume_stream_async(
 
 async def generate_block(block: str, label: str, track_count: int = 25) -> dict[str, Any]:
     """Generate (and persist) a single time-block playlist. Returns metadata."""
+    from backend.analyzer import analyze_prompt as do_analyze  # noqa: PLC0415
     from backend.tracks import count_tracks_by_filters  # noqa: PLC0415
 
     profile = TasteProfile.get()
     genres = _get_block_genres(block, profile)
-    vibe_contexts = BLOCK_VIBE_CONTEXTS.get(block)
+    vibe_contexts = list(BLOCK_VIBE_CONTEXTS.get(block) or [])
+    vibe_moods = list(BLOCK_VIBE_MOODS.get(block) or [])
 
     if genres:
         pool_size = count_tracks_by_filters(genres=genres, exclude_live=True)
@@ -249,11 +264,34 @@ async def generate_block(block: str, label: str, track_count: int = 25) -> dict[
         prompt = f"{prompt} Draw from: {', '.join(genres[:4])}."
     logger.info("Circadian %s prompt: %s", block, prompt)
 
+    # Analyze the final prompt to extract Last.fm tags and enrich vibe signals.
+    lastfm_tags: list[str] | None = None
+    try:
+        analysis = await do_analyze(prompt, use_taste_profile=True)
+        if analysis.suggested_lastfm_tags:
+            lastfm_tags = analysis.suggested_lastfm_tags
+        # Merge any additional vibe signals the analyzer found with the block defaults.
+        if analysis.suggested_vibe_contexts:
+            seen = set(vibe_contexts)
+            vibe_contexts += [c for c in analysis.suggested_vibe_contexts if c not in seen]
+        if analysis.suggested_vibe_moods:
+            seen = set(vibe_moods)
+            vibe_moods += [m for m in analysis.suggested_vibe_moods if m not in seen]
+        logger.info(
+            "Circadian %s analyze: lastfm=%s extra_contexts=%s extra_moods=%s",
+            block, lastfm_tags,
+            analysis.suggested_vibe_contexts, analysis.suggested_vibe_moods,
+        )
+    except Exception as exc:
+        logger.warning("Circadian %s: analyze_prompt failed (%s), continuing without lastfm_tags", block, exc)
+
     data = await _consume_stream_async(
         prompt, track_count,
         max_tracks_to_ai=75,
         genres=genres,
-        vibe_contexts=vibe_contexts,
+        vibe_contexts=vibe_contexts or None,
+        vibe_moods=vibe_moods or None,
+        lastfm_tags=lastfm_tags,
     )
     if not data.get("tracks"):
         raise RuntimeError(f"Circadian {block} produced no tracks")

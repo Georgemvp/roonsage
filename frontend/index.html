@@ -29,6 +29,16 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
+    <!-- Preload the JS modules that ALWAYS run at boot. Lets the browser parse them
+         in parallel instead of cascading after `app.js` is fetched and parsed.
+         Other view modules stay lazy-loaded via dynamic import (frontend/modules/router.js). -->
+    <link rel="modulepreload" href="/static/modules/state.js">
+    <link rel="modulepreload" href="/static/modules/api.js">
+    <link rel="modulepreload" href="/static/modules/router.js">
+    <link rel="modulepreload" href="/static/modules/ui.js">
+    <link rel="modulepreload" href="/static/modules/utils.js">
+    <link rel="modulepreload" href="/static/modules/events.js">
+    <link rel="modulepreload" href="/static/modules/ui-states.js">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
     <meta name="theme-color" content="#e5a00d" media="(prefers-color-scheme: light)">
@@ -77,6 +87,21 @@
                     <button class="rs-nav-item" data-nav="home" aria-label="Home">
                         <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6.5L8 2l6 4.5V14H2z"/><path d="M6 14V9h4v5"/></svg></span>
                         <span>Home</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="dashboard" aria-label="Dashboard">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="5" height="5"/><rect x="9" y="2" width="5" height="3"/><rect x="9" y="7" width="5" height="7"/><rect x="2" y="9" width="5" height="5"/></svg></span>
+                        <span>Dashboard</span>
+                        <span class="rs-ai-pill" aria-label="Nieuw">NEW</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="personas" aria-label="Persona's">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="6" r="2.5"/><circle cx="11" cy="6" r="2.5"/><path d="M1.5 13c.5-2 2-3 3.5-3s3 1 3.5 3"/><path d="M7.5 13c.5-2 2-3 3.5-3s3 1 3.5 3"/></svg></span>
+                        <span>Persona's</span>
+                        <span class="rs-ai-pill" aria-label="Nieuw">NEW</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="sonic-radio" aria-label="Sonic Radio">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><circle cx="8" cy="8" r="3"/><circle cx="8" cy="8" r="1" fill="currentColor"/></svg></span>
+                        <span>Sonic Radio</span>
+                        <span class="rs-ai-pill" aria-label="Nieuw">NEW</span>
                     </button>
                 </div>
 
@@ -167,6 +192,16 @@
                     <button class="rs-nav-item" data-nav="enrichment" aria-label="Enrichment">
                         <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/></svg></span>
                         <span>Enrichment</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="library-health" aria-label="Library Health">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h2.5l1.5-4 3 8 1.5-4H14"/></svg></span>
+                        <span>Library Health</span>
+                        <span class="rs-ai-pill" aria-label="Nieuw">NEW</span>
+                    </button>
+                    <button class="rs-nav-item" data-nav="automation-builder" aria-label="Automation builder">
+                        <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1" y="3" width="4" height="3" rx="0.5"/><rect x="11" y="3" width="4" height="3" rx="0.5"/><rect x="6" y="10" width="4" height="3" rx="0.5"/><path d="M3 6v2.5h10V6"/><path d="M8 8.5v1.5"/></svg></span>
+                        <span>Automation Builder</span>
+                        <span class="rs-ai-pill" aria-label="Nieuw">NEW</span>
                     </button>
                     <button class="rs-nav-item" data-nav="journal" aria-label="Journal">
                         <span class="rs-nav-icon"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2h7l3 3v9H3z"/><path d="M5 6h6M5 9h6M5 12h4"/></svg></span>
@@ -890,6 +925,23 @@
                             <span id="preview-cost" class="preview-stat">Est. cost: --</span>
                         </div>
 
+                        <div class="model-selector-row">
+                            <label for="model-select" class="model-selector-label">Model</label>
+                            <select id="model-select" class="model-selector-select">
+                                <option value="">Default (configured)</option>
+                                <optgroup label="Cloud (paid)">
+                                    <option value="gemini|gemini-2.5-flash">Gemini 2.5 Flash — snel &amp; goedkoop</option>
+                                    <option value="gemini|gemini-2.5-flash-lite">Gemini 2.5 Flash Lite — goedkoopst</option>
+                                    <option value="gemini|gemini-2.5-pro">Gemini 2.5 Pro — beste kwaliteit</option>
+                                </optgroup>
+                                <optgroup label="Local (gratis)">
+                                    <option value="ollama|gemma4:e2b-mlx">Gemma 4 E2B MLX — snel</option>
+                                    <option value="ollama|gemma4:e4b-mlx">Gemma 4 E4B MLX — krachtig</option>
+                                    <option value="ollama|gemma4:12b-mlx">Gemma 4 12B MLX — langzaamst</option>
+                                </optgroup>
+                            </select>
+                        </div>
+
                         <button id="generate-btn" class="btn btn-primary">
                             Generate Playlist
                         </button>
@@ -1471,6 +1523,7 @@
                                         <option value="library_synced">Library sync complete</option>
                                         <option value="lb_synced">ListenBrainz sync complete</option>
                                         <option value="watchlist_match">New watchlist release</option>
+                                        <option value="signal_received">Signal received</option>
                                     </select>
                                 </div>
                                 <div id="auto-new-trigger-cfg" class="auto-form-subfields"></div>
@@ -1489,6 +1542,7 @@
                                         <option value="volume_set">Set volume</option>
                                         <option value="play_template">Play template</option>
                                         <option value="build_dj_set_qobuz">Build DJ set → Qobuz playlist</option>
+                                        <option value="emit_signal">Emit signal (chain)</option>
                                     </select>
                                 </div>
                                 <div id="auto-new-action-cfg" class="auto-form-subfields"></div>
@@ -1835,6 +1889,28 @@
                         </div>
                     </div>
 
+                    <div class="rs-stat-charts">
+                        <div class="rs-glass-card rs-stat-chart-card">
+                            <h3 class="rs-stat-chart-title">Plays per uur</h3>
+                            <div class="rs-stat-canvas-wrap"><canvas id="stats-hour-chart"></canvas></div>
+                        </div>
+                        <div class="rs-glass-card rs-stat-chart-card">
+                            <h3 class="rs-stat-chart-title">Plays per dag-van-de-week</h3>
+                            <div class="rs-stat-canvas-wrap"><canvas id="stats-dow-chart"></canvas></div>
+                        </div>
+                    </div>
+
+                    <div class="rs-stat-charts">
+                        <div class="rs-glass-card rs-stat-chart-card">
+                            <h3 class="rs-stat-chart-title">Decennia</h3>
+                            <div class="rs-stat-canvas-wrap"><canvas id="stats-decade-chart"></canvas></div>
+                        </div>
+                        <div class="rs-glass-card rs-stat-chart-card">
+                            <h3 class="rs-stat-chart-title">BPM-verdeling (library)</h3>
+                            <div class="rs-stat-canvas-wrap"><canvas id="stats-bpm-chart"></canvas></div>
+                        </div>
+                    </div>
+
                     <div class="rs-glass-card rs-stat-health-card">
                         <h3 class="rs-stat-chart-title">Library health</h3>
                         <div id="stats-health" class="rs-stat-health-row"></div>
@@ -1872,6 +1948,44 @@
                 </div>
 
                 <div id="logs-list" class="rs-log-list rs-glass-card" role="log" aria-live="polite" aria-atomic="false"></div>
+            </div>
+
+            <!-- React-backed views (Tier 0+). Each is a thin host div; the React
+                 microfrontend mounts into the .rs-react-host child on entry and
+                 unmounts on leave. See frontend/modules/router.js mountReactView(). -->
+            <div id="dashboard-view" class="view">
+                <p class="rs-view-eyebrow">OVERZICHT</p>
+                <h2 class="rs-view-title">Dashboard</h2>
+                <p class="rs-view-sub">Live overzicht van wat er speelt, je bibliotheek, achtergrondtaken en discovery-hints.</p>
+                <div class="rs-react-host" data-react-view="dashboard"></div>
+            </div>
+
+            <div id="library-health-view" class="view">
+                <p class="rs-view-eyebrow">LIBRARY</p>
+                <h2 class="rs-view-title">Library Health</h2>
+                <p class="rs-view-sub">Spoor duplicaten op, vind ontbrekende metadata en houd album-consistency op orde.</p>
+                <div class="rs-react-host" data-react-view="library-health"></div>
+            </div>
+
+            <div id="personas-view" class="view">
+                <p class="rs-view-eyebrow">PLAYLISTS</p>
+                <h2 class="rs-view-title">Persona's</h2>
+                <p class="rs-view-sub">Slimme curatoren — Time Machine, Hidden Gems, Seasonal Mix, Daily Mix en meer. Geen LLM-calls nodig.</p>
+                <div class="rs-react-host" data-react-view="personas"></div>
+            </div>
+
+            <div id="automation-builder-view" class="view">
+                <p class="rs-view-eyebrow">AUTOMATION</p>
+                <h2 class="rs-view-title">Automation builder</h2>
+                <p class="rs-view-sub">Sleep triggers en acties op een canvas. Signaal-koppeling (max depth 5) ondersteunt automation-chains.</p>
+                <div class="rs-react-host" data-react-view="automation-builder"></div>
+            </div>
+
+            <div id="sonic-radio-view" class="view">
+                <p class="rs-view-eyebrow">RADIO</p>
+                <h2 class="rs-view-title">Sonic Radio</h2>
+                <p class="rs-view-sub">Continu-afspeelmodus op basis van je Sonic Fingerprint. Like en skip sturen het profiel real-time bij.</p>
+                <div class="rs-react-host" data-react-view="sonic-radio"></div>
             </div>
 
             <!-- Enrichment View -->
@@ -2701,6 +2815,9 @@
                             <span id="custom-max-tracks" class="context-info">(~-- tracks)</span>
                             <span id="custom-context-error" class="field-error hidden"></span>
                         </div>
+                    </div>
+                    <div class="settings-actions" style="margin-top: 1rem; margin-bottom: 0;">
+                        <button id="save-llm-btn" class="btn btn-primary">Save</button>
                     </div>
                 </section>
 

@@ -24,12 +24,14 @@ def _cutoff_iso(days: int) -> str:
 
 
 @router.get("/overview")
-async def stats_overview(range: str = Query("30d")) -> dict[str, Any]:  # noqa: A002
+async def stats_overview(
+    window: str = Query("30d", alias="range"),
+) -> dict[str, Any]:
     """Everything the Stats dashboard needs, in one round trip.
 
     `range`: 7d | 30d | 12m | all
     """
-    days = _RANGE_DAYS.get(range, 30)
+    days = _RANGE_DAYS.get(window, 30)
     cutoff = _cutoff_iso(days)
     now = datetime.now(UTC)
     cutoff_today = (now - timedelta(days=1)).isoformat()
@@ -109,6 +111,61 @@ async def stats_overview(range: str = Query("30d")) -> dict[str, Any]:  # noqa: 
             for r in await cur.fetchall()
         ]
 
+        # --- Listening hour-of-day heatmap (0-23) ---
+        cur = await conn.execute(
+            """SELECT CAST(strftime('%H', timestamp) AS INTEGER) AS hour,
+                      COUNT(*) AS plays
+               FROM listening_history WHERE timestamp >= ?
+               GROUP BY hour ORDER BY hour""",
+            (cutoff,),
+        )
+        hour_rows = {r["hour"]: r["plays"] for r in await cur.fetchall()}
+        listening_by_hour = [
+            {"hour": h, "plays": hour_rows.get(h, 0)} for h in range(24)
+        ]
+
+        # --- Day-of-week heatmap (0 = Sunday … 6 = Saturday per SQLite) ---
+        cur = await conn.execute(
+            """SELECT CAST(strftime('%w', timestamp) AS INTEGER) AS dow,
+                      COUNT(*) AS plays
+               FROM listening_history WHERE timestamp >= ?
+               GROUP BY dow ORDER BY dow""",
+            (cutoff,),
+        )
+        dow_rows = {r["dow"]: r["plays"] for r in await cur.fetchall()}
+        listening_by_dow = [
+            {"dow": d, "plays": dow_rows.get(d, 0)} for d in range(7)
+        ]
+
+        # --- Decade breakdown (over plays in window) ---
+        cur = await conn.execute(
+            """SELECT decade, COUNT(*) AS plays
+               FROM listening_history
+               WHERE timestamp >= ? AND decade IS NOT NULL AND decade != ''
+               GROUP BY decade ORDER BY decade""",
+            (cutoff,),
+        )
+        decades = [
+            {"decade": r["decade"], "plays": r["plays"]} for r in await cur.fetchall()
+        ]
+
+        # --- BPM histogram (library-wide, not window-scoped — it's structural) ---
+        bpm_buckets: list[dict[str, int]] = []
+        try:
+            cur = await conn.execute(
+                """SELECT bpm FROM track_audio_features
+                   WHERE bpm IS NOT NULL AND bpm BETWEEN 40 AND 220"""
+            )
+            rows = await cur.fetchall()
+            counts: dict[int, int] = {}
+            for row in rows:
+                bucket = (int(row["bpm"]) // 10) * 10
+                counts[bucket] = counts.get(bucket, 0) + 1
+            for low in range(40, 221, 10):
+                bpm_buckets.append({"bpm": low, "count": counts.get(low, 0)})
+        except Exception:
+            bpm_buckets = []
+
         # --- Library health (cheap aggregate counts) ---
         async def _scalar(sql: str) -> int:
             try:
@@ -123,9 +180,12 @@ async def stats_overview(range: str = Query("30d")) -> dict[str, Any]:  # noqa: 
         analysed = await _scalar(
             "SELECT COUNT(*) FROM track_audio_features WHERE bpm IS NOT NULL"
         )
+        lyrics = await _scalar(
+            "SELECT COUNT(DISTINCT stable_id) FROM lyrics_data"
+        )
 
     return {
-        "range": range,
+        "range": window,
         "kpi": {
             "today": plays_today,
             "week": plays_week,
@@ -144,11 +204,17 @@ async def stats_overview(range: str = Query("30d")) -> dict[str, Any]:  # noqa: 
         "genres": genres,
         "top_artists": top_artists,
         "top_albums": top_albums,
+        "listening_by_hour": listening_by_hour,
+        "listening_by_dow": listening_by_dow,
+        "decades": decades,
+        "bpm_histogram": bpm_buckets,
         "library_health": {
             "total_tracks": total_tracks,
             "enriched": enriched,
             "enriched_pct": round(enriched / total_tracks * 100) if total_tracks else 0,
             "analysed": analysed,
             "analysed_pct": round(analysed / total_tracks * 100) if total_tracks else 0,
+            "lyrics": lyrics,
+            "lyrics_pct": round(lyrics / total_tracks * 100) if total_tracks else 0,
         },
     }

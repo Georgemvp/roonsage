@@ -378,3 +378,185 @@ async def retry_failed() -> dict:
         conn.close()
 
     return {"reset": count, "message": f"{count} failed items reset to pending."}
+
+
+# ---------------------------------------------------------------------------
+# Modular sources — SoulSync-style per-service manual matching + preview.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/sources")
+async def list_enrichment_sources() -> dict:
+    """Return the registered enrichment sources with their availability."""
+    from backend.enrichment import list_sources  # noqa: PLC0415
+
+    sources = []
+    for s in list_sources():
+        try:
+            enabled = bool(s.enabled_check())
+        except Exception:
+            enabled = False
+        sources.append({
+            "name": s.name,
+            "label": s.label,
+            "description": s.description,
+            "enabled": enabled,
+        })
+    return {"sources": sources}
+
+
+class PreviewBody(BaseModel):
+    artist: str
+    title: str
+    sources: list[str] | None = None  # None = all enabled
+
+
+@router.post("/preview")
+async def preview_enrichment(body: PreviewBody) -> dict:
+    """Run a dry-run enrichment for a track and return what each source found.
+
+    Nothing is written to the DB — this is the SoulSync-style "preview" used
+    by the manual-matching UI: show me the diff before I commit.
+    """
+    from backend.enrichment import get, list_enabled  # noqa: PLC0415
+
+    selected = (
+        [get(n) for n in body.sources]
+        if body.sources
+        else list_enabled()
+    )
+    selected = [s for s in selected if s is not None]
+
+    results = []
+    for source in selected:
+        try:
+            result = await source.lookup(body.artist, body.title)
+        except Exception as exc:
+            result = None
+            results.append({
+                "source": source.name,
+                "label": source.label,
+                "error": str(exc),
+                "tags": [],
+            })
+            continue
+        results.append({
+            "source": source.name,
+            "label": source.label,
+            "tags": result.tags,
+            "mbid": result.mbid,
+            "release_date": result.release_date,
+            "country": result.country,
+            "listeners": result.listeners,
+            "playcount": result.playcount,
+            "error": result.error,
+        })
+
+    return {
+        "artist": body.artist,
+        "title": body.title,
+        "results": results,
+    }
+
+
+@router.get("/source-stats")
+async def get_source_stats() -> dict:
+    """Per-source success counts pulled from ``track_metadata_ext``.
+
+    A track counts toward a source when that source provided at least one tag
+    (or, for MB, a valid MBID). Useful as a coverage dashboard.
+    """
+    conn = get_db_connection()
+    try:
+        row = conn.execute("""
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN musicbrainz_id IS NOT NULL THEN 1 ELSE 0 END) AS mb_hits,
+                SUM(CASE WHEN lastfm_tags IS NOT NULL THEN 1 ELSE 0 END) AS lf_hits,
+                SUM(CASE WHEN lastfm_listeners IS NOT NULL THEN 1 ELSE 0 END) AS lf_listeners,
+                SUM(CASE WHEN enrichment_source = 'both' THEN 1 ELSE 0 END) AS both
+            FROM track_metadata_ext
+        """).fetchone()
+    finally:
+        conn.close()
+
+    total = row["total"] or 0
+    def _pct(n: int) -> float:
+        return round(100 * n / total, 1) if total else 0.0
+    return {
+        "total_enriched": total,
+        "sources": [
+            {
+                "name": "musicbrainz",
+                "label": "MusicBrainz",
+                "hits": row["mb_hits"] or 0,
+                "coverage_pct": _pct(row["mb_hits"] or 0),
+            },
+            {
+                "name": "lastfm",
+                "label": "Last.fm tags",
+                "hits": row["lf_hits"] or 0,
+                "coverage_pct": _pct(row["lf_hits"] or 0),
+            },
+            {
+                "name": "lastfm_listeners",
+                "label": "Last.fm listener counts",
+                "hits": row["lf_listeners"] or 0,
+                "coverage_pct": _pct(row["lf_listeners"] or 0),
+            },
+        ],
+        "both_sources": row["both"] or 0,
+    }
+
+
+class ManualMatchBody(BaseModel):
+    item_key: str
+    artist_override: str | None = None
+    title_override: str | None = None
+    sources: list[str] | None = None
+
+
+@router.post("/manual-match")
+async def manual_match(body: ManualMatchBody) -> dict:
+    """Re-enrich a single track with optional artist/title overrides.
+
+    Bypasses the dedup cache and writes the result back to
+    ``track_metadata_ext``. Returns the per-source diff so the UI can show
+    "before / after" without a second round-trip.
+    """
+    from backend.enrichment_worker import _batch_cache, enrich_one  # noqa: PLC0415
+
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT artist, title FROM tracks WHERE item_key = ?",
+            (body.item_key,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Track not found")
+        artist = body.artist_override or row["artist"]
+        title = body.title_override or row["title"]
+
+        # Drop any cached lookup so the new artist/title actually hits the network.
+        import re as _re  # noqa: PLC0415
+        primary = artist.split(",")[0].strip().lower() if artist else ""
+        clean = _re.sub(r"\s*[\(\[].*?[\)\]]\s*$", "", title).strip().lower() if title else ""
+        _batch_cache.pop((primary, clean), None)
+
+        success = await enrich_one(body.item_key, artist, title, conn)
+
+        result_row = conn.execute(
+            "SELECT mb_tags, lastfm_tags, musicbrainz_id, enrichment_source "
+            "FROM track_metadata_ext WHERE item_key = ?",
+            (body.item_key,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    return {
+        "success": success,
+        "item_key": body.item_key,
+        "used_artist": artist,
+        "used_title": title,
+        "result": dict(result_row) if result_row else None,
+    }

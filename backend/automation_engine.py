@@ -49,6 +49,7 @@ class TriggerType(StrEnum):
     WATCHLIST_MATCH = "watchlist_match"
     CLUSTERING_COMPLETE = "clustering_complete"
     QUEUE_ENDING = "queue_ending"
+    SIGNAL_RECEIVED = "signal_received"
 
 
 class ActionType(StrEnum):
@@ -66,6 +67,12 @@ class ActionType(StrEnum):
     CIRCADIAN_PLAYLIST = "circadian_playlist"
     GENERATE_CIRCADIAN_SET = "generate_circadian_set"
     SMART_CONTINUATION = "smart_continuation"
+    EMIT_SIGNAL = "emit_signal"
+
+
+# Signal-chain ceiling. SoulSync uses 5 as a sensible default. Beyond this the
+# chain is almost certainly accidental recursion.
+_MAX_CHAIN_DEPTH = 5
 
 
 # ---------------------------------------------------------------------------
@@ -624,6 +631,25 @@ async def _exec_smart_continuation(config: dict) -> str:
     return f"Smart continuation -> {result.get('status')} ({result.get('track_count', 0)} tracks)"
 
 
+async def _exec_emit_signal(config: dict) -> str:
+    """Emit a named signal that downstream automations can react to.
+
+    This is the building block for SoulSync-style signal chains. The signal is
+    dispatched via the engine singleton so cycle / depth checks fire centrally.
+    """
+    signal = config.get("signal") or config.get("name")
+    if not signal:
+        raise ValueError("emit_signal action requires 'signal' (or 'name')")
+    payload = config.get("payload") or {}
+    chain_depth = int(config.get("_chain_depth", 0))
+
+    engine = get_engine()
+    if engine is None:
+        return f"signal '{signal}' dropped — engine not running"
+    await engine.fire_signal(signal, payload, chain_depth=chain_depth + 1)
+    return f"signal '{signal}' fired (depth={chain_depth + 1})"
+
+
 _ACTION_EXECUTORS = {
     ActionType.GENERATE_PLAYLIST: _exec_generate_playlist,
     ActionType.PLAY_TEMPLATE: _exec_play_template,
@@ -639,6 +665,7 @@ _ACTION_EXECUTORS = {
     ActionType.CIRCADIAN_PLAYLIST: _exec_circadian_playlist,
     ActionType.GENERATE_CIRCADIAN_SET: _exec_generate_circadian_set,
     ActionType.SMART_CONTINUATION: _exec_smart_continuation,
+    ActionType.EMIT_SIGNAL: _exec_emit_signal,
 }
 
 
@@ -799,8 +826,60 @@ class AutomationEngine:
         automation = _row_to_dict(row)
         return await self._execute(automation, {"trigger": "manual"})
 
-    async def _execute(self, automation: dict, trigger_data: dict) -> dict:
-        """Execute the action for an automation and log the result."""
+    async def fire_signal(
+        self,
+        signal: str,
+        payload: dict | None = None,
+        chain_depth: int = 0,
+    ) -> None:
+        """Dispatch a named signal to every automation listening for it.
+
+        Mirrors SoulSync's signal-chain mechanic. ``chain_depth`` increments
+        each hop and dispatch aborts when it exceeds ``_MAX_CHAIN_DEPTH`` —
+        the only protection against accidental A→B→A recursion.
+        """
+        if chain_depth > _MAX_CHAIN_DEPTH:
+            logger.warning(
+                "Signal %r dropped — chain depth %d exceeds max %d",
+                signal, chain_depth, _MAX_CHAIN_DEPTH,
+            )
+            return
+
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM automations WHERE enabled=1 AND trigger_type=?",
+                (TriggerType.SIGNAL_RECEIVED.value,),
+            ).fetchall()
+
+        fired = 0
+        for row in rows:
+            automation = _row_to_dict(row)
+            cfg = automation.get("trigger_config") or {}
+            wanted = cfg.get("signal") or cfg.get("name")
+            if wanted and wanted != signal:
+                continue
+            asyncio.create_task(
+                self._execute(
+                    automation,
+                    {"trigger": "signal", "signal": signal, "payload": payload or {}},
+                    chain_depth=chain_depth,
+                ),
+                name=f"automation-signal-{automation['id']}",
+            )
+            fired += 1
+        logger.info("Signal %r fired %d automation(s) (depth=%d)", signal, fired, chain_depth)
+
+    async def _execute(
+        self,
+        automation: dict,
+        trigger_data: dict,
+        chain_depth: int = 0,
+    ) -> dict:
+        """Execute the action for an automation and log the result.
+
+        ``chain_depth`` propagates SoulSync-style signal-chain limits down to
+        ``_exec_emit_signal`` so a long chain self-aborts before exploding.
+        """
         automation_id = automation["id"]
         action_type_str = automation["action_type"]
         action_config = automation.get("action_config") or {}
@@ -816,8 +895,13 @@ class AutomationEngine:
             if not executor:
                 raise ValueError(f"Unknown action type: {action_type_str}")
             # Inject automation_id so actions that need to persist state back
-            # (e.g. saving a newly-created Qobuz playlist_id) can do so.
-            action_config = {**action_config, "automation_id": automation_id}
+            # (e.g. saving a newly-created Qobuz playlist_id) can do so. The
+            # private ``_chain_depth`` key is consumed by emit_signal.
+            action_config = {
+                **action_config,
+                "automation_id": automation_id,
+                "_chain_depth": chain_depth,
+            }
             result_msg = await executor(action_config)
             status = "success"
         except Exception as exc:
@@ -826,6 +910,42 @@ class AutomationEngine:
                 "Automation id=%d action %r failed: %s",
                 automation_id, action_type_str, exc, exc_info=True,
             )
+
+        # then_actions: up to 3 follow-up actions that run iff the primary
+        # action succeeded. Stored on the automation row as JSON (a list of
+        # ``{"type": ActionType, "config": dict}`` dicts). Each follow-up
+        # propagates ``chain_depth + 1`` so they obey the same ceiling as
+        # signal chains. Skipped when the primary action failed.
+        then_actions_raw = automation.get("then_actions")
+        if status == "success" and then_actions_raw:
+            try:
+                then_actions = (
+                    json.loads(then_actions_raw)
+                    if isinstance(then_actions_raw, str)
+                    else (then_actions_raw or [])
+                )
+            except Exception:
+                then_actions = []
+            for then_act in (then_actions or [])[:3]:
+                then_type = then_act.get("type")
+                then_cfg = then_act.get("config") or {}
+                if not then_type:
+                    continue
+                try:
+                    t_act = ActionType(then_type)
+                    t_executor = _ACTION_EXECUTORS.get(t_act)
+                    if not t_executor:
+                        continue
+                    await t_executor({
+                        **then_cfg,
+                        "automation_id": automation_id,
+                        "_chain_depth": chain_depth + 1,
+                    })
+                except Exception as exc:
+                    logger.warning(
+                        "Automation id=%d then-action %r failed: %s",
+                        automation_id, then_type, exc,
+                    )
 
         duration_ms = int((time.monotonic() - start_ms) * 1000)
         now = _now_iso()

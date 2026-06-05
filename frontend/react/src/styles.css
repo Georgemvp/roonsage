@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 auto-detects content sources relative to the importing CSS file,
+ * but the heuristic misses `.tsx` files outside the same directory. Be explicit
+ * so every utility we use actually lands in the production bundle.
+ */
+@source "./**/*.{ts,tsx,html}";
+
+/*
+ * RoonSage React design tokens.
+ * Map Tailwind theme keys onto the CSS variables that the vanilla SPA already
+ * defines on :root (--color-accent, --glass-*, etc). That way both UIs share the
+ * same palette and a theme change in the host immediately propagates to React.
+ */
+
+@theme {
+  --color-bg: #1a1a1a;
+  --color-surface: rgba(255, 255, 255, 0.04);
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-fg: #f4f4f4;
+  --color-fg-muted: rgba(244, 244, 244, 0.6);
+  --color-accent: #e5a00d;
+  --color-accent-soft: rgba(229, 160, 13, 0.18);
+  --color-violet: #d3bbff;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+
+  --radius-card: 16px;
+  --radius-pill: 999px;
+
+  --font-sans: "DM Sans", system-ui, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, monospace;
+}
+
+/*
+ * Glass card base class — used across Dashboard, LibraryHealth, Personas, etc.
+ * Frosted-glass look with a subtle gradient border that respects the host theme.
+ */
+@layer components {
+  .rs-glass {
+    background: linear-gradient(
+      155deg,
+      color-mix(in srgb, var(--color-accent) 4%, transparent),
+      color-mix(in srgb, var(--color-fg) 3%, transparent)
+    );
+    border: 1px solid var(--color-border);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border-radius: var(--radius-card);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.03) inset,
+      0 16px 32px -16px rgba(0, 0, 0, 0.6);
+  }
+
+  .rs-glass-strong {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--color-border);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    border-radius: var(--radius-card);
+  }
+
+  .rs-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+  }
+  .rs-pill-live {
+    background: color-mix(in srgb, var(--color-success) 18%, transparent);
+    color: var(--color-success);
+  }
+  .rs-pill-active {
+    background: color-mix(in srgb, var(--color-warning) 18%, transparent);
+    color: var(--color-warning);
+  }
+  .rs-pill-danger {
+    background: color-mix(in srgb, var(--color-danger) 18%, transparent);
+    color: var(--color-danger);
+  }
+
+  .rs-shimmer {
+    position: relative;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+  }
+  .rs-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.06) 50%,
+      transparent 100%
+    );
+    animation: rs-shimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes rs-shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rs-shimmer::after {
+      animation: none;
+    }
+  }
+}

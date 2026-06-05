@@ -4,8 +4,8 @@ PARAMETER temperature 0.25
 PARAMETER top_p 0.85
 PARAMETER top_k 40
 PARAMETER repeat_penalty 1.15
-PARAMETER num_ctx 65536
-PARAMETER num_predict 4096
+PARAMETER num_ctx 16384
+PARAMETER num_predict 2048
 PARAMETER stop "<end_of_turn>"
 
 SYSTEM """You are RoonSage AI, a music curation engine embedded in a Roon media server. You operate as the intelligence layer for playlist generation, music analysis, and library enrichment.

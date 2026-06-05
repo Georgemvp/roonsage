@@ -27,6 +27,31 @@ export const PLAYLIST_STEPS = [
 const _stepTiming = { lastStepTime: 0, queue: [], timer: null };
 const MIN_STEP_MS = 500;
 
+// --- Elapsed-time ticker for slow steps ---
+const _ticker = { timer: null, startTime: 0, itemEl: null, baseText: '' };
+
+function _startTicker(itemEl) {
+    _stopTicker();
+    _ticker.startTime = Date.now();
+    _ticker.itemEl = itemEl;
+    _ticker.baseText = itemEl.querySelector('.step-progress-text')?.textContent || '';
+    _ticker.timer = setInterval(() => {
+        const el = _ticker.itemEl?.querySelector('.step-progress-text');
+        if (!el) return;
+        const secs = Math.floor((Date.now() - _ticker.startTime) / 1000);
+        el.textContent = `${_ticker.baseText} (${secs}s)`;
+    }, 1000);
+}
+
+function _stopTicker() {
+    if (_ticker.timer) { clearInterval(_ticker.timer); _ticker.timer = null; }
+    if (_ticker.itemEl) {
+        const el = _ticker.itemEl.querySelector('.step-progress-text');
+        if (el) el.textContent = _ticker.baseText;
+    }
+    _ticker.itemEl = null;
+}
+
 function _processStepQueue() {
     if (_stepTiming.timer) return;
     if (_stepTiming.queue.length === 0) return;
@@ -53,13 +78,19 @@ function _processStepQueue() {
     }
 }
 
+// Steps that may take a long time and should show an elapsed counter
+const SLOW_STEPS = new Set(['ai_working', 'narrative']);
+
 function _applyStepUpdate(activeStep) {
+    _stopTicker();
     const items = document.querySelectorAll('.step-progress-item');
     let foundActive = false;
+    let activeEl = null;
     items.forEach(item => {
         const id = item.dataset.progressId;
         if (id === activeStep) {
             foundActive = true;
+            activeEl = item;
             item.className = 'step-progress-item active';
             item.querySelector('.step-progress-icon').innerHTML = '<div class="step-progress-spinner"></div>';
         } else if (!foundActive) {
@@ -67,9 +98,11 @@ function _applyStepUpdate(activeStep) {
             item.querySelector('.step-progress-icon').innerHTML = '<span style="color:var(--success)">&#10003;</span>';
         }
     });
+    if (activeEl && SLOW_STEPS.has(activeStep)) _startTicker(activeEl);
 }
 
 function _applyHideStepLoading() {
+    _stopTicker();
     const overlay = document.getElementById('step-loading-overlay');
     if (overlay) overlay.classList.add('hidden');
     removeNoScrollIfNoModals();
@@ -106,6 +139,7 @@ export function showStepLoading(steps) {
     if (!overlay || !list) return;
 
     // Reset timing state for fresh overlay
+    _stopTicker();
     _stepTiming.lastStepTime = Date.now();
     _stepTiming.queue = [];
     clearTimeout(_stepTiming.timer);

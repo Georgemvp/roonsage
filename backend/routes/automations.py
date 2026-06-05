@@ -9,6 +9,8 @@ Routes:
   POST   /api/automations/{id}/run    — trigger immediately
   GET    /api/automations/log         — recent runs (last 100)
   GET    /api/automations/presets     — built-in presets
+  GET    /api/automations/graph       — load the visual builder graph
+  POST   /api/automations/graph       — save the visual builder graph
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ class AutomationCreate(BaseModel):
     trigger_config: dict = {}
     action_type: str
     action_config: dict = {}
+    then_actions: list[dict] = []
     enabled: bool = True
     cooldown_seconds: int = 300
 
@@ -51,8 +54,11 @@ class AutomationUpdate(BaseModel):
     trigger_config: dict | None = None
     action_type: str | None = None
     action_config: dict | None = None
+    then_actions: list[dict] | None = None
     enabled: bool | None = None
     cooldown_seconds: int | None = None
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +136,14 @@ def _serialize_row(row) -> dict:
                 d[key] = json.loads(d[key])
             except Exception:
                 d[key] = {}
+    raw_then = d.get("then_actions")
+    if isinstance(raw_then, str):
+        try:
+            d["then_actions"] = json.loads(raw_then)
+        except Exception:
+            d["then_actions"] = []
+    elif raw_then is None:
+        d["then_actions"] = []
     d["enabled"] = bool(d.get("enabled", 1))
     return d
 
@@ -200,14 +214,16 @@ async def create_automation(body: AutomationCreate) -> dict:
     with get_connection() as conn:
         cursor = conn.execute(
             """INSERT INTO automations
-               (name, trigger_type, trigger_config, action_type, action_config, enabled, cooldown_seconds)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (name, trigger_type, trigger_config, action_type, action_config,
+                then_actions, enabled, cooldown_seconds)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 body.name,
                 body.trigger_type,
                 json.dumps(body.trigger_config),
                 body.action_type,
                 json.dumps(body.action_config),
+                json.dumps(body.then_actions or []),
                 1 if body.enabled else 0,
                 body.cooldown_seconds,
             ),
@@ -217,6 +233,8 @@ async def create_automation(body: AutomationCreate) -> dict:
         row = conn.execute("SELECT * FROM automations WHERE id=?", (new_id,)).fetchone()
 
     return _serialize_row(row)
+
+
 
 
 @router.put("/{automation_id}")
@@ -241,16 +259,19 @@ async def update_automation(automation_id: int, body: AutomationUpdate) -> dict:
         new_trigger_config = json.dumps(body.trigger_config if body.trigger_config is not None else current["trigger_config"])
         new_action_type = body.action_type if body.action_type is not None else current["action_type"]
         new_action_config = json.dumps(body.action_config if body.action_config is not None else current["action_config"])
+        new_then = json.dumps(
+            body.then_actions if body.then_actions is not None else current.get("then_actions", [])
+        )
         new_enabled = (1 if body.enabled else 0) if body.enabled is not None else current["enabled"]
         new_cooldown = body.cooldown_seconds if body.cooldown_seconds is not None else current["cooldown_seconds"]
 
         conn.execute(
             """UPDATE automations
                SET name=?, trigger_type=?, trigger_config=?, action_type=?, action_config=?,
-                   enabled=?, cooldown_seconds=?
+                   then_actions=?, enabled=?, cooldown_seconds=?
                WHERE id=?""",
             (new_name, new_trigger_type, new_trigger_config, new_action_type, new_action_config,
-             new_enabled, new_cooldown, automation_id),
+             new_then, new_enabled, new_cooldown, automation_id),
         )
         conn.commit()
         updated = conn.execute("SELECT * FROM automations WHERE id=?", (automation_id,)).fetchone()
@@ -305,3 +326,148 @@ async def run_automation(automation_id: int) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return result
+
+
+# ---------------------------------------------------------------------------
+# Visual builder graph (Tier 3.2)
+# ---------------------------------------------------------------------------
+#
+# Stores a React-Flow document (nodes + edges) per automation. The legacy
+# trigger/action engine remains the runtime — the graph is a richer overlay
+# that we render the same automation from.
+#
+# Storage: a simple key/value table created on demand. id=null for the
+# singleton "current draft" graph; persisted graphs get an integer id.
+
+
+class GraphDocBody(BaseModel):
+    id: int | None = None
+    name: str = "Nieuwe automation"
+    enabled: bool = True
+    nodes: list[dict] = []
+    edges: list[dict] = []
+
+
+def _ensure_graph_table() -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS automation_graphs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL,
+                enabled     INTEGER DEFAULT 1,
+                doc         TEXT NOT NULL,
+                created_at  TEXT DEFAULT (datetime('now')),
+                updated_at  TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.commit()
+
+
+def _signal_chain_depth(nodes: list[dict], edges: list[dict]) -> int:
+    """Compute the worst-case signal chain depth.
+
+    A 'signal' node forwards an event to another graph; chains > 5 levels deep
+    are rejected so a runaway loop can't flood the engine. We BFS edges from
+    every emit_signal action node and return the longest reachable path.
+    """
+    adj: dict[str, list[str]] = {}
+    for e in edges:
+        src, tgt = e.get("source"), e.get("target")
+        if src and tgt:
+            adj.setdefault(src, []).append(tgt)
+
+    seeds = [
+        n["id"]
+        for n in nodes
+        if isinstance(n.get("data"), dict)
+        and str(n["data"].get("kind", "")).endswith("emit_signal")
+    ]
+
+    best = 0
+    for seed in seeds:
+        stack = [(seed, 0)]
+        visited: set[str] = set()
+        while stack:
+            node, depth = stack.pop()
+            if node in visited:
+                continue
+            visited.add(node)
+            best = max(best, depth)
+            for nxt in adj.get(node, []):
+                stack.append((nxt, depth + 1))
+    return best
+
+
+@router.get("/graph")
+async def load_graph() -> dict:
+    """Return the latest saved graph or an empty draft."""
+    _ensure_graph_table()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, name, enabled, doc FROM automation_graphs ORDER BY updated_at DESC LIMIT 1"
+        ).fetchone()
+    if not row:
+        return {"id": None, "name": "Nieuwe automation", "enabled": True, "nodes": [], "edges": []}
+    doc = json.loads(row["doc"])
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "enabled": bool(row["enabled"]),
+        "nodes": doc.get("nodes", []),
+        "edges": doc.get("edges", []),
+    }
+
+
+@router.post("/graph")
+async def save_graph(body: GraphDocBody) -> dict:
+    """Validate and persist the graph document."""
+    _ensure_graph_table()
+
+    depth = _signal_chain_depth(body.nodes, body.edges)
+    if depth > 5:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Signal chain depth {depth} exceeds the maximum of 5",
+        )
+
+    doc = json.dumps({"nodes": body.nodes, "edges": body.edges})
+    with get_connection() as conn:
+        if body.id:
+            conn.execute(
+                "UPDATE automation_graphs SET name=?, enabled=?, doc=?, updated_at=datetime('now') "
+                "WHERE id=?",
+                (body.name, 1 if body.enabled else 0, doc, body.id),
+            )
+            graph_id = body.id
+        else:
+            cur = conn.execute(
+                "INSERT INTO automation_graphs (name, enabled, doc) VALUES (?, ?, ?)",
+                (body.name, 1 if body.enabled else 0, doc),
+            )
+            graph_id = cur.lastrowid
+        conn.commit()
+    return {
+        "id": graph_id,
+        "name": body.name,
+        "enabled": body.enabled,
+        "signal_chain_depth": depth,
+        "nodes": body.nodes,
+        "edges": body.edges,
+    }
+
+
+class SignalFireBody(BaseModel):
+    signal: str
+    payload: dict = {}
+
+
+@router.post("/signals/fire")
+async def fire_signal_endpoint(body: SignalFireBody) -> dict:
+    """Manually fire a signal — useful for testing chains from the UI."""
+    engine = get_engine()
+    if engine is None:
+        raise HTTPException(status_code=503, detail="AutomationEngine not running")
+    await engine.fire_signal(body.signal, body.payload, chain_depth=0)
+    return {"ok": True, "signal": body.signal}

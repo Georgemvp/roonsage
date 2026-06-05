@@ -15,7 +15,7 @@ from backend.db.stable_id import (
 logger = logging.getLogger(__name__)
 
 # Increment whenever a new migration is added at the bottom of _MIGRATIONS.
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +188,18 @@ def _m18_drop_track_mood_tags_fk(conn: sqlite3.Connection) -> bool:
     return False
 
 
+def _m19_automations_then_actions(conn: sqlite3.Connection) -> bool:
+    """Add ``then_actions`` JSON column so a primary action can chain follow-ups."""
+    try:
+        conn.execute(
+            "ALTER TABLE automations ADD COLUMN then_actions TEXT DEFAULT '[]'"
+        )
+        logger.info("Migration 19: added automations.then_actions column")
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
 # Ordered list of (version_number, migration_fn).
 # Append new entries here; bump SCHEMA_VERSION accordingly.
 _MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], bool]]] = [
@@ -209,6 +221,7 @@ _MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], bool]]] = [
     (16, _m16_stable_id_columns),
     (17, _m17_stable_id_backfill),
     (18, _m18_drop_track_mood_tags_fk),
+    (19, _m19_automations_then_actions),
 ]
 
 # Migrations that change the tracks table structure and require a library

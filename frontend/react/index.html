@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="nl" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RoonSage React — dev</title>
+    <style>
+      :root {
+        --color-bg: #1a1a1a;
+        --color-accent: #e5a00d;
+        --color-fg: #f4f4f4;
+        --glass-bg: rgba(255, 255, 255, 0.05);
+        --glass-border: rgba(255, 255, 255, 0.08);
+        --glass-blur: 14px;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--color-bg);
+        color: var(--color-fg);
+        font-family:
+          "DM Sans",
+          system-ui,
+          sans-serif;
+      }
+      #rs-react-root {
+        min-height: 100vh;
+        padding: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Standalone dev-only shell. Production mounts into the vanilla SPA. -->
+    <div id="rs-react-root"></div>
+    <script>
+      // Dev shim — pick a view from the URL hash, e.g. #/dashboard
+      window.__RS_DEV__ = true;
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -71,10 +71,17 @@ def populate_enrichment_queue(conn: sqlite3.Connection) -> int:
 
     Returns the number of newly inserted rows.
     """
-    # Remove queue entries for tracks that no longer exist in the library
+    # Remove queue entries for tracks that no longer exist in the library.
+    # The LEFT JOIN form uses the (item_key) index on `tracks` directly; the
+    # NOT IN subquery materialised a temp set which got slow on 46k libraries.
     deleted = conn.execute("""
         DELETE FROM enrichment_queue
-        WHERE item_key NOT IN (SELECT item_key FROM tracks)
+        WHERE item_key IN (
+            SELECT q.item_key
+            FROM enrichment_queue q
+            LEFT JOIN tracks t ON t.item_key = q.item_key
+            WHERE t.item_key IS NULL
+        )
     """).rowcount
     if deleted:
         logger.info("Enrichment queue: removed %d stale entries (tracks no longer in library)", deleted)
@@ -84,8 +91,12 @@ def populate_enrichment_queue(conn: sqlite3.Connection) -> int:
     # resync. Only drop rows whose stable_id is genuinely gone.
     conn.execute("""
         DELETE FROM track_metadata_ext
-        WHERE stable_id IS NOT NULL
-          AND stable_id NOT IN (SELECT stable_id FROM tracks WHERE stable_id IS NOT NULL)
+        WHERE rowid IN (
+            SELECT me.rowid
+            FROM track_metadata_ext me
+            LEFT JOIN tracks t ON t.stable_id = me.stable_id
+            WHERE me.stable_id IS NOT NULL AND t.stable_id IS NULL
+        )
     """)
 
     conn.commit()
@@ -304,6 +315,16 @@ async def enrich_one(
                 lf_tags, lf_listeners, lf_playcount,
             )
 
+    # Genre whitelist filter (no-op unless opted in via config / env). Runs
+    # before source-attribution so the "lastfm" source flag still fires even
+    # when every junk tag was stripped — listeners/playcount remain.
+    try:
+        from backend.genre_filter import filter_genres as _filter_genres  # noqa: PLC0415
+        mb_tags = _filter_genres(mb_tags or [])
+        lf_tags = _filter_genres(lf_tags or [])
+    except Exception as exc:
+        logger.debug("Genre whitelist filter skipped: %s", exc)
+
     # Determine enrichment_source
     has_mb = bool(mbid)
     has_lf = bool(lf_tags or lf_listeners is not None)
@@ -429,10 +450,16 @@ class EnrichmentWorker:
     async def _process_one(self, row: sqlite3.Row) -> None:
         """Enrich a single queue item using its own DB connection."""
         from backend.db import get_db_connection  # noqa: PLC0415
+        from backend.event_bus import CH_ENRICHMENT, publish  # noqa: PLC0415
 
         item_key = row["item_key"]
         artist = row["artist"]
         title = row["title"]
+
+        publish(
+            CH_ENRICHMENT,
+            {"type": "item_start", "item_key": item_key, "artist": artist, "title": title},
+        )
 
         conn = get_db_connection()
         try:
@@ -444,6 +471,16 @@ class EnrichmentWorker:
             conn.commit()
 
             success = await enrich_one(item_key, artist, title, conn)
+            publish(
+                CH_ENRICHMENT,
+                {
+                    "type": "item_complete",
+                    "item_key": item_key,
+                    "artist": artist,
+                    "title": title,
+                    "success": success,
+                },
+            )
 
             if not success:
                 attempts_row = conn.execute(
@@ -539,6 +576,56 @@ class EnrichmentWorker:
                 for i, res in enumerate(results):
                     if isinstance(res, Exception) and not isinstance(res, asyncio.CancelledError):
                         logger.error("Unhandled error for %s: %s", rows[i]["item_key"], res)
+
+                # Notify the dashboard / enrichment view via WebSocket so the
+                # progress UI updates without polling. publish() is a no-op when
+                # nobody's subscribed.
+                try:
+                    from backend.db import get_db_connection as _gdc  # noqa: PLC0415
+                    from backend.event_bus import CH_ENRICHMENT, publish  # noqa: PLC0415
+                    _c = _gdc()
+                    try:
+                        _stats = get_queue_stats(_c)
+                    finally:
+                        _c.close()
+                    publish(
+                        CH_ENRICHMENT,
+                        {
+                            "type": "batch_complete",
+                            "batch_size": len(rows),
+                            "pending": _stats.get("pending", 0),
+                            "processing": _stats.get("processing", 0),
+                            "complete": _stats.get("complete", 0),
+                            "failed": _stats.get("failed", 0),
+                        },
+                    )
+                except Exception:
+                    pass
+
+                # Picard-style album consistency: opportunistic pass to stamp
+                # one canonical MB release ID across each album. Skipped under
+                # ENRICHMENT_SKIP_MB so the fast-path users aren't slowed down.
+                if not ENRICHMENT_SKIP_MB:
+                    try:
+                        from backend import album_consistency  # noqa: PLC0415
+                        from backend.db import get_db_connection as _gdc  # noqa: PLC0415
+                        from backend.musicbrainz_client import get_mb_client  # noqa: PLC0415
+
+                        mb_client = get_mb_client()
+                        if mb_client is not None:
+                            _c = _gdc()
+                            try:
+                                tagged = await album_consistency.tag_albums_batch(
+                                    _c, mb_client, limit=3
+                                )
+                                if tagged:
+                                    logger.info(
+                                        "Album consistency pass tagged %d albums", tagged
+                                    )
+                            finally:
+                                _c.close()
+                    except Exception as exc:
+                        logger.debug("Album consistency pass skipped: %s", exc)
             except asyncio.CancelledError:
                 logger.info("EnrichmentWorker task cancelled")
                 break

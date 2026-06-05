@@ -1,17 +1,25 @@
 """Playlist generation with library validation."""
 
+import asyncio
 import json
 import logging
 import random
+import time
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 from backend import library_cache, llm_cache
 from backend.config import get_llm_cache_enabled, get_llm_cache_ttl_seconds
-from backend.llm_client import get_llm_client
+from backend.llm_client import create_client_for_override, get_llm_client, user_generation_context
+
+
+@asynccontextmanager
+async def _null_context():
+    yield
 from backend.models import GenerateResponse, Track
 from backend.roon_client import RoonQueryError, get_roon_client
-from backend.taste_profile import build_profile_summary
+from backend.taste_profile import TasteProfile, build_profile_summary
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +120,7 @@ async def generate_narrative(
 
 def _cached_track_to_model(cached: dict) -> Track:
     """Convert a cached track dict to a Track model."""
+    art_key = cached.get("image_key") or cached["item_key"]
     return Track(
         item_key=cached["item_key"],
         title=cached["title"],
@@ -120,8 +129,43 @@ def _cached_track_to_model(cached: dict) -> Track:
         duration_ms=cached.get("duration_ms") or 0,
         year=cached.get("year"),
         genres=cached.get("genres") or [],
-        art_url=f"/api/art/{cached['item_key']}",
+        art_url=f"/api/art/{art_key}",
+        image_key=cached.get("image_key"),
     )
+
+
+def _rerank_tracks_by_taste(tracks: list, limit: int) -> list:
+    """Re-order tracks to surface taste-profile matches and suppress skip-artists.
+
+    Fetches the stored taste profile (best-effort; falls back to random shuffle on
+    any error) and assigns each track a score:
+      +3  artist appears in the top-played artists dict
+      -4  artist has a high skip rate
+    Tracks are sorted descending by score, with random tiebreak to preserve variety.
+    """
+    try:
+        profile = TasteProfile.get()
+        top_artists: set[str] = {a.lower() for a in profile.get("artists", {})}
+        skip_artists: set[str] = {
+            s["artist"].lower()
+            for s in profile.get("skip_signals", {}).get("artists", [])
+        }
+    except Exception:
+        top_artists, skip_artists = set(), set()
+
+    def _score(t) -> float:
+        name = getattr(t, "artist", "") or ""
+        name_lower = name.lower()
+        score = 0.0
+        if name_lower in top_artists:
+            score += 3.0
+        if name_lower in skip_artists:
+            score -= 4.0
+        score += random.random()  # tiebreak
+        return score
+
+    tracks.sort(key=_score, reverse=True)
+    return tracks[:limit]
 
 
 def _get_tracks_from_cache_or_roon(
@@ -132,6 +176,7 @@ def _get_tracks_from_cache_or_roon(
     max_tracks_to_ai: int,
     vibe_contexts: list[str] | None = None,
     vibe_moods: list[str] | None = None,
+    lastfm_tags: list[str] | None = None,
 ) -> list[Track]:
     """Get tracks from cache if available, otherwise from Roon.
 
@@ -144,15 +189,21 @@ def _get_tracks_from_cache_or_roon(
     # Try cache first
     if library_cache.has_cached_tracks():
         logger.info("Using cached tracks for generation")
+        # Fetch up to 3× the target so taste-profile reranking has enough candidates.
+        fetch_limit = min(effective_limit * 3, 600) if effective_limit > 0 else 0
         cached_tracks = library_cache.get_tracks_by_filters(
             genres=genres,
             decades=decades,
             vibe_contexts=vibe_contexts,
             vibe_moods=vibe_moods,
+            lastfm_tags=lastfm_tags,
             exclude_live=exclude_live,
-            limit=effective_limit,
+            limit=fetch_limit,
         )
-        return [_cached_track_to_model(t) for t in cached_tracks]
+        tracks = [_cached_track_to_model(t) for t in cached_tracks]
+        if effective_limit > 0 and len(tracks) > effective_limit:
+            tracks = _rerank_tracks_by_taste(tracks, effective_limit)
+        return tracks
 
     # Fall back to Roon
     logger.info("Cache empty, fetching from Roon")
@@ -189,12 +240,17 @@ async def generate_playlist_stream(
     decades: list[str] | None = None,
     vibe_contexts: list[str] | None = None,
     vibe_moods: list[str] | None = None,
+    lastfm_tags: list[str] | None = None,
     track_count: int = 25,
     exclude_live: bool = True,
     max_tracks_to_ai: int = 500,
     source_mode: str = "library",   # "library" | "hybrid" | "qobuz"
     qobuz_percentage: int = 30,     # % of Qobuz tracks in hybrid mode
     use_taste_profile: bool = True,
+    is_background: bool = False,    # True for circadian/scheduled; skips user priority
+    auto_analyze: bool = True,      # False when caller already ran analyze_prompt
+    llm_provider_override: str | None = None,
+    llm_model_override: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate a playlist with streaming progress updates (async generator).
 
@@ -221,6 +277,55 @@ async def generate_playlist_stream(
         if not roon_client:
             yield emit("error", {"message": "Roon client not initialized"})
             return
+
+        # Apply per-request provider/model override when requested.
+        _override_client = None
+        if llm_provider_override and llm_model_override:
+            try:
+                _override_client = create_client_for_override(
+                    llm_provider_override, llm_model_override
+                )
+                llm_client = _override_client
+                logger.info(
+                    "Using per-request LLM override: provider=%s model=%s",
+                    llm_provider_override, llm_model_override,
+                )
+            except Exception as exc:
+                logger.warning("Could not create override LLM client: %s", exc)
+
+        # Local models can't handle 500-track prompts in reasonable time.
+        # 150 tracks ≈ 12 K chars ≈ 3 K tokens → ~45s-2min on local MLX models.
+        if llm_client.provider in ("ollama", "custom"):
+            max_tracks_to_ai = min(max_tracks_to_ai, 150)
+
+        # Auto-analyze: when no filters are supplied, extract vibe/lastfm/genre hints
+        # from the prompt or seed track so the 150-track pool is relevant rather than random.
+        # Skipped when the caller already ran analyze_prompt (auto_analyze=False) or
+        # when vibe_contexts/moods/lastfm_tags are already set.
+        if auto_analyze and not vibe_contexts and not vibe_moods and not lastfm_tags:
+            _analyze_text = prompt or (
+                f"{seed_track.title} by {seed_track.artist}"
+                + (f" [{', '.join(seed_track.genres[:3])}]" if seed_track.genres else "")
+                if seed_track else ""
+            )
+            if _analyze_text:
+                try:
+                    from backend.analyzer import analyze_prompt as _auto_analyze
+                    yield emit("progress", {"step": "analyzing", "message": "Analysing playlist context..."})
+                    _analysis = await _auto_analyze(_analyze_text, use_taste_profile=use_taste_profile)
+                    if not genres:
+                        genres = _analysis.suggested_genres or []
+                    if not decades:
+                        decades = _analysis.suggested_decades or []
+                    vibe_contexts = _analysis.suggested_vibe_contexts or None
+                    vibe_moods = _analysis.suggested_vibe_moods or None
+                    lastfm_tags = _analysis.suggested_lastfm_tags or None
+                    logger.info(
+                        "Auto-analyze: genres=%s decades=%s vibes=%s/%s lf=%s",
+                        genres, decades, vibe_contexts, vibe_moods, lastfm_tags,
+                    )
+                except Exception as _exc:
+                    logger.warning("Auto-analyze failed, using unfiltered pool: %s", _exc)
 
         has_filters = bool(genres or decades)
         use_library = source_mode in ("library", "hybrid")
@@ -261,6 +366,7 @@ async def generate_playlist_stream(
                     decades=decades,
                     vibe_contexts=vibe_contexts,
                     vibe_moods=vibe_moods,
+                    lastfm_tags=lastfm_tags,
                     exclude_live=exclude_live,
                     max_tracks_to_ai=max_tracks_to_ai,
                 )
@@ -341,17 +447,18 @@ async def generate_playlist_stream(
                 )
 
             def _fmt_track(i: int, t) -> str:  # type: ignore[no-untyped-def]
-                base = f"{i+1}. {t.artist} - {t.title} ({t.album}, {t.year or 'Unknown year'})"
+                year_part = f", {t.year}" if t.year else ""
+                base = f"{i+1}. {t.artist} — {t.title}{year_part}"
                 tags: list[str] = list(_enriched_tags.get(t.item_key, []))
                 for m in _mood_tags.get(t.item_key, []):
                     if m and m not in tags:
                         tags.append(m)
                 vibe = _vibe_tags.get(t.item_key, {})
-                for v in vibe.get("contexts", [])[:2] + vibe.get("moods", [])[:1]:
+                for v in vibe.get("contexts", [])[:1] + vibe.get("moods", [])[:1]:
                     if v and v not in tags:
                         tags.append(v)
                 if tags:
-                    return f"{base} [{', '.join(tags)}]"
+                    return f"{base} [{', '.join(tags[:3])}]"
                 return base
 
             track_list = "\n".join(_fmt_track(i, t) for i, t in enumerate(filtered_tracks))
@@ -440,7 +547,38 @@ async def generate_playlist_stream(
 
             if response is None:
                 logger.info("Calling LLM with prompt length: %d chars", len(generation_prompt))
-                response = await llm_client.generate(generation_prompt, GENERATION_SYSTEM)
+                _ctx = user_generation_context() if not is_background else _null_context()
+
+                # Run the LLM call as a task so we can send periodic keepalive events.
+                # Without this the SSE connection goes silent for minutes and the proxy
+                # (Caddy) drops it, causing a CancelledError before any result is saved.
+                async def _run_llm() -> object:
+                    async with _ctx:
+                        return await llm_client.generate(generation_prompt, GENERATION_SYSTEM)
+
+                llm_task = asyncio.create_task(_run_llm())
+                llm_start = time.monotonic()
+                try:
+                    while True:
+                        try:
+                            response = await asyncio.wait_for(
+                                asyncio.shield(llm_task), timeout=20.0
+                            )
+                            break
+                        except TimeoutError:
+                            if llm_task.done():
+                                response = llm_task.result()
+                                break
+                            elapsed = int(time.monotonic() - llm_start)
+                            yield emit("progress", {
+                                "step": "ai_working",
+                                "message": "AI is curating your playlist...",
+                                "elapsed_s": elapsed,
+                            })
+                except BaseException:
+                    llm_task.cancel()
+                    raise
+
                 logger.info(
                     "LLM response received: %d input, %d output tokens",
                     response.input_tokens, response.output_tokens,
@@ -625,8 +763,8 @@ async def generate_playlist_stream(
             result_type = "seed_playlist" if seed_track else "prompt_playlist"
             # Title: always use the LLM-generated playlist title
             result_title = playlist_title
-            # Use first track's rating key for card thumbnail
-            first_art_key = matched_tracks[0].item_key if matched_tracks else None
+            # Use first track's image_key (stable) or item_key for card thumbnail
+            first_art_key = (matched_tracks[0].image_key or matched_tracks[0].item_key) if matched_tracks else None
             # Subtitle: seed playlists show origin track, prompt playlists show prompt + count
             if seed_track:
                 result_subtitle = f"From: {seed_track.title} by {seed_track.artist} \u00b7 {len(matched_tracks)} tracks"
@@ -697,6 +835,8 @@ GENERATION_SYSTEM = """You are a music curator. Select tracks from the numbered 
 Tags in square brackets (e.g. [jazz, melancholic, late night]) describe mood and style — use them for emotional or vague requests.
 
 Rules:
+- Return EXACTLY the number of tracks requested — never fewer, never more
+- Fill the full count even if some choices feel less obvious — variety is good
 - Max 1 track per artist, max 1 per album
 - Alternate artists, eras and energy — never group consecutive tracks
 - Exclude the seed track itself if one is provided

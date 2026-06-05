@@ -38,7 +38,7 @@ NIGHT_START = 1   # 01:00 local — heavy batch jobs may start
 NIGHT_END   = 7   # 07:00 local — heavy batch jobs must finish (or pause)
 
 BATCH_PAUSE     = 5    # seconds between vibe-tagging batches at night
-DAY_PAUSE       = 60   # seconds between vibe-tagging batches during the day
+DAY_PAUSE       = 20   # seconds between vibe-tagging batches during the day
 LYRICS_PAUSE    = 10   # seconds between lyrics batches at night
 LYRICS_DAY_PAUSE = 90  # seconds between lyrics batches during the day
 

@@ -1,3 +1,16 @@
+# ── Stage 0: React microfrontend builder ──────────────────────────────────────
+# Builds the Tier-2/3 React views (Dashboard, LibraryHealth, Personas, AutomationBuilder,
+# SonicRadio) with Vite + Tailwind v4. Output goes to /react-dist/assets/{main.js,main.css}
+# and is copied into /app/frontend/react/dist/ on the final image. The vanilla
+# SPA dynamically imports the bundle on first React-view navigation.
+FROM node:20-alpine AS reactbuilder
+WORKDIR /react
+COPY frontend/react/package.json frontend/react/package-lock.json* ./
+RUN npm install --no-audit --no-fund --loglevel=error || npm install --no-audit --no-fund --loglevel=error
+COPY frontend/react/ ./
+RUN npm run build
+
+
 # ── Stage 1: dependency builder ───────────────────────────────────────────────
 FROM python:3.11-slim AS builder
 
@@ -72,6 +85,12 @@ RUN sed -i 's/torch\.load(checkpoint_path, map_location=map_location)/torch.load
 COPY --chown=roonsage:roonsage backend/ ./backend/
 COPY --chown=roonsage:roonsage frontend/ ./frontend/
 COPY --chown=roonsage:roonsage scripts/ ./scripts/
+
+# Copy the pre-built React microfrontend bundle to a location OUTSIDE the
+# /app/frontend bind mount. docker-compose.yml mounts the host frontend/ over
+# /app/frontend, which would shadow any bundle we placed inside it. FastAPI
+# serves this directory under /static/react via a dedicated mount in main.py.
+COPY --from=reactbuilder --chown=roonsage:roonsage /react/dist/ /app/react-dist/
 COPY --chown=roonsage:roonsage config.example.yaml ./
 COPY --chown=roonsage:roonsage data/mood_centroids.json ./data/mood_centroids.json
 

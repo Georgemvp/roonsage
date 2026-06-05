@@ -289,6 +289,8 @@ async def build_dj_set(request: DJSetRequest) -> DJSetResponseWithSession:
         max_per_artist=request.max_per_artist,
         allow_half_step=request.allow_half_step,
         skip_recent=request.skip_recent,
+        vibe_contexts=request.vibe_contexts or None,
+        vibe_moods=request.vibe_moods or None,
     )
 
     tracks = [

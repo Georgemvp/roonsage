@@ -271,6 +271,7 @@ def _create_schema_tables(conn: sqlite3.Connection) -> None:
             trigger_config  TEXT NOT NULL DEFAULT '{}',
             action_type     TEXT NOT NULL,
             action_config   TEXT NOT NULL DEFAULT '{}',
+            then_actions    TEXT NOT NULL DEFAULT '[]',
             enabled         INTEGER DEFAULT 1,
             last_triggered  TEXT,
             last_status     TEXT,

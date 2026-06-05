@@ -380,8 +380,9 @@ export function setupEventListeners() {
     // Save playlist
     document.getElementById('save-playlist-btn').addEventListener('click', handleSavePlaylist);
 
-    // Save settings
+    // Save settings (global button at bottom + inline LLM section button)
     document.getElementById('save-settings-btn').addEventListener('click', handleSaveSettings);
+    document.getElementById('save-llm-btn')?.addEventListener('click', handleSaveSettings);
 
     // Validate Qobuz credentials
     document.getElementById('validate-qobuz-btn')?.addEventListener('click', handleValidateQobuz);
@@ -1037,6 +1038,14 @@ export async function handleGenerate() {
         qobuz_percentage: state.qobuzPercentage,
         use_taste_profile: state.useTasteProfile,
     };
+
+    // Per-request model override from the model selector
+    const modelSelect = document.getElementById('model-select');
+    if (modelSelect && modelSelect.value) {
+        const [provider, model] = modelSelect.value.split('|');
+        request.llm_provider = provider;
+        request.llm_model = model;
+    }
 
     if (state.mode === 'prompt') {
         request.prompt = state.prompt;

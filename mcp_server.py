@@ -4462,6 +4462,94 @@ async def get_listening_sessions(limit: int = 10) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Playlist personas (v14.0)
+# ---------------------------------------------------------------------------
+#
+# Cache-only generators that produce opinionated playlists without LLM calls.
+# Backed by backend/routes/personas.py — each tool maps to one persona slug.
+
+
+@mcp.tool()
+async def list_personas() -> str:
+    """Return every available playlist persona with its slug, name and description.
+
+    Personas are opinionated playlist generators that run on data already in
+    the local library cache — no LLM calls, no external APIs, instant. Use
+    this when the user asks for "something to listen to", "surprise me",
+    "what should I play", or wants a quick mood-based playlist.
+
+    Available personas (v14.0):
+      - time-machine        Tracks from exactly 1/5/10 years ago this week
+      - hidden-gems         Tracks by favourite artists you've barely played
+      - seasonal-mix        Energy + valence tuned to the current calendar season
+      - daily-mix           5 top genres × 6 tracks each, refreshed daily
+      - discovery-shuffle   Random walk through unplayed sonic-fingerprint neighbours
+      - rainy-day           History snapshot keyed to today's weekday over the past year
+    """
+    logger.info("LIST_PERSONAS called")
+    result = await _api_call("GET", "/api/personas/list")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def preview_persona(slug: str) -> str:
+    """Preview a persona's playlist without playing it.
+
+    Returns a numbered track list (title, artist, album, art_key) so Claude
+    can describe what's in the persona before committing to play. Useful for
+    "show me what Time Machine would play" or for validation before queuing.
+
+    Args:
+        slug: Persona slug from list_personas() — e.g. "time-machine".
+    """
+    logger.info("PREVIEW_PERSONA: slug=%s", slug)
+    result = await _api_call("GET", f"/api/personas/{slug}/preview")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+@mcp.tool()
+async def play_persona(slug: str, zone_id: str, mode: str = "replace_queue") -> str:
+    """Queue a persona's playlist to a Roon zone and start playback.
+
+    Resolves the persona to a track list via the local cache, then queues the
+    item_keys to the named Roon zone. No LLM calls, no external requests —
+    typically < 500 ms end to end.
+
+    Args:
+        slug: Persona slug from list_personas() — e.g. "hidden-gems".
+        zone_id: Roon zone identifier from get_zones().
+        mode: "replace_queue" (default), "play_now", or "queue_next".
+    """
+    logger.info("PLAY_PERSONA: slug=%s zone=%s mode=%s", slug, zone_id, mode)
+    result = await _api_call(
+        "POST",
+        f"/api/personas/{slug}/play",
+        json_data={"zone_id": zone_id, "mode": mode},
+        retryable=False,
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
+# Library Health (v14.0)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_library_health() -> str:
+    """Return a comprehensive library health report.
+
+    Surfaces problems that grow invisibly over time: duplicates, missing
+    metadata, album-consistency issues, stale cache entries and disk usage
+    breakdown. Use this when the user asks "is my library in good shape?",
+    "what's wrong with my collection?", or wants pre-flight before a sync.
+    """
+    logger.info("GET_LIBRARY_HEALTH called")
+    result = await _api_call("GET", "/api/library-health/summary")
+    return json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, dict | list) else result
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

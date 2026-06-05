@@ -14,21 +14,25 @@ from backend.taste_profile import TasteProfile
 
 PROMPT_ANALYSIS_SYSTEM = """You are a music expert helping to create playlists from a user's music library.
 
-Analyze the user's prompt and suggest appropriate filters (genres, decades, and moods) that would help find matching tracks.
+Analyze the user's prompt and suggest appropriate filters that would help find matching tracks.
 
 Return a JSON object with:
 - genres: Array of genre names that match the prompt (e.g., ["Alternative", "Rock", "Indie"])
 - decades: Array of decade strings (e.g., ["1990s", "2000s"])
-- moods: Array of mood labels chosen from the provided vocabulary (e.g., ["calm", "dreamy"])
+- moods: Array of mood labels chosen from the CLAP mood vocabulary
+- vibe_contexts: Array of listening context tags from the vibe vocabulary (e.g., ["dinner party", "road trip"])
+- vibe_moods: Array of emotional mood tags from the vibe vocabulary (e.g., ["melancholic", "uplifting"])
+- lastfm_tags: Array of matching Last.fm style tags from the provided list (max 3, omit if none fit)
 - reasoning: Brief explanation of why you chose these filters
 
 Be specific. Consider:
-- Mood/atmosphere (melancholy, upbeat, energetic) → map to the provided mood vocabulary
-- Era references (90s, classic, modern)
-- Genre keywords (alternative, jazz, electronic)
-- Artist style hints
+- Mood/atmosphere → map to vibe_moods and moods vocabularies
+- Listening context (studying, party, morning routine) → map to vibe_contexts
+- Era references → decades
+- Genre keywords → genres
+- Last.fm tags can provide additional genre/style context
 
-Only return moods that appear in the provided mood vocabulary — never invent new ones.
+Only use values that appear in the provided vocabularies — never invent new ones. Leave arrays empty if nothing fits.
 
 Return ONLY valid JSON, no markdown formatting.
 
@@ -89,6 +93,8 @@ async def analyze_prompt(prompt: str, use_taste_profile: bool = True) -> Analyze
     # that have actually been assigned to library tracks are surfaced; we fall
     # back to the full default vocabulary when the tagger hasn't run yet.
     available_moods = _load_available_moods()
+    available_vibe_contexts, available_vibe_moods = _load_available_vibes()
+    top_lastfm_tags = _load_top_lastfm_tags()
 
     # Build prompt with available filter context
     analysis_prompt = f"""User's playlist request: "{prompt}"
@@ -99,10 +105,19 @@ Available genres in their library:
 Available decades in their library:
 {', '.join(f"{d.name} ({d.count})" if d.count else d.name for d in available_decades)}
 
-Available mood vocabulary:
+Available CLAP mood vocabulary:
 {', '.join(available_moods) if available_moods else '(mood tagging not yet run — leave moods empty)'}
 
-Suggest genres, decades, and (when applicable) moods from the available options that best match the user's request."""
+Available vibe contexts (listening situations):
+{', '.join(available_vibe_contexts) if available_vibe_contexts else '(no vibe tags yet — leave vibe_contexts empty)'}
+
+Available vibe moods (emotional qualities):
+{', '.join(available_vibe_moods) if available_vibe_moods else '(no vibe tags yet — leave vibe_moods empty)'}
+
+Available Last.fm tags (top tags from this library):
+{', '.join(top_lastfm_tags) if top_lastfm_tags else '(no Last.fm tags yet — leave lastfm_tags empty)'}
+
+Suggest genres, decades, moods, vibe_contexts, vibe_moods, and lastfm_tags from the available options that best match the user's request."""
 
     # Add taste profile context (gated by use_taste_profile flag)
     if use_taste_profile:
@@ -132,6 +147,9 @@ Suggest genres, decades, and (when applicable) moods from the available options 
     available_genre_names = {g.name for g in available_genres}
     available_decade_names = {d.name for d in available_decades}
     available_mood_set = {m.lower() for m in available_moods}
+    available_vibe_ctx_set = {v.lower() for v in available_vibe_contexts}
+    available_vibe_mood_set = {v.lower() for v in available_vibe_moods}
+    top_lastfm_set = {t.lower() for t in top_lastfm_tags}
 
     suggested_genres = [g for g in data.get("genres", []) if g in available_genre_names]
     suggested_decades = [d for d in data.get("decades", []) if d in available_decade_names]
@@ -144,17 +162,84 @@ Suggest genres, decades, and (when applicable) moods from the available options 
         prompt_lower = prompt.lower()
         suggested_moods = [m for m in available_moods if m.lower() in prompt_lower]
 
+    llm_vibe_contexts = [v.lower().strip() for v in data.get("vibe_contexts", []) if isinstance(v, str)]
+    suggested_vibe_contexts = [v for v in llm_vibe_contexts if v in available_vibe_ctx_set]
+
+    llm_vibe_moods = [v.lower().strip() for v in data.get("vibe_moods", []) if isinstance(v, str)]
+    suggested_vibe_moods = [v for v in llm_vibe_moods if v in available_vibe_mood_set]
+
+    llm_lastfm = [t.lower().strip() for t in data.get("lastfm_tags", []) if isinstance(t, str)]
+    suggested_lastfm_tags = [t for t in llm_lastfm if t in top_lastfm_set]
+
     return AnalyzePromptResponse(
         suggested_genres=suggested_genres,
         suggested_decades=suggested_decades,
         suggested_moods=suggested_moods,
+        suggested_vibe_contexts=suggested_vibe_contexts,
+        suggested_vibe_moods=suggested_vibe_moods,
+        suggested_lastfm_tags=suggested_lastfm_tags,
         available_genres=available_genres,
         available_decades=available_decades,
         available_moods=available_moods,
+        available_vibe_contexts=available_vibe_contexts,
+        available_vibe_moods=available_vibe_moods,
         reasoning=data.get("reasoning", ""),
         token_count=response.total_tokens,
         estimated_cost=response.estimated_cost(),
     )
+
+
+def _load_available_vibes() -> tuple[list[str], list[str]]:
+    """Return (contexts, moods) present in track_vibes."""
+    try:
+        import json
+        from backend.db import get_connection
+        with get_connection() as conn:
+            ctx_rows = conn.execute(
+                "SELECT DISTINCT contexts FROM track_vibes WHERE contexts IS NOT NULL"
+            ).fetchall()
+            mood_rows = conn.execute(
+                "SELECT DISTINCT moods FROM track_vibes WHERE moods IS NOT NULL"
+            ).fetchall()
+        all_ctx: set[str] = set()
+        for row in ctx_rows:
+            try:
+                all_ctx.update(json.loads(row[0]))
+            except Exception:
+                pass
+        all_moods: set[str] = set()
+        for row in mood_rows:
+            try:
+                all_moods.update(json.loads(row[0]))
+            except Exception:
+                pass
+        return sorted(all_ctx), sorted(all_moods)
+    except Exception:
+        return [], []
+
+
+def _load_top_lastfm_tags(limit: int = 40) -> list[str]:
+    """Return top Last.fm tags by frequency across the library."""
+    try:
+        import json
+        from collections import Counter
+        from backend.db import get_connection
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT lastfm_tags FROM track_metadata_ext WHERE lastfm_tags IS NOT NULL"
+            ).fetchall()
+        counter: Counter = Counter()
+        for row in rows:
+            try:
+                tags = json.loads(row[0])
+                for tag in tags:
+                    if isinstance(tag, str):
+                        counter[tag.lower().strip()] += 1
+            except Exception:
+                pass
+        return [tag for tag, _ in counter.most_common(limit)]
+    except Exception:
+        return []
 
 
 def _load_available_moods() -> list[str]:

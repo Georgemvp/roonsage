@@ -63,12 +63,17 @@ async def generate_playlist_sse(
             refinement_answers=body.refinement_answers,
             genres=body.genres,
             decades=body.decades,
+            vibe_contexts=body.vibe_contexts,
+            vibe_moods=body.vibe_moods,
+            lastfm_tags=body.lastfm_tags,
             track_count=body.track_count,
             exclude_live=body.exclude_live,
             max_tracks_to_ai=body.max_tracks_to_ai,
             source_mode=body.source_mode,
             qobuz_percentage=body.qobuz_percentage,
             use_taste_profile=body.use_taste_profile,
+            llm_provider_override=body.llm_provider,
+            llm_model_override=body.llm_model,
         ):
             yield chunk
 

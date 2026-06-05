@@ -37,6 +37,26 @@ _sync_state: dict[str, Any] = {
 _sync_lock = threading.Lock()
 
 
+def _publish_sync(event_type: str, **extra: Any) -> None:
+    """Fan out a sync-progress event to /ws/sync subscribers.
+
+    Sync runs in a thread (``asyncio.to_thread``), so we use the threadsafe
+    publish hop. No-op when nobody is listening.
+    """
+    try:
+        from backend.event_bus import CH_SYNC, publish_threadsafe  # noqa: PLC0415
+
+        payload: dict[str, Any] = {"type": event_type}
+        with _sync_lock:
+            payload["phase"] = _sync_state["phase"]
+            payload["current"] = _sync_state["current"]
+            payload["total"] = _sync_state["total"]
+        payload.update(extra)
+        publish_threadsafe(CH_SYNC, payload)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -232,12 +252,21 @@ def sync_library(
         # ----------------------------------------------------------------
         with _sync_lock:
             _sync_state["phase"] = "fetching"
+        _publish_sync("phase_change")
+
+        # Throttle WS emits — Roon paginates aggressively and we don't want
+        # to flood subscribers (or spend WS frames on micro-progress).
+        _last_emit: list[float] = [0.0]
 
         def _on_album_progress(current: int, total: int) -> None:
             with _sync_lock:
                 _sync_state["phase"] = "fetching"
                 _sync_state["current"] = current
                 _sync_state["total"] = total
+            now = time.time()
+            if now - _last_emit[0] > 0.5:
+                _last_emit[0] = now
+                _publish_sync("progress")
 
         logger.info("Fetching all tracks from Roon (this may take a while)...")
         all_tracks: list[dict] = roon_client.get_all_raw_tracks(
@@ -249,6 +278,7 @@ def sync_library(
         with _sync_lock:
             _sync_state["total"] = total
             _sync_state["phase"] = "processing"
+        _publish_sync("phase_change")
 
         # Full replace: clear existing cache only after a successful Roon fetch
         # so that a network failure in Phase 1/2 leaves the previous cache intact.
@@ -364,6 +394,7 @@ def sync_library(
 
                 logger.info("Synced %d/%d tracks", synced_count, total)
                 conn.commit()  # Allow concurrent reads (WAL mode)
+                _publish_sync("progress")
 
         # Insert remaining tracks
         if batch_data:
@@ -396,11 +427,18 @@ def sync_library(
                 _sync_state["phase"] = "enriching_albums"
                 _sync_state["current"] = 0
                 _sync_state["total"] = 0
+            _publish_sync("phase_change")
+
+            _last_enrich_emit: list[float] = [0.0]
 
             def _on_enrich_progress(current: int, total: int) -> None:
                 with _sync_lock:
                     _sync_state["current"] = current
                     _sync_state["total"] = total
+                now = time.time()
+                if now - _last_enrich_emit[0] > 0.5:
+                    _last_enrich_emit[0] = now
+                    _publish_sync("progress")
 
             track_album_map = roon_client.build_track_album_map(on_progress=_on_enrich_progress)
 
@@ -573,6 +611,13 @@ def sync_library(
         except Exception:
             pass
 
+        _publish_sync(
+            "complete",
+            success=True,
+            track_count=synced_count,
+            duration_ms=duration_ms,
+        )
+
         return {
             "success": True,
             "track_count": synced_count,
@@ -583,6 +628,7 @@ def sync_library(
         logger.exception("Sync failed: %s", exc)
         with _sync_lock:
             _sync_state["error"] = str(exc)
+        _publish_sync("error", error=str(exc))
 
         # Fire-and-forget notification
         try:

@@ -67,7 +67,10 @@ function _healthRings(h) {
             <div class="rs-stat-health-sub">${count} / ${total}</div>
         </div>`;
     return ring('Enriched', h.enriched_pct, h.enriched, h.total_tracks)
-         + ring('Audio features', h.analysed_pct, h.analysed, h.total_tracks);
+         + ring('Audio features', h.analysed_pct, h.analysed, h.total_tracks)
+         + (h.lyrics_pct !== undefined
+            ? ring('Lyrics', h.lyrics_pct, h.lyrics, h.total_tracks)
+            : '');
 }
 
 async function _renderTimeline(timeline) {
@@ -107,6 +110,101 @@ async function _renderGenreDonut(genres) {
     });
 }
 
+async function _renderHourChart(byHour) {
+    const ctx = document.getElementById('stats-hour-chart');
+    if (!ctx) return;
+    _destroy('hour');
+    const max = Math.max(1, ...byHour.map(h => h.plays));
+    _charts.hour = new window.Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: byHour.map(h => String(h.hour).padStart(2, '0') + 'u'),
+            datasets: [{
+                data: byHour.map(h => h.plays),
+                backgroundColor: byHour.map(h =>
+                    `rgba(229,160,13,${0.2 + 0.7 * (h.plays / max)})`),
+                borderRadius: 2,
+            }],
+        },
+        options: {
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { display: false } },
+                y: { beginAtZero: true, ticks: { display: false }, grid: { display: false } },
+            },
+        },
+    });
+}
+
+async function _renderDowChart(byDow) {
+    const ctx = document.getElementById('stats-dow-chart');
+    if (!ctx) return;
+    _destroy('dow');
+    const labels = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
+    _charts.dow = new window.Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: byDow.map(d => labels[d.dow]),
+            datasets: [{
+                data: byDow.map(d => d.plays),
+                backgroundColor: 'rgba(78,163,255,0.55)',
+                borderRadius: 3,
+            }],
+        },
+        options: {
+            plugins: { legend: { display: false } },
+            scales: { x: { grid: { display: false } }, y: { beginAtZero: true } },
+        },
+    });
+}
+
+async function _renderDecadeChart(decades) {
+    const ctx = document.getElementById('stats-decade-chart');
+    if (!ctx) return;
+    _destroy('decade');
+    _charts.decade = new window.Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: decades.map(d => d.decade),
+            datasets: [{
+                data: decades.map(d => d.plays),
+                backgroundColor: 'rgba(160,108,213,0.6)',
+                borderRadius: 3,
+            }],
+        },
+        options: {
+            plugins: { legend: { display: false } },
+            scales: { x: { grid: { display: false } }, y: { beginAtZero: true } },
+        },
+    });
+}
+
+async function _renderBpmChart(buckets) {
+    const ctx = document.getElementById('stats-bpm-chart');
+    if (!ctx) return;
+    _destroy('bpm');
+    _charts.bpm = new window.Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: buckets.map(b => `${b.bpm}`),
+            datasets: [{
+                data: buckets.map(b => b.count),
+                backgroundColor: 'rgba(0,212,170,0.55)',
+                borderRadius: 2,
+            }],
+        },
+        options: {
+            plugins: { legend: { display: false }, tooltip: {
+                callbacks: { title: (c) => `${c[0].label}-${parseInt(c[0].label, 10) + 9} BPM` }
+            } },
+            scales: {
+                x: { grid: { display: false }, title: { display: true, text: 'BPM' } },
+                y: { beginAtZero: true, title: { display: true, text: 'tracks' } },
+            },
+        },
+    });
+}
+
 async function _load() {
     const root = document.getElementById('stats-body');
     if (!root) return;
@@ -122,6 +220,10 @@ async function _load() {
 
         _renderTimeline(d.timeline);
         _renderGenreDonut(d.genres);
+        _renderHourChart(d.listening_by_hour || []);
+        _renderDowChart(d.listening_by_dow || []);
+        _renderDecadeChart(d.decades || []);
+        _renderBpmChart(d.bpm_histogram || []);
     } catch (e) {
         console.warn('stats load failed:', e);
         root.innerHTML = '<p class="rs-stat-empty">Stats konden niet geladen worden.</p>';

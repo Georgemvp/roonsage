@@ -7,6 +7,10 @@ import { escapeHtml } from './utils.js';
 
 const POLL_INTERVAL = 3000; // ms
 let _pollTimer = null;
+let _tickTimer = null;       // 1-second client-side tick for smooth progress
+let _tickSeekPos = 0;        // seek_position at last poll
+let _tickTimestamp = 0;      // Date.now() at last poll
+let _tickDuration = 0;       // track duration at last poll
 let _currentZoneId = null;
 let _zones = [];
 
@@ -56,6 +60,8 @@ export function openZonePicker() {
     popup.querySelectorAll('.zone-picker-item').forEach(item => {
         item.addEventListener('click', () => {
             _currentZoneId = item.dataset.zone;
+            localStorage.setItem('rs-zone-id', _currentZoneId);
+            window.dispatchEvent(new CustomEvent('roonsage:zone'));
             _poll();
             _removeZonePicker();
         });
@@ -89,12 +95,42 @@ export function stopNowPlaying() {
 }
 
 // ── Polling ───────────────────────────────────────────────────────────────────
+function _startTick(seekPos, duration) {
+    if (_tickTimer) clearInterval(_tickTimer);
+    _tickTimer = null;
+    _tickSeekPos = seekPos;
+    _tickTimestamp = Date.now();
+    _tickDuration = duration;
+    if (duration <= 0) return;
+    _tickTimer = setInterval(() => {
+        const elapsed = _tickSeekPos + (Date.now() - _tickTimestamp) / 1000;
+        const pct = Math.min(100, (elapsed / _tickDuration) * 100);
+        const eMin = Math.floor(elapsed / 60);
+        const eSec = String(Math.floor(elapsed % 60)).padStart(2, '0');
+        const timeEls = document.querySelectorAll('.np-time-col');
+        if (timeEls[0]) timeEls[0].textContent = `${eMin}:${eSec}`;
+        const fill = document.querySelector('.np-bar-fill-col');
+        if (fill) fill.style.width = `${pct}%`;
+        const pbar = document.querySelector('.np-progress-col');
+        if (pbar) pbar.setAttribute('aria-valuenow', String(Math.round(pct)));
+    }, 1000);
+}
+
 async function _poll() {
     try {
         const data = await apiCall('/roon/zones');
         const zoneList = Array.isArray(data) ? data : (data.zones || []);
         _zones = zoneList.filter(z => z.now_playing);
         _render(_zones);
+        // Start smooth tick for whichever zone is active.
+        const activeZone = _zones.find(z => z.zone_id === _currentZoneId) || _zones[0];
+        if (activeZone?.state === 'playing') {
+            const pos = activeZone.now_playing?.seek_position ?? 0;
+            const dur = activeZone.now_playing?.length ?? 0;
+            _startTick(pos, dur);
+        } else {
+            if (_tickTimer) { clearInterval(_tickTimer); _tickTimer = null; }
+        }
     } catch (e) {
         // silently ignore connection errors during polling
     }
@@ -112,7 +148,13 @@ function _render(zones) {
 
     // Pick active zone or first zone with now_playing
     let zone = zones.find(z => z.zone_id === _currentZoneId) || zones[0];
-    _currentZoneId = zone.zone_id;
+    if (_currentZoneId !== zone.zone_id) {
+        _currentZoneId = zone.zone_id;
+        localStorage.setItem('rs-zone-id', _currentZoneId);
+        window.dispatchEvent(new CustomEvent('roonsage:zone'));
+    } else {
+        _currentZoneId = zone.zone_id;
+    }
 
     const np = zone.now_playing;
     const isPlaying = zone.state === 'playing';

@@ -11,19 +11,24 @@ import { loadSettings } from './playlist.js';
 // Maps data-nav hash → whether it should be active given current state
 function _navHashIsActive(hash) {
     switch (hash) {
-        case 'home':            return state.view === 'home';
-        case 'playlist-prompt': return state.view === 'create' && state.mode === 'prompt';
-        case 'playlist-seed':   return state.view === 'create' && state.mode === 'seed';
-        case 'recommend-album': return state.view === 'recommend';
-        case 'playlists':       return state.view === 'playlists';
-        case 'discovery':       return state.view === 'discovery';
-        case 'watchlist':       return state.view === 'watchlist';
-        case 'dj-set':          return state.view === 'dj-set';
-        case 'taste':           return state.view === 'taste';
-        case 'automations':     return state.view === 'automations';
-        case 'settings':        return state.view === 'settings';
-        case 'enrichment':      return state.view === 'enrichment';
-        default:                return false;
+        case 'home':                return state.view === 'home';
+        case 'playlist-prompt':     return state.view === 'create' && state.mode === 'prompt';
+        case 'playlist-seed':       return state.view === 'create' && state.mode === 'seed';
+        case 'recommend-album':     return state.view === 'recommend';
+        case 'playlists':           return state.view === 'playlists';
+        case 'discovery':           return state.view === 'discovery';
+        case 'watchlist':           return state.view === 'watchlist';
+        case 'dj-set':              return state.view === 'dj-set';
+        case 'taste':               return state.view === 'taste';
+        case 'automations':         return state.view === 'automations';
+        case 'settings':            return state.view === 'settings';
+        case 'enrichment':          return state.view === 'enrichment';
+        case 'dashboard':           return state.view === 'dashboard';
+        case 'library-health':      return state.view === 'library-health';
+        case 'personas':            return state.view === 'personas';
+        case 'automation-builder':  return state.view === 'automation-builder';
+        case 'sonic-radio':         return state.view === 'sonic-radio';
+        default:                    return false;
     }
 }
 

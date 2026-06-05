@@ -82,6 +82,49 @@ _PIPELINES: list[dict[str, Any]] = [
             },
         ],
     },
+    {
+        "id": "sync_chain",
+        "name": "Library + ListenBrainz Chain",
+        "description": "Een signal-chain: nightly library sync → fire 'library.synced' "
+                       "signal → ListenBrainz refresh → notificatie. Demonstreert "
+                       "then_actions + signal_received.",
+        "steps": [
+            {
+                "name": "Chain · nightly library sync (signal source)",
+                "trigger_type": "schedule", "trigger_config": {"cron": "30 2 * * *"},
+                "action_type": "sync_library", "action_config": {},
+                "then_actions": [
+                    {
+                        "type": "emit_signal",
+                        "config": {"signal": "library.synced",
+                                   "payload": {"source": "nightly"}},
+                    }
+                ],
+            },
+            {
+                "name": "Chain · refresh ListenBrainz on signal",
+                "trigger_type": "signal_received",
+                "trigger_config": {"signal": "library.synced"},
+                "action_type": "sync_listenbrainz", "action_config": {},
+                "then_actions": [
+                    {
+                        "type": "emit_signal",
+                        "config": {"signal": "stats.refresh"},
+                    }
+                ],
+            },
+            {
+                "name": "Chain · notify when stats refresh fires",
+                "trigger_type": "signal_received",
+                "trigger_config": {"signal": "stats.refresh"},
+                "action_type": "send_notification",
+                "action_config": {
+                    "message": "Nachtelijke library + scrobble refresh klaar.",
+                    "channel": "all",
+                },
+            },
+        ],
+    },
 ]
 
 _PIPELINE_BY_ID = {p["id"]: p for p in _PIPELINES}
@@ -134,14 +177,16 @@ async def install_pipeline(pipeline_id: str) -> dict[str, Any]:
                 continue
             cursor = conn.execute(
                 """INSERT INTO automations
-                   (name, trigger_type, trigger_config, action_type, action_config, enabled, cooldown_seconds)
-                   VALUES (?, ?, ?, ?, ?, 1, ?)""",
+                   (name, trigger_type, trigger_config, action_type, action_config,
+                    then_actions, enabled, cooldown_seconds)
+                   VALUES (?, ?, ?, ?, ?, ?, 1, ?)""",
                 (
                     step["name"],
                     step["trigger_type"],
                     json.dumps(step.get("trigger_config", {})),
                     step["action_type"],
                     json.dumps(step.get("action_config", {})),
+                    json.dumps(step.get("then_actions", [])),
                     step.get("cooldown_seconds", 300),
                 ),
             )

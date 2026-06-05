@@ -506,6 +506,192 @@ def get_sounds_like_your_week(limit: int = 20) -> dict:
         return empty
 
 
+def get_recently_added(limit: int = 20, days: int = 30) -> list[dict]:
+    """Albums whose newest track was added in the past ``days``.
+
+    Useful for "what's new in my library" without external API calls. Uses
+    ``tracks.updated_at`` (sync touch) as the proxy for added-date — accurate
+    enough for the discovery use case.
+    """
+    sql = """
+        SELECT a.title AS album, a.artist, a.item_key AS parent_item_key,
+               a.image_key, MAX(t.updated_at) AS added_at
+        FROM albums a
+        JOIN tracks t ON t.parent_item_key = a.item_key
+        WHERE t.updated_at >= datetime('now', ?)
+        GROUP BY a.item_key
+        ORDER BY added_at DESC
+        LIMIT ?
+    """
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(sql, (f"-{days} days", limit)).fetchall()
+            return [dict(r) for r in rows]
+    except Exception:
+        logger.exception("get_recently_added failed")
+        return []
+
+
+def get_undiscovered_albums(limit: int = 20) -> list[dict]:
+    """Albums by artists you love but that you've never played.
+
+    Picks the top-40 artists by listen count, then within each of their albums
+    surfaces the one with zero play history. Mirrors SoulSync's
+    "Undiscovered Albums" cache-powered section.
+    """
+    sql = """
+        WITH top_artists AS (
+            SELECT artist, COUNT(*) AS plays
+            FROM listening_history
+            WHERE artist IS NOT NULL AND artist != ''
+            GROUP BY artist
+            ORDER BY plays DESC
+            LIMIT 60
+        ),
+        album_plays AS (
+            SELECT a.item_key, a.title, a.artist, a.image_key,
+                   COALESCE(SUM(CASE WHEN lh.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS plays
+            FROM albums a
+            JOIN top_artists ta ON LOWER(a.artist) = LOWER(ta.artist)
+            LEFT JOIN listening_history lh
+                ON LOWER(lh.artist) = LOWER(a.artist)
+               AND LOWER(lh.album)  = LOWER(a.title)
+            GROUP BY a.item_key
+        ),
+        ranked AS (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY artist ORDER BY RANDOM()) AS rn
+            FROM album_plays
+            WHERE plays = 0 AND title IS NOT NULL AND title != ''
+        )
+        SELECT title AS album, artist, item_key AS parent_item_key, image_key
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY RANDOM()
+        LIMIT ?
+    """
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(sql, (limit,)).fetchall()
+            return [dict(r) for r in rows]
+    except Exception:
+        logger.exception("get_undiscovered_albums failed")
+        return []
+
+
+def get_seasonal_mix(limit: int = 25) -> dict | None:
+    """One seasonal playlist scoped to the current Northern-hemisphere month.
+
+    Returns ``None`` outside of the curated windows so the UI hides the
+    section gracefully. The mood mapping mirrors SoulSync's seasonal logic.
+    """
+    month = datetime.now(UTC).month
+    season: tuple[str, tuple[str, ...]] | None
+    if month in (10, 11):
+        season = ("Halloween / autumn", ("dark", "gothic", "doom", "occult", "horror", "witch", "spooky"))
+    elif month == 12:
+        season = ("Christmas", ("christmas", "holiday", "winter"))
+    elif month in (1, 2):
+        season = ("Winter introspectie", ("winter", "melancholy", "ambient", "drone", "slowcore"))
+    elif month == 5:
+        season = ("Lente", ("uplifting", "happy", "indie pop", "summer"))
+    elif month in (6, 7, 8):
+        season = ("Zomer", ("summer", "beach", "tropical", "reggaeton", "dance", "house"))
+    else:
+        return None
+
+    name, keywords = season
+    like_clauses = " OR ".join(["LOWER(g.genre) LIKE ?" for _ in keywords])
+    params: list = [f"%{kw}%" for kw in keywords]
+
+    sql = f"""
+        SELECT t.title, t.artist, t.album, t.item_key, t.parent_item_key
+        FROM tracks t
+        JOIN track_genres g ON g.track_key = t.item_key
+        WHERE t.is_live = 0 AND ({like_clauses})
+        GROUP BY t.item_key
+        ORDER BY RANDOM()
+        LIMIT ?
+    """
+    params.append(limit)
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(sql, params).fetchall()
+            tracks = [dict(r) for r in rows]
+    except Exception:
+        logger.exception("get_seasonal_mix failed")
+        return None
+
+    if not tracks:
+        return None
+    return {"season": name, "tracks": tracks}
+
+
+def get_decade_picks(per_decade: int = 5) -> list[dict]:
+    """Random tracks per decade — one short list per decade present in the cache.
+
+    Mirrors SoulSync's "Decade Decades" section: gives users a quick way to
+    drop a 60s / 70s / 80s vibe into the queue without filtering by hand.
+    """
+    sql_decades = """
+        SELECT (CAST(year / 10 AS INTEGER) * 10) AS decade, COUNT(*) AS tracks
+        FROM tracks
+        WHERE year IS NOT NULL AND year > 1900 AND is_live = 0
+        GROUP BY decade
+        HAVING tracks >= 20
+        ORDER BY decade DESC
+    """
+    try:
+        with get_connection() as conn:
+            decades = conn.execute(sql_decades).fetchall()
+            out: list[dict] = []
+            for d in decades:
+                decade = d["decade"]
+                rows = conn.execute(
+                    """
+                    SELECT title, artist, album, item_key, parent_item_key
+                    FROM tracks
+                    WHERE year >= ? AND year < ? AND is_live = 0
+                    ORDER BY RANDOM()
+                    LIMIT ?
+                    """,
+                    (decade, decade + 10, per_decade),
+                ).fetchall()
+                out.append({
+                    "decade": f"{decade}s",
+                    "track_count": d["tracks"],
+                    "tracks": [dict(r) for r in rows],
+                })
+            return out
+    except Exception:
+        logger.exception("get_decade_picks failed")
+        return []
+
+
+def get_top_tracks(limit: int = 30) -> list[dict]:
+    """Your most-played tracks (library-only) — the cheap "Top Tracks" view."""
+    sql = """
+        SELECT lh.track_title AS title, lh.artist, lh.album,
+               COUNT(*) AS plays,
+               (SELECT t.item_key FROM tracks t
+                WHERE LOWER(t.title) = LOWER(lh.track_title)
+                  AND LOWER(t.artist) = LOWER(lh.artist)
+                LIMIT 1) AS item_key
+        FROM listening_history lh
+        WHERE lh.track_title IS NOT NULL AND lh.track_title != ''
+          AND (lh.skipped IS NULL OR lh.skipped = 0)
+        GROUP BY LOWER(lh.track_title), LOWER(lh.artist)
+        ORDER BY plays DESC
+        LIMIT ?
+    """
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(sql, (limit,)).fetchall()
+            return [dict(r) for r in rows if r["item_key"]]
+    except Exception:
+        logger.exception("get_top_tracks failed")
+        return []
+
+
 def get_genre_explorer() -> list[dict]:
     """Aggregate genres from track_genres.
 

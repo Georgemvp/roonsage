@@ -40,9 +40,15 @@ function _renderBlocks(today) {
               </div>
             `;
         }
-        const art = p.art_item_key
-            ? `<img src="/api/art/${p.art_item_key}?width=220&height=220" alt="" style="width:100%;border-radius:8px;aspect-ratio:1;object-fit:cover;">`
-            : `<div style="width:100%;aspect-ratio:1;border-radius:8px;background:linear-gradient(135deg,var(--color-accent-soft,#3a2a14),#222);display:flex;align-items:center;justify-content:center;font-size:2.6rem;">${_blockIcon(name)}</div>`;
+        const icon = _blockIcon(name);
+        const art = p.art_item_key ? `
+            <div style="position:relative;width:100%;">
+              <img src="/api/art/${p.art_item_key}?width=220&height=220" alt=""
+                   style="width:100%;border-radius:8px;aspect-ratio:1;object-fit:cover;"
+                   onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+              <div style="display:none;width:100%;aspect-ratio:1;border-radius:8px;background:linear-gradient(135deg,var(--color-accent-soft,#3a2a14),#222);align-items:center;justify-content:center;font-size:2.6rem;">${icon}</div>
+            </div>` :
+            `<div style="width:100%;aspect-ratio:1;border-radius:8px;background:linear-gradient(135deg,var(--color-accent-soft,#3a2a14),#222);display:flex;align-items:center;justify-content:center;font-size:2.6rem;">${icon}</div>`;
         const playBtn = p.result_id
             ? `<button class="btn btn-secondary btn-sm" data-result="${_esc(p.result_id)}">Open</button>`
             : '';

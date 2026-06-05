@@ -9,6 +9,71 @@ import { renderHistoryFeed } from './history.js';
 // recommend.js (1178 lines) and playlist.js (703 lines) are lazy-loaded inside
 // the route handlers that need them — keeps them out of the bootstrap graph.
 
+// React microfrontend mount helper.
+//
+// New views (Dashboard, LibraryHealth, Personas, AutomationBuilder, SonicRadio)
+// are built with Vite + React + TS in frontend/react/. The Docker build copies
+// the bundle to /app/react-dist/ (outside the frontend/ bind mount) and FastAPI
+// mounts it at /static/react/. The Vite output puts assets in dist/assets/, so
+// the runtime URL is /static/react/assets/main.js — that script attaches
+// `window.RoonSageReact = { mount, unmount }`.
+//
+// We import the bundle once on first React-view navigation and reuse the global
+// for subsequent mounts/unmounts. The container is the .rs-react-host div
+// inside each `<div id="<view>-view" class="view">` shell.
+let _reactBundlePromise = null;
+function _loadReactBundle() {
+    if (_reactBundlePromise) return _reactBundlePromise;
+    const v = window.ROONSAGE_VERSION || 'dev';
+    _reactBundlePromise = import(`/static/react/assets/main.js?v=${v}`)
+        .catch((err) => {
+            console.warn('React bundle failed to load:', err);
+            _reactBundlePromise = null;
+            throw err;
+        });
+    return _reactBundlePromise;
+}
+
+// Track the currently mounted React host so we can unmount it on view-change.
+let _activeReactHost = null;
+
+export async function mountReactView(viewName) {
+    const host = document.querySelector(`#${viewName}-view .rs-react-host`);
+    if (!host) {
+        console.warn(`No React host for view "${viewName}"`);
+        return;
+    }
+    try {
+        await _loadReactBundle();
+        if (!window.RoonSageReact) {
+            console.warn('RoonSageReact global missing after bundle load');
+            return;
+        }
+        if (_activeReactHost && _activeReactHost !== host) {
+            window.RoonSageReact.unmount(_activeReactHost);
+        }
+        window.RoonSageReact.mount(viewName, host);
+        _activeReactHost = host;
+    } catch (e) {
+        host.innerHTML = `<div style="padding:32px;color:#f87171">React-view kon niet laden — ${e.message}</div>`;
+    }
+}
+
+export function unmountActiveReactView() {
+    if (_activeReactHost && window.RoonSageReact) {
+        window.RoonSageReact.unmount(_activeReactHost);
+        _activeReactHost = null;
+    }
+}
+
+const REACT_VIEWS = new Set([
+    'dashboard',
+    'library-health',
+    'personas',
+    'automation-builder',
+    'sonic-radio',
+]);
+
 // View-init imports are dynamic — each module only loads when the user
 // navigates to that view (see _loadView below).
 export const VIEW_MODULES = {
@@ -60,6 +125,12 @@ export const HASH_TO_VIEW = {
     'logs': 'logs',
     'workers': 'workers',
     'stats': 'stats',
+    // React-backed views (Tier 0+)
+    'dashboard': 'dashboard',
+    'library-health': 'library-health',
+    'personas': 'personas',
+    'automation-builder': 'automation-builder',
+    'sonic-radio': 'sonic-radio',
     // Backward compat
     'make-playlist': 'create',
 };
@@ -92,6 +163,12 @@ export const VIEW_TO_HASH = {
     'logs': 'logs',
     'workers': 'workers',
     'stats': 'stats',
+    // React-backed views
+    'dashboard': 'dashboard',
+    'library-health': 'library-health',
+    'personas': 'personas',
+    'automation-builder': 'automation-builder',
+    'sonic-radio': 'sonic-radio',
 };
 
 export function hashForCurrentState() {
@@ -139,12 +216,20 @@ export function navigateTo(view, mode) {
         updateMode();
         updateStep();
     }
+    // Leaving a React view: unmount so its WebSocket subscriptions and timers
+    // are released. Mount happens below for the new view.
+    if (viewChanged && !REACT_VIEWS.has(view)) {
+        unmountActiveReactView();
+    }
+
     if (view === 'settings') {
         import('./playlist.js').then(m => m.loadSettings());
         import('./scheduler.js').then(m => m.initSchedulerSection());
     } else if (view === 'home') {
         renderHistoryFeed();
         import('./home-listen.js').then(m => m.loadHomeListenFeed());
+    } else if (REACT_VIEWS.has(view)) {
+        mountReactView(view);
     } else if (VIEW_MODULES[view]) {
         VIEW_MODULES[view]();
     }

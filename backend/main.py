@@ -232,6 +232,27 @@ if frontend_path.exists():
     from backend.css_bundle import regenerate_if_stale  # noqa: PLC0415
     regenerate_if_stale(frontend_path)
 
+    # React microfrontend bundle. In Docker the bundle lives outside the
+    # frontend/ bind mount (/app/react-dist) so docker-compose's volume mount
+    # can't shadow it. In dev: try frontend/react/dist first, then fall back to
+    # the Docker location so a host that built locally also works.
+    react_dist = None
+    candidates = (
+        frontend_path / "react" / "dist",
+        Path("/app/react-dist"),
+        Path(__file__).parent.parent / "react-dist",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            react_dist = candidate
+            break
+    if react_dist is not None:
+        app.mount(
+            "/static/react",
+            StaticFiles(directory=react_dist),
+            name="react-bundle",
+        )
+
     app.mount(
         "/static",
         StaticFiles(directory=frontend_path),

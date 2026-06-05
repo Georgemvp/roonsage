@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import sqlite3
 
-import numpy as np
 
 from backend.audio_features.alchemy import (
     SUBTRACT_WEIGHT,

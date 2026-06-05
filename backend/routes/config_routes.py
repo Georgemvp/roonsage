@@ -103,7 +103,6 @@ async def update_configuration(request: UpdateConfigRequest) -> ConfigResponse:
     if any(k in updates for k in ["qobuz_app_id", "qobuz_email", "qobuz_password"]):
         qobuz_cfg = get_qobuz_config()
         init_qobuz_api_client(
-            qobuz_cfg.get("app_id", ""),
             qobuz_cfg.get("email", ""),
             qobuz_cfg.get("password", ""),
         )
@@ -161,6 +160,52 @@ async def ollama_model_info(
     if info is None:
         raise HTTPException(status_code=404, detail=f"Model '{model}' not found")
     return info
+
+
+@router.get("/genre-whitelist")
+async def get_genre_whitelist() -> dict:
+    """Return the genre whitelist state for the settings UI."""
+    from backend.config import load_user_yaml_config  # noqa: PLC0415
+    from backend.genre_filter import (  # noqa: PLC0415
+        DEFAULT_GENRES,
+        get_active_whitelist,
+        is_enabled,
+    )
+
+    user_cfg = load_user_yaml_config().get("genre_whitelist", {})
+    return {
+        "enabled": is_enabled(),
+        "active": get_active_whitelist(),
+        "defaults": list(DEFAULT_GENRES),
+        "is_custom": bool(user_cfg.get("genres")),
+    }
+
+
+@router.post("/genre-whitelist")
+async def update_genre_whitelist(payload: dict) -> dict:
+    """Persist the genre whitelist toggle and/or custom genre list.
+
+    Body: ``{"enabled": bool, "genres": [str] | null}``. When ``genres`` is
+    null or omitted, the user override is cleared and defaults are used.
+    """
+    from backend.config import ConfigSaveError, save_user_config  # noqa: PLC0415
+
+    enabled = bool(payload.get("enabled", False))
+    raw_genres = payload.get("genres")
+    genres: list[str] | None
+    if isinstance(raw_genres, list):
+        genres = [g.strip() for g in raw_genres if isinstance(g, str) and g.strip()]
+        if not genres:
+            genres = None
+    else:
+        genres = None
+
+    update: dict = {"genre_whitelist": {"enabled": enabled, "genres": genres}}
+    try:
+        save_user_config(update)
+    except ConfigSaveError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return await get_genre_whitelist()
 
 
 @router.get("/system/onnx-providers")

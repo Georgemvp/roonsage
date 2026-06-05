@@ -218,6 +218,8 @@ def _load_candidates(
     decades: list[str] | None,
     allow_half_step: bool = True,
     recent_keys: set[str] | None = None,
+    vibe_contexts: list[str] | None = None,
+    vibe_moods: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return tracks with audio features within the broad BPM window.
 
@@ -225,6 +227,7 @@ def _load_candidates(
     is handled by the per-position scorer so we never need a second round-trip.
     When ``allow_half_step`` is True the BPM window is doubled to also capture
     tracks that will be played at half- or double-time.
+    Vibe context/mood tracks are merged via OR-union after the BPM-filtered pool.
     """
     margin = 6.0
     low  = min(start_bpm, end_bpm) - margin
@@ -290,6 +293,30 @@ def _load_candidates(
 
     pool = _run_query(sql, params)
 
+    # Vibe OR-union: merge tracks matching requested vibe contexts/moods.
+    if vibe_contexts or vibe_moods:
+        vibe_kw_conds: list[str] = []
+        vibe_kw_params: list[Any] = []
+        for kw in (vibe_contexts or []):
+            vibe_kw_conds.append("LOWER(tv.contexts) LIKE ?")
+            vibe_kw_params.append(f"%{kw.lower()}%")
+        for kw in (vibe_moods or []):
+            vibe_kw_conds.append("LOWER(tv.moods) LIKE ?")
+            vibe_kw_params.append(f"%{kw.lower()}%")
+        if vibe_kw_conds:
+            live_cond = "t.is_live = 0 AND " if exclude_live else ""
+            vibe_sql = (
+                f"SELECT DISTINCT t.item_key, t.title, t.artist, t.album, t.year, "
+                f"t.duration_ms, af.bpm, af.camelot, af.energy, af.danceability, af.valence "
+                f"FROM tracks t "
+                f"JOIN track_audio_features af ON af.item_key = t.item_key "
+                f"JOIN track_vibes tv ON tv.item_key = t.item_key "
+                f"WHERE {live_cond}af.bpm IS NOT NULL AND ({' OR '.join(vibe_kw_conds)})"
+            )
+            vibe_rows = _run_query(vibe_sql, vibe_kw_params)
+            seen = {c["item_key"] for c in pool}
+            pool.extend(c for c in vibe_rows if c["item_key"] not in seen)
+
     if recent_keys:
         pool = [c for c in pool if c["item_key"] not in recent_keys]
 
@@ -327,6 +354,8 @@ def build_dj_set(
     max_per_artist: int | None = None,
     allow_half_step: bool = True,
     skip_recent: bool = False,
+    vibe_contexts: list[str] | None = None,
+    vibe_moods: list[str] | None = None,
 ) -> dict[str, Any]:
     """Construct a beatmatched, harmonically-mixed set.
 
@@ -348,6 +377,8 @@ def build_dj_set(
         decades=decades,
         allow_half_step=allow_half_step,
         recent_keys=recent_keys,
+        vibe_contexts=vibe_contexts,
+        vibe_moods=vibe_moods,
     )
     if not pool:
         return {"tracks": [], "total_matching": 0, "returned": 0, "curve": [], "total_duration_ms": 0}

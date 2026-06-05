@@ -201,6 +201,32 @@ class MusicBrainzClient:
         tags = await self.get_recording_tags(mbid)
         return mbid, tags, release_date, country
 
+    async def search_releases(
+        self,
+        artist: str,
+        album: str,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Search MusicBrainz for releases matching artist + album.
+
+        Used by the Picard-style album-consistency pass. Returns raw release
+        dicts (each contains ``id``, ``country``, ``date``, ``media`` with
+        format/track-count, ``barcode``). Empty list on error or no match.
+        """
+        query = f'artist:"{artist}" release:"{album}"'
+        params = {
+            "query": query,
+            "fmt": "json",
+            "limit": max(1, min(limit, 25)),
+            "inc": "media+labels",
+        }
+        data = await self._get("/release", params=params)
+        if not isinstance(data, dict):
+            return []
+        releases = data.get("releases") or []
+        # Filter out releases without an ID (defensive).
+        return [r for r in releases if isinstance(r, dict) and r.get("id")]
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

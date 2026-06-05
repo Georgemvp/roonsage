@@ -3208,6 +3208,37 @@ input[type="number"]:focus:not(:focus-visible) {
     margin-right: var(--spacing-xs);
 }
 
+/* Model selector row */
+.model-selector-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+}
+
+.model-selector-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.model-selector-select {
+    flex: 1;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    padding: 6px var(--spacing-sm);
+    cursor: pointer;
+    outline: none;
+    transition: border-color var(--transition-fast);
+}
+
+.model-selector-select:focus {
+    border-color: var(--accent);
+}
+
 .filter-toggle-all {
     background: none;
     border: none;
@@ -16509,3 +16540,289 @@ input[type="range"]::-moz-range-thumb {
 /* ── Hero ambient bg art saturate ──────────────────────────────────────── */
 #home-hero .hero-bg { filter: blur(60px) saturate(1.6); }
 
+
+/* ===== css/ui-states.css ===== */
+/* =============================================================================
+ * Shared shimmer / empty / error states.
+ * Used by frontend/modules/ui-states.js. Also reused by some React views via
+ * the same class names.
+ *
+ * Glass tokens live here too so the dashboard, music-map overlays and any
+ * future glassy surface stay visually consistent. They were introduced in
+ * c830805 (glass-UI commit) and re-centralised here as CSS custom properties.
+ * ============================================================================= */
+
+:root {
+    /* Glass surface tokens — opt-in: only used by elements that declare .rs-glass-card
+       (or the React .rs-glass class). Keeps the rest of the layout flat. */
+    --rs-glass-bg: linear-gradient(155deg,
+        rgba(229, 160, 13, 0.04),
+        rgba(255, 255, 255, 0.025));
+    --rs-glass-border: rgba(255, 255, 255, 0.08);
+    --rs-glass-blur: 14px;
+    --rs-glass-radius: 16px;
+    --rs-glass-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        0 16px 32px -16px rgba(0, 0, 0, 0.6);
+}
+
+[data-theme="light"] {
+    --rs-glass-bg: linear-gradient(155deg,
+        rgba(229, 160, 13, 0.08),
+        rgba(0, 0, 0, 0.02));
+    --rs-glass-border: rgba(0, 0, 0, 0.08);
+    --rs-glass-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.4),
+        0 16px 32px -16px rgba(0, 0, 0, 0.15);
+}
+
+.rs-glass-card {
+    background: var(--rs-glass-bg);
+    border: 1px solid var(--rs-glass-border);
+    border-radius: var(--rs-glass-radius);
+    box-shadow: var(--rs-glass-shadow);
+    backdrop-filter: blur(var(--rs-glass-blur)) saturate(140%);
+    -webkit-backdrop-filter: blur(var(--rs-glass-blur)) saturate(140%);
+}
+
+/* ── Shimmer placeholder ────────────────────────────────────────────── */
+
+.rs-shimmer-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 0;
+}
+
+.rs-shimmer-bar {
+    height: 14px;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.05);
+    position: relative;
+    overflow: hidden;
+}
+
+.rs-shimmer-bar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.08) 50%,
+        transparent 100%);
+    animation: rs-shimmer-slide 1.4s ease-in-out infinite;
+    transform: translateX(-100%);
+}
+
+@keyframes rs-shimmer-slide {
+    to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rs-shimmer-bar::after { animation: none; }
+}
+
+/* ── Empty / error states ───────────────────────────────────────────── */
+
+.rs-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 36px 20px;
+    text-align: center;
+    color: var(--text-secondary, rgba(244, 244, 244, 0.65));
+}
+
+.rs-state-icon {
+    font-size: 32px;
+    opacity: 0.7;
+    line-height: 1;
+}
+
+.rs-state-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary, #f4f4f4);
+}
+
+.rs-state-desc {
+    margin: 0;
+    max-width: 360px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.rs-state-cta {
+    margin-top: 6px;
+}
+
+.rs-state--error .rs-state-icon {
+    color: #f87171;
+    opacity: 0.85;
+}
+
+/* ===== css/ambient.css ===== */
+/* ============================================================
+   Ambient glassmorphic layer — borrowed from SoulSync.
+   Purely additive: composes on top of base.css / components.css
+   without changing existing colors. Toggle off by setting
+   ``--rs-ambient: 0`` on <html> if it ever feels too busy.
+   ============================================================ */
+
+:root {
+    --rs-ambient: 1;
+    --rs-ambient-orb-size: 360px;
+    --rs-ambient-sweep-color: rgba(229, 160, 13, 0.10);
+    --rs-ambient-orb-color-1: rgba(229, 160, 13, 0.12);
+    --rs-ambient-orb-color-2: rgba(0, 212, 170, 0.10);
+    --rs-ambient-card-inset:  inset 0 1px 0 rgba(255, 255, 255, 0.04),
+                              inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+
+[data-theme="light"] {
+    --rs-ambient-sweep-color: rgba(229, 160, 13, 0.08);
+    --rs-ambient-orb-color-1: rgba(229, 160, 13, 0.07);
+    --rs-ambient-orb-color-2: rgba(0, 212, 170, 0.06);
+    --rs-ambient-card-inset:  inset 0 1px 0 rgba(255, 255, 255, 0.50),
+                              inset 0 0 0 1px rgba(0, 0, 0, 0.02);
+}
+
+/* ----------------------------------------------------------------
+   Floating accent orbs behind the app shell. Position them via the
+   ::before / ::after of the body so they don't clutter the DOM.
+   They sit at z-index 0 and the rest of the UI lifts above them.
+   ---------------------------------------------------------------- */
+body {
+    position: relative;
+    isolation: isolate; /* contain the orb blur to the body box */
+}
+body::before,
+body::after {
+    content: "";
+    position: fixed;
+    width: var(--rs-ambient-orb-size);
+    height: var(--rs-ambient-orb-size);
+    border-radius: 50%;
+    filter: blur(80px);
+    pointer-events: none;
+    z-index: 0;
+    opacity: calc(var(--rs-ambient) * 1);
+    transition: opacity 600ms ease;
+}
+body::before {
+    background: radial-gradient(circle, var(--rs-ambient-orb-color-1), transparent 65%);
+    top: -120px;
+    left: -120px;
+    animation: rs-orb-drift-1 28s ease-in-out infinite alternate;
+}
+body::after {
+    background: radial-gradient(circle, var(--rs-ambient-orb-color-2), transparent 65%);
+    bottom: -140px;
+    right: -140px;
+    animation: rs-orb-drift-2 34s ease-in-out infinite alternate;
+}
+@keyframes rs-orb-drift-1 {
+    0%   { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(120px, 60px) scale(1.15); }
+}
+@keyframes rs-orb-drift-2 {
+    0%   { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(-100px, -80px) scale(1.10); }
+}
+@media (prefers-reduced-motion: reduce) {
+    body::before, body::after { animation: none; }
+}
+
+/* ----------------------------------------------------------------
+   App header — ambient light sweep that crawls across the top bar.
+   Targets the existing .app-header / header element; if neither
+   matches, the rule is a no-op.
+   ---------------------------------------------------------------- */
+.app-header,
+header.app-header,
+.rs-app-header,
+.topbar {
+    position: relative;
+    overflow: hidden;
+}
+.app-header::after,
+header.app-header::after,
+.rs-app-header::after,
+.topbar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+        100deg,
+        transparent 0%,
+        transparent 35%,
+        var(--rs-ambient-sweep-color) 50%,
+        transparent 65%,
+        transparent 100%
+    );
+    transform: translateX(-100%);
+    animation: rs-header-sweep 14s ease-in-out infinite;
+    opacity: calc(var(--rs-ambient) * 1);
+}
+@keyframes rs-header-sweep {
+    0%, 25%   { transform: translateX(-100%); }
+    55%, 100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .app-header::after,
+    header.app-header::after,
+    .rs-app-header::after,
+    .topbar::after { animation: none; opacity: 0; }
+}
+
+/* ----------------------------------------------------------------
+   Glass-card inner glow + hover lift. The .rs-glass-card class is
+   already used throughout the app; we just augment it.
+   ---------------------------------------------------------------- */
+.rs-glass-card {
+    box-shadow: var(--rs-glass-shadow), var(--rs-ambient-card-inset);
+    transition:
+        transform 220ms ease,
+        box-shadow 220ms ease,
+        border-color 220ms ease;
+}
+.rs-glass-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-accent);
+    box-shadow:
+        0 14px 38px rgba(0, 0, 0, 0.42),
+        var(--rs-ambient-card-inset),
+        0 0 0 1px var(--border-accent);
+}
+
+/* Disable lift for cards that explicitly opt out (tables, dropdowns) */
+.rs-glass-card.no-lift:hover {
+    transform: none;
+    box-shadow: var(--rs-glass-shadow), var(--rs-ambient-card-inset);
+    border-color: var(--rs-glass-border);
+}
+
+/* ----------------------------------------------------------------
+   Subtle accent halo on interactive primary buttons. Lifted from
+   SoulSync's "play" affordance.
+   ---------------------------------------------------------------- */
+.btn-primary:not(:disabled),
+button.primary:not(:disabled) {
+    box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.25),
+        0 0 0 0 var(--amber-glow);
+    transition: box-shadow 200ms ease, transform 120ms ease;
+}
+.btn-primary:not(:disabled):hover,
+button.primary:not(:disabled):hover {
+    box-shadow:
+        0 4px 12px rgba(0, 0, 0, 0.30),
+        0 0 0 6px var(--amber-glow);
+}
+.btn-primary:not(:disabled):active,
+button.primary:not(:disabled):active {
+    transform: translateY(1px);
+}

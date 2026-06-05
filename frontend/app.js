@@ -14,7 +14,7 @@ import { renderHistoryFeed }              from './modules/history.js';
 import {
     updateView, updateMode, updateStep,
     hideError, hideSuccess, hideSuccessModal, dismissSuccessModal,
-    closeBottomSheet, setLoading
+    closeBottomSheet, setLoading, showError, showSuccess
 } from './modules/ui.js';
 import { checkLibraryStatus }             from './modules/library.js';
 import { setupEventListeners }            from './modules/events.js';
@@ -33,7 +33,8 @@ import { initPWA }                        from './modules/pwa.js';
 import { initAnalysisTasks }              from './modules/analysis-tasks.js';
 import { initBackgroundTaskBar }          from './modules/background-tasks.js';
 import { initBackgroundAiSettings }       from './modules/background-ai-settings.js';
-import { loadHomeListenFeed }             from './modules/home-listen.js';
+// home-listen.js is dynamically imported from the router on home-view entry; no
+// eager import needed at boot.
 
 // View modules are loaded on demand — keeps the initial JS payload small,
 // and view-specific code (e.g. Chart.js use in taste.js) only loads when the
@@ -516,6 +517,14 @@ async function loadHomePreview() {
 // Initialization
 // =============================================================================
 
+// Bridge React toasts → vanilla SPA toast system.
+window.addEventListener('roonsage:toast', (e) => {
+    const { message, kind } = e.detail || {};
+    if (!message) return;
+    if (kind === 'error') showError(message);
+    else showSuccess(message);
+});
+
 document.addEventListener('DOMContentLoaded', async () => {
     // macOS + Safari: by default, Tab only focuses form inputs and elements
     // with explicit tabindex — buttons, links, and other native controls are
@@ -628,7 +637,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize views AFTER config is loaded
     if (state.view === 'home') {
         renderHistoryFeed();
-        loadHomeListenFeed();
+        // home-listen feed is non-critical for first paint — load it dynamically
+        // so the bootstrap graph stays small.
+        import('./modules/home-listen.js').then(m => m.loadHomeListenFeed());
         loadHomePreview(); // fire-and-forget; populates feature card previews
         loadHomeHero();
     } else {

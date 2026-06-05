@@ -15,6 +15,7 @@ from backend import library_cache
 from backend.config import get_config
 from backend.dependencies import limiter
 from backend.llm_client import TOKENS_PER_ALBUM, estimate_cost_for_model, get_llm_client
+from backend.taste_profile import TasteProfile
 from backend.models import (
     AlbumCandidate,
     AlbumPreviewResponse,
@@ -34,6 +35,32 @@ from backend.roon_client import get_roon_client
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/recommend", tags=["recommend"])
+
+
+def _rerank_albums_by_taste(candidates: list, limit: int) -> list:
+    """Score album candidates by taste-profile affinity and return top ``limit``."""
+    try:
+        profile = TasteProfile.get()
+        top_artists: set[str] = {a.lower() for a in profile.get("artists", {})}
+        skip_artists: set[str] = {
+            s["artist"].lower()
+            for s in profile.get("skip_signals", {}).get("artists", [])
+        }
+    except Exception:
+        top_artists, skip_artists = set(), set()
+
+    def _score(c) -> float:
+        name = (c.album_artist or "").lower()
+        s = 0.0
+        if name in top_artists:
+            s += 3.0
+        if name in skip_artists:
+            s -= 4.0
+        s += random.random()
+        return s
+
+    scored = sorted(candidates, key=_score, reverse=True)
+    return scored[:limit]
 
 # Module-level pipeline instance (initialized lazily)
 _recommendation_pipeline = None
@@ -315,7 +342,7 @@ async def recommend_generate(raw_request: Request, request: RecommendGenerateReq
         loaded_candidates = [AlbumCandidate(**c) for c in candidates_raw]
 
         if request.max_albums > 0 and len(loaded_candidates) > request.max_albums:
-            loaded_candidates = random.sample(loaded_candidates, request.max_albums)
+            loaded_candidates = _rerank_albums_by_taste(loaded_candidates, request.max_albums)
 
         if request.mode == "discovery":
             all_raw = await asyncio.to_thread(

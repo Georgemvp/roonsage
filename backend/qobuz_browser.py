@@ -377,6 +377,10 @@ async def search_qobuz_tracks(
         ea = expected_artist or query
         et = expected_title or query
 
+        # SoulSync's fail-open policy: per-track exceptions degrade to "skipped"
+        # — never drop a result from the list. Low-confidence verdicts get a
+        # WARNING log line so the user can audit them, but the candidate is
+        # still returned annotated so the UI can decide what to do with it.
         for track in results:
             try:
                 verdict = verify_match_sync(
@@ -390,6 +394,24 @@ async def search_qobuz_tracks(
                 track["version_flags"] = verdict["version_flags"]
                 track["match_reason"] = verdict["reason"]
                 track["verified"] = verdict["match"]
+
+                # Confidence audit — warn at < 0.6, info at 0.6–0.8.
+                conf = verdict.get("confidence") or 0.0
+                if not verdict.get("match"):
+                    logger.warning(
+                        "AcoustID low-confidence (%.2f) for %r vs %r — %s",
+                        conf,
+                        f"{ea} - {et}",
+                        f"{track.get('artist', '')} - {track.get('title', '')}",
+                        verdict.get("reason", ""),
+                    )
+                elif conf < 0.8:
+                    logger.info(
+                        "AcoustID accepted (conf %.2f) for %r — %s",
+                        conf,
+                        f"{ea} - {et}",
+                        verdict.get("reason", ""),
+                    )
             except Exception as exc:
                 logger.debug("AcoustID per-track verify failed for '%s': %s", track.get("title"), exc)
                 track["match_confidence"] = None
@@ -397,7 +419,8 @@ async def search_qobuz_tracks(
                 track["match_reason"] = "Verification skipped"
                 track["verified"] = None
     except Exception as exc:
-        logger.warning("AcoustID verification pass failed: %s", exc)
+        # Top-level fail-open — verifier outage must NEVER block results.
+        logger.warning("AcoustID verification pass failed (fail-open): %s", exc)
 
     return results
 

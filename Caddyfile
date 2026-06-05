@@ -2,7 +2,8 @@ roonsage.duckdns.org {
     reverse_proxy roonsage:5765 {
         flush_interval -1
         transport http {
-            response_header_timeout 300s
+            response_header_timeout 30s
+            read_timeout 1800s
         }
     }
 

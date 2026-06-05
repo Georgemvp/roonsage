@@ -92,6 +92,7 @@ def get_tracks_by_filters(
     instrumentalness_min: float | None = None,
     vibe_contexts: list[str] | None = None,
     vibe_moods: list[str] | None = None,
+    lastfm_tags: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return tracks matching the given filters.
 
@@ -254,7 +255,28 @@ def get_tracks_by_filters(
                         tracks.append(vt)
                         seen.add(vt["item_key"])
 
-        # Apply limit + shuffle after potential vibe merge
+        # Last.fm tag OR-union: adds tracks whose lastfm_tags overlap with the requested tags.
+        # Coverage is low (~6%) so treated as an additive source, never a mandatory filter.
+        if lastfm_tags:
+            lf_conds = " OR ".join("LOWER(me.lastfm_tags) LIKE ?" for _ in lastfm_tags)
+            lf_params: list[Any] = [f"%{t.lower()}%" for t in lastfm_tags]
+            base = ["t.is_live = 0"] if exclude_live else []
+            lf_where = (" AND ".join(base) + " AND " if base else "") + f"({lf_conds})"
+            lf_rows = conn.execute(
+                f"SELECT DISTINCT t.* FROM tracks t "
+                f"JOIN track_metadata_ext me ON me.item_key = t.item_key "
+                f"WHERE {lf_where}",
+                lf_params,
+            ).fetchall()
+            seen = {t["item_key"] for t in tracks}
+            for row in lf_rows:
+                lt = dict(row)
+                lt["genres"] = json.loads(lt["genres"]) if lt.get("genres") else []
+                if lt["item_key"] not in seen:
+                    tracks.append(lt)
+                    seen.add(lt["item_key"])
+
+        # Apply limit + shuffle after potential vibe/lastfm merge
         if limit > 0 and len(tracks) > limit:
             random.shuffle(tracks)
             tracks = tracks[:limit]
@@ -352,14 +374,32 @@ def search_cached_tracks(query: str, limit: int = 20) -> list[dict[str, Any]]:
         search_term = f"%{query}%"
         rows = conn.execute(
             """
-            SELECT item_key, title, artist, album,
-                   duration_ms, year, genres
-            FROM tracks
-            WHERE artist LIKE ? COLLATE NOCASE
-               OR title LIKE ? COLLATE NOCASE
-               OR album LIKE ? COLLATE NOCASE
+            WITH play_counts AS (
+                SELECT LOWER(artist) AS la, LOWER(track_title) AS lt, COUNT(*) AS cnt
+                FROM listening_history
+                GROUP BY la, lt
+            ),
+            ranked AS (
+                SELECT t.item_key, t.title, t.artist, t.album,
+                       t.duration_ms, t.year, t.genres,
+                       COALESCE(pc.cnt, 0) AS play_count,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY LOWER(t.artist), LOWER(t.title)
+                           ORDER BY COALESCE(pc.cnt, 0) DESC, t.album
+                       ) AS rn
+                FROM tracks t
+                LEFT JOIN play_counts pc
+                       ON LOWER(t.artist) = pc.la AND LOWER(t.title) = pc.lt
+                WHERE t.artist LIKE ? COLLATE NOCASE
+                   OR t.title LIKE ? COLLATE NOCASE
+                   OR t.album LIKE ? COLLATE NOCASE
+            )
+            SELECT item_key, title, artist, album, duration_ms, year, genres, play_count
+            FROM ranked
+            WHERE rn = 1
             ORDER BY
                 CASE WHEN artist LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
+                play_count DESC,
                 artist, album, title
             LIMIT ?
             """,
