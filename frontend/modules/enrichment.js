@@ -11,7 +11,9 @@ let _lastPollTime = null;
 
 export async function initEnrichmentView() {
     _wireButtons();
+    _wireManualMatch();
     await _loadAll();
+    await _loadSources();
 }
 
 // ---------------------------------------------------------------------------
@@ -461,4 +463,142 @@ async function _handleRetryFailed() {
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Retry All Failed'; }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Modular sources + manual match (SoulSync-inspired)
+// ---------------------------------------------------------------------------
+
+async function _loadSources() {
+    const list = document.getElementById('enrich-sources-list');
+    if (!list) return;
+    try {
+        const [{ sources }, stats] = await Promise.all([
+            apiCall('/enrichment/sources'),
+            apiCall('/enrichment/source-stats').catch(() => ({ sources: [], total_enriched: 0 })),
+        ]);
+        const statByName = Object.fromEntries((stats.sources || []).map(s => [s.name, s]));
+        if (!sources.length) {
+            list.innerHTML = '<p class="enrich-empty">Geen bronnen geregistreerd.</p>';
+            return;
+        }
+        list.innerHTML = sources.map(s => {
+            const stat = statByName[s.name] || { hits: 0, coverage_pct: 0 };
+            const lfStat = s.name === 'lastfm' ? statByName['lastfm_listeners'] : null;
+            const enabledClass = s.enabled ? 'enrich-source--on' : 'enrich-source--off';
+            return `
+                <div class="enrich-source-row ${enabledClass}">
+                    <div class="enrich-source-main">
+                        <span class="enrich-source-name">${escapeHtml(s.label)}</span>
+                        <span class="enrich-source-state">${s.enabled ? 'Active' : 'Not configured'}</span>
+                        <p class="enrich-source-desc">${escapeHtml(s.description)}</p>
+                    </div>
+                    <div class="enrich-source-stats">
+                        <div class="enrich-source-pct">${stat.coverage_pct ?? 0}%</div>
+                        <div class="enrich-source-sub">${(stat.hits ?? 0).toLocaleString('nl-NL')} tracks</div>
+                        ${lfStat ? `<div class="enrich-source-sub">${(lfStat.hits ?? 0).toLocaleString('nl-NL')} met listener-counts</div>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } catch (e) {
+        list.innerHTML = `<p class="enrich-empty">Could not load sources: ${escapeHtml(e.message)}</p>`;
+    }
+}
+
+function _wireManualMatch() {
+    const form = document.getElementById('enrich-preview-form');
+    const commitBtn = document.getElementById('enrich-commit-btn');
+    if (!form || !commitBtn) return;
+    let lastPreview = null;
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const artist = document.getElementById('enrich-preview-artist').value.trim();
+        const title = document.getElementById('enrich-preview-title').value.trim();
+        if (!artist || !title) return;
+        _setPreviewStatus('Looking up…');
+        commitBtn.disabled = true;
+        try {
+            const res = await apiCall('/enrichment/preview', {
+                method: 'POST',
+                body: JSON.stringify({ artist, title }),
+            });
+            lastPreview = res;
+            _renderPreview(res);
+            const itemKey = document.getElementById('enrich-preview-item-key').value.trim();
+            commitBtn.disabled = !itemKey;
+            _setPreviewStatus(`${(res.results || []).length} source(s) responded`);
+        } catch (err) {
+            _setPreviewStatus('Error: ' + err.message, true);
+        }
+    });
+
+    commitBtn.addEventListener('click', async () => {
+        const itemKey = document.getElementById('enrich-preview-item-key').value.trim();
+        if (!itemKey || !lastPreview) return;
+        const artist = document.getElementById('enrich-preview-artist').value.trim();
+        const title = document.getElementById('enrich-preview-title').value.trim();
+        commitBtn.disabled = true;
+        _setPreviewStatus('Committing…');
+        try {
+            const res = await apiCall('/enrichment/manual-match', {
+                method: 'POST',
+                body: JSON.stringify({
+                    item_key: itemKey,
+                    artist_override: artist,
+                    title_override: title,
+                }),
+            });
+            _setPreviewStatus(res.success
+                ? `✓ Committed for ${escapeHtml(itemKey)}`
+                : `× Commit failed`,
+                !res.success);
+        } catch (err) {
+            _setPreviewStatus('Error: ' + err.message, true);
+        } finally {
+            commitBtn.disabled = false;
+        }
+    });
+
+    document.getElementById('enrich-preview-item-key')?.addEventListener('input', (e) => {
+        commitBtn.disabled = !e.target.value.trim() || !lastPreview;
+    });
+}
+
+function _renderPreview(data) {
+    const out = document.getElementById('enrich-preview-results');
+    if (!out) return;
+    const results = data.results || [];
+    if (!results.length) {
+        out.innerHTML = '<p class="enrich-empty">Geen bronnen gaven iets terug.</p>';
+        return;
+    }
+    out.innerHTML = `
+        <div class="enrich-preview-grid">
+            ${results.map(r => `
+                <div class="enrich-preview-card ${r.error ? 'enrich-preview-card--err' : ''}">
+                    <div class="enrich-preview-card-head">
+                        <span class="enrich-preview-card-name">${escapeHtml(r.label || r.source)}</span>
+                        ${r.error ? `<span class="enrich-preview-card-badge enrich-preview-card-badge--err">error</span>` : ''}
+                    </div>
+                    ${r.error ? `<p class="enrich-preview-card-err">${escapeHtml(r.error)}</p>` : ''}
+                    ${r.mbid ? `<div class="enrich-preview-row"><span>MBID</span><code>${escapeHtml(r.mbid)}</code></div>` : ''}
+                    ${r.release_date ? `<div class="enrich-preview-row"><span>Release</span>${escapeHtml(r.release_date)}${r.country ? ' (' + escapeHtml(r.country) + ')' : ''}</div>` : ''}
+                    ${r.listeners ? `<div class="enrich-preview-row"><span>Listeners</span>${r.listeners.toLocaleString('nl-NL')}</div>` : ''}
+                    ${r.playcount ? `<div class="enrich-preview-row"><span>Plays</span>${r.playcount.toLocaleString('nl-NL')}</div>` : ''}
+                    <div class="enrich-preview-tags">
+                        ${(r.tags || []).slice(0, 12).map(t => `<span class="enrich-preview-tag">${escapeHtml(t)}</span>`).join('') || '<span class="enrich-preview-empty">geen tags</span>'}
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function _setPreviewStatus(text, isError = false) {
+    const el = document.getElementById('enrich-preview-status');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('enrich-preview-status--err', isError);
 }

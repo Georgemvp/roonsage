@@ -2120,6 +2120,41 @@
                     <h3 class="rs-settings-card-title" style="margin-bottom:12px">Recently Enriched</h3>
                     <div id="enrich2-recent-list"></div>
                 </div>
+
+                <!-- Modular sources + manual matching (SoulSync-inspired) -->
+                <div class="rs-settings-card" style="margin-top:18px">
+                    <h3 class="rs-settings-card-title">Per-source coverage</h3>
+                    <p class="rs-settings-card-desc">
+                        Hoeveel tracks elke source heeft aangevuld. Klik <em>Manual match</em>
+                        om voor één track precies te zien wat elke source teruggeeft.
+                    </p>
+                    <div id="enrich-sources-list" class="enrich-sources-list">Loading…</div>
+                </div>
+
+                <div class="rs-settings-card" style="margin-top:14px">
+                    <h3 class="rs-settings-card-title">Manual match / preview</h3>
+                    <p class="rs-settings-card-desc">
+                        Dry-run lookup met optionele artist/title override — schrijft niets totdat
+                        je op <em>Commit</em> klikt.
+                    </p>
+                    <form id="enrich-preview-form" class="enrich-preview-form" autocomplete="off">
+                        <label class="enrich-preview-label">Artist
+                            <input id="enrich-preview-artist" type="text" class="form-input" placeholder="bv. Pink Floyd" required />
+                        </label>
+                        <label class="enrich-preview-label">Title
+                            <input id="enrich-preview-title" type="text" class="form-input" placeholder="bv. Time" required />
+                        </label>
+                        <label class="enrich-preview-label" style="grid-column:1/-1">item_key (optioneel — alleen nodig voor "Commit")
+                            <input id="enrich-preview-item-key" type="text" class="form-input" placeholder="laat leeg om alleen te previewen" />
+                        </label>
+                        <div class="enrich-preview-actions" style="grid-column:1/-1">
+                            <button type="submit" class="btn btn-secondary btn-sm">Preview</button>
+                            <button type="button" id="enrich-commit-btn" class="btn btn-primary btn-sm" disabled>Commit (manual-match)</button>
+                            <span id="enrich-preview-status" class="enrich-preview-status"></span>
+                        </div>
+                    </form>
+                    <div id="enrich-preview-results" class="enrich-preview-results"></div>
+                </div>
             </div>
 
             <!-- Music Map View (v13.0) -->
@@ -3069,6 +3104,34 @@
                         <a href="#" class="btn btn-outline btn-sm" data-nav="enrichment" style="margin-left:auto">Open Enrichment →</a>
                     </div>
                     <div id="enrich-action-result" class="enrich-result"></div>
+
+                    <!-- Genre whitelist (SoulSync-inspired junk-tag filter) -->
+                    <div class="rs-settings-subsection genre-whitelist-block">
+                        <div class="rs-settings-subsection-head">
+                            <div>
+                                <h4 class="rs-settings-subsection-title">Genre whitelist</h4>
+                                <p class="rs-settings-subsection-desc">
+                                    Filtert ruis-tags ("seen live", artiestnamen, radioshow-namen) uit
+                                    elke enrichment-run. Standaard ~180 curated genres.
+                                </p>
+                            </div>
+                            <label class="rs-toggle">
+                                <input type="checkbox" id="gw-enabled" />
+                                <span class="rs-toggle-track"></span>
+                            </label>
+                        </div>
+                        <details class="rs-settings-details">
+                            <summary>Custom whitelist (één genre per regel — leeg = defaults)</summary>
+                            <textarea id="gw-textarea" class="form-textarea genre-whitelist-textarea"
+                                rows="10" spellcheck="false"
+                                placeholder="Rock&#10;Indie Pop&#10;Synthwave&#10;…"></textarea>
+                            <div class="genre-whitelist-actions">
+                                <button id="gw-save-btn" class="btn btn-primary btn-sm" type="button">Opslaan</button>
+                                <button id="gw-reset-btn" class="btn btn-outline btn-sm" type="button">Reset naar defaults</button>
+                                <span id="gw-status" class="genre-whitelist-status"></span>
+                            </div>
+                        </details>
+                    </div>
                 </section>
 
                 <!-- Audio Feature Analysis Section -->

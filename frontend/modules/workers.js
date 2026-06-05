@@ -5,9 +5,18 @@
 // queue progress and pause/resume controls for the controllable ones.
 
 import { apiCall } from './api.js';
+import { subscribe } from './ws.js';
 
 let _timer = null;
 let _wired = false;
+
+// Live-feed state: per-channel { processing: Map<key, {label, since}>, recent: [] }
+const _live = {
+    enrichment:    { processing: new Map(), recent: [] },
+    audio_features:{ processing: new Map(), recent: [] },
+};
+const RECENT_KEEP = 8;
+let _wsDisposers = [];
 
 function _esc(s) {
     return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -39,12 +48,49 @@ function _controls(w) {
     return `<div class="rs-worker-controls">${btn}</div>`;
 }
 
+function _channelFor(workerName) {
+    // Map worker.name (returned by /api/workers/status) → WS channel.
+    if (!workerName) return null;
+    const n = workerName.toLowerCase();
+    if (n.includes('enrichment')) return 'enrichment';
+    if (n.includes('audio'))      return 'audio_features';
+    return null;
+}
+
+function _liveFeed(channel) {
+    const live = _live[channel];
+    if (!live) return '';
+    const proc = [...live.processing.values()].slice(0, 4);
+    const recent = live.recent.slice(0, RECENT_KEEP);
+
+    if (!proc.length && !recent.length) return '';
+
+    const procRows = proc.map(p => `
+        <li class="rs-worker-feed-row rs-worker-feed-row--proc">
+            <span class="rs-worker-feed-dot"></span>
+            <span class="rs-worker-feed-text">${_esc(p.label)}</span>
+        </li>`).join('');
+
+    const recentRows = recent.map(r => `
+        <li class="rs-worker-feed-row rs-worker-feed-row--${r.success ? 'ok' : 'err'}">
+            <span class="rs-worker-feed-mark">${r.success ? '✓' : '×'}</span>
+            <span class="rs-worker-feed-text">${_esc(r.label)}</span>
+        </li>`).join('');
+
+    return `
+        <div class="rs-worker-feed">
+            <div class="rs-worker-feed-title">Live</div>
+            <ul class="rs-worker-feed-list">${procRows}${recentRows}</ul>
+        </div>`;
+}
+
 function _renderWorker(w) {
     const pct = (w.progress_pct ?? null);
     const bar = pct === null ? '' : `
         <div class="rs-worker-bar"><div class="rs-worker-bar-fill" style="width:${pct}%"></div></div>
         <div class="rs-worker-pct">${pct}%</div>`;
-    return `<div class="rs-glass-card rs-worker-card">
+    const channel = _channelFor(w.name);
+    return `<div class="rs-glass-card rs-worker-card" data-worker-name="${_esc(w.name)}">
         <div class="rs-worker-head">
             <span class="rs-worker-name">${_esc(w.label)}</span>
             ${_stateBadge(w)}
@@ -53,7 +99,53 @@ function _renderWorker(w) {
         ${bar}
         ${_queueLine(w.queue)}
         ${_controls(w)}
+        ${channel ? _liveFeed(channel) : ''}
     </div>`;
+}
+
+function _liveLabel(payload) {
+    const { artist, title, file_path } = payload || {};
+    if (artist || title) return `${artist || '?'} — ${title || '?'}`;
+    if (file_path) {
+        const parts = String(file_path).split('/');
+        return parts[parts.length - 1] || file_path;
+    }
+    return payload?.item_key ? `item ${payload.item_key}` : 'item';
+}
+
+function _onChannelEvent(channel, data) {
+    const live = _live[channel];
+    if (!live || !data) return;
+    if (data.type === 'item_start') {
+        live.processing.set(data.item_key, {
+            label: _liveLabel(data),
+            since: Date.now(),
+        });
+        _refreshFeed(channel);
+    } else if (data.type === 'item_complete') {
+        const prev = live.processing.get(data.item_key);
+        live.processing.delete(data.item_key);
+        live.recent.unshift({
+            label: prev?.label || _liveLabel(data),
+            success: data.success !== false,
+            ts: Date.now(),
+        });
+        live.recent = live.recent.slice(0, RECENT_KEEP);
+        _refreshFeed(channel);
+    }
+    // batch_complete events fall through — polling picks them up.
+}
+
+function _refreshFeed(channel) {
+    // Only touch the matching card's feed area so the rest of the page stays calm.
+    document.querySelectorAll(`.rs-worker-card[data-worker-name]`).forEach(card => {
+        const name = card.dataset.workerName;
+        if (_channelFor(name) !== channel) return;
+        const existing = card.querySelector('.rs-worker-feed');
+        const html = _liveFeed(channel);
+        if (existing) existing.outerHTML = html || existing.outerHTML;
+        else if (html) card.insertAdjacentHTML('beforeend', html);
+    });
 }
 
 async function _poll() {
@@ -91,8 +183,17 @@ export function initWorkersView() {
     _poll();
     if (_timer) clearInterval(_timer);
     _timer = setInterval(_poll, 2000);
+
+    // Subscribe to per-item events so the feed pulses live without polling.
+    _wsDisposers.forEach(d => d());
+    _wsDisposers = [
+        subscribe('enrichment',     d => _onChannelEvent('enrichment', d)),
+        subscribe('audio_features', d => _onChannelEvent('audio_features', d)),
+    ];
 }
 
 export function teardownWorkersView() {
     if (_timer) { clearInterval(_timer); _timer = null; }
+    _wsDisposers.forEach(d => d());
+    _wsDisposers = [];
 }

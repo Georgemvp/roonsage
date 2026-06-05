@@ -33,6 +33,7 @@ import { initPWA }                        from './modules/pwa.js';
 import { initAnalysisTasks }              from './modules/analysis-tasks.js';
 import { initBackgroundTaskBar }          from './modules/background-tasks.js';
 import { initBackgroundAiSettings }       from './modules/background-ai-settings.js';
+import { initGenreWhitelist }             from './modules/genre-whitelist.js';
 // home-listen.js is dynamically imported from the router on home-view entry; no
 // eager import needed at boot.
 
@@ -564,6 +565,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initAnalysisTasks();
     initBackgroundTaskBar('bg-task-bar');
     initBackgroundAiSettings('background-ai-section');
+    initGenreWhitelist();
     state.view = viewFromHash();
     state.mode = modeFromHash();
     if (!location.hash) {

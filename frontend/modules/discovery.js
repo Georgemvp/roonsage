@@ -28,17 +28,25 @@ export async function initDiscoveryView() {
 // ── Main renderer ─────────────────────────────────────────────────────────────
 
 function _render(view, data) {
-    const favorites   = data.favorites_in_library || [];
-    const lbReleases  = data.lb_top_releases      || [];
-    const lbLoved     = data.lb_loved_in_library  || [];
-    const cuts        = data.deep_cuts            || [];
-    const forgotten   = data.forgotten_favorites  || [];
-    const genres      = data.genre_explorer       || [];
-    const soundsWeek  = data.sounds_like_your_week || null;
+    const favorites    = data.favorites_in_library || [];
+    const lbReleases   = data.lb_top_releases      || [];
+    const lbLoved      = data.lb_loved_in_library  || [];
+    const cuts         = data.deep_cuts            || [];
+    const forgotten    = data.forgotten_favorites  || [];
+    const genres       = data.genre_explorer       || [];
+    const soundsWeek   = data.sounds_like_your_week || null;
+    const recently     = data.recently_added       || [];
+    const undiscovered = data.undiscovered_albums  || [];
+    const decadePicks  = data.decade_picks         || [];
+    const topTracks    = data.top_tracks           || [];
+    const seasonal     = data.seasonal_mix         || null;
 
     const hasAny = favorites.length || lbReleases.length || lbLoved.length ||
                    cuts.length || forgotten.length || genres.length ||
-                   (soundsWeek && soundsWeek.tracks && soundsWeek.tracks.length);
+                   recently.length || undiscovered.length ||
+                   decadePicks.length || topTracks.length ||
+                   (soundsWeek && soundsWeek.tracks && soundsWeek.tracks.length) ||
+                   (seasonal && seasonal.tracks && seasonal.tracks.length);
 
     if (!hasAny) {
         view.innerHTML = `
@@ -58,11 +66,16 @@ function _render(view, data) {
         ${_renderFeaturedGem(favorites, lbReleases)}
 
         ${_renderSoundsLikeYourWeek(soundsWeek)}
+        ${_renderSeasonalMix(seasonal)}
+        ${_renderRecentlyAdded(recently)}
+        ${_renderUndiscoveredAlbums(undiscovered)}
         ${_renderLbTopReleases(lbReleases)}
         ${_renderLbLoved(lbLoved)}
         ${_renderFavoritesInLibrary(favorites)}
+        ${_renderTopTracks(topTracks)}
         ${_renderDeepCuts(cuts)}
         ${_renderForgottenFavorites(forgotten)}
+        ${_renderDecadePicks(decadePicks)}
         <div id="discovery-moods-pane"></div>
         ${_renderGenreExplorer(genres)}
         <div id="discovery-similar-pane"></div>
@@ -339,6 +352,159 @@ function _renderLbLoved(tracks) {
 }
 
 // ── Section: Favorites in Library ────────────────────────────────────────────
+
+// ── Section: Recently Added albums ────────────────────────────────────────────
+
+function _renderRecentlyAdded(albums) {
+    if (!albums.length) return '';
+    const cards = albums.map(a => `
+        <div class="rs-album-card">
+            <div class="rs-album-art">${a.image_key
+                ? `<img src="/api/art/${escapeHtml(a.image_key)}?width=200&height=200" alt="" loading="lazy" onerror="this.parentElement.innerHTML='<div class=rs-album-art-placeholder>&#9835;</div>'">`
+                : `<div class="rs-album-art-placeholder">&#9835;</div>`}</div>
+            <div class="rs-album-title">${escapeHtml(a.album)}</div>
+            <div class="rs-album-artist">${escapeHtml(a.artist)}</div>
+            ${a.added_at ? `<span class="discovery-album-meta">${escapeHtml(a.added_at.slice(0, 10))}</span>` : ''}
+            ${a.parent_item_key ? `
+            <button class="btn btn-secondary btn-sm discovery-play-btn"
+                data-play-key="${escapeHtml(a.parent_item_key)}" data-play-type="album"
+                title="Play ${escapeHtml(a.album)}">▶ Play</button>` : ''}
+        </div>
+    `).join('');
+    return `
+        <section class="rs-section" aria-labelledby="disc-recent-heading">
+            <div class="rs-section-header">
+                <h3 class="rs-section-title" id="disc-recent-heading">Recently Added</h3>
+                <span class="discovery-section-badge">${albums.length}</span>
+            </div>
+            <p class="discovery-section-desc">Albums waarvan de nieuwste track in de afgelopen 30 dagen aan je library is toegevoegd.</p>
+            <div class="rs-album-row">${cards}</div>
+        </section>`;
+}
+
+// ── Section: Undiscovered Albums ──────────────────────────────────────────────
+
+function _renderUndiscoveredAlbums(albums) {
+    if (!albums.length) return '';
+    const cards = albums.map(a => `
+        <div class="rs-album-card">
+            <div class="rs-album-art">${a.image_key
+                ? `<img src="/api/art/${escapeHtml(a.image_key)}?width=200&height=200" alt="" loading="lazy" onerror="this.parentElement.innerHTML='<div class=rs-album-art-placeholder>&#9835;</div>'">`
+                : `<div class="rs-album-art-placeholder">&#9835;</div>`}</div>
+            <div class="rs-album-title">${escapeHtml(a.album)}</div>
+            <div class="rs-album-artist">${escapeHtml(a.artist)}</div>
+            <span class="discovery-album-meta">Nooit gespeeld</span>
+            ${a.parent_item_key ? `
+            <button class="btn btn-secondary btn-sm discovery-play-btn"
+                data-play-key="${escapeHtml(a.parent_item_key)}" data-play-type="album"
+                title="Play ${escapeHtml(a.album)}">▶ Play</button>` : ''}
+        </div>
+    `).join('');
+    return `
+        <section class="rs-section" aria-labelledby="disc-undisc-heading">
+            <div class="rs-section-header">
+                <h3 class="rs-section-title" id="disc-undisc-heading">Undiscovered Albums</h3>
+                <span class="discovery-section-badge">${albums.length}</span>
+            </div>
+            <p class="discovery-section-desc">Albums van artiesten die je vaak speelt, maar dit album nog nooit. Vergeten hoekjes van je top-40.</p>
+            <div class="rs-album-row">${cards}</div>
+        </section>`;
+}
+
+// ── Section: Top Tracks ───────────────────────────────────────────────────────
+
+function _renderTopTracks(tracks) {
+    if (!tracks.length) return '';
+    const rows = tracks.map((t, i) => `
+        <div class="rs-track-row">
+            <div class="rs-track-info">
+                <span class="rs-track-rank">${i + 1}</span>
+                <span class="rs-track-title">${escapeHtml(t.title)}</span>
+                <span class="rs-track-artist">${escapeHtml(t.artist)}</span>
+                <span class="rs-track-album">${escapeHtml(t.album || '')}</span>
+            </div>
+            <div class="discovery-track-right">
+                <span class="discovery-play-count">${t.plays}×</span>
+                ${t.item_key ? `
+                <button class="btn btn-secondary btn-sm discovery-play-btn"
+                    data-play-key="${escapeHtml(t.item_key)}" data-play-type="track"
+                    title="Play ${escapeHtml(t.title)}">▶</button>` : ''}
+            </div>
+            <button class="rs-track-options" title="Opties" aria-label="Opties">···</button>
+        </div>
+    `).join('');
+    return `
+        <section class="rs-section" aria-labelledby="disc-top-heading">
+            <div class="rs-section-header">
+                <h3 class="rs-section-title" id="disc-top-heading">Top Tracks</h3>
+                <span class="discovery-section-badge">${tracks.length}</span>
+            </div>
+            <p class="discovery-section-desc">Je meest-gespeelde tracks ooit — pure listening history, geen LLM.</p>
+            <div class="discovery-track-list">${rows}</div>
+        </section>`;
+}
+
+// ── Section: Decade Picks (compact, één rij per decennium) ────────────────────
+
+function _renderDecadePicks(decades) {
+    if (!decades.length) return '';
+    const blocks = decades.map(d => {
+        const rows = (d.tracks || []).map(t => `
+            <div class="rs-track-row">
+                <div class="rs-track-info">
+                    <span class="rs-track-title">${escapeHtml(t.title)}</span>
+                    <span class="rs-track-artist">${escapeHtml(t.artist)}</span>
+                </div>
+                ${t.item_key ? `
+                <button class="btn btn-secondary btn-sm discovery-play-btn"
+                    data-play-key="${escapeHtml(t.item_key)}" data-play-type="track"
+                    title="Play ${escapeHtml(t.title)}">▶</button>` : ''}
+            </div>
+        `).join('');
+        return `
+            <div class="rs-decade-block">
+                <h4 class="rs-decade-heading">${escapeHtml(d.decade)} <span class="discovery-section-badge">${d.track_count}</span></h4>
+                <div class="discovery-track-list">${rows}</div>
+            </div>`;
+    }).join('');
+    return `
+        <section class="rs-section" aria-labelledby="disc-decade-heading">
+            <div class="rs-section-header">
+                <h3 class="rs-section-title" id="disc-decade-heading">Decade Picks</h3>
+            </div>
+            <p class="discovery-section-desc">Willekeurige hapjes uit elk decennium van je library.</p>
+            <div class="rs-decade-grid">${blocks}</div>
+        </section>`;
+}
+
+// ── Section: Seasonal Mix (NL-seizoenen) ──────────────────────────────────────
+
+function _renderSeasonalMix(section) {
+    if (!section || !section.season || !section.tracks?.length) return '';
+    const rows = section.tracks.map(t => `
+        <div class="rs-track-row">
+            <div class="rs-track-info">
+                <span class="rs-track-title">${escapeHtml(t.title)}</span>
+                <span class="rs-track-artist">${escapeHtml(t.artist)}</span>
+                <span class="rs-track-album">${escapeHtml(t.album || '')}</span>
+            </div>
+            ${t.item_key ? `
+            <button class="btn btn-secondary btn-sm discovery-play-btn"
+                data-play-key="${escapeHtml(t.item_key)}" data-play-type="track"
+                title="Play ${escapeHtml(t.title)}">▶</button>` : ''}
+            <button class="rs-track-options" title="Opties" aria-label="Opties">···</button>
+        </div>
+    `).join('');
+    return `
+        <section class="rs-section" aria-labelledby="disc-season-heading">
+            <div class="rs-section-header">
+                <h3 class="rs-section-title" id="disc-season-heading">${escapeHtml(section.season)}</h3>
+                <span class="discovery-section-badge">${section.tracks.length}</span>
+            </div>
+            <p class="discovery-section-desc">Seizoens-gerichte tracks uit je library, gefilterd op genre-trefwoorden.</p>
+            <div class="discovery-track-list">${rows}</div>
+        </section>`;
+}
 
 function _renderFavoritesInLibrary(albums) {
     if (!albums.length) return '';

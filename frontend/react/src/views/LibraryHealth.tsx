@@ -66,8 +66,12 @@ export function LibraryHealth() {
   });
 
   const scanDeadFiles = useMutation({
-    mutationFn: () => api("/library-health/scan-dead-files", { method: "POST" }),
-    onSuccess: (res: { available: boolean; missing: number; checked: number }) => {
+    mutationFn: () =>
+      api<{ available: boolean; missing: number; checked: number }>(
+        "/library-health/scan-dead-files",
+        { method: "POST" },
+      ),
+    onSuccess: (res) => {
       if (!res.available) {
         showToast("MUSIC_LIBRARY_PATH ontbreekt — dead-file scan overgeslagen", "error");
       } else {
