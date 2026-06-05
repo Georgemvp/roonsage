@@ -201,37 +201,34 @@ def _disk_usage_block() -> dict[str, Any]:
     return {"available": True, "bytes_total": total, "per_genre": per_genre}
 
 
-async def _dead_files_block() -> dict[str, Any]:
-    """Count tracks whose resolved on-disk path is missing.
+async def _dead_files_block_cached() -> dict[str, Any]:
+    """Return the cached dead-file scan result without touching the filesystem.
 
-    Uses ``track_audio_features.file_path`` because that's the only column with
-    a verified path (after path-mapping). Tracks the user has never analysed
-    are not yet candidates for this check and are skipped.
+    The actual scan happens via ``POST /scan-dead-files`` which runs sync I/O
+    in a worker thread and persists ``track_audio_features.file_missing``.
+    Embedding the scan in the summary endpoint would block the asyncio event
+    loop for 5–60 s on slow disks, so we read counts only.
     """
     music_root = os.environ.get("MUSIC_LIBRARY_PATH")
     if not music_root or not Path(music_root).is_dir():
         return {"available": False, "missing": 0, "checked": 0}
 
-    conn = get_db_connection()
-    try:
-        rows = conn.execute(
-            "SELECT item_key, file_path FROM track_audio_features "
-            "WHERE file_path IS NOT NULL AND file_path != '' LIMIT 5000"
-        ).fetchall()
-    finally:
-        conn.close()
-
-    checked = 0
-    missing = 0
-    for r in rows:
-        path = r[1]
-        if not path:
-            continue
-        checked += 1
-        with contextlib.suppress(OSError):
-            if not Path(path).exists():
-                missing += 1
-    return {"available": True, "missing": missing, "checked": checked}
+    async with aget_connection() as conn:
+        try:
+            cur = await conn.execute(
+                "SELECT COUNT(*) AS total, "
+                "SUM(CASE WHEN file_missing = 1 THEN 1 ELSE 0 END) AS missing "
+                "FROM track_audio_features "
+                "WHERE file_path IS NOT NULL AND file_path != ''"
+            )
+            row = await cur.fetchone()
+        except Exception:
+            return {"available": True, "missing": 0, "checked": 0}
+    return {
+        "available": True,
+        "checked": (row["total"] or 0) if row else 0,
+        "missing": (row["missing"] or 0) if row else 0,
+    }
 
 
 @router.get("/summary")
@@ -242,7 +239,7 @@ async def summary() -> dict[str, Any]:
         "album_consistency": await _album_consistency_block(),
         "stale_entries": await _stale_block(),
         "disk_usage": _disk_usage_block(),
-        "dead_files": await _dead_files_block(),
+        "dead_files": await _dead_files_block_cached(),
     }
 
 
@@ -337,13 +334,12 @@ async def recompute_live_flags() -> dict[str, Any]:
     return {"flagged": flagged}
 
 
-@router.post("/scan-dead-files")
-async def scan_dead_files() -> dict[str, Any]:
-    """Mark tracks whose on-disk file is missing.
+def _scan_dead_files_sync() -> dict[str, Any]:
+    """Filesystem scan — must be called via ``asyncio.to_thread``.
 
-    Best-effort: adds a ``file_missing`` flag to ``track_audio_features`` if it
-    doesn't exist yet, then sets it for every row whose ``file_path`` no longer
-    resolves on disk. Reversible — just resets the column.
+    Iterates every analysed track's ``file_path`` and stat()s it on disk. The
+    whole thing is sync because Path.exists() doesn't have an async variant,
+    and music libraries can sit on NAS where each stat is 10–50 ms.
     """
     music_root = os.environ.get("MUSIC_LIBRARY_PATH")
     if not music_root or not Path(music_root).is_dir():
@@ -380,6 +376,19 @@ async def scan_dead_files() -> dict[str, Any]:
     finally:
         conn.close()
     return {"available": True, "checked": checked, "missing": len(missing_keys)}
+
+
+@router.post("/scan-dead-files")
+async def scan_dead_files() -> dict[str, Any]:
+    """Mark tracks whose on-disk file is missing.
+
+    Runs the blocking filesystem scan in a worker thread so the event loop
+    keeps serving other handlers. The result is persisted to
+    ``track_audio_features.file_missing`` and surfaced by ``/summary``.
+    """
+    import asyncio  # noqa: PLC0415
+
+    return await asyncio.to_thread(_scan_dead_files_sync)
 
 
 @router.post("/fix-all")
