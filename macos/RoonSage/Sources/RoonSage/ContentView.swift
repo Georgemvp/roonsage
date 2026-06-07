@@ -64,8 +64,8 @@ struct MainAppView: View {
             switch selection {
             case .nowPlaying: NowPlayingView()
             case .library:    LibraryView()
-            case .discovery:  PlaceholderView(title: "Discovery", icon: "sparkles")
-            case .taste:      PlaceholderView(title: "Taste Profile", icon: "chart.radar")
+            case .discovery:  DiscoveryView()
+            case .taste:      TasteProfileView()
             case .settings:   SettingsView()
             }
         }
@@ -114,16 +114,5 @@ struct MainAppView: View {
                 }
             }
         }
-    }
-}
-
-// MARK: - Placeholder
-
-struct PlaceholderView: View {
-    let title: String
-    let icon: String
-    var body: some View {
-        ContentUnavailableView(title, systemImage: icon,
-                               description: Text("Coming in a future phase."))
     }
 }

@@ -68,6 +68,7 @@ public final class RoonClient {
     private let transport = RoonTransport()
     private var zoneMap: [String: Zone] = [:]
     private var syncTask: Task<Void, Never>?
+    private var lastNowPlaying: [String: String] = [:]  // zoneID → title (dedup guard)
 
     // Services — initialised after connection is confirmed
     private var transportService: TransportService?
@@ -157,6 +158,44 @@ public final class RoonClient {
 
     public func setShuffle(zoneID: String, enabled: Bool) async {
         _ = try? await transportService?.setShuffle(zoneID: zoneID, enabled: enabled)
+    }
+
+    public func setRepeat(zoneID: String, mode: String) async {
+        let rMode = TransportService.RepeatMode(rawValue: mode) ?? .disabled
+        _ = try? await transportService?.setRepeat(zoneID: zoneID, mode: rMode)
+    }
+
+    /// Play a list of tracks by their Roon item_keys using the browse API.
+    /// First track plays immediately; subsequent tracks are queued.
+    public func curateTracks(_ tracks: [TrackRecord], zoneID: String) async {
+        guard let browse = browseService else { return }
+        var isFirst = true
+        for track in tracks {
+            try? await browse.playByBrowse(itemKey: track.id, zoneID: zoneID, action: isFirst ? "play_now" : "queue")
+            isFirst = false
+        }
+    }
+
+    // MARK: - Library queries (for UI + MCP)
+
+    public func filterTracks(options: DatabaseManager.FilterOptions) -> [TrackRecord] {
+        (try? database?.filterTracks(options: options)) ?? []
+    }
+
+    public func libraryStats() -> DatabaseManager.LibraryStats? {
+        try? database?.libraryStats()
+    }
+
+    public func recentListens(limit: Int = 50) -> [DatabaseManager.ListenEntry] {
+        (try? database?.recentListens(limit: limit)) ?? []
+    }
+
+    public func topArtistsListened(limit: Int = 20) -> [(artist: String, count: Int)] {
+        (try? database?.topArtistsListened(limit: limit)) ?? []
+    }
+
+    public func totalListens() -> Int {
+        (try? database?.totalListens()) ?? 0
     }
 
     public func imageURL(forKey key: String, size: Int = 200) -> URL? {
@@ -266,9 +305,26 @@ public final class RoonClient {
 
         for dict in toUpdate {
             let zone = Zone(from: dict)
+
+            // Log a listen when now-playing changes on a playing zone
+            if zone.state == .playing, let np = zone.nowPlaying {
+                let key = zone.id
+                if lastNowPlaying[key] != np.title {
+                    lastNowPlaying[key] = np.title
+                    try? database?.logListen(
+                        title: np.title,
+                        artist: np.artist,
+                        album: np.album,
+                        zoneID: zone.id,
+                        zoneName: zone.displayName
+                    )
+                }
+            }
+
             zoneMap[zone.id] = zone
         }
         for id in toRemove {
+            lastNowPlaying.removeValue(forKey: id)
             zoneMap.removeValue(forKey: id)
         }
         zones = Array(zoneMap.values).sorted { $0.displayName < $1.displayName }

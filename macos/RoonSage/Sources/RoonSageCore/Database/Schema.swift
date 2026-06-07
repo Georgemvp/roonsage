@@ -31,6 +31,20 @@ enum Schema {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_tracks_title     ON tracks(title)")
         }
 
+        migrator.registerMigration("v2_listening_history") { db in
+            try db.create(table: "listening_history", ifNotExists: true) { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("title",      .text).notNull()
+                t.column("artist",     .text)
+                t.column("album",      .text)
+                t.column("zone_id",    .text)
+                t.column("zone_name",  .text)
+                t.column("played_at",  .text).notNull()
+            }
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_listen_played_at ON listening_history(played_at DESC)")
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_listen_artist     ON listening_history(artist)")
+        }
+
         try migrator.migrate(db)
     }
 }

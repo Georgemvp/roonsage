@@ -84,6 +84,47 @@ actor BrowseService {
         return count
     }
 
+    /// Browse with a zone context — used for playback actions.
+    func browseForPlayback(
+        itemKey: String?,
+        zoneID: String,
+        sessionKey: String
+    ) async throws -> [String: Any] {
+        var body: [String: Any] = [
+            "hierarchy": "browse",
+            "zone_or_output_id": zoneID,
+            "multi_session_key": sessionKey
+        ]
+        if let itemKey { body["item_key"] = itemKey }
+        return try await transport.request("\(RoonService.browse)/browse", body: body)
+    }
+
+    /// Play a library item by its browse item_key.
+    /// action: "play_now" | "queue" | "add_next"
+    func playByBrowse(itemKey: String, zoneID: String, action: String = "play_now") async throws {
+        let sessionKey = "curate_\(zoneID)"
+        let resp = try await browseForPlayback(itemKey: itemKey, zoneID: zoneID, sessionKey: sessionKey)
+
+        guard let list = resp["list"] as? [String: Any],
+              let count = list["count"] as? Int, count > 0 else { return }
+
+        let items = try await load(hierarchy: "browse", sessionKey: sessionKey, offset: 0, count: min(count, 20))
+
+        let targetTitle: String
+        switch action {
+        case "queue":    targetTitle = "Queue"
+        case "add_next": targetTitle = "Add Next"
+        default:         targetTitle = "Play Now"
+        }
+
+        let actionItem = items.first(where: {
+            $0.hint == "action" && $0.title.localizedCaseInsensitiveContains(targetTitle)
+        }) ?? items.first(where: { $0.hint == "action" })
+
+        guard let key = actionItem?.itemKey else { return }
+        _ = try? await browseForPlayback(itemKey: key, zoneID: zoneID, sessionKey: sessionKey)
+    }
+
     /// Browse into `itemKey` and load ALL items, auto-paginating.
     func browseAll(
         to itemKey: String?,
