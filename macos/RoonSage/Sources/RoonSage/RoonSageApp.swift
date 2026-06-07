@@ -8,6 +8,7 @@ struct RoonSageApp: App {
     @State private var availableUpdate: UpdateInfo? = nil
     @State private var showUpdateSheet = false
     @State private var isCheckingForUpdates = false
+    @State private var installer = UpdateInstaller()
 
     var body: some Scene {
         WindowGroup {
@@ -16,7 +17,7 @@ struct RoonSageApp: App {
                 .frame(minWidth: 900, minHeight: 600)
                 .sheet(isPresented: $showUpdateSheet) {
                     if let update = availableUpdate {
-                        UpdateView(update: update)
+                        UpdateView(update: update, installer: installer)
                     }
                 }
                 .task { await checkForUpdatesOnLaunch() }
@@ -49,9 +50,7 @@ struct RoonSageApp: App {
 
     // MARK: - Update checks
 
-    /// Silently checks once per day on launch — shows sheet only if update found.
     private func checkForUpdatesOnLaunch() async {
-        // Throttle: check at most once per 24h
         let lastCheckKey = "lastUpdateCheck"
         let now = Date().timeIntervalSince1970
         let last = UserDefaults.standard.double(forKey: lastCheckKey)
@@ -61,11 +60,11 @@ struct RoonSageApp: App {
         let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
         if let update = await UpdateChecker.shared.checkForUpdates(currentVersion: currentVersion) {
             availableUpdate = update
+            installer = UpdateInstaller()  // fresh installer for each update
             showUpdateSheet = true
         }
     }
 
-    /// Called from "Check for Updates…" menu item — always shows result.
     private func checkForUpdatesManually() async {
         isCheckingForUpdates = true
         defer { isCheckingForUpdates = false }
@@ -73,9 +72,9 @@ struct RoonSageApp: App {
         let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
         if let update = await UpdateChecker.shared.checkForUpdates(currentVersion: currentVersion) {
             availableUpdate = update
+            installer = UpdateInstaller()
             showUpdateSheet = true
         } else {
-            // Show "up to date" alert
             let alert = NSAlert()
             alert.messageText = "You're up to date"
             alert.informativeText = "RoonSage \(currentVersion) is the latest version."
