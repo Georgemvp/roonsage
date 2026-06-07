@@ -157,25 +157,32 @@ public final class UpdateInstaller {
         #endif
     }
 
-    private func runProcess(_ executable: String, args: [String]) async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: executable)
-            p.arguments = args
-            p.standardOutput = FileHandle.nullDevice
-            p.standardError  = FileHandle.nullDevice
-            p.terminationHandler = { proc in
-                if proc.terminationStatus == 0 {
-                    cont.resume()
-                } else {
-                    cont.resume(throwing: InstallError.processFailed(executable, proc.terminationStatus))
+    private func runProcess(_ executable: String, args: [String], timeout: TimeInterval = 60) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                    let p = Process()
+                    p.executableURL = URL(fileURLWithPath: executable)
+                    p.arguments = args
+                    p.standardOutput = FileHandle.nullDevice
+                    p.standardError  = FileHandle.nullDevice
+                    p.terminationHandler = { proc in
+                        if proc.terminationStatus == 0 {
+                            cont.resume()
+                        } else {
+                            cont.resume(throwing: InstallError.processFailed(executable, proc.terminationStatus))
+                        }
+                    }
+                    do { try p.run() } catch { cont.resume(throwing: error) }
                 }
             }
-            do {
-                try p.run()
-            } catch {
-                cont.resume(throwing: error)
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                throw InstallError.processFailed(executable, -1)
             }
+            // First to finish wins; cancel the other
+            try await group.next()!
+            group.cancelAll()
         }
     }
 }

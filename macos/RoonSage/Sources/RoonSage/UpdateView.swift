@@ -143,11 +143,21 @@ struct UpdateView: View {
                     }
                 }
 
-                Button("Download Update") {
-                    installer.download(from: update.downloadURL)
+                if update.downloadURL.hasSuffix(".dmg") {
+                    Button("Download Update") {
+                        installer.download(from: update.downloadURL)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                } else {
+                    Button("View Release") {
+                        if let url = URL(string: update.releasePageURL) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
 
             case .downloading:
                 Button("Cancel") {
