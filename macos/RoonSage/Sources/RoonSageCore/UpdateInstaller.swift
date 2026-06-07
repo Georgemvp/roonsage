@@ -106,8 +106,11 @@ public final class UpdateInstaller {
         let mountPoint = FileManager.default.temporaryDirectory
             .appendingPathComponent("roonsage-update-mnt")
 
-        try? FileManager.default.removeItem(at: mountPoint)
-        try FileManager.default.createDirectory(at: mountPoint, withIntermediateDirectories: true)
+        let mntPath = mountPoint
+        try await Task.detached(priority: .userInitiated) {
+            try? FileManager.default.removeItem(at: mntPath)
+            try FileManager.default.createDirectory(at: mntPath, withIntermediateDirectories: true)
+        }.value
 
         // Strip quarantine from the DMG so Gatekeeper doesn't block mounting
         _ = try? await runProcess("/usr/bin/xattr",
@@ -130,14 +133,19 @@ public final class UpdateInstaller {
 
         // Destination: same location as the currently running app
         let destApp = Bundle.main.bundleURL
+        let src = appInDMG
+        let mnt = mountPoint
 
+        // Run file I/O on a background thread so the main actor stays free
+        // (a blocked main actor prevents TCC dialogs from appearing)
         do {
-            // Remove old app and copy in new one
-            try? FileManager.default.removeItem(at: destApp)
-            try FileManager.default.copyItem(at: appInDMG, to: destApp)
+            try await Task.detached(priority: .userInitiated) {
+                try? FileManager.default.removeItem(at: destApp)
+                try FileManager.default.copyItem(at: src, to: destApp)
+            }.value
         } catch {
             _ = try? await runProcess("/usr/bin/hdiutil",
-                                      args: ["detach", mountPoint.path, "-quiet", "-force"])
+                                      args: ["detach", mnt.path, "-quiet", "-force"])
             throw InstallError.replaceFailed(error)
         }
 
