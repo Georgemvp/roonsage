@@ -92,7 +92,7 @@ struct UpdateView: View {
             Image(systemName: "gearshape.2.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(.orange)
-                .symbolEffect(.rotate.byLayer)
+                .symbolEffect(.pulse)
         } else if case .error = installer.state {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 56))
