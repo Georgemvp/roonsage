@@ -161,7 +161,7 @@ public final class RoonClient {
     }
 
     public func setRepeat(zoneID: String, mode: String) async {
-        let rMode = TransportService.RepeatMode(rawValue: mode) ?? .disabled
+        let rMode = TransportService.RepeatMode(rawValue: mode) ?? .off
         _ = try? await transportService?.setRepeat(zoneID: zoneID, mode: rMode)
     }
 
