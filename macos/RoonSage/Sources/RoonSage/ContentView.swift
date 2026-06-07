@@ -16,7 +16,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Main app navigation (shown when connected)
+// MARK: - Main navigation
 
 struct MainAppView: View {
     @Environment(RoonClient.self) private var client
@@ -47,8 +47,10 @@ struct MainAppView: View {
                     .tag(item)
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+
             Divider()
-            // Connection badge at sidebar bottom
+
+            // Connected core badge
             HStack(spacing: 6) {
                 Circle().fill(.green).frame(width: 8, height: 8)
                 Text(client.connectionState.label)
@@ -67,6 +69,50 @@ struct MainAppView: View {
             }
         }
         .navigationTitle("")
+        .toolbar { toolbarContent }
+    }
+
+    @ToolbarContentBuilder
+    var toolbarContent: some ToolbarContent {
+        // Zone picker (only when multiple zones exist)
+        if client.zones.count > 1 {
+            ToolbarItem(placement: .navigation) {
+                Picker("Zone", selection: Binding(
+                    get: { client.selectedZone?.id ?? "" },
+                    set: { client.selectZone($0) }
+                )) {
+                    ForEach(client.zones) { zone in
+                        Label(zone.displayName, systemImage: zone.state.icon)
+                            .tag(zone.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 200)
+            }
+        }
+
+        // Mini transport controls in toolbar (for selected zone)
+        if let zone = client.selectedZone {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    Task { await client.previous(zoneID: zone.id) }
+                } label: {
+                    Image(systemName: "backward.fill")
+                }
+
+                Button {
+                    Task { await client.playPause(zoneID: zone.id) }
+                } label: {
+                    Image(systemName: zone.state == .playing ? "pause.fill" : "play.fill")
+                }
+
+                Button {
+                    Task { await client.next(zoneID: zone.id) }
+                } label: {
+                    Image(systemName: "forward.fill")
+                }
+            }
+        }
     }
 }
 

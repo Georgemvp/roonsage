@@ -54,6 +54,14 @@ public final class RoonClient {
     public private(set) var isSyncing = false
     public private(set) var syncProgress = SyncProgress(phase: "", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0)
     public private(set) var trackCount = 0
+    public private(set) var coreHost: String?
+    public private(set) var corePort: UInt16 = 9330
+    public private(set) var selectedZoneID: String?
+
+    public var selectedZone: Zone? {
+        if let id = selectedZoneID, let z = zoneMap[id] { return z }
+        return zones.first(where: { $0.state == .playing }) ?? zones.first
+    }
 
     // MARK: - Private
 
@@ -84,6 +92,8 @@ public final class RoonClient {
     // MARK: - Connection
 
     public func connect(host: String, port: UInt16 = 9330) async {
+        coreHost = host
+        corePort = port
         connectionState = .connecting(host: host)
         await transport.configure(
             onOpen: { [weak self] in await self?.handleOpen(host: host) },
@@ -147,6 +157,15 @@ public final class RoonClient {
 
     public func setShuffle(zoneID: String, enabled: Bool) async {
         _ = try? await transportService?.setShuffle(zoneID: zoneID, enabled: enabled)
+    }
+
+    public func imageURL(forKey key: String, size: Int = 200) -> URL? {
+        guard let host = coreHost else { return nil }
+        return URL(string: "http://\(host):\(corePort)/api/image/\(key)?width=\(size)&height=\(size)&scale=fit")
+    }
+
+    public func selectZone(_ id: String) {
+        selectedZoneID = id
     }
 
     // MARK: - Library sync
@@ -220,6 +239,7 @@ public final class RoonClient {
     private func handleClose() async {
         transportService = nil
         browseService = nil
+        coreHost = nil
         connectionState = .disconnected
         zones = []
         zoneMap = [:]

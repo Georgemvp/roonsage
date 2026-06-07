@@ -14,7 +14,10 @@ struct NowPlayingView: View {
         } else {
             List(client.zones) { zone in
                 ZoneRow(zone: zone)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
             }
+            .listStyle(.plain)
             .navigationTitle("Now Playing")
         }
     }
@@ -27,79 +30,62 @@ struct ZoneRow: View {
     let zone: Zone
 
     @State private var volumeValue: Double = 50
+    private var isSelected: Bool { client.selectedZone?.id == zone.id }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Zone name + state
-            HStack(spacing: 8) {
-                Image(systemName: zone.state.icon)
-                    .foregroundStyle(zone.state == .playing ? Color.accentColor : .secondary)
-                    .frame(width: 18)
-                Text(zone.displayName)
-                    .font(.headline)
-                Spacer()
-                // Playback state badge
-                if zone.state == .playing {
-                    Text("PLAYING")
-                        .font(.caption2.bold())
-                        .foregroundStyle(Color.accentColor)
-                }
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            // Top row: art + track info + state badge
+            HStack(alignment: .top, spacing: 12) {
+                AlbumArtView(imageKey: zone.nowPlaying?.imageKey, size: 56)
 
-            // Track info
-            if let np = zone.nowPlaying {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(np.title)
-                        .font(.subheadline)
-                        .lineLimit(1)
-                    if let artist = np.artist {
-                        Text(artist)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text(zone.displayName)
+                            .font(.subheadline.bold())
+                            .foregroundStyle(isSelected ? Color.accentColor : .primary)
+                        Spacer()
+                        if zone.state == .playing {
+                            Label("Playing", systemImage: "waveform")
+                                .labelStyle(.iconOnly)
+                                .font(.caption)
+                                .foregroundStyle(Color.accentColor)
+                                .symbolEffect(.variableColor.iterative, options: .repeating)
+                        }
                     }
-                    if let album = np.album {
-                        Text(album)
+                    if let np = zone.nowPlaying {
+                        Text(np.title)
+                            .font(.body)
+                            .lineLimit(1)
+                        HStack(spacing: 4) {
+                            if let artist = np.artist {
+                                Text(artist).foregroundStyle(.secondary)
+                            }
+                            if np.artist != nil, np.album != nil {
+                                Text("·").foregroundStyle(.tertiary)
+                            }
+                            if let album = np.album {
+                                Text(album).foregroundStyle(.tertiary)
+                            }
+                        }
+                        .font(.caption)
+                        .lineLimit(1)
+                    } else {
+                        Text("Nothing playing")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
-                            .lineLimit(1)
                     }
                 }
-            } else {
-                Text("Nothing playing")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
             }
+            .contentShape(Rectangle())
+            .onTapGesture { client.selectZone(zone.id) }
 
             // Transport controls
-            HStack(spacing: 16) {
-                // Previous
-                Button {
-                    Task { await client.previous(zoneID: zone.id) }
-                } label: {
-                    Image(systemName: "backward.fill")
+            HStack(spacing: 0) {
+                Group {
+                    controlButton("backward.fill")  { Task { await client.previous(zoneID: zone.id) } }
+                    playPauseButton
+                    controlButton("forward.fill")   { Task { await client.next(zoneID: zone.id) } }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.primary)
-
-                // Play / Pause
-                Button {
-                    Task { await client.playPause(zoneID: zone.id) }
-                } label: {
-                    Image(systemName: zone.state == .playing ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(Color.accentColor)
-                }
-                .buttonStyle(.plain)
-
-                // Next
-                Button {
-                    Task { await client.next(zoneID: zone.id) }
-                } label: {
-                    Image(systemName: "forward.fill")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.primary)
 
                 Spacer()
 
@@ -111,32 +97,60 @@ struct ZoneRow: View {
                         } label: {
                             Image(systemName: vol.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                                 .foregroundStyle(.secondary)
-                                .font(.caption)
                         }
                         .buttonStyle(.plain)
 
                         Slider(
                             value: $volumeValue,
                             in: Double(vol.min)...Double(max(vol.max, vol.min + 1)),
-                            step: Double(vol.step > 0 ? vol.step : 1)
+                            step: Double(max(vol.step, 1))
                         ) { editing in
                             if !editing {
                                 Task { await client.setVolume(outputID: output.id, value: Int(volumeValue)) }
                             }
                         }
-                        .frame(width: 80)
+                        .frame(width: 90)
                         .onAppear { volumeValue = Double(vol.value) }
-                        .onChange(of: vol.value) { _, new in volumeValue = Double(new) }
+                        .onChange(of: vol.value) { _, v in volumeValue = Double(v) }
 
                         Text("\(vol.isMuted ? 0 : vol.value)")
-                            .font(.caption)
+                            .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                             .frame(width: 28, alignment: .trailing)
-                            .monospacedDigit()
                     }
                 }
             }
+            .font(.callout)
         }
-        .padding(.vertical, 6)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(isSelected ? Color.accentColor.opacity(0.08) : Color(.windowBackgroundColor).opacity(0.5))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(isSelected ? Color.accentColor.opacity(0.25) : Color.clear, lineWidth: 1)
+                )
+        )
+    }
+
+    private var playPauseButton: some View {
+        Button {
+            Task { await client.playPause(zoneID: zone.id) }
+        } label: {
+            Image(systemName: zone.state == .playing ? "pause.circle.fill" : "play.circle.fill")
+                .font(.title2)
+                .foregroundStyle(Color.accentColor)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+    }
+
+    private func controlButton(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .foregroundStyle(.primary)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
     }
 }
