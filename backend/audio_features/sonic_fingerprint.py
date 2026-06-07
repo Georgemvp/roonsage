@@ -27,19 +27,22 @@ def get_sonic_fingerprint(
     import numpy as np  # noqa: PLC0415
     from sklearn.preprocessing import MinMaxScaler  # noqa: PLC0415
 
-    cols = ", ".join(f"taf.{c}" for c in FEATURE_COLUMNS)
+    cols = ", ".join(f"MIN(taf.{c}) AS {c}" for c in FEATURE_COLUMNS)
     where = " AND ".join(f"taf.{c} IS NOT NULL" for c in FEATURE_COLUMNS)
-    # listening_history has no item_key — join via normalised title+artist
+    # listening_history has no item_key — join via normalised title+artist.
+    # GROUP BY (title, artist) deduplicates tracks that have multiple item_keys
+    # due to Roon resync artefacts; play_count is still correctly summed once
+    # because the listening_history join key is (title, artist), not item_key.
     rows = conn.execute(
         f"""
-        SELECT taf.item_key, {cols}, COUNT(lh.id) AS play_count
+        SELECT MIN(taf.item_key) AS item_key, {cols}, COUNT(lh.id) AS play_count
         FROM track_audio_features taf
         JOIN tracks t ON taf.item_key = t.item_key
         JOIN listening_history lh
              ON LOWER(lh.track_title) = LOWER(t.title)
              AND LOWER(lh.artist) = LOWER(t.artist)
         WHERE {where}
-        GROUP BY taf.item_key
+        GROUP BY LOWER(t.title), LOWER(t.artist)
         ORDER BY play_count DESC
         LIMIT ?
         """,
@@ -88,12 +91,12 @@ def get_fingerprint_recommendations(
 
     fingerprint = np.array(fp_data["fingerprint"], dtype=float)
 
-    cols = ", ".join(f"taf.{c}" for c in FEATURE_COLUMNS)
+    cols = ", ".join(f"MIN(taf.{c}) AS {c}" for c in FEATURE_COLUMNS)
     where = " AND ".join(f"taf.{c} IS NOT NULL" for c in FEATURE_COLUMNS)
     rows = conn.execute(
         f"""
-        SELECT taf.item_key, {cols},
-               t.title, t.artist, t.album,
+        SELECT MIN(taf.item_key) AS item_key, {cols},
+               MIN(t.title) AS title, MIN(t.artist) AS artist, MIN(t.album) AS album,
                COALESCE(pc.cnt, 0) AS play_count
         FROM track_audio_features taf
         JOIN tracks t ON taf.item_key = t.item_key
@@ -104,6 +107,7 @@ def get_fingerprint_recommendations(
             GROUP BY LOWER(track_title), LOWER(artist)
         ) pc ON LOWER(t.title) = pc.norm_title AND LOWER(t.artist) = pc.norm_artist
         WHERE {where}
+        GROUP BY LOWER(t.title), LOWER(t.artist)
         """
     ).fetchall()
 

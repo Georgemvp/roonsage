@@ -218,7 +218,7 @@ async def recommend_analyze_prompt(request: AnalyzePromptFiltersRequest) -> Anal
 @router.post("/questions", response_model=RecommendQuestionsResponse)
 @limiter.limit("30/hour")
 async def recommend_questions(
-    raw_request: Request, request: RecommendQuestionsRequest
+    request: Request, body: RecommendQuestionsRequest
 ) -> RecommendQuestionsResponse:
     """Generate clarifying questions for album recommendation."""
     pipeline = _get_pipeline()
@@ -228,7 +228,7 @@ async def recommend_questions(
     try:
         session_state = RecommendSessionState(
             mode="library",
-            prompt=request.prompt,
+            prompt=body.prompt,
             filters={"genres": [], "decades": []},
             questions=[],
             album_candidates=[],
@@ -238,10 +238,10 @@ async def recommend_questions(
         session_id = pipeline.create_session(session_state)
 
         dimension_ids = await asyncio.to_thread(
-            pipeline.gap_analysis, request.prompt, session_id
+            pipeline.gap_analysis, body.prompt, session_id
         )
         questions = await asyncio.to_thread(
-            pipeline.generate_questions, request.prompt, dimension_ids, session_id
+            pipeline.generate_questions, body.prompt, dimension_ids, session_id
         )
 
         pipeline.update_session_questions(session_id, questions)
@@ -294,38 +294,38 @@ async def recommend_switch_mode(request: RecommendSwitchModeRequest) -> Recommen
 
 @router.post("/generate")
 @limiter.limit("30/hour")
-async def recommend_generate(raw_request: Request, request: RecommendGenerateRequest) -> StreamingResponse:
+async def recommend_generate(request: Request, body: RecommendGenerateRequest) -> StreamingResponse:
     """Generate album recommendations with SSE progress streaming."""
     pipeline = _get_pipeline()
     if not pipeline:
         raise HTTPException(status_code=503, detail="LLM not configured")
 
-    session = pipeline.get_session(request.session_id)
+    session = pipeline.get_session(body.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
     pipeline.update_session_answers(
-        request.session_id, request.answers, request.answer_texts
+        body.session_id, body.answers, body.answer_texts
     )
 
-    genre_list = request.genres if request.genres else None
-    decade_list = request.decades if request.decades else None
+    genre_list = body.genres if body.genres else None
+    decade_list = body.decades if body.decades else None
     loaded_candidates = None
     loaded_taste_profile = None
 
     if not library_cache.has_cached_tracks():
-        if request.mode == "library":
+        if body.mode == "library":
             raise HTTPException(status_code=400, detail="Library cache is empty. Please sync your library first.")
-        elif request.mode == "discovery":
+        elif body.mode == "discovery":
             raise HTTPException(status_code=400, detail="Library cache is empty. Discovery mode needs your library to build a taste profile. Please sync first.")
     else:
         candidates_raw = await asyncio.to_thread(
             library_cache.get_album_candidates,
-            genres=genre_list if request.mode == "library" else None,
-            decades=decade_list if request.mode == "library" else None,
+            genres=genre_list if body.mode == "library" else None,
+            decades=decade_list if body.mode == "library" else None,
         )
 
-        if request.mode == "library" and not candidates_raw:
+        if body.mode == "library" and not candidates_raw:
             if library_cache.has_cached_tracks():
                 sync_state = library_cache.get_sync_state()
                 if sync_state["is_syncing"]:
@@ -341,10 +341,10 @@ async def recommend_generate(raw_request: Request, request: RecommendGenerateReq
 
         loaded_candidates = [AlbumCandidate(**c) for c in candidates_raw]
 
-        if request.max_albums > 0 and len(loaded_candidates) > request.max_albums:
-            loaded_candidates = _rerank_albums_by_taste(loaded_candidates, request.max_albums)
+        if body.max_albums > 0 and len(loaded_candidates) > body.max_albums:
+            loaded_candidates = _rerank_albums_by_taste(loaded_candidates, body.max_albums)
 
-        if request.mode == "discovery":
+        if body.mode == "discovery":
             all_raw = await asyncio.to_thread(
                 library_cache.get_album_candidates, genres=None, decades=None
             )
@@ -352,44 +352,44 @@ async def recommend_generate(raw_request: Request, request: RecommendGenerateReq
             loaded_taste_profile = pipeline.build_taste_profile(all_candidates)
 
     pipeline.update_session_generate_state(
-        request.session_id,
-        mode=request.mode,
-        filters={"genres": request.genres, "decades": request.decades},
-        familiarity_pref=request.familiarity_pref,
+        body.session_id,
+        mode=body.mode,
+        filters={"genres": body.genres, "decades": body.decades},
+        familiarity_pref=body.familiarity_pref,
         album_candidates=loaded_candidates,
         taste_profile=loaded_taste_profile,
     )
 
     _prompt = session.prompt
-    _answers = list(request.answers) if request.answers else []
-    _answer_texts = list(request.answer_texts) if request.answer_texts else []
-    _familiarity_pref = request.familiarity_pref
+    _answers = list(body.answers) if body.answers else []
+    _answer_texts = list(body.answer_texts) if body.answer_texts else []
+    _familiarity_pref = body.familiarity_pref
     _previously_recommended = list(session.previously_recommended) if session.previously_recommended else None
 
     async def event_stream():
         research_warning = None
         research_data = {}
 
-        _ua = (raw_request.headers.get("user-agent") or "").lower()
+        _ua = (request.headers.get("user-agent") or "").lower()
         _is_ios = "iphone" in _ua or "ipad" in _ua
 
         async def _check_disconnect():
             """Abort if the client has disconnected (saves LLM token costs)."""
             if _is_ios:
                 return False
-            if await raw_request.is_disconnected():
-                logger.info("Client disconnected, aborting recommendation for session %s", request.session_id)
+            if await request.is_disconnected():
+                logger.info("Client disconnected, aborting recommendation for session %s", body.session_id)
                 return True
             return False
 
         try:
-            is_discovery = request.mode == "discovery"
+            is_discovery = body.mode == "discovery"
             selecting_msg = "Finding albums to recommend..." if is_discovery else "Choosing albums from your library..."
 
             yield f"event: progress\ndata: {json.dumps({'step': 'selecting', 'message': selecting_msg})}\n\n"
 
             familiarity_data = None
-            if request.familiarity_pref != "any" and not is_discovery:
+            if body.familiarity_pref != "any" and not is_discovery:
                 try:
                     candidate_keys = [c.parent_item_key for c in loaded_candidates if c.parent_item_key]
                     if candidate_keys:
@@ -411,10 +411,10 @@ async def recommend_generate(raw_request: Request, request: RecommendGenerateReq
                     answers=_answers,
                     answer_texts=_answer_texts,
                     taste_profile=loaded_taste_profile,
-                    session_id=request.session_id,
+                    session_id=body.session_id,
                     previously_recommended=_previously_recommended,
-                    max_exclusion_albums=request.max_albums if request.max_albums > 0 else 2500,
-                    use_taste_profile=request.use_taste_profile,
+                    max_exclusion_albums=body.max_albums if body.max_albums > 0 else 2500,
+                    use_taste_profile=body.use_taste_profile,
                 )
             else:
                 recommendations = await asyncio.to_thread(
@@ -423,11 +423,11 @@ async def recommend_generate(raw_request: Request, request: RecommendGenerateReq
                     answers=_answers,
                     answer_texts=_answer_texts,
                     album_candidates=loaded_candidates,
-                    session_id=request.session_id,
-                    familiarity_pref=request.familiarity_pref,
+                    session_id=body.session_id,
+                    familiarity_pref=body.familiarity_pref,
                     familiarity_data=familiarity_data,
                     previously_recommended=_previously_recommended,
-                    use_taste_profile=request.use_taste_profile,
+                    use_taste_profile=body.use_taste_profile,
                 )
 
             if not recommendations:
@@ -511,7 +511,7 @@ async def recommend_generate(raw_request: Request, request: RecommendGenerateReq
                         artist=primary.artist,
                         album=primary.album,
                         research=research_data[primary_key],
-                        session_id=request.session_id,
+                        session_id=body.session_id,
                     )
                     extracted_facts[primary_key] = facts
                 except Exception as e:
@@ -527,7 +527,7 @@ async def recommend_generate(raw_request: Request, request: RecommendGenerateReq
                 prompt=_prompt,
                 answers=_answers,
                 answer_texts=_answer_texts,
-                session_id=request.session_id,
+                session_id=body.session_id,
                 research=research_data if research_data else None,
                 familiarity_pref=_familiarity_pref,
                 familiarity_data=familiarity_data,
@@ -544,7 +544,7 @@ async def recommend_generate(raw_request: Request, request: RecommendGenerateReq
                         pipeline.validate_pitch,
                         pitch=primary.pitch,
                         facts=extracted_facts[primary_key],
-                        session_id=request.session_id,
+                        session_id=body.session_id,
                     )
 
                     if not validation.valid:
@@ -564,14 +564,14 @@ async def recommend_generate(raw_request: Request, request: RecommendGenerateReq
                             validation=validation,
                             prompt=_prompt,
                             answers_str=answers_str,
-                            session_id=request.session_id,
+                            session_id=body.session_id,
                         )
 
                         revalidation = await asyncio.to_thread(
                             pipeline.validate_pitch,
                             pitch=primary.pitch,
                             facts=extracted_facts[primary_key],
-                            session_id=request.session_id,
+                            session_id=body.session_id,
                         )
 
                         if not revalidation.valid:
@@ -642,7 +642,7 @@ async def recommend_generate(raw_request: Request, request: RecommendGenerateReq
 
                     await asyncio.gather(*[_qobuz_lookup(r) for r in discovery_recs])
 
-            total_tokens, total_cost = pipeline.get_session_costs(request.session_id)
+            total_tokens, total_cost = pipeline.get_session_costs(body.session_id)
             result = RecommendGenerateResponse(
                 recommendations=recommendations,
                 token_count=total_tokens,
@@ -686,11 +686,11 @@ async def recommend_generate(raw_request: Request, request: RecommendGenerateReq
                 album_key(rec.artist, rec.album)
                 for rec in recommendations
             ]
-            pipeline.update_previously_recommended(request.session_id, new_keys)
+            pipeline.update_previously_recommended(body.session_id, new_keys)
 
             logger.info(
                 "recommend.cost_summary | session=%s albums_researched=%d facts_extracted=%d research_warning=%s",
-                request.session_id,
+                body.session_id,
                 len(research_data),
                 len(extracted_facts),
                 research_warning is not None,

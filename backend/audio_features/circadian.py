@@ -184,16 +184,28 @@ def get_circadian_profile(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 def _load_feature_matrix(conn: sqlite3.Connection):
-    """Pull every analysed track with all CIRCADIAN_FEATURES populated."""
+    """Pull every analysed track with all CIRCADIAN_FEATURES populated.
+
+    Deduplicates on (LOWER(title), LOWER(artist)) so duplicate ``tracks`` rows
+    (a known artifact of Roon's unstable item_keys across resyncs — see
+    ``project_db_resync_limitation``) don't clog the playlist with copies of
+    the same recording.
+    """
     where = " AND ".join(f"taf.{c} IS NOT NULL" for c in CIRCADIAN_FEATURES)
-    cols = ", ".join(f"taf.{c}" for c in CIRCADIAN_FEATURES)
+    cols = ", ".join(f"MIN(taf.{c}) AS {c}" for c in CIRCADIAN_FEATURES)
     rows = conn.execute(
         f"""
-        SELECT t.item_key, t.title, t.artist, t.album, t.year, t.genres,
+        SELECT MIN(t.item_key) AS item_key,
+               MIN(t.title)    AS title,
+               MIN(t.artist)   AS artist,
+               MIN(t.album)    AS album,
+               MIN(t.year)     AS year,
+               MIN(t.genres)   AS genres,
                {cols}
         FROM track_audio_features taf
         JOIN tracks t ON t.item_key = taf.item_key
         WHERE {where}
+        GROUP BY LOWER(t.title), LOWER(t.artist)
         """
     ).fetchall()
 

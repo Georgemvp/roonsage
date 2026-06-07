@@ -556,8 +556,14 @@ def _resolve_item_key(conn, title: str, artist: str) -> str | None:
     return row["item_key"] if row else None
 
 
+_last_radio_track_key: dict[str, str] = {}  # zone_id → last track_key handled
+
 def _handle_sonic_radio_track_end(zone_id: str, prev: dict, *, skipped: bool) -> None:
-    """Sync entry point from the zone monitor — schedules the async hook."""
+    """Sync entry point from the zone monitor — schedules the async hook.
+
+    Guards against double-firing when the event monitor and the 30-second
+    fallback poll both detect the same track transition.
+    """
     try:
         from backend.audio_features.sonic_radio import get_session  # noqa: PLC0415
     except Exception:
@@ -565,6 +571,10 @@ def _handle_sonic_radio_track_end(zone_id: str, prev: dict, *, skipped: bool) ->
     session = get_session(zone_id)
     if session is None:
         return
+    track_key = prev.get("track_key", "")
+    if _last_radio_track_key.get(zone_id) == track_key:
+        return  # already handled this transition
+    _last_radio_track_key[zone_id] = track_key
     _fire_and_forget(_sonic_radio_track_end_async(session, prev, skipped))
 
 

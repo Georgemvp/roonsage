@@ -160,12 +160,20 @@ def compute_alchemy(
 
     sorted_indices = np.argsort(-scores)
 
-    results = []
-    for i in sorted_indices[:limit]:
+    results: list[dict] = []
+    seen_tracks: set[tuple[str, str]] = set()
+    for i in sorted_indices:
+        if len(results) >= limit:
+            break
         i = int(i)
         if scores[i] == -np.inf:
             break
-        item = dict(metadata[i])
+        m = metadata[i]
+        key = (m["title"].lower(), m["artist"].lower())
+        if key in seen_tracks:
+            continue
+        seen_tracks.add(key)
+        item = dict(m)
         item["similarity"] = round(float(scores[i]), 4)
         results.append(item)
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import sqlite3
 import threading
 import time
@@ -27,6 +28,42 @@ from typing import Any
 from backend.audio_features.clustering import FEATURE_COLUMNS
 
 logger = logging.getLogger(__name__)
+
+# Strip version markers like "(Live, Leverkusen, 2022)", "- 2011 Remastered",
+# "(Acoustic)" so studio + alternate releases of the same song dedup together.
+_VERSION_KEYWORDS = (
+    r"live|remaster(?:ed)?|acoustic|unplugged|demo|radio\s*edit|"
+    r"single\s*version|album\s*version|mono|stereo|remix|extended|edit|"
+    r"version|bonus(?:\s*track)?|alternate(?:\s*take)?|session|sessions"
+)
+# Parenthetical / bracketed suffix that mentions a version keyword anywhere.
+_PAREN_VERSION_RE = re.compile(
+    rf"\s*[\(\[][^)\]]*(?:{_VERSION_KEYWORDS})[^)\]]*[)\]]\s*$",
+    re.IGNORECASE,
+)
+# Trailing " - <anything containing version keyword>".
+_DASH_VERSION_RE = re.compile(
+    rf"\s*[\-–]\s*[^\-–]*?(?:{_VERSION_KEYWORDS})\b.*$",
+    re.IGNORECASE,
+)
+
+
+def _canonical_song_id(artist: str, title: str) -> tuple[str, str]:
+    """Return (primary_artist, base_title) used to dedup across versions.
+
+    - Primary artist = first comma-separated part (drops featured artists).
+    - Base title strips trailing parenthetical/dash version suffixes.
+    """
+    primary = (artist or "").split(",")[0].strip().lower()
+    base = title or ""
+    # Strip repeatedly: e.g. "Foo (Live) (Remastered)".
+    for _ in range(2):
+        new = _PAREN_VERSION_RE.sub("", base)
+        new = _DASH_VERSION_RE.sub("", new)
+        if new == base:
+            break
+        base = new
+    return primary, base.strip().lower()
 
 
 # Defaults (tweakable via SonicRadio config).
@@ -262,9 +299,9 @@ class SonicRadio:
 
                 # Build candidate list excluding already-played tracks.
                 played = set(self._played_keys)
-                # Also exclude same (artist, title) from different album versions.
+                # Also exclude same song across versions (studio/live/remaster).
                 played_at: set[tuple[str, str]] = {
-                    (metadata[k]["artist"].lower(), metadata[k]["title"].lower())
+                    _canonical_song_id(metadata[k]["artist"], metadata[k]["title"])
                     for k in self._played_keys
                     if k in metadata
                 }
@@ -273,7 +310,7 @@ class SonicRadio:
                 for i, key in enumerate(keys):
                     if key in played:
                         continue
-                    at = (metadata[key]["artist"].lower(), metadata[key]["title"].lower())
+                    at = _canonical_song_id(metadata[key]["artist"], metadata[key]["title"])
                     if at in played_at:
                         continue
                     fv = metadata[key]["features"]
@@ -281,12 +318,14 @@ class SonicRadio:
                     similarities.append((sim, i))
                 similarities.sort(key=lambda x: -x[0])
 
-                # Deduplicate by (artist, title) within the pool so the same
-                # song from multiple albums doesn't fill consecutive slots.
+                # Deduplicate by canonical (artist, title) so the studio +
+                # live/remaster versions of the same song don't both appear.
                 seen_at: set[tuple[str, str]] = set()
                 deduped: list[tuple[float, int]] = []
                 for sim, i in similarities:
-                    at = (metadata[keys[i]]["artist"].lower(), metadata[keys[i]]["title"].lower())
+                    at = _canonical_song_id(
+                        metadata[keys[i]]["artist"], metadata[keys[i]]["title"]
+                    )
                     if at not in seen_at:
                         seen_at.add(at)
                         deduped.append((sim, i))
