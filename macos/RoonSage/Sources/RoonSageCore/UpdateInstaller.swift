@@ -109,11 +109,15 @@ public final class UpdateInstaller {
         try? FileManager.default.removeItem(at: mountPoint)
         try FileManager.default.createDirectory(at: mountPoint, withIntermediateDirectories: true)
 
-        // Mount the DMG
+        // Strip quarantine from the DMG so Gatekeeper doesn't block mounting
+        _ = try? await runProcess("/usr/bin/xattr",
+                                  args: ["-dr", "com.apple.quarantine", dmgURL.path])
+
+        // Mount the DMG; -noverify skips signature check that can hang indefinitely
         try await runProcess("/usr/bin/hdiutil", args: [
             "attach", dmgURL.path,
             "-mountpoint", mountPoint.path,
-            "-quiet", "-nobrowse", "-noautoopen"
+            "-quiet", "-nobrowse", "-noautoopen", "-noverify"
         ])
 
         let appInDMG = mountPoint.appendingPathComponent("RoonSage.app")
