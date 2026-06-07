@@ -24,7 +24,8 @@ let package = Package(
         .executableTarget(
             name: "RoonSage",
             dependencies: ["RoonSageCore"],
-            path: "Sources/RoonSage"
+            path: "Sources/RoonSage",
+            exclude: ["Info.plist"]
         ),
         .executableTarget(
             name: "RoonSageMCP",
