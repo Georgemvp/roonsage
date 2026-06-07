@@ -1,10 +1,10 @@
 import Foundation
 import Security
 
-enum KeychainStore {
+public enum KeychainStore {
     private static let service = "com.roonsage.native"
 
-    static func save(key: String, value: String) {
+    public static func save(key: String, value: String) {
         let data = Data(value.utf8)
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
@@ -17,7 +17,7 @@ enum KeychainStore {
         SecItemAdd(attrs as CFDictionary, nil)
     }
 
-    static func load(key: String) -> String? {
+    public static func load(key: String) -> String? {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
@@ -32,7 +32,7 @@ enum KeychainStore {
         return String(data: data, encoding: .utf8)
     }
 
-    static func delete(key: String) {
+    public static func delete(key: String) {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,

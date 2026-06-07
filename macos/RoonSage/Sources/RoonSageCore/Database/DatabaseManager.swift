@@ -161,6 +161,51 @@ public final class DatabaseManager: Sendable {
         }
     }
 
+    // MARK: - Album search
+
+    public struct AlbumResult: Sendable {
+        public var albumKey: String
+        public var album: String
+        public var artist: String?
+        public var year: Int?
+        public var trackCount: Int
+    }
+
+    public func searchAlbums(query: String, limit: Int = 100) throws -> [AlbumResult] {
+        try pool.read { db in
+            let sql: String
+            let args: StatementArguments
+            if query.isEmpty {
+                sql = """
+                    SELECT album_key, album, artist, year, COUNT(*) as track_count
+                    FROM tracks GROUP BY album_key
+                    ORDER BY artist, year, album LIMIT ?
+                """
+                args = StatementArguments([limit] as [DatabaseValueConvertible])
+            } else {
+                let pattern = "%\(query)%"
+                sql = """
+                    SELECT album_key, album, artist, year, COUNT(*) as track_count
+                    FROM tracks
+                    WHERE LOWER(album) LIKE LOWER(?) OR LOWER(artist) LIKE LOWER(?)
+                    GROUP BY album_key
+                    ORDER BY artist, year, album LIMIT ?
+                """
+                args = StatementArguments([pattern, pattern, limit] as [DatabaseValueConvertible])
+            }
+            let rows = try Row.fetchAll(db, sql: sql, arguments: args)
+            return rows.map {
+                AlbumResult(
+                    albumKey:   $0["album_key"]   as String? ?? "",
+                    album:      $0["album"]        as String? ?? "",
+                    artist:     $0["artist"],
+                    year:       $0["year"],
+                    trackCount: $0["track_count"]  as Int? ?? 0
+                )
+            }
+        }
+    }
+
     // MARK: - Filter tracks (curation)
 
     public struct FilterOptions: Sendable {
@@ -168,6 +213,7 @@ public final class DatabaseManager: Sendable {
         public var decades:     [Int]    = []
         public var artists:     [String] = []
         public var keywords:    String   = ""
+        public var albumKey:    String?  = nil
         public var excludeLive: Bool     = true
         public var limit:       Int      = 500
         public init() {}
@@ -197,6 +243,10 @@ public final class DatabaseManager: Sendable {
                 conditions.append("(LOWER(t.title) LIKE LOWER(?) OR LOWER(t.artist) LIKE LOWER(?) OR LOWER(t.album) LIKE LOWER(?))")
                 let kw: DatabaseValueConvertible = "%\(options.keywords)%"
                 args.append(contentsOf: [kw, kw, kw])
+            }
+            if let key = options.albumKey {
+                conditions.append("t.album_key = ?")
+                args.append(key as DatabaseValueConvertible)
             }
             if options.excludeLive { conditions.append("t.is_live = 0") }
 

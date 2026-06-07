@@ -5,6 +5,8 @@ import RoonSageCore
 struct SettingsView: View {
     @Environment(RoonClient.self) private var client
     @State private var lastSync: String = "—"
+    @State private var lbToken: String = ""
+    @State private var lbSaved = false
 
     var body: some View {
         Form {
@@ -44,6 +46,28 @@ struct SettingsView: View {
                 }
             }
 
+            // External Services
+            Section("External Services") {
+                LabeledContent("ListenBrainz token") {
+                    HStack(spacing: 8) {
+                        SecureField("Paste token here", text: $lbToken)
+                            .textFieldStyle(.roundedBorder)
+                        Button(lbSaved ? "Saved!" : "Save") {
+                            if lbToken.trimmingCharacters(in: .whitespaces).isEmpty {
+                                KeychainStore.delete(key: "listenbrainz_token")
+                            } else {
+                                KeychainStore.save(key: "listenbrainz_token", value: lbToken.trimmingCharacters(in: .whitespaces))
+                            }
+                            lbSaved = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { lbSaved = false }
+                        }
+                    }
+                }
+                Text("Scrobbles each track to ListenBrainz as it starts playing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // About
             Section("About") {
                 LabeledContent("Version", value: appVersion)
@@ -54,7 +78,10 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .navigationTitle("Settings")
         .frame(width: 440)
-        .onAppear { refreshLastSync() }
+        .onAppear {
+            refreshLastSync()
+            lbToken = KeychainStore.load(key: "listenbrainz_token") ?? ""
+        }
         .onChange(of: client.isSyncing) { _, _ in refreshLastSync() }
     }
 

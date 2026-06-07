@@ -7,10 +7,13 @@
 ///   roon_set_volume     — set absolute volume on an output
 ///   roon_set_shuffle    — enable/disable shuffle
 ///   roon_set_repeat     — set repeat mode (disabled/loop/loop_one)
+///   roon_transfer_zone  — move now-playing queue from one zone to another
 ///   roon_search_library — search local track database by title/artist/album
 ///   get_library_stats   — genre breakdown, decade distribution, artist/album counts
+///   get_albums          — search albums in the local library
 ///   filter_tracks       — filter library by genre/decade/artist/keywords → numbered list + session_id
 ///   curate_and_play     — play tracks from a filter session in a Roon zone
+///   play_album          — play all tracks from an album by its album_key
 
 import Foundation
 @preconcurrency import RoonSageCore
@@ -223,6 +226,14 @@ final class MCPServer {
             await client.setRepeat(zoneID: z, mode: mode)
             return "Repeat set to \(mode)."
 
+        // ── Zone transfer ────────────────────────────────────────────────────
+
+        case "roon_transfer_zone":
+            let from = try requireString(args, key: "from_zone_id")
+            let to   = try requireString(args, key: "to_zone_id")
+            await client.transferZone(fromZoneID: from, toZoneID: to)
+            return "Transferred playback from zone \(from) to zone \(to)."
+
         // ── Library search ───────────────────────────────────────────────────
 
         case "roon_search_library":
@@ -237,6 +248,35 @@ final class MCPServer {
                 return s
             }
             return "Found \(tracks.count) track(s):\n" + lines.joined(separator: "\n")
+
+        // ── Album search ─────────────────────────────────────────────────────
+
+        case "get_albums":
+            let query = args["query"]?.stringValue ?? ""
+            let albums = client.searchAlbums(query: query)
+            if albums.isEmpty { return "No albums found\(query.isEmpty ? "" : " for '\(query)'")" }
+            let lines = albums.prefix(80).map { a in
+                var s = "[\(a.albumKey)] \(a.album)"
+                if let artist = a.artist { s += " — \(artist)" }
+                if let year = a.year     { s += " (\(year))" }
+                s += " · \(a.trackCount) tracks"
+                return s
+            }
+            return "Found \(albums.count) album(s):\n" + lines.joined(separator: "\n")
+
+        // ── Play album ───────────────────────────────────────────────────────
+
+        case "play_album":
+            let albumKey = try requireString(args, key: "album_key")
+            let zoneID   = try requireString(args, key: "zone_id")
+            var options = DatabaseManager.FilterOptions()
+            options.albumKey = albumKey
+            options.excludeLive = false
+            options.limit = 200
+            let tracks = client.filterTracks(options: options)
+            if tracks.isEmpty { return "No tracks found for album key '\(albumKey)'. Run get_albums to find the correct key." }
+            await client.curateTracks(tracks, zoneID: zoneID)
+            return "Playing \(tracks.count) tracks from album in zone \(zoneID)."
 
         // ── Library stats ────────────────────────────────────────────────────
 
@@ -379,8 +419,26 @@ final class MCPServer {
                  props: ["zone_id": str("Zone ID"), "mode": str("disabled | loop | loop_one")],
                  required: ["zone_id"]),
 
+            tool("roon_transfer_zone", "Transfer the now-playing queue from one zone to another.",
+                 props: [
+                    "from_zone_id": str("Source zone ID (currently playing)"),
+                    "to_zone_id":   str("Destination zone ID")
+                 ],
+                 required: ["from_zone_id", "to_zone_id"]),
+
             tool("roon_search_library", "Quick search the local track database by title, artist, or album.",
                  props: ["query": str("Search query")]),
+
+            tool("get_albums", "Search albums in the local library. Returns album_key values needed for play_album.",
+                 props: ["query": str("Optional search query matched against album name and artist. Omit to list all albums.")]),
+
+            tool("play_album",
+                 "Play all tracks from an album by its album_key (from get_albums). First track starts immediately; the rest are queued.",
+                 props: [
+                    "album_key": str("Album key from get_albums."),
+                    "zone_id":   str("Zone ID from roon_zones where music should play.")
+                 ],
+                 required: ["album_key", "zone_id"]),
 
             tool("get_library_stats",
                  "Get an overview of the synced library: total tracks/artists/albums, top genres, and tracks by decade. Call this to understand what music is available before filtering."),

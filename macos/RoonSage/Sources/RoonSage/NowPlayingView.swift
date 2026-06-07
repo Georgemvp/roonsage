@@ -31,6 +31,7 @@ struct ZoneRow: View {
     let zone: Zone
 
     @State private var volumeValue: Double = 50
+    @State private var displayPosition: Double = 0
     private var isSelected: Bool { client.selectedZone?.id == zone.id }
 
     var body: some View {
@@ -79,6 +80,22 @@ struct ZoneRow: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { client.selectZone(zone.id) }
+
+            // Track progress bar
+            if let np = zone.nowPlaying, let length = np.length, length > 0 {
+                VStack(spacing: 3) {
+                    ProgressView(value: min(displayPosition / Double(length), 1))
+                        .progressViewStyle(.linear)
+                        .tint(Color.accentColor)
+                    HStack {
+                        Text(formatTime(displayPosition))
+                        Spacer()
+                        Text(formatTime(Double(length)))
+                    }
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                }
+            }
 
             // Transport controls
             HStack(spacing: 0) {
@@ -132,6 +149,16 @@ struct ZoneRow: View {
                         .strokeBorder(isSelected ? Color.accentColor.opacity(0.25) : Color.clear, lineWidth: 1)
                 )
         )
+        .onAppear { displayPosition = zone.seekPosition ?? 0 }
+        .onChange(of: zone.seekPosition) { _, pos in displayPosition = pos ?? 0 }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            if zone.state == .playing { displayPosition += 1 }
+        }
+    }
+
+    private func formatTime(_ seconds: Double) -> String {
+        let s = Int(max(0, seconds))
+        return String(format: "%d:%02d", s / 60, s % 60)
     }
 
     private var playPauseButton: some View {

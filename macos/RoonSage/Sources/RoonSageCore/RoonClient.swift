@@ -248,6 +248,14 @@ public final class RoonClient {
         (try? database?.searchTracks(query: query, limit: 300)) ?? []
     }
 
+    public func searchAlbums(query: String) -> [DatabaseManager.AlbumResult] {
+        (try? database?.searchAlbums(query: query)) ?? []
+    }
+
+    public func transferZone(fromZoneID: String, toZoneID: String) async {
+        _ = try? await transportService?.transferZone(fromZoneID: fromZoneID, toZoneID: toZoneID)
+    }
+
     // MARK: - Private connection flow
 
     private func handleOpen(host: String) async {
@@ -318,6 +326,10 @@ public final class RoonClient {
                         zoneID: zone.id,
                         zoneName: zone.displayName
                     )
+                    if let token = KeychainStore.load(key: "listenbrainz_token"), !token.isEmpty {
+                        let title = np.title; let artist = np.artist; let album = np.album
+                        Task { await ListenBrainzClient.shared.submit(title: title, artist: artist, album: album, token: token) }
+                    }
                 }
             }
 
