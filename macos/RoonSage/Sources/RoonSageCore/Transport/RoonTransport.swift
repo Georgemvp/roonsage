@@ -1,0 +1,225 @@
+import Foundation
+import RoonProtocol
+
+/// Manages the low-level Roon MOO/1 WebSocket connection.
+///
+/// - Request/response pairs are correlated by Request-Id via CheckedContinuations.
+/// - Subscriptions return an AsyncStream of parsed JSON bodies.
+/// - The Roon "Registered" handshake is handled via a dedicated continuation.
+/// - Application-level pings (com.roonlabs.ping:1) are answered automatically.
+///
+/// Connection lifecycle:
+/// 1. Caller calls `connect(host:port:)`.
+/// 2. WebSocket handshake completes → `onOpen` fires.
+/// 3. Caller uses `register(payload:)` to perform the Roon extension handshake.
+/// 4. On disconnect `onClose` fires; caller decides whether to reconnect.
+actor RoonTransport {
+
+    // MARK: - State
+
+    private var wsTask: URLSessionWebSocketTask?
+    private var delegate: TransportDelegate?
+    private(set) var isConnected = false
+
+    // Request-Id counter — starts at 10 to avoid confusion with server's
+    // initial messages (matching the pyroon / node-roon-api convention).
+    private var nextID = 10
+
+    // MARK: - Pending request tracking
+
+    private var pendingRequests: [Int: CheckedContinuation<[String: Any], Error>] = [:]
+    private var subscriptions: [Int: AsyncStream<[String: Any]>.Continuation] = [:]
+    // One-shot continuation for the Roon registration response.
+    private var registrationContinuation: CheckedContinuation<[String: Any], Error>?
+
+    // MARK: - External callbacks
+
+    var onOpen: (@Sendable () async -> Void)?
+    var onClose: (@Sendable () async -> Void)?
+
+    func configure(
+        onOpen: @escaping @Sendable () async -> Void,
+        onClose: @escaping @Sendable () async -> Void
+    ) {
+        self.onOpen = onOpen
+        self.onClose = onClose
+    }
+
+    // MARK: - Connect / Disconnect
+
+    func connect(host: String, port: UInt16) {
+        let url = URL(string: "ws://\(host):\(port)/api")!
+        let del = TransportDelegate()
+        delegate = del
+
+        del.onOpen = { [weak self] in
+            Task { await self?.handleOpen() }
+        }
+        del.onClose = { [weak self] _, _ in
+            Task { await self?.handleClose() }
+        }
+
+        let session = URLSession(
+            configuration: .default,
+            delegate: del,
+            delegateQueue: OperationQueue()
+        )
+        let task = session.webSocketTask(with: url)
+        wsTask = task
+        task.resume()
+        startReceiving(task)
+    }
+
+    func disconnect() {
+        wsTask?.cancel(with: .normalClosure, reason: nil)
+        wsTask = nil
+        delegate = nil
+        isConnected = false
+        failAllPending(with: URLError(.networkConnectionLost))
+    }
+
+    // MARK: - Sending
+
+    func send(_ frame: MOOFrame) async throws {
+        guard let wsTask else { throw URLError(.notConnectedToInternet) }
+        try await wsTask.send(.data(frame.encode()))
+    }
+
+    // MARK: - Registration (special-cased: response matched by name, not by ID)
+
+    func register(payload: [String: Any]) async throws -> [String: Any] {
+        let id = nextID; nextID += 1
+        let frame = try MOOFrame.request(
+            "\(RoonService.registry)/register",
+            requestID: id,
+            json: payload
+        )
+        return try await withCheckedThrowingContinuation { cont in
+            registrationContinuation = cont
+            // Send from an unstructured task so we can await inside the sync closure.
+            Task { try? await self.send(frame) }
+        }
+    }
+
+    // MARK: - Request / Response
+
+    func request(_ endpoint: String, body: [String: Any]? = nil) async throws -> [String: Any] {
+        let id = nextID; nextID += 1
+        let frame = try MOOFrame.request(endpoint, requestID: id, json: body)
+        return try await withCheckedThrowingContinuation { cont in
+            pendingRequests[id] = cont
+            Task { try? await self.send(frame) }
+        }
+    }
+
+    // MARK: - Subscriptions
+
+    func subscribe(service: String, endpoint: String, params: [String: Any] = [:]) async throws -> AsyncStream<[String: Any]> {
+        let id = nextID; nextID += 1
+        var body = params
+        body["subscription_key"] = id
+        let frame = try MOOFrame.request(
+            "\(service)/subscribe_\(endpoint)",
+            requestID: id,
+            json: body
+        )
+        var continuation: AsyncStream<[String: Any]>.Continuation!
+        let stream = AsyncStream { continuation = $0 }
+        subscriptions[id] = continuation
+        try await send(frame)
+        return stream
+    }
+
+    func unsubscribe(service: String, endpoint: String, subscriptionKey: Int) async throws {
+        subscriptions[subscriptionKey]?.finish()
+        subscriptions.removeValue(forKey: subscriptionKey)
+        let frame = try MOOFrame.request(
+            "\(service)/unsubscribe_\(endpoint)",
+            requestID: nextID,
+            json: ["subscription_key": subscriptionKey]
+        )
+        nextID += 1
+        try? await send(frame)
+    }
+
+    // MARK: - Receive loop
+
+    private func startReceiving(_ wsTask: URLSessionWebSocketTask) {
+        wsTask.receive { result in
+            Task { await self.processReceived(result, from: wsTask) }
+        }
+    }
+
+    private func processReceived(
+        _ result: Result<URLSessionWebSocketTask.Message, Error>,
+        from wsTask: URLSessionWebSocketTask
+    ) async {
+        switch result {
+        case .success(let message):
+            let data: Data?
+            switch message {
+            case .data(let d):   data = d
+            case .string(let s): data = Data(s.utf8)
+            @unknown default:    data = nil
+            }
+            if let data, let frame = try? MOOFrame.decode(data) {
+                routeFrame(frame)
+            }
+            startReceiving(wsTask)
+
+        case .failure:
+            // Actual disconnect is reported via the delegate; just stop looping.
+            break
+        }
+    }
+
+    private func routeFrame(_ frame: MOOFrame) {
+        guard let id = frame.requestID else { return }
+        let body = (try? frame.jsonBody() as? [String: Any]) ?? [:]
+
+        // Application-level ping: reply immediately.
+        if frame.isPing {
+            let pong = MOOFrame(verb: .complete, name: "Success", requestID: id)
+            Task { try? await self.send(pong) }
+            return
+        }
+
+        switch frame.verb {
+        case .complete where frame.name == "Registered":
+            registrationContinuation?.resume(returning: body)
+            registrationContinuation = nil
+
+        case .complete:
+            pendingRequests[id]?.resume(returning: body)
+            pendingRequests.removeValue(forKey: id)
+
+        case .continuation:
+            subscriptions[id]?.yield(body)
+
+        default:
+            break
+        }
+    }
+
+    // MARK: - Lifecycle helpers
+
+    private func handleOpen() async {
+        isConnected = true
+        await onOpen?()
+    }
+
+    private func handleClose() async {
+        isConnected = false
+        failAllPending(with: URLError(.networkConnectionLost))
+        await onClose?()
+    }
+
+    private func failAllPending(with error: Error) {
+        for cont in pendingRequests.values { cont.resume(throwing: error) }
+        pendingRequests.removeAll()
+        registrationContinuation?.resume(throwing: error)
+        registrationContinuation = nil
+        for cont in subscriptions.values { cont.finish() }
+        subscriptions.removeAll()
+    }
+}
