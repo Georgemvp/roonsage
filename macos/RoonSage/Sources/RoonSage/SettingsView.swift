@@ -1,6 +1,7 @@
 import SwiftUI
 import RoonSageCore
 
+@MainActor
 struct SettingsView: View {
     @Environment(RoonClient.self) private var client
     @State private var lastSync: String = "—"
@@ -63,7 +64,7 @@ struct SettingsView: View {
         return "\(v) (build \(b))"
     }
 
-    @MainActor private func refreshLastSync() {
+    private func refreshLastSync() {
         lastSync = (try? client.database?.syncStateValue(forKey: "last_sync")) ?? "Never"
     }
 }

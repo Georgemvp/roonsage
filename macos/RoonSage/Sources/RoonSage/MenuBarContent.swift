@@ -1,10 +1,11 @@
 import SwiftUI
 import RoonSageCore
 
+@MainActor
 struct MenuBarContent: View {
     @Environment(RoonClient.self) private var client
 
-    @MainActor private var activeZone: Zone? {
+    private var activeZone: Zone? {
         client.selectedZone
     }
 
@@ -127,7 +128,7 @@ struct MenuBarContent: View {
 
     // MARK: - Zone picker
 
-    @MainActor var zonePickerSection: some View {
+    var zonePickerSection: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Zones")
                 .font(.caption2.uppercaseSmallCaps())

@@ -25,12 +25,13 @@ struct NowPlayingView: View {
 
 // MARK: - Zone row
 
+@MainActor
 struct ZoneRow: View {
     @Environment(RoonClient.self) private var client
     let zone: Zone
 
     @State private var volumeValue: Double = 50
-    @MainActor private var isSelected: Bool { client.selectedZone?.id == zone.id }
+    private var isSelected: Bool { client.selectedZone?.id == zone.id }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

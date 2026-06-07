@@ -18,6 +18,7 @@ struct ContentView: View {
 
 // MARK: - Main navigation
 
+@MainActor
 struct MainAppView: View {
     @Environment(RoonClient.self) private var client
     @State private var selection: SidebarItem = .nowPlaying
@@ -72,7 +73,7 @@ struct MainAppView: View {
         .toolbar { toolbarContent }
     }
 
-    @MainActor @ToolbarContentBuilder
+    @ToolbarContentBuilder
     var toolbarContent: some ToolbarContent {
         // Zone picker (only when multiple zones exist)
         if client.zones.count > 1 {

@@ -1,6 +1,7 @@
 import SwiftUI
 import RoonSageCore
 
+@MainActor
 struct LibraryView: View {
     @Environment(RoonClient.self) private var client
     @State private var searchText = ""
@@ -49,7 +50,7 @@ struct LibraryView: View {
         }
     }
 
-    @MainActor @ViewBuilder
+    @ViewBuilder
     var emptyState: some View {
         if client.connectionState.isConnected {
             ContentUnavailableView(
@@ -69,6 +70,7 @@ struct LibraryView: View {
 
 // MARK: - Sync progress banner
 
+@MainActor
 struct SyncProgressBanner: View {
     @Environment(RoonClient.self) private var client
 

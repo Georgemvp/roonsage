@@ -66,7 +66,6 @@ struct RoonSageApp: App {
     }
 
     /// Called from "Check for Updates…" menu item — always shows result.
-    @MainActor
     private func checkForUpdatesManually() async {
         isCheckingForUpdates = true
         defer { isCheckingForUpdates = false }

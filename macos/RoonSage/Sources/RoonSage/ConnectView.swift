@@ -3,20 +3,21 @@ import RoonSageCore
 
 /// Shown when the app is not connected to a Roon Core.
 /// Supports auto-discovery and manual IP entry.
+@MainActor
 struct ConnectView: View {
     @Environment(RoonClient.self) private var client
     @State private var host = ""
     @State private var port = "9330"
     @State private var showManual = false
 
-    @MainActor var isWorking: Bool {
+    var isWorking: Bool {
         switch client.connectionState {
         case .discovering, .connecting, .awaitingAuthorization: true
         default: false
         }
     }
 
-    @MainActor var isFailed: Bool {
+    var isFailed: Bool {
         if case .failed = client.connectionState { return true }
         return false
     }
