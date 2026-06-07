@@ -5,8 +5,19 @@ import RoonSageCore
 struct SettingsView: View {
     @Environment(RoonClient.self) private var client
     @State private var lastSync: String = "—"
+
+    // ListenBrainz
     @State private var lbToken: String = ""
     @State private var lbSaved = false
+
+    // LLM
+    @State private var llmProvider: LLMConfig.Provider = .ollama
+    @State private var llmBaseURL:  String = "http://localhost:11434"
+    @State private var llmModel:    String = "qwen3.5:4b-mlx"
+    @State private var llmApiKey:   String = ""
+    @State private var llmSaved     = false
+    @State private var ollamaModels: [String] = []
+    @State private var isFetchingModels = false
 
     var body: some View {
         Form {
@@ -46,6 +57,51 @@ struct SettingsView: View {
                 }
             }
 
+            // LLM
+            Section("LLM / Playlist AI") {
+                Picker("Provider", selection: $llmProvider) {
+                    ForEach(LLMConfig.Provider.allCases, id: \.self) { p in
+                        Text(p.rawValue).tag(p)
+                    }
+                }
+
+                if llmProvider == .ollama || llmProvider == .custom {
+                    LabeledContent("Base URL") {
+                        HStack(spacing: 8) {
+                            TextField("http://localhost:11434", text: $llmBaseURL)
+                                .textFieldStyle(.roundedBorder)
+                            if llmProvider == .ollama {
+                                Button(isFetchingModels ? "…" : "Fetch models") {
+                                    Task { await fetchOllamaModels() }
+                                }
+                                .disabled(isFetchingModels)
+                            }
+                        }
+                    }
+                }
+
+                LabeledContent("Model") {
+                    if ollamaModels.isEmpty {
+                        TextField("qwen3.5:4b-mlx", text: $llmModel)
+                            .textFieldStyle(.roundedBorder)
+                    } else {
+                        Picker("Model", selection: $llmModel) {
+                            ForEach(ollamaModels, id: \.self) { m in Text(m).tag(m) }
+                        }
+                        .labelsHidden()
+                    }
+                }
+
+                if llmProvider != .ollama {
+                    LabeledContent("API Key") {
+                        SecureField("Paste key here", text: $llmApiKey)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+
+                Button(llmSaved ? "Saved!" : "Save LLM settings") { saveLLMConfig() }
+            }
+
             // External Services
             Section("External Services") {
                 LabeledContent("ListenBrainz token") {
@@ -81,6 +137,14 @@ struct SettingsView: View {
         .onAppear {
             refreshLastSync()
             lbToken = KeychainStore.load(key: "listenbrainz_token") ?? ""
+            let cfg = LLMConfigStore.load()
+            llmProvider = cfg.provider
+            llmBaseURL  = cfg.baseURL
+            llmModel    = cfg.model
+            llmApiKey   = cfg.apiKey
+            if cfg.provider == .ollama {
+                Task { await fetchOllamaModels() }
+            }
         }
         .onChange(of: client.isSyncing) { _, _ in refreshLastSync() }
     }
@@ -93,5 +157,21 @@ struct SettingsView: View {
 
     private func refreshLastSync() {
         lastSync = (try? client.database?.syncStateValue(forKey: "last_sync")) ?? "Never"
+    }
+
+    private func saveLLMConfig() {
+        LLMConfigStore.save(LLMConfig(provider: llmProvider, baseURL: llmBaseURL, model: llmModel, apiKey: llmApiKey))
+        llmSaved = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { llmSaved = false }
+    }
+
+    private func fetchOllamaModels() async {
+        isFetchingModels = true
+        defer { isFetchingModels = false }
+        let models = await LLMConfigStore.fetchOllamaModels(baseURL: llmBaseURL)
+        ollamaModels = models
+        if !models.isEmpty, !models.contains(llmModel) {
+            llmModel = models.first ?? llmModel
+        }
     }
 }

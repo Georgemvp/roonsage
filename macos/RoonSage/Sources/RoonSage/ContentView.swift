@@ -26,6 +26,7 @@ struct MainAppView: View {
     enum SidebarItem: String, CaseIterable, Identifiable {
         case nowPlaying = "Now Playing"
         case library    = "Library"
+        case generate   = "Generate"
         case discovery  = "Discovery"
         case taste      = "Taste Profile"
         case settings   = "Settings"
@@ -34,6 +35,7 @@ struct MainAppView: View {
             switch self {
             case .nowPlaying: "play.circle.fill"
             case .library:    "music.note.list"
+            case .generate:   "wand.and.stars"
             case .discovery:  "sparkles"
             case .taste:      "chart.radar"
             case .settings:   "gearshape"
@@ -64,6 +66,7 @@ struct MainAppView: View {
             switch selection {
             case .nowPlaying: NowPlayingView()
             case .library:    LibraryView()
+            case .generate:   GenerateView()
             case .discovery:  DiscoveryView()
             case .taste:      TasteProfileView()
             case .settings:   SettingsView()
