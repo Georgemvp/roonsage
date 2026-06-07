@@ -11,11 +11,15 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../RoonProtocol"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.0.0"),
     ],
     targets: [
         .target(
             name: "RoonSageCore",
-            dependencies: [.product(name: "RoonProtocol", package: "RoonProtocol")]
+            dependencies: [
+                .product(name: "RoonProtocol", package: "RoonProtocol"),
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ]
         ),
         .executableTarget(
             name: "RoonSage",

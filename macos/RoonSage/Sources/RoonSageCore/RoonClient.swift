@@ -10,7 +10,7 @@ import RoonProtocol
 @Observable
 public final class RoonClient {
 
-    // MARK: - State
+    // MARK: - Connection state
 
     public enum ConnectionState: Equatable {
         case disconnected
@@ -37,19 +37,52 @@ public final class RoonClient {
         }
     }
 
+    // MARK: - Sync state
+
+    public struct SyncProgress: Equatable {
+        public var phase: String
+        public var albumsCompleted: Int
+        public var albumsTotal: Int
+        public var tracksFound: Int
+        public var fraction: Double { albumsTotal > 0 ? Double(albumsCompleted) / Double(albumsTotal) : 0 }
+    }
+
+    // MARK: - Observable state
+
     public private(set) var connectionState: ConnectionState = .disconnected
     public private(set) var zones: [Zone] = []
+    public private(set) var isSyncing = false
+    public private(set) var syncProgress = SyncProgress(phase: "", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0)
+    public private(set) var trackCount = 0
 
     // MARK: - Private
 
     private let transport = RoonTransport()
     private var zoneMap: [String: Zone] = [:]
+    private var syncTask: Task<Void, Never>?
 
-    public init() {}
+    // Services — initialised after connection is confirmed
+    private var transportService: TransportService?
+    private var browseService: BrowseService?
+    public private(set) var database: DatabaseManager?
+    private var syncService: LibrarySyncService?
 
-    // MARK: - Public API
+    public init() {
+        database = try? DatabaseManager(url: Self.databaseURL)
+        refreshTrackCount()
+    }
 
-    /// Connect to a known Roon Core host.
+    // MARK: - Database URL
+
+    private static var databaseURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("RoonSage", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("library.db")
+    }
+
+    // MARK: - Connection
+
     public func connect(host: String, port: UInt16 = 9330) async {
         connectionState = .connecting(host: host)
         await transport.configure(
@@ -59,8 +92,6 @@ public final class RoonClient {
         await transport.connect(host: host, port: port)
     }
 
-    /// Auto-discover a Roon Core on the LAN, then connect.
-    /// Filters to `preferredCoreID` if provided (uses the stored core_id).
     public func discoverAndConnect() async {
         connectionState = .discovering
         let preferredID = RoonClientAuth.loadCoreID()
@@ -73,7 +104,11 @@ public final class RoonClient {
     }
 
     public func disconnect() async {
+        syncTask?.cancel()
         await transport.disconnect()
+        transportService = nil
+        browseService = nil
+        syncService = nil
         connectionState = .disconnected
         zones = []
         zoneMap = [:]
@@ -84,15 +119,89 @@ public final class RoonClient {
         await disconnect()
     }
 
+    // MARK: - Transport controls (exposed to UI)
+
+    public func playPause(zoneID: String) async {
+        _ = try? await transportService?.control(.playpause, zoneID: zoneID)
+    }
+
+    public func next(zoneID: String) async {
+        _ = try? await transportService?.control(.next, zoneID: zoneID)
+    }
+
+    public func previous(zoneID: String) async {
+        _ = try? await transportService?.control(.previous, zoneID: zoneID)
+    }
+
+    public func setVolume(outputID: String, value: Int) async {
+        _ = try? await transportService?.changeVolume(outputID: outputID, how: "absolute", value: value)
+    }
+
+    public func adjustVolume(outputID: String, delta: Int) async {
+        _ = try? await transportService?.changeVolume(outputID: outputID, how: "relative", value: delta)
+    }
+
+    public func toggleMute(outputID: String, muted: Bool) async {
+        _ = try? await transportService?.mute(outputID: outputID, muted: muted)
+    }
+
+    public func setShuffle(zoneID: String, enabled: Bool) async {
+        _ = try? await transportService?.setShuffle(zoneID: zoneID, enabled: enabled)
+    }
+
+    // MARK: - Library sync
+
+    public func startSync() {
+        guard !isSyncing, let browse = browseService, let db = database else { return }
+        let service = LibrarySyncService(browse: browse, database: db)
+        syncService = service
+        isSyncing = true
+        syncProgress = SyncProgress(phase: "Starting…", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0)
+
+        syncTask = Task {
+            defer { isSyncing = false }
+            do {
+                let count = try await service.sync { [weak self] progress in
+                    Task { @MainActor [weak self] in
+                        self?.syncProgress = SyncProgress(
+                            phase: progress.phase,
+                            albumsCompleted: progress.albumsCompleted,
+                            albumsTotal: progress.albumsTotal,
+                            tracksFound: progress.tracksFound
+                        )
+                    }
+                }
+                trackCount = count
+                syncProgress = SyncProgress(phase: "Done — \(count) tracks", albumsCompleted: 0, albumsTotal: 0, tracksFound: count)
+            } catch {
+                syncProgress = SyncProgress(phase: "Error: \(error.localizedDescription)", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0)
+            }
+        }
+    }
+
+    public func cancelSync() {
+        syncTask?.cancel()
+        let service = syncService
+        Task { await service?.cancel() }
+        isSyncing = false
+    }
+
+    public func searchTracks(query: String) -> [TrackRecord] {
+        (try? database?.searchTracks(query: query, limit: 300)) ?? []
+    }
+
     // MARK: - Private connection flow
 
     private func handleOpen(host: String) async {
+        let ts = TransportService(transport: transport)
+        let bs = BrowseService(transport: transport)
+        transportService = ts
+        browseService = bs
+
         let token = RoonClientAuth.loadToken()
         let payload = RoonClientAuth.registerPayload(existingToken: token)
 
-        if token == nil {
-            connectionState = .awaitingAuthorization
-        }
+        if token == nil { connectionState = .awaitingAuthorization }
 
         do {
             let body = try await transport.register(payload: payload)
@@ -109,6 +218,8 @@ public final class RoonClient {
     }
 
     private func handleClose() async {
+        transportService = nil
+        browseService = nil
         connectionState = .disconnected
         zones = []
         zoneMap = [:]
@@ -142,4 +253,9 @@ public final class RoonClient {
         }
         zones = Array(zoneMap.values).sorted { $0.displayName < $1.displayName }
     }
+
+    private func refreshTrackCount() {
+        trackCount = (try? database?.trackCount()) ?? 0
+    }
 }
+
