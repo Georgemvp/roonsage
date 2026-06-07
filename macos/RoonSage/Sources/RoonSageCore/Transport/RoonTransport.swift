@@ -53,10 +53,12 @@ actor RoonTransport {
         delegate = del
 
         del.onOpen = { [weak self] in
-            Task { await self?.handleOpen() }
+            guard let self else { return }
+            Task { [self] in await self.handleOpen() }
         }
         del.onClose = { [weak self] _, _ in
-            Task { await self?.handleClose() }
+            guard let self else { return }
+            Task { [self] in await self.handleClose() }
         }
 
         let session = URLSession(
