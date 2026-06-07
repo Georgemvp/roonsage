@@ -1,0 +1,141 @@
+name: Release macOS DMG
+
+# Triggers on a version tag like v1.0.0 or v1.2.3-beta
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+  # Allow manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 1.0.0)'
+        required: true
+        default: '0.0.0-test'
+
+jobs:
+  build-dmg:
+    name: Build, Sign & Notarize DMG
+    runs-on: macos-15     # Xcode 16 + Swift 6
+    timeout-minutes: 60
+
+    steps:
+      # ── Checkout ─────────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # needed for git describe
+
+      # ── Determine version ─────────────────────────────────────────────────────
+      - name: Set version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      # ── Import Developer ID certificate ──────────────────────────────────────
+      - name: Import certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+
+          # Decode cert
+          echo "$CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          security import "$RUNNER_TEMP/cert.p12" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+
+          # Allow codesign to access keychain without UI prompt
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          # Add to search list
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+          # Find the signing identity for later steps
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.+)"/\1/')
+          echo "sign_identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "Found identity: $IDENTITY"
+        id: cert
+
+      # ── Build DMG ─────────────────────────────────────────────────────────────
+      - name: Build release DMG
+        env:
+          SIGN_IDENTITY: ${{ steps.cert.outputs.sign_identity }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cd macos
+          mkdir -p build
+          ./scripts/build-release.sh "${{ steps.version.outputs.version }}"
+
+      # ── Verify notarization ───────────────────────────────────────────────────
+      - name: Verify notarization
+        run: |
+          DMG="macos/build/RoonSage-${{ steps.version.outputs.version }}.dmg"
+          spctl --assess --type open --context context:primary-signature -v "$DMG" || true
+          # Verify the .app inside
+          hdiutil attach "$DMG" -mountpoint /tmp/roonsage-verify -quiet
+          spctl --assess --verbose=4 /tmp/roonsage-verify/RoonSage.app || true
+          hdiutil detach /tmp/roonsage-verify -quiet
+
+      # ── Upload DMG as Release asset ───────────────────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: "RoonSage v${{ steps.version.outputs.version }}"
+          body: |
+            ## RoonSage v${{ steps.version.outputs.version }}
+
+            Native macOS client for Roon — connects to your Roon Core, controls playback, and syncs your library locally.
+
+            ### Install
+            1. Download `RoonSage-${{ steps.version.outputs.version }}.dmg`
+            2. Open the DMG and drag RoonSage to Applications
+            3. Launch RoonSage — it will discover your Roon Core automatically
+            4. Approve the extension in Roon → Settings → Extensions
+
+            ### Requirements
+            - macOS 14 Sonoma or later
+            - Roon running on the same local network
+          files: |
+            macos/build/RoonSage-${{ steps.version.outputs.version }}.dmg
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          generate_release_notes: true
+
+      # ── Upload as artifact for workflow_dispatch testing ──────────────────────
+      - name: Upload DMG artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoonSage-${{ steps.version.outputs.version }}-dmg
+          path: macos/build/RoonSage-${{ steps.version.outputs.version }}.dmg
+          retention-days: 7
+
+      # ── Cleanup keychain ──────────────────────────────────────────────────────
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain" 2>/dev/null || true
