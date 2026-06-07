@@ -49,7 +49,7 @@ struct LibraryView: View {
         }
     }
 
-    @ViewBuilder
+    @MainActor @ViewBuilder
     var emptyState: some View {
         if client.connectionState.isConnected {
             ContentUnavailableView(

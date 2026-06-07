@@ -1,6 +1,7 @@
 import SwiftUI
 import RoonSageCore
 
+@MainActor
 @main
 struct RoonSageApp: App {
     @State private var client = RoonClient()

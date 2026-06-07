@@ -63,7 +63,7 @@ struct SettingsView: View {
         return "\(v) (build \(b))"
     }
 
-    private func refreshLastSync() {
+    @MainActor private func refreshLastSync() {
         lastSync = (try? client.database?.syncStateValue(forKey: "last_sync")) ?? "Never"
     }
 }

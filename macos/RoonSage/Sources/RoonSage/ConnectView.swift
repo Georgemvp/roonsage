@@ -9,14 +9,14 @@ struct ConnectView: View {
     @State private var port = "9330"
     @State private var showManual = false
 
-    var isWorking: Bool {
+    @MainActor var isWorking: Bool {
         switch client.connectionState {
         case .discovering, .connecting, .awaitingAuthorization: true
         default: false
         }
     }
 
-    var isFailed: Bool {
+    @MainActor var isFailed: Bool {
         if case .failed = client.connectionState { return true }
         return false
     }

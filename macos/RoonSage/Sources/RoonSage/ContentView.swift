@@ -72,7 +72,7 @@ struct MainAppView: View {
         .toolbar { toolbarContent }
     }
 
-    @ToolbarContentBuilder
+    @MainActor @ToolbarContentBuilder
     var toolbarContent: some ToolbarContent {
         // Zone picker (only when multiple zones exist)
         if client.zones.count > 1 {

@@ -4,7 +4,7 @@ import RoonSageCore
 struct MenuBarContent: View {
     @Environment(RoonClient.self) private var client
 
-    private var activeZone: Zone? {
+    @MainActor private var activeZone: Zone? {
         client.selectedZone
     }
 
@@ -127,7 +127,7 @@ struct MenuBarContent: View {
 
     // MARK: - Zone picker
 
-    var zonePickerSection: some View {
+    @MainActor var zonePickerSection: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Zones")
                 .font(.caption2.uppercaseSmallCaps())

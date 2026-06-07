@@ -30,7 +30,7 @@ struct ZoneRow: View {
     let zone: Zone
 
     @State private var volumeValue: Double = 50
-    private var isSelected: Bool { client.selectedZone?.id == zone.id }
+    @MainActor private var isSelected: Bool { client.selectedZone?.id == zone.id }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
