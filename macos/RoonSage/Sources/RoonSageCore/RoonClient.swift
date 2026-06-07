@@ -258,6 +258,18 @@ public final class RoonClient {
 
     // MARK: - Private connection flow
 
+    // MARK: - Saved host (persisted across launches)
+
+    public var savedHost: String? { UserDefaults.standard.string(forKey: "lastRoonHost") }
+    public var savedPort: UInt16 {
+        let p = UserDefaults.standard.integer(forKey: "lastRoonPort")
+        return p > 0 ? UInt16(p) : 9330
+    }
+    private func persistHost(_ host: String, port: UInt16) {
+        UserDefaults.standard.set(host, forKey: "lastRoonHost")
+        UserDefaults.standard.set(Int(port), forKey: "lastRoonPort")
+    }
+
     private func handleOpen(host: String) async {
         let ts = TransportService(transport: transport)
         let bs = BrowseService(transport: transport)
@@ -276,6 +288,7 @@ public final class RoonClient {
                 return
             }
             RoonClientAuth.saveToken(reg.token, coreID: reg.coreID)
+            persistHost(host, port: corePort)
             connectionState = .connected(coreName: reg.coreName)
             await subscribeZones()
         } catch {

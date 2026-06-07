@@ -2,12 +2,13 @@ import SwiftUI
 import RoonSageCore
 
 /// Shown when the app is not connected to a Roon Core.
-/// Supports auto-discovery and manual IP entry.
+/// On launch: tries the last-used host first (works over ZeroTier/VPN).
+/// Falls back to SOOD discovery or manual IP entry.
 @MainActor
 struct ConnectView: View {
     @Environment(RoonClient.self) private var client
-    @State private var host = ""
-    @State private var port = "9330"
+    @State private var host       = ""
+    @State private var port       = "9330"
     @State private var showManual = false
 
     var isWorking: Bool {
@@ -23,10 +24,10 @@ struct ConnectView: View {
     }
 
     var body: some View {
-        VStack(spacing: 32) {
+        VStack(spacing: 28) {
             Spacer()
 
-            // Logo / header
+            // Logo
             VStack(spacing: 12) {
                 Image(systemName: "music.note.house.fill")
                     .font(.system(size: 64))
@@ -43,16 +44,40 @@ struct ConnectView: View {
                 statusBanner
             }
 
-            // Action buttons
+            // Buttons
             VStack(spacing: 12) {
-                Button(action: { Task { await client.discoverAndConnect() } }) {
-                    Label("Discover Roon Core", systemImage: "magnifyingglass")
-                        .frame(minWidth: 240)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(isWorking)
 
+                // Reconnect to last host (shown when a host is known)
+                if let saved = client.savedHost {
+                    Button {
+                        Task { await client.connect(host: saved, port: client.savedPort) }
+                    } label: {
+                        Label("Reconnect to \(saved)", systemImage: "arrow.clockwise")
+                            .frame(minWidth: 240)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(isWorking)
+                }
+
+                // Discover on LAN (SOOD — only works on same network)
+                if client.savedHost == nil {
+                    Button { Task { await client.discoverAndConnect() } } label: {
+                        Label("Discover Roon Core", systemImage: "magnifyingglass").frame(minWidth: 240)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(isWorking)
+                } else {
+                    Button { Task { await client.discoverAndConnect() } } label: {
+                        Label("Discover on local network", systemImage: "magnifyingglass").frame(minWidth: 240)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .disabled(isWorking)
+                }
+
+                // Manual entry toggle
                 Button("Enter IP address manually") {
                     withAnimation { showManual.toggle() }
                 }
@@ -60,7 +85,7 @@ struct ConnectView: View {
                 .foregroundStyle(.secondary)
             }
 
-            // Manual entry
+            // Manual entry form
             if showManual {
                 manualEntry
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -68,16 +93,25 @@ struct ConnectView: View {
 
             Spacer()
 
-            // Help text
-            Text("Make sure Roon is running on the same network.\nAfter connecting, open Roon → Settings → Extensions and enable RoonSage.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .padding(.bottom, 24)
+            // Help
+            Group {
+                if let saved = client.savedHost {
+                    Text("Remote? Use \u{201C}Reconnect to \(saved)\u{201D} — works over ZeroTier/VPN.\nOn the same network? Use \u{201C}Discover on local network\u{201D} instead.")
+                } else {
+                    Text("Make sure Roon is running on the same network.\nAfter connecting, open Roon → Settings → Extensions and enable RoonSage.")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+            .multilineTextAlignment(.center)
+            .padding(.bottom, 24)
         }
         .padding(48)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task { await autoConnect() }
     }
+
+    // MARK: - Sub-views
 
     var statusBanner: some View {
         HStack(spacing: 10) {
@@ -108,5 +142,18 @@ struct ConnectView: View {
             }
             .disabled(host.isEmpty || isWorking)
         }
+    }
+
+    // MARK: - Auto-connect
+
+    /// On first appearance, try the saved host silently (works over ZeroTier).
+    /// If there's no saved host, do nothing — let the user click Discover.
+    private func autoConnect() async {
+        guard let saved = client.savedHost,
+              case .disconnected = client.connectionState
+        else { return }
+        host = saved
+        port = String(client.savedPort)
+        await client.connect(host: saved, port: client.savedPort)
     }
 }
