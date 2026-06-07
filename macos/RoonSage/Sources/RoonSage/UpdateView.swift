@@ -77,29 +77,31 @@ struct UpdateView: View {
 
     // MARK: - Dynamic content
 
+    @ViewBuilder
     var stateIcon: some View {
-        Group {
-            switch installer.state {
-            case .idle:
-                Image(systemName: "arrow.down.circle.fill")
-                    .foregroundStyle(.green)
-            case .downloading:
-                Image(systemName: "icloud.and.arrow.down")
-                    .foregroundStyle(.blue)
-                    .symbolEffect(.pulse)
-            case .readyToInstall:
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            case .installing:
-                Image(systemName: "gearshape.2.fill")
-                    .foregroundStyle(.orange)
-                    .symbolEffect(.rotate.byLayer)
-            case .error:
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-            }
+        if case .downloading = installer.state {
+            Image(systemName: "icloud.and.arrow.down")
+                .font(.system(size: 56))
+                .foregroundStyle(.blue)
+                .symbolEffect(.pulse)
+        } else if case .readyToInstall = installer.state {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.green)
+        } else if case .installing = installer.state {
+            Image(systemName: "gearshape.2.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.orange)
+                .symbolEffect(.rotate.byLayer)
+        } else if case .error = installer.state {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.red)
+        } else {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.green)
         }
-        .font(.system(size: 56))
     }
 
     var stateTitle: String {
