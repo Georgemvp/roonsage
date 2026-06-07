@@ -112,21 +112,17 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           DMG="macos/build/RoonSage-${VERSION}.dmg"
 
+          cat > /tmp/release-notes.md << 'NOTES'
+          Native macOS client for Roon.
+
+          **Install:** Download the DMG, drag RoonSage to Applications, launch and approve in Roon → Settings → Extensions.
+
+          **Requirements:** macOS 14 Sonoma or later + Roon on the same network.
+          NOTES
+
           gh release create "v${VERSION}" \
             --title "RoonSage v${VERSION}" \
-            --notes "## RoonSage v${VERSION}
-
-Native macOS client for Roon.
-
-### Install
-1. Download \`RoonSage-${VERSION}.dmg\`
-2. Open the DMG and drag RoonSage to Applications
-3. Launch — RoonSage discovers your Roon Core automatically
-4. Approve in Roon → Settings → Extensions
-
-### Requirements
-- macOS 14 Sonoma or later
-- Roon running on the same local network" \
+            --notes-file /tmp/release-notes.md \
             "$DMG"
 
       - name: Upload DMG as artifact (workflow_dispatch only)
