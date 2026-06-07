@@ -103,20 +103,20 @@ public final class UpdateInstaller {
     // MARK: - Private
 
     private func performInstall(dmgURL: URL) async throws -> URL {
-        let mountPoint = FileManager.default.temporaryDirectory
-            .appendingPathComponent("roonsage-update-mnt")
+        let tmp = FileManager.default.temporaryDirectory
+        let mountPoint = tmp.appendingPathComponent("roonsage-update-mnt")
+        let stagingApp  = tmp.appendingPathComponent("RoonSage-update.app")
 
-        let mntPath = mountPoint
+        // Prepare temp dirs
         try await Task.detached(priority: .userInitiated) {
-            try? FileManager.default.removeItem(at: mntPath)
-            try FileManager.default.createDirectory(at: mntPath, withIntermediateDirectories: true)
+            try? FileManager.default.removeItem(at: mountPoint)
+            try? FileManager.default.removeItem(at: stagingApp)
+            try FileManager.default.createDirectory(at: mountPoint, withIntermediateDirectories: true)
         }.value
 
-        // Strip quarantine from the DMG so Gatekeeper doesn't block mounting
+        // Strip quarantine + mount (skip Gatekeeper verification)
         _ = try? await runProcess("/usr/bin/xattr",
                                   args: ["-dr", "com.apple.quarantine", dmgURL.path])
-
-        // Mount the DMG; -noverify skips signature check that can hang indefinitely
         try await runProcess("/usr/bin/hdiutil", args: [
             "attach", dmgURL.path,
             "-mountpoint", mountPoint.path,
@@ -124,46 +124,55 @@ public final class UpdateInstaller {
         ])
 
         let appInDMG = mountPoint.appendingPathComponent("RoonSage.app")
-
         guard FileManager.default.fileExists(atPath: appInDMG.path) else {
             _ = try? await runProcess("/usr/bin/hdiutil",
                                       args: ["detach", mountPoint.path, "-quiet", "-force"])
             throw InstallError.appNotFoundInDMG
         }
 
-        // Destination: same location as the currently running app
-        let destApp = Bundle.main.bundleURL
-        let src = appInDMG
-        let mnt = mountPoint
+        // Copy new app to a staging location (NOT the running bundle — macOS blocks that)
+        let src = appInDMG, stage = stagingApp
+        try await Task.detached(priority: .userInitiated) {
+            try FileManager.default.copyItem(at: src, to: stage)
+        }.value
 
-        // Run file I/O on a background thread so the main actor stays free
-        // (a blocked main actor prevents TCC dialogs from appearing)
-        do {
-            try await Task.detached(priority: .userInitiated) {
-                try? FileManager.default.removeItem(at: destApp)
-                try FileManager.default.copyItem(at: src, to: destApp)
-            }.value
-        } catch {
-            _ = try? await runProcess("/usr/bin/hdiutil",
-                                      args: ["detach", mnt.path, "-quiet", "-force"])
-            throw InstallError.replaceFailed(error)
-        }
-
-        // Strip quarantine attribute from the freshly installed app
-        _ = try? await runProcess("/usr/bin/xattr",
-                                  args: ["-dr", "com.apple.quarantine", destApp.path])
-
-        // Unmount DMG
+        // Unmount DMG now that we have the app in staging
         _ = try? await runProcess("/usr/bin/hdiutil",
                                   args: ["detach", mountPoint.path, "-quiet"])
+
+        // Strip quarantine from staging copy
+        _ = try? await runProcess("/usr/bin/xattr",
+                                  args: ["-dr", "com.apple.quarantine", stagingApp.path])
+
+        // Write a shell script that replaces the bundle AFTER we quit.
+        // This is the Sparkle pattern: the running binary is never locked when replaced.
+        let destApp  = Bundle.main.bundleURL
+        let scriptURL = tmp.appendingPathComponent("roonsage-update.sh")
+        let script = """
+        #!/bin/bash
+        # Wait for the app process to exit
+        sleep 1
+        rm -rf '\(destApp.path)'
+        mv '\(stagingApp.path)' '\(destApp.path)'
+        xattr -dr com.apple.quarantine '\(destApp.path)' 2>/dev/null
+        open '\(destApp.path)'
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try await runProcess("/bin/chmod", args: ["+x", scriptURL.path])
+
+        // Launch the script detached (survives our process exit)
+        let launcher = Process()
+        launcher.executableURL = URL(fileURLWithPath: "/bin/bash")
+        launcher.arguments    = [scriptURL.path]
+        try launcher.run()
 
         return destApp
     }
 
     private func relaunch(newAppURL: URL) {
+        // The shell script handles the open; we just need to quit.
         #if canImport(AppKit)
-        NSWorkspace.shared.open(newAppURL)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             NSApp.terminate(nil)
         }
         #endif
