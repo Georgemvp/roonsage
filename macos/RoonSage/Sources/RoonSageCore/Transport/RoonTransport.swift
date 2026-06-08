@@ -1,6 +1,17 @@
 import Foundation
 import RoonProtocol
 
+enum RoonTransportError: LocalizedError {
+    case unauthorized
+
+    var errorDescription: String? {
+        switch self {
+        case .unauthorized:
+            "Roon denied authorization. Open Roon → Settings → Extensions and enable RoonSage."
+        }
+    }
+}
+
 /// Manages the low-level Roon MOO/1 WebSocket connection.
 ///
 /// - Request/response pairs are correlated by Request-Id via CheckedContinuations.
@@ -193,11 +204,24 @@ actor RoonTransport {
             return
         }
 
-        switch frame.verb {
-        case .complete where frame.name == "Registered":
+        // Registration response is matched by NAME, not verb. Roon delivers it
+        // as CONTINUE (so it can later push state changes — e.g. Unauthorized —
+        // over the same request), not COMPLETE. Mirror the reference pyroon
+        // client, which routes on "Registered" in the header regardless of verb.
+        switch frame.name {
+        case "Registered":
             registrationContinuation?.resume(returning: body)
             registrationContinuation = nil
+            return
+        case "Unauthorized":
+            registrationContinuation?.resume(throwing: RoonTransportError.unauthorized)
+            registrationContinuation = nil
+            return
+        default:
+            break
+        }
 
+        switch frame.verb {
         case .complete:
             pendingRequests[id]?.resume(returning: body)
             pendingRequests.removeValue(forKey: id)
