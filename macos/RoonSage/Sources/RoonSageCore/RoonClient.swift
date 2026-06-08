@@ -260,6 +260,73 @@ public final class RoonClient {
         (try? database?.searchAlbums(query: query)) ?? []
     }
 
+    // MARK: - LLM request analysis (shared by Generate & Recommend)
+
+    public struct RequestFilters: Sendable {
+        public var genres: [String]
+        public var decades: [Int]
+        public var keywords: String
+    }
+
+    /// LLM stage 1: map a free-text request to genres (from the library's actual
+    /// genres) + decades + keywords. Degrades gracefully to no filter.
+    public func analyzeForFilters(request: String) async -> RequestFilters {
+        let available = libraryStats()?.topGenres.map { $0.genre } ?? []
+        guard !available.isEmpty else { return RequestFilters(genres: [], decades: [], keywords: "") }
+        let genreList = available.prefix(40).joined(separator: ", ")
+        let system = """
+        You map a music request to library filters. Respond with ONLY a JSON object, no prose: \
+        {"genres": [], "decades": [], "keywords": ""} \
+        - genres: 0-6 names chosen EXACTLY from the available list that fit the request. Empty = no genre constraint. \
+        - decades: 0-3 decade start years like 1980 if an era is implied, else []. \
+        - keywords: short extra search terms, or "". \
+        Available genres: \(genreList)
+        """
+        guard let resp = try? await LLMClient.shared.complete(system: system, user: "Request: \(request)", config: LLMConfigStore.load()),
+              let obj = Self.firstJSONObject(resp) else {
+            return RequestFilters(genres: [], decades: [], keywords: "")
+        }
+        var canonical: [String: String] = [:]
+        for g in available { canonical[g.lowercased()] = g }
+        let genres = (obj["genres"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() }.compactMap { canonical[$0] } ?? []
+        let decades = (obj["decades"] as? [Any])?.compactMap { ($0 as? Int) ?? Int(String(describing: $0)) } ?? []
+        let keywords = (obj["keywords"] as? String) ?? ""
+        return RequestFilters(genres: genres, decades: decades, keywords: keywords)
+    }
+
+    private static func firstJSONObject(_ text: String) -> [String: Any]? {
+        let clean = text.replacingOccurrences(of: #"<think>[\s\S]*?</think>"#, with: "", options: .regularExpression)
+        guard let start = clean.firstIndex(of: "{"), let end = clean.lastIndex(of: "}"), start < end else { return nil }
+        return (try? JSONSerialization.jsonObject(with: Data(clean[start...end].utf8))) as? [String: Any]
+    }
+
+    /// Distinct albums whose tracks match the filters — a candidate pool for
+    /// album-level recommendation. Shuffled so the LLM sees a varied sample.
+    public func candidateAlbums(filters: RequestFilters, limit: Int = 60) -> [DatabaseManager.AlbumResult] {
+        var opts = DatabaseManager.FilterOptions()
+        opts.genres = filters.genres
+        opts.decades = filters.decades
+        opts.keywords = filters.keywords
+        opts.excludeLive = true
+        opts.limit = 4000
+        var tracks = filterTracks(options: opts)
+        if tracks.count < 30 { opts.genres = []; opts.decades = []; opts.keywords = ""; tracks = filterTracks(options: opts) }
+
+        var counts: [String: Int] = [:]
+        for t in tracks { if let k = t.albumKey { counts[k, default: 0] += 1 } }
+        var seen = Set<String>()
+        var albums: [DatabaseManager.AlbumResult] = []
+        for t in tracks {
+            guard let k = t.albumKey, !k.isEmpty, !seen.contains(k) else { continue }
+            seen.insert(k)
+            albums.append(DatabaseManager.AlbumResult(
+                albumKey: k, album: t.album ?? "", artist: t.artist, year: t.year, trackCount: counts[k] ?? 0
+            ))
+        }
+        albums.shuffle()
+        return Array(albums.prefix(limit))
+    }
+
     // MARK: - Discovery sections
 
     public func undiscoveredAlbums(limit: Int = 16) -> [DatabaseManager.AlbumResult] {
