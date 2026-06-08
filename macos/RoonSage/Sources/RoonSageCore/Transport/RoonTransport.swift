@@ -48,7 +48,14 @@ actor RoonTransport {
     // MARK: - Connect / Disconnect
 
     func connect(host: String, port: UInt16) {
-        let url = URL(string: "ws://\(host):\(port)/api")!
+        // Defensive: never force-unwrap a URL built from external input. The
+        // caller (RoonClient.connect) already validates, but guard here too so
+        // a malformed host can never trap the process.
+        let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: "ws://\(cleanHost):\(port)/api") else {
+            Task { await self.handleClose() }
+            return
+        }
         let del = TransportDelegate()
         delegate = del
 

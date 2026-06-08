@@ -92,7 +92,15 @@ public final class RoonClient {
 
     // MARK: - Connection
 
-    public func connect(host: String, port: UInt16 = 9330) async {
+    public func connect(host rawHost: String, port: UInt16 = 9330) async {
+        // Text-field input often carries stray whitespace from copy/paste — a
+        // space inside the authority makes URL(string:) return nil, which used
+        // to crash the transport's force-unwrap. Sanitise and validate first.
+        let host = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty, URL(string: "ws://\(host):\(port)/api") != nil else {
+            connectionState = .failed("Invalid host or port: \(rawHost.debugDescription)")
+            return
+        }
         coreHost = host
         corePort = port
         connectionState = .connecting(host: host)

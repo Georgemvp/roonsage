@@ -137,10 +137,12 @@ struct ConnectView: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 70)
             Button("Connect") {
-                guard let p = UInt16(port), !host.isEmpty else { return }
-                Task { await client.connect(host: host, port: p) }
+                let h = host.trimmingCharacters(in: .whitespacesAndNewlines)
+                let p = UInt16(port.trimmingCharacters(in: .whitespacesAndNewlines))
+                guard let p, !h.isEmpty else { return }
+                Task { await client.connect(host: h, port: p) }
             }
-            .disabled(host.isEmpty || isWorking)
+            .disabled(host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isWorking)
         }
     }
 
