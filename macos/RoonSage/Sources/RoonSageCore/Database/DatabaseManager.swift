@@ -436,6 +436,30 @@ public final class DatabaseManager: Sendable {
         }
     }
 
+    /// Your most-played tracks (from listening history), resolved to current
+    /// library item_keys.
+    public func topTracks(limit: Int = 25) throws -> [TrackRecord] {
+        try pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT title, artist, COUNT(*) AS plays
+                FROM listening_history WHERE artist IS NOT NULL
+                GROUP BY LOWER(title), LOWER(artist)
+                ORDER BY plays DESC LIMIT ?
+            """, arguments: [limit])
+            var result: [TrackRecord] = []
+            for row in rows {
+                let title = row["title"] as String? ?? ""
+                let artist = row["artist"] as String? ?? ""
+                if let t = try TrackRecord.fetchOne(db, sql: """
+                    SELECT * FROM tracks WHERE LOWER(title) = LOWER(?) AND LOWER(artist) = LOWER(?) LIMIT 1
+                """, arguments: [title, artist]) {
+                    result.append(t)
+                }
+            }
+            return result
+        }
+    }
+
     // MARK: - Sync state
 
     public func syncStateValue(forKey key: String) throws -> String? {

@@ -7,6 +7,7 @@ struct DiscoveryView: View {
     @State private var stats: DatabaseManager.LibraryStats?
     @State private var undiscovered: [DatabaseManager.AlbumResult] = []
     @State private var forgotten: [TrackRecord] = []
+    @State private var topTracks: [TrackRecord] = []
     @State private var isLoaded = false
 
     var body: some View {
@@ -14,7 +15,10 @@ struct DiscoveryView: View {
             LazyVStack(alignment: .leading, spacing: 24) {
                 if let stats {
                     summaryCards(stats)
+                    if !stats.tracksByDecade.isEmpty { decadePicksSection(stats) }
+                    if !stats.topGenres.isEmpty { genreExplorerSection(stats) }
                     if !undiscovered.isEmpty { undiscoveredSection }
+                    if !topTracks.isEmpty { topTracksSection }
                     if !forgotten.isEmpty { forgottenSection }
                     genreSection(stats)
                     if !stats.tracksByDecade.isEmpty {
@@ -84,6 +88,87 @@ struct DiscoveryView: View {
             }
             ForEach(Array(forgotten.enumerated()), id: \.offset) { _, t in
                 HStack(spacing: 8) {
+                    Text(t.title).font(.callout).lineLimit(1)
+                    if let a = t.artist {
+                        Text("— \(a)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                }
+            }
+        }
+        .padding(16)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Decade picks
+
+    @ViewBuilder
+    func decadePicksSection(_ stats: DatabaseManager.LibraryStats) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Decade Picks").font(.headline)
+            Text("Play a random mix from a decade").font(.caption).foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 8) {
+                ForEach(stats.tracksByDecade, id: \.decade) { item in
+                    if let start = Int(item.decade.dropLast()) {
+                        Button(item.decade) {
+                            var opts = DatabaseManager.FilterOptions()
+                            opts.decades = [start]
+                            play { await client.playShuffledMix(options: opts, count: 25, zoneID: $0) }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(client.selectedZone == nil)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Genre explorer
+
+    @ViewBuilder
+    func genreExplorerSection(_ stats: DatabaseManager.LibraryStats) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Genre Explorer").font(.headline)
+            Text("Play a random mix from a genre").font(.caption).foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120))], spacing: 8) {
+                ForEach(stats.topGenres.prefix(12), id: \.genre) { item in
+                    Button {
+                        var opts = DatabaseManager.FilterOptions()
+                        opts.genres = [item.genre]
+                        play { await client.playShuffledMix(options: opts, count: 25, zoneID: $0) }
+                    } label: {
+                        Text(item.genre).lineLimit(1).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(client.selectedZone == nil)
+                }
+            }
+        }
+        .padding(16)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Top tracks
+
+    @ViewBuilder
+    var topTracksSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Your Top Tracks").font(.headline)
+                Spacer()
+                Button { play { await client.curateTracks(topTracks, zoneID: $0) } } label: {
+                    Label("Play all", systemImage: "play.fill")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(client.selectedZone == nil)
+            }
+            ForEach(Array(topTracks.enumerated()), id: \.offset) { i, t in
+                HStack(spacing: 8) {
+                    Text("\(i + 1)").font(.caption.monospacedDigit())
+                        .foregroundStyle(.tertiary).frame(width: 24, alignment: .trailing)
                     Text(t.title).font(.callout).lineLimit(1)
                     if let a = t.artist {
                         Text("— \(a)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -205,6 +290,7 @@ struct DiscoveryView: View {
         stats = client.libraryStats()
         undiscovered = client.undiscoveredAlbums()
         forgotten = client.forgottenFavorites()
+        topTracks = client.topTracks()
         isLoaded = true
     }
 }

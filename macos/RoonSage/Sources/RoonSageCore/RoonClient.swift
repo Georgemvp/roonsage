@@ -270,6 +270,21 @@ public final class RoonClient {
         (try? database?.forgottenFavorites(days: days, limit: limit)) ?? []
     }
 
+    public func topTracks(limit: Int = 25) -> [TrackRecord] {
+        (try? database?.topTracks(limit: limit)) ?? []
+    }
+
+    /// Filter by `options`, shuffle, and play a random `count`-track mix.
+    public func playShuffledMix(options: DatabaseManager.FilterOptions, count: Int, zoneID: String) async {
+        var opts = options
+        opts.limit = max(opts.limit, 500)
+        var pool = filterTracks(options: opts)
+        pool.shuffle()
+        let pick = Array(pool.prefix(count))
+        guard !pick.isEmpty else { return }
+        await curateTracks(pick, zoneID: zoneID)
+    }
+
     /// Play every track of an album by its album_key (first plays, rest queue).
     public func playAlbum(albumKey: String, zoneID: String) async {
         var opts = DatabaseManager.FilterOptions()
