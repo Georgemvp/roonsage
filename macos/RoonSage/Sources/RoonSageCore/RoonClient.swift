@@ -260,6 +260,27 @@ public final class RoonClient {
         (try? database?.searchAlbums(query: query)) ?? []
     }
 
+    // MARK: - Discovery sections
+
+    public func undiscoveredAlbums(limit: Int = 16) -> [DatabaseManager.AlbumResult] {
+        (try? database?.undiscoveredAlbums(limit: limit)) ?? []
+    }
+
+    public func forgottenFavorites(days: Int = 60, limit: Int = 20) -> [TrackRecord] {
+        (try? database?.forgottenFavorites(days: days, limit: limit)) ?? []
+    }
+
+    /// Play every track of an album by its album_key (first plays, rest queue).
+    public func playAlbum(albumKey: String, zoneID: String) async {
+        var opts = DatabaseManager.FilterOptions()
+        opts.albumKey = albumKey
+        opts.excludeLive = false
+        opts.limit = 200
+        let tracks = filterTracks(options: opts)
+        guard !tracks.isEmpty else { return }
+        await curateTracks(tracks, zoneID: zoneID)
+    }
+
     // MARK: - Qobuz / global search
 
     /// Search Qobuz (via Roon global search). Returns tracks whose `id` is a

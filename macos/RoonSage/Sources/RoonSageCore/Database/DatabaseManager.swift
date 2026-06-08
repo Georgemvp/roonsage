@@ -374,6 +374,68 @@ public final class DatabaseManager: Sendable {
         }
     }
 
+    // MARK: - Discovery (cache-only sections)
+
+    /// Albums with no matching entry in listening history — never played here.
+    public func undiscoveredAlbums(limit: Int = 16) throws -> [AlbumResult] {
+        try pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT album_key, album, artist, year, COUNT(*) AS track_count
+                FROM tracks
+                WHERE album IS NOT NULL AND album <> ''
+                  AND LOWER(album) NOT IN (
+                      SELECT LOWER(album) FROM listening_history WHERE album IS NOT NULL
+                  )
+                GROUP BY album_key
+                HAVING track_count >= 3
+                ORDER BY RANDOM()
+                LIMIT ?
+            """, arguments: [limit])
+            return rows.map {
+                AlbumResult(
+                    albumKey:   $0["album_key"]   as String? ?? "",
+                    album:      $0["album"]        as String? ?? "",
+                    artist:     $0["artist"],
+                    year:       $0["year"],
+                    trackCount: $0["track_count"]  as Int? ?? 0
+                )
+            }
+        }
+    }
+
+    /// Tracks you used to play but haven't in the last `days` days, max 2 per
+    /// artist, most-played first. Resolved to current library item_keys.
+    public func forgottenFavorites(days: Int = 60, limit: Int = 20) throws -> [TrackRecord] {
+        try pool.read { db in
+            let cutoff = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Double(days) * 86_400))
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT title, artist, MAX(played_at) AS last_play, COUNT(*) AS plays
+                FROM listening_history
+                WHERE artist IS NOT NULL
+                GROUP BY LOWER(title), LOWER(artist)
+                HAVING last_play < ?
+                ORDER BY plays DESC, last_play ASC
+            """, arguments: [cutoff])
+
+            var perArtist: [String: Int] = [:]
+            var result: [TrackRecord] = []
+            for row in rows {
+                let title = row["title"] as String? ?? ""
+                let artist = row["artist"] as String? ?? ""
+                let aKey = artist.lowercased()
+                if perArtist[aKey, default: 0] >= 2 { continue }
+                if let t = try TrackRecord.fetchOne(db, sql: """
+                    SELECT * FROM tracks WHERE LOWER(title) = LOWER(?) AND LOWER(artist) = LOWER(?) LIMIT 1
+                """, arguments: [title, artist]) {
+                    perArtist[aKey, default: 0] += 1
+                    result.append(t)
+                    if result.count >= limit { break }
+                }
+            }
+            return result
+        }
+    }
+
     // MARK: - Sync state
 
     public func syncStateValue(forKey key: String) throws -> String? {

@@ -5,6 +5,8 @@ import RoonSageCore
 struct DiscoveryView: View {
     @Environment(RoonClient.self) private var client
     @State private var stats: DatabaseManager.LibraryStats?
+    @State private var undiscovered: [DatabaseManager.AlbumResult] = []
+    @State private var forgotten: [TrackRecord] = []
     @State private var isLoaded = false
 
     var body: some View {
@@ -12,6 +14,8 @@ struct DiscoveryView: View {
             LazyVStack(alignment: .leading, spacing: 24) {
                 if let stats {
                     summaryCards(stats)
+                    if !undiscovered.isEmpty { undiscoveredSection }
+                    if !forgotten.isEmpty { forgottenSection }
                     genreSection(stats)
                     if !stats.tracksByDecade.isEmpty {
                         decadeSection(stats)
@@ -27,6 +31,74 @@ struct DiscoveryView: View {
         .navigationTitle("Discovery")
         .onAppear { load() }
         .onChange(of: client.trackCount) { _, _ in load() }
+    }
+
+    // MARK: - Undiscovered albums (never played)
+
+    @ViewBuilder
+    var undiscoveredSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Undiscovered Albums").font(.headline)
+                Spacer()
+                Button { undiscovered = client.undiscoveredAlbums() } label: {
+                    Image(systemName: "shuffle")
+                }
+                .buttonStyle(.borderless)
+                .help("Show a different selection")
+            }
+            ForEach(undiscovered, id: \.albumKey) { album in
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(album.album).font(.callout).lineLimit(1)
+                        Text("\(album.artist ?? "Unknown")\(album.year.map { " · \($0)" } ?? "") · \(album.trackCount) tracks")
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                    Button { play { await client.playAlbum(albumKey: album.albumKey, zoneID: $0) } } label: {
+                        Image(systemName: "play.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(client.selectedZone == nil)
+                }
+            }
+        }
+        .padding(16)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Forgotten favorites
+
+    @ViewBuilder
+    var forgottenSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Forgotten Favorites").font(.headline)
+                Spacer()
+                Button { play { await client.curateTracks(forgotten, zoneID: $0) } } label: {
+                    Label("Play all", systemImage: "play.fill")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(client.selectedZone == nil)
+            }
+            ForEach(Array(forgotten.enumerated()), id: \.offset) { _, t in
+                HStack(spacing: 8) {
+                    Text(t.title).font(.callout).lineLimit(1)
+                    if let a = t.artist {
+                        Text("— \(a)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                }
+            }
+        }
+        .padding(16)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func play(_ action: @escaping (String) async -> Void) {
+        guard let zone = client.selectedZone else { return }
+        Task { await action(zone.id) }
     }
 
     // MARK: - Summary cards
@@ -131,6 +203,8 @@ struct DiscoveryView: View {
 
     private func load() {
         stats = client.libraryStats()
+        undiscovered = client.undiscoveredAlbums()
+        forgotten = client.forgottenFavorites()
         isLoaded = true
     }
 }
