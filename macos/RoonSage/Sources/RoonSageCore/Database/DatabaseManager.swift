@@ -298,6 +298,82 @@ public final class DatabaseManager: Sendable {
         }
     }
 
+    // MARK: - Playlists
+
+    public struct PlaylistSummary: Sendable {
+        public var id: Int64
+        public var name: String
+        public var trackCount: Int
+        public var createdAt: String
+    }
+
+    public func savePlaylist(name: String, tracks: [TrackRecord]) throws -> Int64 {
+        try pool.write { db in
+            let iso = ISO8601DateFormatter().string(from: Date())
+            try db.execute(sql: "INSERT INTO playlists (name, created_at) VALUES (?, ?)", arguments: [name, iso])
+            let pid = db.lastInsertedRowID
+            for (i, t) in tracks.enumerated() {
+                try db.execute(sql: """
+                    INSERT INTO playlist_tracks (playlist_id, position, track_id, title, artist, album, album_key, year, is_live)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [pid, i, t.id, t.title, t.artist, t.album, t.albumKey, t.year, t.isLive])
+            }
+            return pid
+        }
+    }
+
+    public func listPlaylists() throws -> [PlaylistSummary] {
+        try pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT p.id, p.name, p.created_at, COUNT(pt.position) AS cnt
+                FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+                GROUP BY p.id ORDER BY p.created_at DESC
+            """)
+            return rows.map {
+                PlaylistSummary(
+                    id: $0["id"] as Int64? ?? 0,
+                    name: $0["name"] as String? ?? "",
+                    trackCount: $0["cnt"] as Int? ?? 0,
+                    createdAt: $0["created_at"] as String? ?? ""
+                )
+            }
+        }
+    }
+
+    /// Saved tracks as stored (track_id may be stale after a resync).
+    public func playlistTracks(id: Int64) throws -> [TrackRecord] {
+        try pool.read { db in
+            try TrackRecord.fetchAll(db, sql: """
+                SELECT track_id AS id, title, artist, album, album_key, year, is_live
+                FROM playlist_tracks WHERE playlist_id = ? ORDER BY position
+            """, arguments: [id])
+        }
+    }
+
+    public func deletePlaylist(id: Int64) throws {
+        try pool.write { db in
+            try db.execute(sql: "DELETE FROM playlists WHERE id = ?", arguments: [id])
+        }
+    }
+
+    /// Re-resolve a saved track to a CURRENT library track (Roon item_keys change
+    /// across resyncs). Matches by title + artist, case-insensitive.
+    public func resolveCurrentTracks(_ saved: [TrackRecord]) throws -> [TrackRecord] {
+        try pool.read { db in
+            var resolved: [TrackRecord] = []
+            for t in saved {
+                let current = try TrackRecord.fetchOne(db, sql: """
+                    SELECT * FROM tracks
+                    WHERE LOWER(title) = LOWER(?)
+                      AND (? IS NULL OR artist IS NULL OR LOWER(artist) = LOWER(?))
+                    LIMIT 1
+                """, arguments: [t.title, t.artist, t.artist])
+                if let current { resolved.append(current) }
+            }
+            return resolved
+        }
+    }
+
     // MARK: - Sync state
 
     public func syncStateValue(forKey key: String) throws -> String? {

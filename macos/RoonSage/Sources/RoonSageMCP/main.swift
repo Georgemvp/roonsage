@@ -448,6 +448,40 @@ final class MCPServer {
             client.startSync()
             return "Library sync started in the background. Call get_library_stats shortly to see the refreshed totals (including genres)."
 
+        // ── Saved playlists ───────────────────────────────────────────────────
+
+        case "save_playlist":
+            let name = try requireString(args, key: "name")
+            let sessionID = try requireString(args, key: "session_id")
+            let numbers = args["track_numbers"]?.arrayValue?.compactMap { $0.intValue } ?? []
+            let tracks = numbers.isEmpty
+                ? await sessions.all(sessionID: sessionID)
+                : await sessions.resolve(sessionID: sessionID, numbers: numbers)
+            if tracks.isEmpty { return "No tracks resolved from session \(sessionID). Run filter_tracks first." }
+            guard let pid = client.savePlaylist(name: name, tracks: tracks) else {
+                return "Could not save playlist."
+            }
+            return "Saved playlist '\(name)' (id \(pid)) with \(tracks.count) tracks."
+
+        case "list_playlists":
+            let lists = client.playlists()
+            if lists.isEmpty { return "No saved playlists yet." }
+            return "Saved playlists:\n" + lists.map {
+                "[\($0.id)] \($0.name) — \($0.trackCount) tracks  (\($0.createdAt.prefix(10)))"
+            }.joined(separator: "\n")
+
+        case "play_playlist":
+            guard let pid = args["playlist_id"]?.intValue else { throw ToolError.missingArg("playlist_id") }
+            let zoneID = try requireString(args, key: "zone_id")
+            let count = await client.playPlaylist(id: Int64(pid), zoneID: zoneID)
+            if count == 0 { return "Playlist \(pid) had no tracks that still exist in the library. Try re-syncing." }
+            return "Playing \(count) tracks from playlist \(pid) in zone \(zoneID)."
+
+        case "delete_playlist":
+            guard let pid = args["playlist_id"]?.intValue else { throw ToolError.missingArg("playlist_id") }
+            client.deletePlaylist(id: Int64(pid))
+            return "Deleted playlist \(pid)."
+
         // ── Playlist validation ───────────────────────────────────────────────
 
         case "validate_playlist":
@@ -611,6 +645,29 @@ final class MCPServer {
 
             tool("sync_library",
                  "Trigger a background re-sync of the Roon library into the local cache (also refreshes genres). Returns immediately; totals update shortly after."),
+
+            tool("save_playlist",
+                 "Save a curated selection from a filter_tracks session as a named local playlist (survives library re-syncs).",
+                 props: [
+                    "name":          str("Playlist name."),
+                    "session_id":    str("session_id from filter_tracks."),
+                    "track_numbers": arrInt("Track numbers to save. Omit to save the whole session.")
+                 ],
+                 required: ["name", "session_id"]),
+
+            tool("list_playlists", "List saved local playlists with their ids and track counts."),
+
+            tool("play_playlist",
+                 "Play a saved playlist by id. Tracks are re-resolved to current library item_keys, so it works after a re-sync.",
+                 props: [
+                    "playlist_id": int_("Playlist id from list_playlists."),
+                    "zone_id":     str("Zone ID from roon_zones.")
+                 ],
+                 required: ["playlist_id", "zone_id"]),
+
+            tool("delete_playlist", "Delete a saved playlist by id.",
+                 props: ["playlist_id": int_("Playlist id from list_playlists.")],
+                 required: ["playlist_id"]),
         ]
     }
 

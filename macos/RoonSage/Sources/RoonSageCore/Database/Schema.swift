@@ -45,6 +45,30 @@ enum Schema {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_listen_artist     ON listening_history(artist)")
         }
 
+        migrator.registerMigration("v3_playlists") { db in
+            try db.create(table: "playlists", ifNotExists: true) { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("name",       .text).notNull()
+                t.column("created_at",  .text).notNull()
+            }
+            // Track metadata is denormalised so saved playlists survive a resync,
+            // where Roon item_keys (tracks.id) change. track_id is a best-effort
+            // hint; playback re-resolves by title+artist against the current cache.
+            try db.create(table: "playlist_tracks", ifNotExists: true) { t in
+                t.column("playlist_id", .integer).notNull()
+                    .references("playlists", onDelete: .cascade)
+                t.column("position",    .integer).notNull()
+                t.column("track_id",    .text)
+                t.column("title",       .text).notNull()
+                t.column("artist",      .text)
+                t.column("album",       .text)
+                t.column("album_key",   .text)
+                t.column("year",        .integer)
+                t.column("is_live",     .boolean).notNull().defaults(to: false)
+            }
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_playlist_tracks_pl ON playlist_tracks(playlist_id, position)")
+        }
+
         try migrator.migrate(db)
     }
 }

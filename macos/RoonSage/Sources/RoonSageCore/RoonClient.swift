@@ -260,6 +260,37 @@ public final class RoonClient {
         (try? database?.searchAlbums(query: query)) ?? []
     }
 
+    // MARK: - Saved playlists
+
+    @discardableResult
+    public func savePlaylist(name: String, tracks: [TrackRecord]) -> Int64? {
+        try? database?.savePlaylist(name: name, tracks: tracks)
+    }
+
+    public func playlists() -> [DatabaseManager.PlaylistSummary] {
+        (try? database?.listPlaylists()) ?? []
+    }
+
+    public func playlistTracks(id: Int64) -> [TrackRecord] {
+        (try? database?.playlistTracks(id: id)) ?? []
+    }
+
+    public func deletePlaylist(id: Int64) {
+        try? database?.deletePlaylist(id: id)
+    }
+
+    /// Resolve a saved playlist to current item_keys and play it. Returns the
+    /// number of tracks that resolved + started.
+    @discardableResult
+    public func playPlaylist(id: Int64, zoneID: String) async -> Int {
+        let saved = playlistTracks(id: id)
+        guard !saved.isEmpty else { return 0 }
+        let current = (try? database?.resolveCurrentTracks(saved)) ?? []
+        guard !current.isEmpty else { return 0 }
+        await curateTracks(current, zoneID: zoneID)
+        return current.count
+    }
+
     public func transferZone(fromZoneID: String, toZoneID: String) async {
         _ = try? await transportService?.transferZone(fromZoneID: fromZoneID, toZoneID: toZoneID)
     }
