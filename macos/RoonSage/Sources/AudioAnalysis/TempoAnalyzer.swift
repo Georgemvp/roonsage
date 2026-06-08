@@ -44,8 +44,17 @@ public struct TempoAnalyzer {
         let maxLag = min(env.count - 1, Int((onsetSR * 60.0 / minBpm).rounded()))
         guard maxLag > minLag else { return (0, 0) }
 
-        var bestLag = minLag
-        var bestVal: Float = -1
+        // Weight each candidate tempo by a log-Gaussian prior centred on 120 BPM.
+        // This resolves octave ambiguity (half/double/triplet) without blind
+        // folding — the standard librosa-style approach.
+        func prior(_ bpm: Double) -> Double {
+            let z = (log2(bpm) - log2(120.0)) / 0.9
+            return exp(-0.5 * z * z)
+        }
+
+        var bestScore = -Double.infinity
+        var bestVal: Float = 0
+        var bestBpm = 0.0
         var total: Float = 0
         for lag in minLag...maxLag {
             var sum: Float = 0
@@ -53,14 +62,12 @@ public struct TempoAnalyzer {
             let limit = env.count - lag
             while k < limit { sum += env[k] * env[k + lag]; k += 1 }
             total += sum
-            if sum > bestVal { bestVal = sum; bestLag = lag }
+            let bpm = 60.0 * onsetSR / Double(lag)
+            let score = Double(sum) * prior(bpm)
+            if score > bestScore { bestScore = score; bestVal = sum; bestBpm = bpm }
         }
 
-        var bpm = 60.0 * onsetSR / Double(bestLag)
-        while bpm < 70 { bpm *= 2 }
-        while bpm >= 180 { bpm /= 2 }
-
         let confidence = total > 0 ? min(1.0, Double(bestVal / total) * Double(maxLag - minLag) / 4.0) : 0
-        return ((bpm * 10).rounded() / 10, confidence)
+        return ((bestBpm * 10).rounded() / 10, confidence)
     }
 }

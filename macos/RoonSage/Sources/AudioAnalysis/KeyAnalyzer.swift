@@ -20,11 +20,13 @@ public struct KeyAnalyzer {
         let window = hannWindow(frameSize)
         let half = frameSize / 2
 
-        // Precompute each bin's pitch class (0 = C). Restrict to musical range.
+        // Precompute each bin's pitch class (0 = C). Restrict to the fundamental
+        // band (~65–2000 Hz) where the tonic/harmony live; higher bins are mostly
+        // overtones that smear major/minor discrimination.
         var pcOfBin = [Int](repeating: -1, count: half)
         for b in 1..<half {
             let freq = Double(b) * sampleRate / Double(frameSize)
-            guard freq >= 55, freq <= 5000 else { continue }
+            guard freq >= 65, freq <= 2000 else { continue }
             let midi = 69.0 + 12.0 * log2(freq / 440.0)
             pcOfBin[b] = ((Int(midi.rounded()) % 12) + 12) % 12
         }
@@ -35,7 +37,8 @@ public struct KeyAnalyzer {
         while i + frameSize <= samples.count {
             for j in 0..<frameSize { frame[j] = samples[i + j] * window[j] }
             let mag = fft.magnitudes(frame)
-            for b in 1..<half where pcOfBin[b] >= 0 { chroma[pcOfBin[b]] += mag[b] }
+            // sqrt-compress magnitude so loud transients don't dominate the profile.
+            for b in 1..<half where pcOfBin[b] >= 0 { chroma[pcOfBin[b]] += mag[b].squareRoot() }
             i += hop
         }
 
