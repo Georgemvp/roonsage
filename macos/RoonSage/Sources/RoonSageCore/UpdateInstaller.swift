@@ -89,140 +89,103 @@ public final class UpdateInstaller {
 
     // MARK: - Install
 
-    /// Mounts the DMG, replaces the running .app bundle, then relaunches.
+    /// Writes a self-contained installer script, launches it detached, then
+    /// quits so the script can mount the DMG and replace the (now-unlocked) app
+    /// bundle. ALL heavy lifting happens in the script AFTER we exit — the app
+    /// never blocks on "Installing…", the swap is non-destructive (the old app
+    /// is only removed once the new one is in place), and every step is logged
+    /// to ~/Library/Logs/RoonSage/update.log for diagnosis.
     public func install(dmgURL: URL) async {
         state = .installing
         do {
-            let newAppURL = try await performInstall(dmgURL: dmgURL)
-            relaunch(newAppURL: newAppURL)
+            try launchInstallerScript(dmgURL: dmgURL)
         } catch {
             state = .error(error.localizedDescription)
+            return
         }
+        // Give the detached script a beat to start, then quit so it can swap us.
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        #if canImport(AppKit)
+        NSApp.terminate(nil)
+        #endif
     }
 
     // MARK: - Private
 
-    private func performInstall(dmgURL: URL) async throws -> URL {
+    /// Persistent update log path (created if missing). Surfaced so the UI/user
+    /// can find it after a failed update.
+    public static var updateLogPath: String {
+        let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Logs/RoonSage", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("update.log").path
+    }
+
+    private func launchInstallerScript(dmgURL: URL) throws {
+        let destApp = Bundle.main.bundleURL
+        let pid = ProcessInfo.processInfo.processIdentifier
         let tmp = FileManager.default.temporaryDirectory
         let mountPoint = tmp.appendingPathComponent("roonsage-update-mnt")
-        let stagingApp  = tmp.appendingPathComponent("RoonSage-update.app")
+        let scriptURL  = tmp.appendingPathComponent("roonsage-install.sh")
+        let logPath = Self.updateLogPath
 
-        // Prepare temp dirs
-        try await Task.detached(priority: .userInitiated) {
-            try? FileManager.default.removeItem(at: mountPoint)
-            try? FileManager.default.removeItem(at: stagingApp)
-            try FileManager.default.createDirectory(at: mountPoint, withIntermediateDirectories: true)
-        }.value
-
-        // Strip quarantine + mount (skip Gatekeeper verification)
-        _ = try? await runProcess("/usr/bin/xattr",
-                                  args: ["-dr", "com.apple.quarantine", dmgURL.path])
-        try await runProcess("/usr/bin/hdiutil", args: [
-            "attach", dmgURL.path,
-            "-mountpoint", mountPoint.path,
-            "-quiet", "-nobrowse", "-noautoopen", "-noverify"
-        ])
-
-        let appInDMG = mountPoint.appendingPathComponent("RoonSage.app")
-        guard FileManager.default.fileExists(atPath: appInDMG.path) else {
-            _ = try? await runProcess("/usr/bin/hdiutil",
-                                      args: ["detach", mountPoint.path, "-quiet", "-force"])
-            throw InstallError.appNotFoundInDMG
-        }
-
-        // Copy new app to a staging location (NOT the running bundle — macOS blocks that)
-        let src = appInDMG, stage = stagingApp
-        try await Task.detached(priority: .userInitiated) {
-            try FileManager.default.copyItem(at: src, to: stage)
-        }.value
-
-        // Unmount DMG now that we have the app in staging
-        _ = try? await runProcess("/usr/bin/hdiutil",
-                                  args: ["detach", mountPoint.path, "-quiet"])
-
-        // Strip quarantine from staging copy
-        _ = try? await runProcess("/usr/bin/xattr",
-                                  args: ["-dr", "com.apple.quarantine", stagingApp.path])
-
-        // Write a shell script that replaces the bundle AFTER we quit.
-        // This is the Sparkle pattern: the running binary is never locked when replaced.
-        let destApp  = Bundle.main.bundleURL
-        let scriptURL = tmp.appendingPathComponent("roonsage-update.sh")
+        // Every path is double-quoted in the script, so spaces are safe.
         let script = """
         #!/bin/bash
-        # Wait for the app process to exit
-        sleep 1
-        rm -rf '\(destApp.path)'
-        mv '\(stagingApp.path)' '\(destApp.path)'
-        xattr -dr com.apple.quarantine '\(destApp.path)' 2>/dev/null
-        open '\(destApp.path)'
-        """
-        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
-        try await runProcess("/bin/chmod", args: ["+x", scriptURL.path])
+        LOG="\(logPath)"
+        exec >>"$LOG" 2>&1
+        echo "===== RoonSage update $(date) ====="
+        DMG="\(dmgURL.path)"
+        DEST="\(destApp.path)"
+        MNT="\(mountPoint.path)"
 
-        // Launch the script detached (survives our process exit)
+        echo "Waiting for app (pid \(pid)) to quit…"
+        for _ in $(seq 1 100); do kill -0 \(pid) 2>/dev/null || break; sleep 0.1; done
+
+        rm -rf "$MNT"; mkdir -p "$MNT"
+        xattr -dr com.apple.quarantine "$DMG" 2>/dev/null
+        echo "Mounting $DMG"
+        if ! hdiutil attach "$DMG" -mountpoint "$MNT" -nobrowse -noautoopen -noverify -quiet; then
+            echo "ERROR: mount failed"; open "$DEST"; exit 1
+        fi
+
+        SRC="$MNT/RoonSage.app"
+        if [ ! -d "$SRC" ]; then
+            echo "ERROR: RoonSage.app not found in DMG"
+            hdiutil detach "$MNT" -quiet -force; open "$DEST"; exit 1
+        fi
+
+        echo "Copying new app to staging ($DEST.new)"
+        if ! ditto "$SRC" "$DEST.new"; then
+            echo "ERROR: copy failed"
+            hdiutil detach "$MNT" -quiet -force; open "$DEST"; exit 1
+        fi
+        hdiutil detach "$MNT" -quiet -force
+        xattr -dr com.apple.quarantine "$DEST.new" 2>/dev/null
+
+        echo "Swapping bundle (non-destructive)"
+        rm -rf "$DEST.old"
+        [ -d "$DEST" ] && mv "$DEST" "$DEST.old"
+        if ! mv "$DEST.new" "$DEST"; then
+            echo "ERROR: swap failed — restoring previous app"
+            [ -d "$DEST.old" ] && mv "$DEST.old" "$DEST"
+            open "$DEST"; exit 1
+        fi
+        rm -rf "$DEST.old"
+        xattr -dr com.apple.quarantine "$DEST" 2>/dev/null
+
+        echo "Relaunching $DEST"
+        open "$DEST" || echo "ERROR: open failed"
+        echo "Done."
+        """
+
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        // Launch fully detached (nohup + background) so it outlives our exit.
         let launcher = Process()
         launcher.executableURL = URL(fileURLWithPath: "/bin/bash")
-        launcher.arguments    = [scriptURL.path]
+        launcher.arguments = ["-c", "nohup bash '\(scriptURL.path)' >/dev/null 2>&1 &"]
         try launcher.run()
-
-        return destApp
-    }
-
-    private func relaunch(newAppURL: URL) {
-        // The shell script handles the open; we just need to quit.
-        #if canImport(AppKit)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            NSApp.terminate(nil)
-        }
-        #endif
-    }
-
-    private func runProcess(_ executable: String, args: [String], timeout: TimeInterval = 60) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                    let p = Process()
-                    p.executableURL = URL(fileURLWithPath: executable)
-                    p.arguments = args
-                    p.standardOutput = FileHandle.nullDevice
-                    p.standardError  = FileHandle.nullDevice
-                    p.terminationHandler = { proc in
-                        if proc.terminationStatus == 0 {
-                            cont.resume()
-                        } else {
-                            cont.resume(throwing: InstallError.processFailed(executable, proc.terminationStatus))
-                        }
-                    }
-                    do { try p.run() } catch { cont.resume(throwing: error) }
-                }
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                throw InstallError.processFailed(executable, -1)
-            }
-            // First to finish wins; cancel the other
-            try await group.next()!
-            group.cancelAll()
-        }
     }
 }
 
-// MARK: - Errors
-
-public enum InstallError: LocalizedError {
-    case appNotFoundInDMG
-    case replaceFailed(Error)
-    case processFailed(String, Int32)
-
-    public var errorDescription: String? {
-        switch self {
-        case .appNotFoundInDMG:
-            "RoonSage.app was not found in the downloaded update package."
-        case .replaceFailed(let e):
-            "Could not replace the existing app: \(e.localizedDescription)"
-        case .processFailed(let cmd, let code):
-            "\(URL(fileURLWithPath: cmd).lastPathComponent) failed (exit \(code))."
-        }
-    }
-}
