@@ -30,6 +30,15 @@ case "tag":
     let model = option("--model") ?? "qwen3.5:4b-mlx"
     await Tagger(store: store, ollamaURL: ollama, model: model).run()
 
+case "serve":
+    let dbPath = option("--db") ?? FeatureStore.defaultPath()
+    let store = try FeatureStore(path: dbPath)
+    let port = UInt16(option("--port") ?? "5766") ?? 5766
+    let server = try HTTPServer(port: port, store: store)   // retained for the loop's lifetime
+    try server.start()
+    print("Serving \(store.count()) tracks on http://0.0.0.0:\(port)/features  (Ctrl-C to stop)")
+    while true { try await Task.sleep(nanoseconds: 3_600_000_000_000) }
+
 case "stats":
     let dbPath = option("--db") ?? FeatureStore.defaultPath()
     let store = try FeatureStore(path: dbPath)

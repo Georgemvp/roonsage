@@ -108,6 +108,35 @@ final class FeatureStore {
         }
     }
 
+    /// All features as a JSON array (keyed by match_key) for the app to sync.
+    func exportJSON() -> Data {
+        let rows = (try? dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT match_key, artist, title, album, bpm, camelot, key_root, key_mode, energy, duration, tags
+                FROM track_features WHERE bpm IS NOT NULL
+            """)
+        }) ?? []
+        var arr: [[String: Any]] = []
+        arr.reserveCapacity(rows.count)
+        for r in rows {
+            var obj: [String: Any] = [
+                "match_key": r["match_key"] as String? ?? "",
+                "artist": r["artist"] as String? ?? "",
+                "title": r["title"] as String? ?? "",
+                "album": r["album"] as String? ?? "",
+                "bpm": r["bpm"] as Double? ?? 0,
+                "camelot": r["camelot"] as String? ?? "",
+                "key_root": r["key_root"] as String? ?? "",
+                "key_mode": r["key_mode"] as String? ?? "",
+                "energy": r["energy"] as Double? ?? 0,
+                "duration": r["duration"] as Double? ?? 0,
+            ]
+            if let tags = r["tags"] as String? { obj["tags"] = tags }
+            arr.append(obj)
+        }
+        return (try? JSONSerialization.data(withJSONObject: arr)) ?? Data("[]".utf8)
+    }
+
     private static func row(_ r: Row) -> TrackFeatureRow {
         TrackFeatureRow(
             matchKey: r["match_key"], artist: r["artist"], title: r["title"], album: r["album"], year: r["year"],
