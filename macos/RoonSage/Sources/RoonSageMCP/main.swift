@@ -13,7 +13,14 @@
 ///   get_albums          — search albums in the local library
 ///   filter_tracks       — filter library by genre/decade/artist/keywords → numbered list + session_id
 ///   curate_and_play     — play tracks from a filter session in a Roon zone
+///   validate_playlist   — check a filter session for curation quality
 ///   play_album          — play all tracks from an album by its album_key
+///   roon_adjust_volume  — relative volume change on an output
+///   roon_mute           — mute / unmute an output
+///   get_listening_history — recent plays from local history
+///   get_top_artists     — most-played artists
+///   get_taste_profile   — taste summary (plays, top artists, top genres)
+///   sync_library        — trigger a background library re-sync
 
 import Foundation
 @preconcurrency import RoonSageCore
@@ -117,8 +124,14 @@ final class MCPServer {
     private let decoder = JSONDecoder()
 
     func run() async {
-        await client.discoverAndConnect()
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        // Prefer the last-used host (works over ZeroTier/VPN where SOOD multicast
+        // discovery can't reach the Core); fall back to discovery on the LAN.
+        if let host = client.savedHost {
+            await client.connect(host: host, port: client.savedPort)
+        } else {
+            await client.discoverAndConnect()
+        }
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
 
         while let line = readLine(strippingNewline: true), !line.isEmpty {
             guard let data = line.data(using: .utf8),
@@ -370,9 +383,117 @@ final class MCPServer {
             }
             return lines.joined(separator: "\n")
 
+        // ── Listening history & taste ─────────────────────────────────────────
+
+        case "get_listening_history":
+            let limit = args["limit"]?.intValue ?? 30
+            let listens = client.recentListens(limit: min(limit, 200))
+            if listens.isEmpty { return "No listening history recorded yet." }
+            let lines = listens.map { e -> String in
+                var s = "• \(e.title)"
+                if let a = e.artist { s += " — \(a)" }
+                if let al = e.album { s += " [\(al)]" }
+                s += "  (\(e.playedAt)"
+                if let z = e.zoneName { s += " · \(z)" }
+                s += ")"
+                return s
+            }
+            return "Recent \(listens.count) listens:\n" + lines.joined(separator: "\n")
+
+        case "get_top_artists":
+            let limit = args["limit"]?.intValue ?? 20
+            let top = client.topArtistsListened(limit: min(limit, 100))
+            if top.isEmpty { return "No play history yet." }
+            return "Most-played artists:\n" + top.enumerated().map { i, a in
+                "\(i + 1). \(a.artist) — \(a.count) plays"
+            }.joined(separator: "\n")
+
+        case "get_taste_profile":
+            let total = client.totalListens()
+            let topArtists = client.topArtistsListened(limit: 10)
+            if total == 0 && topArtists.isEmpty {
+                return "No taste data yet — play some music through RoonSage first."
+            }
+            var lines = ["Taste profile (from \(total) logged plays):", ""]
+            if !topArtists.isEmpty {
+                lines.append("Top artists:")
+                for (i, a) in topArtists.enumerated() {
+                    lines.append("  \(i + 1). \(a.artist) — \(a.count) plays")
+                }
+            }
+            if let stats = client.libraryStats(), !stats.topGenres.isEmpty {
+                lines.append("")
+                lines.append("Library's top genres:")
+                for g in stats.topGenres.prefix(10) { lines.append("  \(g.genre): \(g.count) tracks") }
+            }
+            return lines.joined(separator: "\n")
+
+        // ── Volume extras ─────────────────────────────────────────────────────
+
+        case "roon_adjust_volume":
+            let outputID = try requireString(args, key: "output_id")
+            guard let delta = args["delta"]?.intValue else { throw ToolError.missingArg("delta") }
+            await client.adjustVolume(outputID: outputID, delta: delta)
+            return "Adjusted volume by \(delta)."
+
+        case "roon_mute":
+            let outputID = try requireString(args, key: "output_id")
+            let muted = args["muted"]?.boolValue ?? true
+            await client.toggleMute(outputID: outputID, muted: muted)
+            return muted ? "Muted." : "Unmuted."
+
+        // ── Library sync ──────────────────────────────────────────────────────
+
+        case "sync_library":
+            client.startSync()
+            return "Library sync started in the background. Call get_library_stats shortly to see the refreshed totals (including genres)."
+
+        // ── Playlist validation ───────────────────────────────────────────────
+
+        case "validate_playlist":
+            let sessionID = try requireString(args, key: "session_id")
+            let numbers = args["track_numbers"]?.arrayValue?.compactMap { $0.intValue } ?? []
+            let tracks = numbers.isEmpty
+                ? await sessions.all(sessionID: sessionID)
+                : await sessions.resolve(sessionID: sessionID, numbers: numbers)
+            if tracks.isEmpty { return "No tracks resolved from session \(sessionID). Run filter_tracks first." }
+            return validatePlaylist(tracks)
+
         default:
             throw ToolError.unknown(name)
         }
+    }
+
+    /// Curation-quality report: unique-artist ratio, album clustering, and
+    /// consecutive same-artist runs — mirrors the native curation guidelines.
+    private func validatePlaylist(_ tracks: [TrackRecord]) -> String {
+        let n = tracks.count
+        let artists = tracks.map { $0.artist ?? "Unknown" }
+        let uniqueArtists = Set(artists).count
+        let uniqueRatio = Double(uniqueArtists) / Double(n)
+
+        var albumCounts: [String: Int] = [:]
+        for t in tracks { albumCounts[t.album ?? "Unknown", default: 0] += 1 }
+        let maxPerAlbum = albumCounts.values.max() ?? 0
+        let clustered = albumCounts.filter { $0.value > 2 }.map { "\($0.key) (\($0.value))" }
+
+        var consecutive: Set<String> = []
+        for i in 1..<n where artists[i] == artists[i - 1] { consecutive.insert(artists[i]) }
+
+        var lines = ["Playlist validation (\(n) tracks):"]
+        lines.append("• Unique artists: \(uniqueArtists)/\(n) (\(Int(uniqueRatio * 100))%)"
+            + (uniqueRatio >= 0.8 ? " ✓" : " ⚠︎ aim for ≥80%"))
+        lines.append("• Max tracks from one album: \(maxPerAlbum)" + (maxPerAlbum <= 2 ? " ✓" : " ⚠︎ keep ≤2"))
+        if !clustered.isEmpty { lines.append("  Over-represented: \(clustered.joined(separator: ", "))") }
+        if consecutive.isEmpty {
+            lines.append("• No consecutive same-artist tracks ✓")
+        } else {
+            lines.append("• Consecutive same-artist: \(consecutive.sorted().joined(separator: ", ")) ⚠︎ reorder")
+        }
+        let ok = uniqueRatio >= 0.8 && maxPerAlbum <= 2 && consecutive.isEmpty
+        lines.append("")
+        lines.append(ok ? "Looks good — ready to curate_and_play." : "Consider adjusting before playing.")
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Tool definitions
@@ -462,6 +583,34 @@ final class MCPServer {
                     "track_numbers": arrInt("Track numbers from the filter_tracks list. Omit to play all.")
                  ],
                  required: ["session_id", "zone_id"]),
+
+            tool("validate_playlist",
+                 "Check a filter_tracks selection for curation quality before playing: unique-artist ratio (≥80%), max 2 tracks per album, and consecutive same-artist runs.",
+                 props: [
+                    "session_id":    str("session_id from filter_tracks."),
+                    "track_numbers": arrInt("Track numbers to validate. Omit to validate the whole session.")
+                 ],
+                 required: ["session_id"]),
+
+            tool("get_listening_history", "Recent tracks played through RoonSage, newest first.",
+                 props: ["limit": int_("Max entries (default 30, max 200).")]),
+
+            tool("get_top_artists", "Most-played artists from the local listening history.",
+                 props: ["limit": int_("Max artists (default 20, max 100).")]),
+
+            tool("get_taste_profile",
+                 "Summary of the user's taste: total plays, top played artists, and the library's dominant genres. Use this to bias curation toward what they actually listen to."),
+
+            tool("roon_adjust_volume", "Adjust an output's volume relative to its current level.",
+                 props: ["output_id": str("Output ID from roon_zones"), "delta": int_("Relative change, e.g. 5 or -5")],
+                 required: ["output_id", "delta"]),
+
+            tool("roon_mute", "Mute or unmute an output.",
+                 props: ["output_id": str("Output ID from roon_zones"), "muted": bool_("true to mute (default), false to unmute")],
+                 required: ["output_id"]),
+
+            tool("sync_library",
+                 "Trigger a background re-sync of the Roon library into the local cache (also refreshes genres). Returns immediately; totals update shortly after."),
         ]
     }
 
