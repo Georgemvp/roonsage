@@ -125,7 +125,27 @@ actor LibrarySyncService {
             ))
         }
 
-        // 8. Record sync timestamp
+        // 8. Genre pass — walk the Roon `genres` hierarchy and map albums → genres.
+        //    Non-fatal: a failure here still leaves a fully-synced track library.
+        if !isCancelled {
+            onProgress(Progress(phase: "Syncing genres…", albumsCompleted: totalAlbums, albumsTotal: totalAlbums, tracksFound: tracksFound))
+            let genreSession = "genre_sync_\(Int(Date().timeIntervalSince1970))"
+            do {
+                let mapping = try await browse.genreMapping(sessionKey: genreSession) { done, total in
+                    onProgress(Progress(
+                        phase: "Syncing genres… (\(done)/\(total))",
+                        albumsCompleted: totalAlbums, albumsTotal: totalAlbums, tracksFound: tracksFound
+                    ))
+                }
+                if !mapping.isEmpty {
+                    try database.applyGenreMapping(mapping)
+                }
+            } catch {
+                // Genre taxonomy unavailable — tracks are still usable without it.
+            }
+        }
+
+        // 9. Record sync timestamp
         try database.setSyncState(key: "last_sync", value: ISO8601DateFormatter().string(from: Date()))
 
         return tracksFound

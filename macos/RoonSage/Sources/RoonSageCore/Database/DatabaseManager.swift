@@ -68,6 +68,46 @@ public final class DatabaseManager: Sendable {
         }
     }
 
+    // MARK: - Genres
+
+    /// Rebuild `track_genres` from an albumTitle(lowercased) → [genre] mapping.
+    /// Tracks are matched to genres by lowercased album title (mirrors the Python
+    /// genre sync). Builds an in-memory albumLower → [trackId] index once to avoid
+    /// a full table scan per album.
+    public func applyGenreMapping(_ mapping: [String: [String]]) throws {
+        try pool.write { db in
+            try db.execute(sql: "DELETE FROM track_genres")
+
+            var albumToTracks: [String: [String]] = [:]
+            let rows = try Row.fetchAll(db, sql: "SELECT id, album FROM tracks WHERE album IS NOT NULL")
+            for row in rows {
+                guard let id = row["id"] as String?, !id.isEmpty else { continue }
+                let albumLower = (row["album"] as String? ?? "")
+                    .trimmingCharacters(in: .whitespaces).lowercased()
+                guard !albumLower.isEmpty else { continue }
+                albumToTracks[albumLower, default: []].append(id)
+            }
+
+            for (albumLower, genres) in mapping {
+                guard let trackIds = albumToTracks[albumLower] else { continue }
+                for trackId in trackIds {
+                    for genre in genres {
+                        try db.execute(
+                            sql: "INSERT OR IGNORE INTO track_genres (track_id, genre) VALUES (?, ?)",
+                            arguments: [trackId, genre]
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    public func genreCount() throws -> Int {
+        try pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(DISTINCT genre) FROM track_genres") ?? 0
+        }
+    }
+
     // MARK: - Listening history
 
     public func logListen(title: String, artist: String?, album: String?, zoneID: String, zoneName: String) throws {
