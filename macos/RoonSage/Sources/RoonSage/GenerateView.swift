@@ -19,6 +19,10 @@ private let templates: [PlaylistTemplate] = [
     .init(name: "Road Trip",       icon: "car.fill",               prompt: "Feel-good, energetic tracks perfect for a long road trip"),
     .init(name: "Dinner Party",    icon: "fork.knife",             prompt: "Sophisticated, tasteful background music for a dinner party"),
     .init(name: "Throwback",       icon: "clock.arrow.circlepath", prompt: "Classic nostalgic tracks from past decades"),
+    .init(name: "Chill",           icon: "leaf",                   prompt: "Laid-back, downtempo tracks to unwind to"),
+    .init(name: "Rainy Day",       icon: "cloud.rain",             prompt: "Wistful, introspective songs for a grey rainy day"),
+    .init(name: "Summer",          icon: "beach.umbrella",         prompt: "Sunny, breezy feel-good tracks for summer"),
+    .init(name: "Jazz Café",       icon: "music.quarternote.3",    prompt: "Smooth jazz and soul for a relaxed café atmosphere"),
 ]
 
 // MARK: - View
@@ -31,7 +35,11 @@ struct GenerateView: View {
     @State private var targetCount  = 20
     @State private var selectedZoneID: String? = nil
     @State private var isGenerating = false
+    @State private var phase        = ""
     @State private var generatedTracks: [TrackRecord] = []
+    @State private var analysisSummary: String? = nil
+    @State private var playlistName = ""
+    @State private var justSaved    = false
     @State private var errorMessage: String? = nil
 
     var body: some View {
@@ -112,7 +120,10 @@ struct GenerateView: View {
                               || isGenerating
                               || selectedZoneID == nil)
 
-                    if isGenerating { ProgressView().controlSize(.small) }
+                    if isGenerating {
+                        ProgressView().controlSize(.small)
+                        Text(phase).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
 
                 if let err = errorMessage {
@@ -126,8 +137,13 @@ struct GenerateView: View {
                     Divider()
 
                     HStack {
-                        Text("Generated — \(generatedTracks.count) tracks")
-                            .font(.headline)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Generated — \(generatedTracks.count) tracks")
+                                .font(.headline)
+                            if let summary = analysisSummary {
+                                Text(summary).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
                         Spacer()
                         Button {
                             if let zoneID = selectedZoneID {
@@ -137,6 +153,22 @@ struct GenerateView: View {
                             Label("Play again", systemImage: "play.fill")
                         }
                         .buttonStyle(.bordered)
+                    }
+
+                    // Save as local playlist
+                    HStack(spacing: 8) {
+                        TextField("Playlist name", text: $playlistName)
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            let name = playlistName.trimmingCharacters(in: .whitespaces)
+                            guard !name.isEmpty else { return }
+                            _ = client.savePlaylist(name: name, tracks: generatedTracks)
+                            justSaved = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { justSaved = false }
+                        } label: {
+                            Label(justSaved ? "Saved!" : "Save playlist", systemImage: "square.and.arrow.down")
+                        }
+                        .disabled(playlistName.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
 
                     ForEach(Array(generatedTracks.enumerated()), id: \.offset) { i, t in
@@ -170,24 +202,39 @@ struct GenerateView: View {
         }
     }
 
-    // MARK: - Generation logic
+    // MARK: - Generation logic (analyze → filter → generate)
 
     private func generate() async {
         isGenerating = true
         errorMessage = nil
         generatedTracks = []
-        defer { isGenerating = false }
+        analysisSummary = nil
+        justSaved = false
+        defer { isGenerating = false; phase = "" }
 
-        var opts = DatabaseManager.FilterOptions()
-        opts.limit = 300
-        let tracks = client.filterTracks(options: opts)
+        let request = prompt.trimmingCharacters(in: .whitespaces)
+        let config = LLMConfigStore.load()
 
-        guard !tracks.isEmpty else {
-            errorMessage = "Library is empty — sync your library first."
+        // Stage 1 — analyse the request into genre/decade filters so the LLM
+        // sees RELEVANT tracks (not just the first 300 alphabetically).
+        phase = "Analysing…"
+        let analysis = await analyzeRequest(request, config: config)
+
+        // Stage 2 — build a varied candidate pool from the filtered library.
+        phase = "Selecting candidates…"
+        let candidates = buildCandidates(
+            genres: analysis.genres, decades: analysis.decades,
+            keywords: analysis.keywords, target: targetCount
+        )
+        guard !candidates.isEmpty else {
+            errorMessage = "No matching tracks — sync your library, or try a broader request."
             return
         }
+        analysisSummary = summarise(analysis, poolSize: candidates.count)
 
-        let list = tracks.enumerated().map { i, t -> String in
+        // Stage 3 — curate the final selection.
+        phase = "Curating…"
+        let list = candidates.enumerated().map { i, t -> String in
             var s = "\(i + 1). \(t.title)"
             if let a = t.artist { s += " — \(a)" }
             if let y = t.year   { s += " (\(y))" }
@@ -201,27 +248,107 @@ struct GenerateView: View {
         Return ONLY the track numbers separated by commas — no explanation, no extra text. \
         Example: 3, 17, 42, 8, 91
         """
-        let user = "Request: \(prompt.trimmingCharacters(in: .whitespaces))\n\nAvailable tracks:\n\(list)"
+        let user = "Request: \(request)\n\nAvailable tracks:\n\(list)"
 
-        let config = LLMConfigStore.load()
         do {
             let response = try await LLMClient.shared.complete(system: system, user: user, config: config)
-            let numbers  = parseNumbers(from: response, max: tracks.count)
+            let numbers  = parseNumbers(from: response, max: candidates.count)
             guard !numbers.isEmpty else {
                 errorMessage = "Could not parse track numbers from response — try again."
                 return
             }
             let selected = numbers.compactMap { n -> TrackRecord? in
-                guard n >= 1, n <= tracks.count else { return nil }
-                return tracks[n - 1]
+                guard n >= 1, n <= candidates.count else { return nil }
+                return candidates[n - 1]
             }
             generatedTracks = selected
+            if playlistName.isEmpty { playlistName = suggestedName(request) }
             if let zoneID = selectedZoneID {
                 await client.curateTracks(selected, zoneID: zoneID)
             }
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private struct Analysis { var genres: [String]; var decades: [Int]; var keywords: String }
+
+    /// LLM stage 1: map the request to genres (chosen from the library's actual
+    /// genres) + decades + keywords. Degrades gracefully to no filter.
+    private func analyzeRequest(_ request: String, config: LLMConfig) async -> Analysis {
+        let available = (client.libraryStats()?.topGenres.map { $0.genre }) ?? []
+        guard !available.isEmpty else { return Analysis(genres: [], decades: [], keywords: "") }
+
+        let genreList = available.prefix(40).joined(separator: ", ")
+        let system = """
+        You map a music playlist request to library filters. \
+        Respond with ONLY a JSON object, no prose: \
+        {"genres": [], "decades": [], "keywords": ""} \
+        - genres: 0-6 names chosen EXACTLY from the available list that fit the request's mood/style. Empty = no genre constraint. \
+        - decades: 0-3 decade start years like 1980 if an era is implied, else []. \
+        - keywords: short extra search terms for title/artist, or "". \
+        Available genres: \(genreList)
+        """
+        guard let resp = try? await LLMClient.shared.complete(system: system, user: "Request: \(request)", config: config),
+              let obj = extractJSON(resp) else {
+            return Analysis(genres: [], decades: [], keywords: "")
+        }
+
+        var canonical: [String: String] = [:]
+        for g in available { canonical[g.lowercased()] = g }
+        let genres = (obj["genres"] as? [Any])?
+            .compactMap { ($0 as? String)?.lowercased() }
+            .compactMap { canonical[$0] } ?? []
+        let decades = (obj["decades"] as? [Any])?
+            .compactMap { ($0 as? Int) ?? Int(String(describing: $0)) } ?? []
+        let keywords = (obj["keywords"] as? String) ?? ""
+        return Analysis(genres: genres, decades: decades, keywords: keywords)
+    }
+
+    /// Filter the library by the analysed criteria, broadening if too sparse,
+    /// then shuffle so the LLM sees a varied sample rather than an A→Z slice.
+    private func buildCandidates(genres: [String], decades: [Int], keywords: String, target: Int) -> [TrackRecord] {
+        let minPool = max(target * 3, 40)
+        var opts = DatabaseManager.FilterOptions()
+        opts.genres = genres
+        opts.decades = decades
+        opts.keywords = keywords
+        opts.limit = 3000
+
+        var pool = client.filterTracks(options: opts)
+        if pool.count < minPool, !keywords.isEmpty {
+            opts.keywords = ""; pool = client.filterTracks(options: opts)
+        }
+        if pool.count < minPool, !decades.isEmpty {
+            opts.decades = []; pool = client.filterTracks(options: opts)
+        }
+        if pool.count < minPool, !genres.isEmpty {
+            opts.genres = []; pool = client.filterTracks(options: opts)
+        }
+        pool.shuffle()
+        return Array(pool.prefix(400))
+    }
+
+    private func summarise(_ a: Analysis, poolSize: Int) -> String {
+        var parts: [String] = []
+        if !a.genres.isEmpty  { parts.append(a.genres.joined(separator: ", ")) }
+        if !a.decades.isEmpty { parts.append(a.decades.sorted().map { "\($0)s" }.joined(separator: ", ")) }
+        let scope = parts.isEmpty ? "whole library" : parts.joined(separator: " · ")
+        return "From \(scope) (\(poolSize) candidates)"
+    }
+
+    private func suggestedName(_ request: String) -> String {
+        let trimmed = request.prefix(48).trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Generated playlist" : String(trimmed)
+    }
+
+    private func extractJSON(_ text: String) -> [String: Any]? {
+        let clean = text.replacingOccurrences(
+            of: #"<think>[\s\S]*?</think>"#, with: "", options: .regularExpression
+        )
+        guard let start = clean.firstIndex(of: "{"), let end = clean.lastIndex(of: "}"), start < end else { return nil }
+        let json = String(clean[start...end])
+        return (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]
     }
 
     private func parseNumbers(from text: String, max: Int) -> [Int] {
