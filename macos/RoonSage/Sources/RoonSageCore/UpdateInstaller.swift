@@ -140,7 +140,14 @@ public final class UpdateInstaller {
         MNT="\(mountPoint.path)"
 
         echo "Waiting for app (pid \(pid)) to quit…"
-        for _ in $(seq 1 100); do kill -0 \(pid) 2>/dev/null || break; sleep 0.1; done
+        for _ in $(seq 1 30); do kill -0 \(pid) 2>/dev/null || break; sleep 0.1; done
+        if kill -0 \(pid) 2>/dev/null; then
+            echo "Still running after grace period — force-terminating so the swap + relaunch can complete"
+            kill \(pid) 2>/dev/null
+            for _ in $(seq 1 20); do kill -0 \(pid) 2>/dev/null || break; sleep 0.1; done
+            kill -9 \(pid) 2>/dev/null
+            sleep 0.3
+        fi
 
         rm -rf "$MNT"; mkdir -p "$MNT"
         xattr -dr com.apple.quarantine "$DMG" 2>/dev/null
