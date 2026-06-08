@@ -1,0 +1,66 @@
+import Foundation
+
+/// Tempo (BPM) estimation: spectral-flux onset envelope → autocorrelation peak.
+public struct TempoAnalyzer {
+
+    public static func bpm(
+        _ samples: [Float],
+        sampleRate: Double,
+        frameSize: Int = 1024,
+        hop: Int = 512
+    ) -> (bpm: Double, confidence: Double) {
+        guard samples.count > frameSize * 8 else { return (0, 0) }
+
+        let fft = RealFFT(size: frameSize)
+        let window = hannWindow(frameSize)
+        let half = frameSize / 2
+
+        var prev = [Float](repeating: 0, count: half)
+        var onset: [Float] = []
+        onset.reserveCapacity(samples.count / hop + 1)
+        var frame = [Float](repeating: 0, count: frameSize)
+
+        var i = 0
+        while i + frameSize <= samples.count {
+            for j in 0..<frameSize { frame[j] = samples[i + j] * window[j] }
+            let mag = fft.magnitudes(frame)
+            var flux: Float = 0
+            for j in 0..<half {
+                let d = mag[j] - prev[j]
+                if d > 0 { flux += d }
+            }
+            onset.append(flux)
+            prev = mag
+            i += hop
+        }
+
+        // Detrend: half-wave rectify around the mean.
+        let mean = onset.reduce(0, +) / Float(max(onset.count, 1))
+        let env = onset.map { max(0, $0 - mean) }
+
+        let onsetSR = sampleRate / Double(hop)
+        let minBpm = 60.0, maxBpm = 200.0
+        let minLag = max(1, Int((onsetSR * 60.0 / maxBpm).rounded()))
+        let maxLag = min(env.count - 1, Int((onsetSR * 60.0 / minBpm).rounded()))
+        guard maxLag > minLag else { return (0, 0) }
+
+        var bestLag = minLag
+        var bestVal: Float = -1
+        var total: Float = 0
+        for lag in minLag...maxLag {
+            var sum: Float = 0
+            var k = 0
+            let limit = env.count - lag
+            while k < limit { sum += env[k] * env[k + lag]; k += 1 }
+            total += sum
+            if sum > bestVal { bestVal = sum; bestLag = lag }
+        }
+
+        var bpm = 60.0 * onsetSR / Double(bestLag)
+        while bpm < 70 { bpm *= 2 }
+        while bpm >= 180 { bpm /= 2 }
+
+        let confidence = total > 0 ? min(1.0, Double(bestVal / total) * Double(maxLag - minLag) / 4.0) : 0
+        return ((bpm * 10).rounded() / 10, confidence)
+    }
+}

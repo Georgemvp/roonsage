@@ -6,8 +6,10 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "RoonSageCore", targets: ["RoonSageCore"]),
+        .library(name: "AudioAnalysis", targets: ["AudioAnalysis"]),
         .executable(name: "RoonSage", targets: ["RoonSage"]),
         .executable(name: "roonsage-mcp", targets: ["RoonSageMCP"]),
+        .executable(name: "roonsage-analyzer", targets: ["RoonSageAnalyzer"]),
     ],
     dependencies: [
         .package(path: "../RoonProtocol"),
@@ -31,6 +33,15 @@ let package = Package(
             name: "RoonSageMCP",
             dependencies: ["RoonSageCore"],
             path: "Sources/RoonSageMCP"
+        ),
+        .target(
+            name: "AudioAnalysis",
+            path: "Sources/AudioAnalysis"
+        ),
+        .executableTarget(
+            name: "RoonSageAnalyzer",
+            dependencies: ["AudioAnalysis"],
+            path: "Sources/RoonSageAnalyzer"
         ),
         .testTarget(
             name: "RoonSageCoreTests",
