@@ -40,7 +40,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "RoonSageAnalyzer",
-            dependencies: ["AudioAnalysis"],
+            dependencies: [
+                "AudioAnalysis",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
             path: "Sources/RoonSageAnalyzer"
         ),
         .testTarget(

@@ -1,26 +1,58 @@
 import AudioAnalysis
 import Foundation
 
-let args = CommandLine.arguments
-guard args.count >= 2 else {
-    print("usage: roonsage-analyzer <audiofile> [<audiofile> …]")
-    exit(1)
+setvbuf(stdout, nil, _IOLBF, 0)   // line-buffered so progress shows when piped
+
+func option(_ name: String) -> String? {
+    let a = CommandLine.arguments
+    if let i = a.firstIndex(of: name), i + 1 < a.count { return a[i + 1] }
+    return nil
 }
 
-for path in args.dropFirst() {
-    let url = URL(fileURLWithPath: path)
-    do {
-        let t0 = Date()
-        let f = try AudioAnalyzer.analyze(url: url)
-        let dt = Date().timeIntervalSince(t0)
-        print(String(
-            format: "%-50@  BPM %6.1f (%.2f)  %@ %-5@ [%@]  energy %.3f  %.1fs  (%.2fs)",
-            url.lastPathComponent as NSString,
-            f.bpm, f.bpmConfidence,
-            f.keyRoot as NSString, f.keyMode as NSString, f.camelot as NSString,
-            f.energy, f.durationSec, dt
-        ))
-    } catch {
-        print("\(url.lastPathComponent): error \(error)")
+let args = CommandLine.arguments
+let command = args.count >= 2 ? args[1] : ""
+
+switch command {
+case "analyze":
+    guard args.count >= 3 else {
+        print("usage: roonsage-analyzer analyze <musicdir> [--db <path>] [--workers N]"); exit(1)
+    }
+    let dbPath = option("--db") ?? FeatureStore.defaultPath()
+    let store = try FeatureStore(path: dbPath)
+    let workers = option("--workers").flatMap { Int($0) } ?? max(2, ProcessInfo.processInfo.activeProcessorCount - 1)
+    print("DB: \(dbPath)")
+    await LibraryWalker(store: store, concurrency: workers).run(musicDir: args[2])
+
+case "tag":
+    let dbPath = option("--db") ?? FeatureStore.defaultPath()
+    let store = try FeatureStore(path: dbPath)
+    let ollama = option("--ollama") ?? "http://127.0.0.1:11434"
+    let model = option("--model") ?? "qwen3.5:4b-mlx"
+    await Tagger(store: store, ollamaURL: ollama, model: model).run()
+
+case "stats":
+    let dbPath = option("--db") ?? FeatureStore.defaultPath()
+    let store = try FeatureStore(path: dbPath)
+    print("DB: \(dbPath)\n  tracks: \(store.count())\n  tagged: \(store.taggedCount())")
+
+case "":
+    print("""
+    usage: roonsage-analyzer <command>
+      analyze <musicdir> [--db path] [--workers N]   walk + analyze + store
+      tag [--db path] [--ollama url] [--model name]   LLM-tag stored tracks
+      stats [--db path]                               show counts
+      <audiofile> …                                   analyze single file(s)
+    """)
+    exit(1)
+
+default:
+    for path in args.dropFirst() {
+        let url = URL(fileURLWithPath: path)
+        let meta = MetadataReader.read(url: url)
+        if let f = try? AudioAnalyzer.analyze(url: url) {
+            print("\(url.lastPathComponent): \(meta.artist ?? "?") — \(meta.title ?? "?")  BPM \(f.bpm) \(f.keyRoot) \(f.keyMode) [\(f.camelot)] energy \(String(format: "%.3f", f.energy))")
+        } else {
+            print("\(url.lastPathComponent): analysis failed")
+        }
     }
 }
