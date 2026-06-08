@@ -25,6 +25,11 @@ struct SettingsView: View {
     @State private var qbBusy = false
     @State private var qbStatus: String = ""
 
+    // Audio analyzer
+    @State private var analyzerURL: String = ""
+    @State private var afBusy = false
+    @State private var afStatus: String = ""
+
     // LLM
     @State private var llmProvider: LLMConfig.Provider = .ollama
     @State private var llmBaseURL:  String = "http://localhost:11434"
@@ -194,6 +199,24 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            // Audio analyzer
+            Section("Audio Analyzer (BPM / key / tags)") {
+                LabeledContent("Analyzer URL") {
+                    TextField("http://10.94.184.22:5766", text: $analyzerURL)
+                        .textFieldStyle(.roundedBorder)
+                }
+                let stats = client.audioFeaturesStats()
+                LabeledContent("Synced features", value: "\(stats.matched) matched / \(stats.total) total")
+                Button(afBusy ? "Syncing…" : "Save & sync features") { Task { await syncAnalyzer() } }
+                    .disabled(afBusy || analyzerURL.isEmpty)
+                if !afStatus.isEmpty {
+                    Text(afStatus).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Pulls BPM, Camelot key, energy and LLM tags from the analyzer running on your music host. Used for DJ sets and tag-based curation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // About
             Section("About") {
                 LabeledContent("Version", value: appVersion)
@@ -213,6 +236,7 @@ struct SettingsView: View {
             lfConnected = !(KeychainStore.load(key: "lastfm_session_key") ?? "").isEmpty
             qbEmail    = KeychainStore.load(key: "qobuz_email") ?? ""
             qbPassword = KeychainStore.load(key: "qobuz_password") ?? ""
+            analyzerURL = client.analyzerURL
             let cfg = LLMConfigStore.load()
             llmProvider = cfg.provider
             llmBaseURL  = cfg.baseURL
@@ -239,6 +263,20 @@ struct SettingsView: View {
         LLMConfigStore.save(LLMConfig(provider: llmProvider, baseURL: llmBaseURL, model: llmModel, apiKey: llmApiKey))
         llmSaved = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { llmSaved = false }
+    }
+
+    // MARK: - Audio analyzer
+
+    private func syncAnalyzer() async {
+        afBusy = true; defer { afBusy = false }
+        let url = analyzerURL.trimmingCharacters(in: .whitespaces)
+        client.analyzerURL = url
+        afStatus = "Fetching features…"
+        if let r = await client.syncAudioFeatures(from: url) {
+            afStatus = "Synced \(r.received) features — \(r.matched) matched to your library."
+        } else {
+            afStatus = "Could not reach the analyzer at \(url). Is `roonsage-analyzer serve` running?"
+        }
     }
 
     // MARK: - Qobuz

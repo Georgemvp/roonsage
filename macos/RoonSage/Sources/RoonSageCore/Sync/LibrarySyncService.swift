@@ -1,3 +1,4 @@
+import AudioAnalysis
 import Foundation
 
 /// Walks the Roon Browse hierarchy (Root→Library→Albums→tracks) and
@@ -109,7 +110,8 @@ actor LibrarySyncService {
                     album: album.title,
                     albumKey: albumKey,
                     year: year,
-                    isLive: isLive
+                    isLive: isLive,
+                    matchKey: TrackIdentity.matchKey(artist: artist, album: album.title, title: item.title)
                 ))
             }
 

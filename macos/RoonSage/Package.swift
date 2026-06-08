@@ -19,6 +19,7 @@ let package = Package(
         .target(
             name: "RoonSageCore",
             dependencies: [
+                "AudioAnalysis",
                 .product(name: "RoonProtocol", package: "RoonProtocol"),
                 .product(name: "GRDB", package: "GRDB.swift"),
             ]

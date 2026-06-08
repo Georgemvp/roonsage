@@ -460,6 +460,52 @@ public final class DatabaseManager: Sendable {
         }
     }
 
+    // MARK: - Audio features (synced from the native analyzer)
+
+    public struct AudioFeatureRow: Sendable {
+        public var matchKey: String
+        public var bpm: Double?
+        public var camelot: String?
+        public var keyRoot: String?
+        public var keyMode: String?
+        public var energy: Double?
+        public var duration: Double?
+        public var tags: String?
+        public init(matchKey: String, bpm: Double?, camelot: String?, keyRoot: String?,
+                    keyMode: String?, energy: Double?, duration: Double?, tags: String?) {
+            self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot; self.keyRoot = keyRoot
+            self.keyMode = keyMode; self.energy = energy; self.duration = duration; self.tags = tags
+        }
+    }
+
+    public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) throws {
+        let iso = ISO8601DateFormatter().string(from: Date())
+        try pool.write { db in
+            for r in rows {
+                try db.execute(sql: """
+                    INSERT INTO track_audio_features
+                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, synced_at)
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(match_key) DO UPDATE SET
+                      bpm=excluded.bpm, camelot=excluded.camelot, key_root=excluded.key_root,
+                      key_mode=excluded.key_mode, energy=excluded.energy, duration=excluded.duration,
+                      tags=excluded.tags, synced_at=excluded.synced_at
+                """, arguments: [r.matchKey, r.bpm, r.camelot, r.keyRoot, r.keyMode, r.energy, r.duration, r.tags, iso])
+            }
+        }
+    }
+
+    /// (features stored, tracks in the library that have a matching feature).
+    public func audioFeaturesStats() throws -> (total: Int, matched: Int) {
+        try pool.read { db in
+            let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_audio_features") ?? 0
+            let matched = try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
+            """) ?? 0
+            return (total, matched)
+        }
+    }
+
     // MARK: - Sync state
 
     public func syncStateValue(forKey key: String) throws -> String? {

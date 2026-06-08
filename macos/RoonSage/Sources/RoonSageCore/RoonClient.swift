@@ -327,6 +327,41 @@ public final class RoonClient {
         return Array(albums.prefix(limit))
     }
 
+    // MARK: - Audio features (synced from the native analyzer)
+
+    public var analyzerURL: String {
+        get { UserDefaults.standard.string(forKey: "analyzer_url") ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: "analyzer_url") }
+    }
+
+    public func audioFeaturesStats() -> (total: Int, matched: Int) {
+        (try? database?.audioFeaturesStats()) ?? (0, 0)
+    }
+
+    /// Pull all features from the analyzer's HTTP endpoint and upsert them.
+    /// Returns (rows received, library tracks now matched), or nil on failure.
+    public func syncAudioFeatures(from baseURL: String) async -> (received: Int, matched: Int)? {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
+        guard let url = URL(string: "\(trimmed)/features"),
+              let (data, resp) = try? await URLSession.shared.data(from: url),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
+
+        let rows = arr.compactMap { o -> DatabaseManager.AudioFeatureRow? in
+            guard let mk = o["match_key"] as? String, !mk.isEmpty else { return nil }
+            return DatabaseManager.AudioFeatureRow(
+                matchKey: mk,
+                bpm: o["bpm"] as? Double, camelot: o["camelot"] as? String,
+                keyRoot: o["key_root"] as? String, keyMode: o["key_mode"] as? String,
+                energy: o["energy"] as? Double, duration: o["duration"] as? Double,
+                tags: o["tags"] as? String
+            )
+        }
+        try? database?.upsertAudioFeatures(rows)
+        let stats = audioFeaturesStats()
+        return (rows.count, stats.matched)
+    }
+
     // MARK: - Discovery sections
 
     public func undiscoveredAlbums(limit: Int = 16) -> [DatabaseManager.AlbumResult] {

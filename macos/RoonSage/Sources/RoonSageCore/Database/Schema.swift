@@ -69,6 +69,28 @@ enum Schema {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_playlist_tracks_pl ON playlist_tracks(playlist_id, position)")
         }
 
+        migrator.registerMigration("v4_audio_features") { db in
+            // Content match key on tracks → join to externally-analyzed features
+            // (survives resyncs; populated during sync).
+            try db.alter(table: "tracks") { t in
+                t.add(column: "match_key", .text)
+            }
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_tracks_match_key ON tracks(match_key)")
+
+            // Audio features synced from the native analyzer, keyed by match_key.
+            try db.create(table: "track_audio_features", ifNotExists: true) { t in
+                t.primaryKey("match_key", .text)
+                t.column("bpm",       .double)
+                t.column("camelot",   .text)
+                t.column("key_root",  .text)
+                t.column("key_mode",  .text)
+                t.column("energy",    .double)
+                t.column("duration",  .double)
+                t.column("tags",      .text)      // JSON array
+                t.column("synced_at", .text)
+            }
+        }
+
         try migrator.migrate(db)
     }
 }
