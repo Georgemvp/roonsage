@@ -262,6 +262,25 @@ final class MCPServer {
             }
             return "Found \(tracks.count) track(s):\n" + lines.joined(separator: "\n")
 
+        // ── Qobuz / global search ─────────────────────────────────────────────
+
+        case "search_qobuz":
+            let query = try requireString(args, key: "query")
+            let limit = args["limit"]?.intValue ?? 20
+            let tracks = await client.searchQobuz(query: query, limit: min(limit, 50))
+            if tracks.isEmpty { return "No Qobuz results for '\(query)'. Roon's Qobuz search may be unavailable or the query had no matches." }
+            let sessionID = await sessions.store(tracks)
+            var lines = ["Found \(tracks.count) Qobuz tracks (session_id: \(sessionID)):", ""]
+            for (i, t) in tracks.enumerated() {
+                var s = "\(i + 1). \(t.title)"
+                if let a = t.artist { s += " — \(a)" }
+                if let al = t.album { s += " [\(al)]" }
+                lines.append(s)
+            }
+            lines.append("")
+            lines.append("Play with curate_and_play(session_id, zone_id, track_numbers).")
+            return lines.joined(separator: "\n")
+
         // ── Album search ─────────────────────────────────────────────────────
 
         case "get_albums":
@@ -583,6 +602,14 @@ final class MCPServer {
 
             tool("roon_search_library", "Quick search the local track database by title, artist, or album.",
                  props: ["query": str("Search query")]),
+
+            tool("search_qobuz",
+                 "Search Qobuz (Roon global search) for tracks NOT in the local library. Returns a numbered list + session_id; play with curate_and_play (same as filter_tracks). Use for hybrid curation: combine library filter_tracks results with Qobuz finds.",
+                 props: [
+                    "query": str("Search query, e.g. \"Khruangbin Maria Tambien\"."),
+                    "limit": int_("Max results (default 20, max 50).")
+                 ],
+                 required: ["query"]),
 
             tool("get_albums", "Search albums in the local library. Returns album_key values needed for play_album.",
                  props: ["query": str("Optional search query matched against album name and artist. Omit to list all albums.")]),

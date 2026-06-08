@@ -260,6 +260,19 @@ public final class RoonClient {
         (try? database?.searchAlbums(query: query)) ?? []
     }
 
+    // MARK: - Qobuz / global search
+
+    /// Search Qobuz (via Roon global search). Returns tracks whose `id` is a
+    /// synthetic `qobuz_search::` key; `curateTracks`/`playByBrowse` re-resolve
+    /// it with a fresh search at play time.
+    public func searchQobuz(query: String, limit: Int = 20) async -> [TrackRecord] {
+        guard let bs = browseService else { return [] }
+        let results = (try? await bs.searchGlobal(query: query, limit: limit)) ?? []
+        return results.map {
+            TrackRecord(id: $0.syntheticKey, title: $0.title, artist: $0.artist, album: $0.album)
+        }
+    }
+
     // MARK: - Saved playlists
 
     @discardableResult

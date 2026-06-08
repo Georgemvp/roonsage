@@ -105,6 +105,17 @@ actor BrowseService {
     /// Play a library item by its browse item_key.
     /// action: "play_now" | "queue" | "add_next"
     func playByBrowse(itemKey: String, zoneID: String, action: String = "play_now") async throws {
+        // Synthetic Qobuz key from a global search — the real search item_keys are
+        // ephemeral, so re-issue a fresh search at play time (mirrors the Python
+        // `qobuz_search::` handling in roon_playback.play_tracks).
+        if itemKey.hasPrefix(Self.qobuzSearchPrefix) {
+            let parts = itemKey.components(separatedBy: "::")
+            let artist = parts.count > 1 ? (parts[1].removingPercentEncoding ?? parts[1]) : ""
+            let title  = parts.count > 2 ? (parts[2].removingPercentEncoding ?? parts[2]) : ""
+            _ = try? await playViaSearch(artist: artist, title: title, zoneID: zoneID, action: action)
+            return
+        }
+
         let sessionKey = "curate_\(zoneID)"
         let resp = try await browseForPlayback(itemKey: itemKey, zoneID: zoneID, sessionKey: sessionKey)
 
@@ -196,5 +207,115 @@ actor BrowseService {
             onProgress?(idx + 1, genreNames.count)
         }
         return mapping
+    }
+
+    // MARK: - Qobuz / global search
+
+    static let qobuzSearchPrefix = "qobuz_search::"
+
+    struct SearchResult: Sendable {
+        let title: String
+        let artist: String?
+        let album: String?
+        /// `qobuz_search::<enc-artist>::<enc-title>` — re-resolved at play time.
+        let syntheticKey: String
+    }
+
+    private static let trackSectionWords = ["track", "song", "nummer", "titre", "titel"]
+
+    private func isTrackSection(_ title: String) -> Bool {
+        let t = title.lowercased()
+        return Self.trackSectionWords.contains { t.contains($0) }
+    }
+
+    private func encodeKeyPart(_ s: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
+    }
+
+    /// One step of a `hierarchy: "search"` browse. `input` triggers a fresh
+    /// search (with `pop_all`); `itemKey` navigates into a result.
+    @discardableResult
+    private func searchStep(input: String? = nil, itemKey: String? = nil, zoneID: String? = nil, sessionKey: String) async throws -> [String: Any] {
+        var body: [String: Any] = ["hierarchy": "search", "multi_session_key": sessionKey]
+        if let input { body["input"] = input; body["pop_all"] = true }
+        if let itemKey { body["item_key"] = itemKey }
+        if let zoneID { body["zone_or_output_id"] = zoneID }
+        return try await transport.request("\(RoonService.browse)/browse", body: body)
+    }
+
+    private func searchLoad(sessionKey: String, count: Int) async throws -> [Item] {
+        try await load(hierarchy: "search", sessionKey: sessionKey, offset: 0, count: count)
+    }
+
+    /// Global Roon search (covers Qobuz). Returns tracks carrying synthetic keys
+    /// so playback re-searches instead of trusting the ephemeral search key.
+    func searchGlobal(query: String, limit: Int = 20) async throws -> [SearchResult] {
+        let session = "qobuz_search"
+        _ = try await searchStep(input: query, sessionKey: session)
+        var items = try await searchLoad(sessionKey: session, count: 100)
+
+        // Drill into a "Tracks"/"Songs"/… category if the top level is sections.
+        if let section = items.first(where: { isTrackSection($0.title) && $0.hint == "list" && $0.itemKey != nil }),
+           let key = section.itemKey {
+            _ = try await searchStep(itemKey: key, sessionKey: session)
+            items = try await searchLoad(sessionKey: session, count: min(limit * 2, 100))
+        }
+
+        let trackItems = items.filter {
+            ($0.hint == "action" || $0.hint == "action_list") && $0.itemKey != nil
+        }.prefix(limit)
+
+        return trackItems.map { item in
+            let parts = (item.subtitle ?? "").split(separator: "•").map { $0.trimmingCharacters(in: .whitespaces) }
+            let artist = parts.first ?? ""
+            let album = parts.count > 1 ? parts[1] : nil
+            let key = Self.qobuzSearchPrefix + encodeKeyPart(artist) + "::" + encodeKeyPart(item.title)
+            return SearchResult(
+                title: item.title,
+                artist: artist.isEmpty ? nil : artist,
+                album: album,
+                syntheticKey: key
+            )
+        }
+    }
+
+    /// Fresh search at play time → navigate to the best track → execute its
+    /// Play Now / Queue action. Used for synthetic Qobuz keys.
+    @discardableResult
+    private func playViaSearch(artist: String, title: String, zoneID: String, action: String) async throws -> Bool {
+        let session = "qobuz_play_\(zoneID)"
+        let query = artist.isEmpty ? title : "\(artist) \(title)"
+
+        _ = try await searchStep(input: query, zoneID: zoneID, sessionKey: session)
+        var items = try await searchLoad(sessionKey: session, count: 30)
+
+        if let section = items.first(where: { isTrackSection($0.title) && $0.hint == "list" && $0.itemKey != nil }),
+           let key = section.itemKey {
+            _ = try await searchStep(itemKey: key, zoneID: zoneID, sessionKey: session)
+            items = try await searchLoad(sessionKey: session, count: 20)
+        }
+
+        guard let track = items.first(where: {
+            ($0.hint == "action" || $0.hint == "action_list") && $0.itemKey != nil
+        }), let trackKey = track.itemKey else { return false }
+
+        // Open the track's action menu and pick Play Now / Queue.
+        let resp = try await searchStep(itemKey: trackKey, zoneID: zoneID, sessionKey: session)
+        guard let list = resp["list"] as? [String: Any],
+              let count = list["count"] as? Int, count > 0 else {
+            // Some track rows execute directly on browse — treat as success.
+            return true
+        }
+        let actions = try await searchLoad(sessionKey: session, count: min(count, 20))
+        let targetTitle = action == "queue" ? "Queue" : (action == "add_next" ? "Add Next" : "Play Now")
+        let actionItem = actions.first(where: {
+            $0.hint == "action" && $0.title.localizedCaseInsensitiveContains(targetTitle)
+        }) ?? actions.first(where: { $0.hint == "action" })
+
+        guard let actionKey = actionItem?.itemKey else { return false }
+        _ = try await searchStep(itemKey: actionKey, zoneID: zoneID, sessionKey: session)
+        return true
     }
 }
