@@ -40,6 +40,7 @@ struct GenerateView: View {
     @State private var analysisSummary: String? = nil
     @State private var playlistName = ""
     @State private var justSaved    = false
+    @State private var qobuzStatus: String? = nil
     @State private var errorMessage: String? = nil
 
     var body: some View {
@@ -169,6 +170,27 @@ struct GenerateView: View {
                             Label(justSaved ? "Saved!" : "Save playlist", systemImage: "square.and.arrow.down")
                         }
                         .disabled(playlistName.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                        if client.qobuzConfigured {
+                            Button {
+                                let name = playlistName.trimmingCharacters(in: .whitespaces)
+                                guard !name.isEmpty else { return }
+                                qobuzStatus = "Saving to Qobuz…"
+                                Task {
+                                    if let r = await client.saveToQobuz(name: name, tracks: generatedTracks) {
+                                        qobuzStatus = "Saved to Qobuz — \(r.matched)/\(r.total) tracks matched."
+                                    } else {
+                                        qobuzStatus = "Qobuz save failed — check your account in Settings."
+                                    }
+                                }
+                            } label: {
+                                Label("Save to Qobuz", systemImage: "cloud")
+                            }
+                            .disabled(playlistName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    }
+                    if let qobuzStatus {
+                        Text(qobuzStatus).font(.caption).foregroundStyle(.secondary)
                     }
 
                     ForEach(Array(generatedTracks.enumerated()), id: \.offset) { i, t in

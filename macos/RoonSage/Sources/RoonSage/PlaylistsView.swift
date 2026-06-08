@@ -11,6 +11,7 @@ struct PlaylistsView: View {
     @State private var playlists: [DatabaseManager.PlaylistSummary] = []
     @State private var expanded: Int64? = nil
     @State private var tracks: [TrackRecord] = []
+    @State private var qobuzStatus: String? = nil
 
     var body: some View {
         Group {
@@ -47,6 +48,16 @@ struct PlaylistsView: View {
         }
         .navigationTitle("Playlists")
         .onAppear(perform: reload)
+        .safeAreaInset(edge: .bottom) {
+            if let qobuzStatus {
+                Text(qobuzStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+                    .frame(maxWidth: .infinity)
+                    .background(.bar)
+            }
+        }
     }
 
     @ViewBuilder
@@ -66,6 +77,12 @@ struct PlaylistsView: View {
             .disabled(client.selectedZone == nil)
             .help(client.selectedZone == nil ? "Select a zone first" : "Play to \(client.selectedZone?.displayName ?? "")")
 
+            if client.qobuzConfigured {
+                Button { saveToQobuz(pl) } label: { Image(systemName: "cloud") }
+                    .buttonStyle(.borderless)
+                    .help("Save to Qobuz")
+            }
+
             Button { toggle(pl) } label: {
                 Image(systemName: expanded == pl.id ? "chevron.up" : "chevron.down")
             }
@@ -75,6 +92,19 @@ struct PlaylistsView: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
+        }
+    }
+
+    private func saveToQobuz(_ pl: DatabaseManager.PlaylistSummary) {
+        let tracks = client.playlistTracks(id: pl.id)
+        guard !tracks.isEmpty else { return }
+        qobuzStatus = "Saving “\(pl.name)” to Qobuz…"
+        Task {
+            if let r = await client.saveToQobuz(name: pl.name, tracks: tracks) {
+                qobuzStatus = "“\(pl.name)” → Qobuz: \(r.matched)/\(r.total) matched."
+            } else {
+                qobuzStatus = "Qobuz save failed — check your account in Settings."
+            }
         }
     }
 

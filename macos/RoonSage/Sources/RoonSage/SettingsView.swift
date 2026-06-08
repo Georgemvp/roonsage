@@ -19,6 +19,12 @@ struct SettingsView: View {
     @State private var lfBusy = false
     @State private var lfStatus: String = ""
 
+    // Qobuz
+    @State private var qbEmail: String = ""
+    @State private var qbPassword: String = ""
+    @State private var qbBusy = false
+    @State private var qbStatus: String = ""
+
     // LLM
     @State private var llmProvider: LLMConfig.Provider = .ollama
     @State private var llmBaseURL:  String = "http://localhost:11434"
@@ -167,6 +173,27 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            // Qobuz
+            Section("Qobuz") {
+                LabeledContent("Email") {
+                    TextField("you@example.com", text: $qbEmail)
+                        .textFieldStyle(.roundedBorder)
+                        .textContentType(.username)
+                }
+                LabeledContent("Password") {
+                    SecureField("Qobuz password", text: $qbPassword)
+                        .textFieldStyle(.roundedBorder)
+                }
+                Button(qbBusy ? "Verifying…" : "Save & verify") { Task { await saveQobuz() } }
+                    .disabled(qbBusy || qbEmail.isEmpty || qbPassword.isEmpty)
+                if !qbStatus.isEmpty {
+                    Text(qbStatus).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Lets you save generated and saved playlists to your Qobuz account.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // About
             Section("About") {
                 LabeledContent("Version", value: appVersion)
@@ -184,6 +211,8 @@ struct SettingsView: View {
             lfApiSecret = KeychainStore.load(key: "lastfm_api_secret") ?? ""
             lfUsername  = KeychainStore.load(key: "lastfm_username") ?? ""
             lfConnected = !(KeychainStore.load(key: "lastfm_session_key") ?? "").isEmpty
+            qbEmail    = KeychainStore.load(key: "qobuz_email") ?? ""
+            qbPassword = KeychainStore.load(key: "qobuz_password") ?? ""
             let cfg = LLMConfigStore.load()
             llmProvider = cfg.provider
             llmBaseURL  = cfg.baseURL
@@ -210,6 +239,21 @@ struct SettingsView: View {
         LLMConfigStore.save(LLMConfig(provider: llmProvider, baseURL: llmBaseURL, model: llmModel, apiKey: llmApiKey))
         llmSaved = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { llmSaved = false }
+    }
+
+    // MARK: - Qobuz
+
+    private func saveQobuz() async {
+        qbBusy = true; defer { qbBusy = false }
+        let email = qbEmail.trimmingCharacters(in: .whitespaces)
+        let pw = qbPassword
+        KeychainStore.save(key: "qobuz_email", value: email)
+        KeychainStore.save(key: "qobuz_password", value: pw)
+        if let name = await QobuzClient.shared.verify(email: email, password: pw) {
+            qbStatus = "Connected as \(name)."
+        } else {
+            qbStatus = "Login failed — check your email and password."
+        }
     }
 
     // MARK: - Last.fm auth flow
