@@ -10,6 +10,15 @@ struct SettingsView: View {
     @State private var lbToken: String = ""
     @State private var lbSaved = false
 
+    // Last.fm
+    @State private var lfApiKey: String = ""
+    @State private var lfApiSecret: String = ""
+    @State private var lfUsername: String = ""
+    @State private var lfConnected = false
+    @State private var lfPendingToken: String? = nil
+    @State private var lfBusy = false
+    @State private var lfStatus: String = ""
+
     // LLM
     @State private var llmProvider: LLMConfig.Provider = .ollama
     @State private var llmBaseURL:  String = "http://localhost:11434"
@@ -124,6 +133,40 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            // Last.fm
+            Section("Last.fm") {
+                if lfConnected {
+                    LabeledContent("Connected as", value: lfUsername.isEmpty ? "✓" : lfUsername)
+                    Button("Disconnect Last.fm", role: .destructive) {
+                        KeychainStore.delete(key: "lastfm_session_key")
+                        KeychainStore.delete(key: "lastfm_username")
+                        lfConnected = false; lfUsername = ""; lfStatus = ""
+                    }
+                } else {
+                    LabeledContent("API Key") {
+                        SecureField("Last.fm API key", text: $lfApiKey)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    LabeledContent("API Secret") {
+                        SecureField("Last.fm API secret", text: $lfApiSecret)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    if lfPendingToken == nil {
+                        Button(lfBusy ? "…" : "Connect Last.fm") { Task { await lfStartAuth() } }
+                            .disabled(lfBusy || lfApiKey.isEmpty || lfApiSecret.isEmpty)
+                    } else {
+                        Button(lfBusy ? "…" : "Continue (after authorizing)") { Task { await lfCompleteAuth() } }
+                            .disabled(lfBusy)
+                    }
+                }
+                if !lfStatus.isEmpty {
+                    Text(lfStatus).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Scrobbles each track to Last.fm as it plays. Create API credentials at last.fm/api/account/create.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // About
             Section("About") {
                 LabeledContent("Version", value: appVersion)
@@ -137,6 +180,10 @@ struct SettingsView: View {
         .onAppear {
             refreshLastSync()
             lbToken = KeychainStore.load(key: "listenbrainz_token") ?? ""
+            lfApiKey    = KeychainStore.load(key: "lastfm_api_key") ?? ""
+            lfApiSecret = KeychainStore.load(key: "lastfm_api_secret") ?? ""
+            lfUsername  = KeychainStore.load(key: "lastfm_username") ?? ""
+            lfConnected = !(KeychainStore.load(key: "lastfm_session_key") ?? "").isEmpty
             let cfg = LLMConfigStore.load()
             llmProvider = cfg.provider
             llmBaseURL  = cfg.baseURL
@@ -163,6 +210,42 @@ struct SettingsView: View {
         LLMConfigStore.save(LLMConfig(provider: llmProvider, baseURL: llmBaseURL, model: llmModel, apiKey: llmApiKey))
         llmSaved = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { llmSaved = false }
+    }
+
+    // MARK: - Last.fm auth flow
+
+    private func lfStartAuth() async {
+        lfBusy = true; defer { lfBusy = false }
+        let key = lfApiKey.trimmingCharacters(in: .whitespaces)
+        let secret = lfApiSecret.trimmingCharacters(in: .whitespaces)
+        KeychainStore.save(key: "lastfm_api_key", value: key)
+        KeychainStore.save(key: "lastfm_api_secret", value: secret)
+        guard let token = await LastfmClient.shared.getToken(apiKey: key, apiSecret: secret) else {
+            lfStatus = "Could not get a Last.fm token — check your API key and secret."
+            return
+        }
+        lfPendingToken = token
+        if let url = LastfmClient.shared.authURL(apiKey: key, token: token) {
+            NSWorkspace.shared.open(url)
+        }
+        lfStatus = "Authorize RoonSage in the browser, then click Continue."
+    }
+
+    private func lfCompleteAuth() async {
+        guard let token = lfPendingToken else { return }
+        lfBusy = true; defer { lfBusy = false }
+        let key = lfApiKey.trimmingCharacters(in: .whitespaces)
+        let secret = lfApiSecret.trimmingCharacters(in: .whitespaces)
+        guard let session = await LastfmClient.shared.getSession(apiKey: key, apiSecret: secret, token: token) else {
+            lfStatus = "Authorization not complete yet — approve in the browser, then click Continue."
+            return
+        }
+        KeychainStore.save(key: "lastfm_session_key", value: session.key)
+        KeychainStore.save(key: "lastfm_username", value: session.name)
+        lfUsername = session.name
+        lfConnected = true
+        lfPendingToken = nil
+        lfStatus = "Connected as \(session.name)."
     }
 
     private func fetchOllamaModels() async {

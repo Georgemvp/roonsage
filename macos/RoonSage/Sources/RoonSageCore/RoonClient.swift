@@ -351,6 +351,18 @@ public final class RoonClient {
                         let title = np.title; let artist = np.artist; let album = np.album
                         Task { await ListenBrainzClient.shared.submit(title: title, artist: artist, album: album, token: token) }
                     }
+                    if let apiKey = KeychainStore.load(key: "lastfm_api_key"), !apiKey.isEmpty,
+                       let secret = KeychainStore.load(key: "lastfm_api_secret"), !secret.isEmpty,
+                       let sk = KeychainStore.load(key: "lastfm_session_key"), !sk.isEmpty,
+                       let artist = np.artist, !artist.isEmpty {
+                        let title = np.title; let album = np.album
+                        let creds = LastfmClient.Credentials(apiKey: apiKey, apiSecret: secret, sessionKey: sk)
+                        let ts = Int(Date().timeIntervalSince1970)
+                        Task {
+                            await LastfmClient.shared.updateNowPlaying(artist: artist, track: title, album: album, creds: creds)
+                            await LastfmClient.shared.scrobble(artist: artist, track: title, album: album, timestamp: ts, creds: creds)
+                        }
+                    }
                 }
             }
 
