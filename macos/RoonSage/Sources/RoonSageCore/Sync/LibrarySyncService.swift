@@ -128,13 +128,16 @@ actor LibrarySyncService {
         // 8. Genre pass — walk the Roon `genres` hierarchy and map albums → genres.
         //    Non-fatal: a failure here still leaves a fully-synced track library.
         if !isCancelled {
-            onProgress(Progress(phase: "Syncing genres…", albumsCompleted: totalAlbums, albumsTotal: totalAlbums, tracksFound: tracksFound))
+            // Immutable copy — the @Sendable progress closure below must not
+            // capture the mutable `tracksFound` var (rejected under -c release).
+            let finalTrackCount = tracksFound
+            onProgress(Progress(phase: "Syncing genres…", albumsCompleted: totalAlbums, albumsTotal: totalAlbums, tracksFound: finalTrackCount))
             let genreSession = "genre_sync_\(Int(Date().timeIntervalSince1970))"
             do {
                 let mapping = try await browse.genreMapping(sessionKey: genreSession) { done, total in
                     onProgress(Progress(
                         phase: "Syncing genres… (\(done)/\(total))",
-                        albumsCompleted: totalAlbums, albumsTotal: totalAlbums, tracksFound: tracksFound
+                        albumsCompleted: totalAlbums, albumsTotal: totalAlbums, tracksFound: finalTrackCount
                     ))
                 }
                 if !mapping.isEmpty {
