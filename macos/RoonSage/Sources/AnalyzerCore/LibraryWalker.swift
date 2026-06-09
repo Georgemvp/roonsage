@@ -25,34 +25,45 @@ public final class LibraryWalker {
 
     public func cancel() { cancelled = true }
 
-    /// Returns (analyzed, failed). `onProgress` is called on the actor's executor.
+    /// Streams the directory walk: discovers and analyzes files as it goes, so
+    /// analysis starts immediately and overlaps the (slow) enumeration. Returns
+    /// (analyzed, failed). `total` in progress is the running discovered count.
     @discardableResult
     public func run(musicDir: String, onProgress: @escaping @Sendable (AnalyzeProgress) -> Void) async -> (analyzed: Int, failed: Int) {
         cancelled = false
-        let files = Self.findAudioFiles(URL(fileURLWithPath: musicDir))
-        let pending = files.filter { url in
-            guard let mtime = Self.mtime(url) else { return true }
-            return !store.isAnalyzed(path: url.path, mtime: mtime)
-        }
-        let total = pending.count
         let iso = ISO8601DateFormatter()
         let t0 = Date()
-        var done = 0, failed = 0, index = 0
+        var done = 0, failed = 0, discovered = 0
+
+        guard let en = FileManager.default.enumerator(
+            at: URL(fileURLWithPath: musicDir),
+            includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]
+        ) else { return (0, 0) }
 
         await withTaskGroup(of: TrackFeatureRow?.self) { group in
-            func submit(_ url: URL) {
-                group.addTask { Self.analyzeFile(url, isoFormatter: iso) }
-            }
-            while index < pending.count, index < concurrency { submit(pending[index]); index += 1 }
-            while let result = await group.next() {
+            var inFlight = 0
+            func drainOne() async {
+                guard let result = await group.next() else { return }
+                inFlight -= 1
                 if let row = result { try? store.upsert(row); done += 1 } else { failed += 1 }
                 let processed = done + failed
                 let rate = Double(processed) / max(0.001, Date().timeIntervalSince(t0))
-                onProgress(AnalyzeProgress(done: done, total: total, failed: failed, rate: rate,
-                                           etaSeconds: rate > 0 ? Double(total - processed) / rate : 0))
-                if cancelled { break }
-                if index < pending.count { submit(pending[index]); index += 1 }
+                onProgress(AnalyzeProgress(
+                    done: done, total: max(discovered, processed), failed: failed, rate: rate,
+                    etaSeconds: rate > 0 ? Double(max(0, discovered - processed)) / rate : 0
+                ))
             }
+
+            for case let url as URL in en {
+                if cancelled { break }
+                guard Self.audioExtensions.contains(url.pathExtension.lowercased()) else { continue }
+                if let mtime = Self.mtime(url), store.isAnalyzed(path: url.path, mtime: mtime) { continue }
+                discovered += 1
+                group.addTask { Self.analyzeFile(url, isoFormatter: iso) }
+                inFlight += 1
+                while inFlight >= concurrency { await drainOne() }
+            }
+            while inFlight > 0 { await drainOne() }
             group.cancelAll()
         }
         return (done, failed)

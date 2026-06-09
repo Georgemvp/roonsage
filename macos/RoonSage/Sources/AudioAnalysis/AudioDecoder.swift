@@ -7,8 +7,9 @@ public enum AudioDecodeError: Error {
 }
 
 public struct DecodedAudio: Sendable {
-    public let samples: [Float]      // mono
+    public let samples: [Float]      // mono (possibly an excerpt)
     public let sampleRate: Double
+    public var fullDurationSec: Double = 0   // duration of the WHOLE track
     public var duration: Double { sampleRate > 0 ? Double(samples.count) / sampleRate : 0 }
 }
 
@@ -16,11 +17,31 @@ public struct DecodedAudio: Sendable {
 /// modern macOS) to mono Float32 at a target analysis sample rate.
 public struct AudioDecoder {
 
-    public static func decode(url: URL, targetSampleRate: Double = 22050) throws -> DecodedAudio {
+    /// Decode (optionally just an excerpt) to mono Float32 at `targetSampleRate`.
+    /// `maxSeconds > 0` reads only a bounded segment starting at `startFraction`
+    /// of the track — far less I/O on slow drives, and representative for
+    /// BPM/key/energy. `startFraction` is clamped so the window fits.
+    public static func decode(
+        url: URL,
+        targetSampleRate: Double = 22050,
+        maxSeconds: Double = 0,
+        startFraction: Double = 0
+    ) throws -> DecodedAudio {
         let file = try AVAudioFile(forReading: url)
         let inFormat = file.processingFormat
-        let frameCount = AVAudioFrameCount(file.length)
-        guard frameCount > 0 else { return DecodedAudio(samples: [], sampleRate: targetSampleRate) }
+        let totalFrames = AVAudioFrameCount(file.length)
+        guard totalFrames > 0 else { return DecodedAudio(samples: [], sampleRate: targetSampleRate) }
+
+        var startFrame: AVAudioFramePosition = 0
+        var framesToRead = totalFrames
+        if maxSeconds > 0 {
+            let want = AVAudioFrameCount(maxSeconds * inFormat.sampleRate)
+            if want < totalFrames {
+                framesToRead = want
+                let raw = AVAudioFramePosition(Double(totalFrames) * max(0, min(1, startFraction)))
+                startFrame = max(0, min(raw, AVAudioFramePosition(totalFrames - want)))
+            }
+        }
 
         guard let outFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -31,10 +52,12 @@ public struct AudioDecoder {
             throw AudioDecodeError.converterFailed
         }
 
-        guard let inBuf = AVAudioPCMBuffer(pcmFormat: inFormat, frameCapacity: frameCount) else {
+        guard let inBuf = AVAudioPCMBuffer(pcmFormat: inFormat, frameCapacity: framesToRead) else {
             throw AudioDecodeError.formatFailed
         }
-        try file.read(into: inBuf)
+        if startFrame > 0 { file.framePosition = startFrame }
+        try file.read(into: inBuf, frameCount: framesToRead)
+        let frameCount = framesToRead
 
         let ratio = targetSampleRate / inFormat.sampleRate
         let outCapacity = AVAudioFrameCount(Double(frameCount) * ratio) + 8192
@@ -52,10 +75,12 @@ public struct AudioDecoder {
         }
         if let convErr { throw convErr }
 
+        let fullDuration = Double(totalFrames) / inFormat.sampleRate
         let n = Int(outBuf.frameLength)
         guard n > 0, let ch = outBuf.floatChannelData?[0] else {
-            return DecodedAudio(samples: [], sampleRate: targetSampleRate)
+            return DecodedAudio(samples: [], sampleRate: targetSampleRate, fullDurationSec: fullDuration)
         }
-        return DecodedAudio(samples: Array(UnsafeBufferPointer(start: ch, count: n)), sampleRate: targetSampleRate)
+        return DecodedAudio(samples: Array(UnsafeBufferPointer(start: ch, count: n)),
+                            sampleRate: targetSampleRate, fullDurationSec: fullDuration)
     }
 }
