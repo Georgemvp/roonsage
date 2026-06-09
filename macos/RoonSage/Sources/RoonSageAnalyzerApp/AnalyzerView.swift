@@ -2,6 +2,7 @@ import AnalyzerCore
 import SwiftUI
 import UniformTypeIdentifiers
 
+@MainActor
 struct AnalyzerView: View {
     @Environment(AnalyzerModel.self) private var model
     @Environment(AnalyzerUpdater.self) private var updater

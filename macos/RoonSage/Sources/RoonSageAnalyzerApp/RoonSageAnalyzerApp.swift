@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 @main
 struct RoonSageAnalyzerApp: App {
     @State private var model = AnalyzerModel()
