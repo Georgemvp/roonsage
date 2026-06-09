@@ -112,3 +112,24 @@ final class DatabaseManagerTests: XCTestCase {
         }
     }
 }
+
+extension DatabaseManagerTests {
+    /// The analyzer feed contains duplicate match_keys (39911 rows -> ~35714
+    /// unique). A multi-row INSERT ... ON CONFLICT DO UPDATE hits the same key
+    /// twice within one statement — this must not throw.
+    func testUpsertAudioFeaturesWithDuplicateKeys() throws {
+        var rows: [DatabaseManager.AudioFeatureRow] = []
+        for i in 0..<250 {
+            let key = "key-\(i % 120)"   // duplicates within and across chunks
+            rows.append(DatabaseManager.AudioFeatureRow(
+                matchKey: key, bpm: Double(100 + i), camelot: "8A", keyRoot: "A",
+                keyMode: "minor", energy: 0.5, duration: 200, tags: nil))
+        }
+        try db.upsertAudioFeatures(rows)
+        let count = try db.pool.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM track_audio_features") ?? 0 }
+        XCTAssertEqual(count, 120)
+        // Last write wins: key-0 appears at i=0 and i=120 and i=240 -> bpm 340.
+        let bpm = try db.pool.read { try Double.fetchOne($0, sql: "SELECT bpm FROM track_audio_features WHERE match_key='key-0'") }
+        XCTAssertEqual(bpm, 340)
+    }
+}
