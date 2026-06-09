@@ -14,4 +14,16 @@ public enum Camelot {
     public static func note(rootIndex: Int) -> String {
         noteNames[((rootIndex % 12) + 12) % 12]
     }
+
+    /// Harmonically-compatible Camelot codes for DJ mixing: same code, same
+    /// number other letter, and ±1 on the wheel (same letter).
+    public static func compatible(_ code: String) -> Set<String> {
+        guard let last = code.last, last == "A" || last == "B",
+              let num = Int(code.dropLast()), (1...12).contains(num) else { return [] }
+        let letter = String(last)
+        let other = letter == "A" ? "B" : "A"
+        let plus1 = (num % 12) + 1
+        let minus1 = ((num - 2 + 12) % 12) + 1
+        return ["\(num)\(letter)", "\(num)\(other)", "\(plus1)\(letter)", "\(minus1)\(letter)"]
+    }
 }

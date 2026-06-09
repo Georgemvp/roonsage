@@ -386,6 +386,29 @@ public final class RoonClient {
         }.value
     }
 
+    // MARK: - DJ sets
+
+    public func buildDJSet(
+        count: Int, startBPM: Double, endBPM: Double,
+        curve: DJSetBuilder.Curve, tags: [String], excludeLive: Bool = true
+    ) -> [DatabaseManager.DJCandidate] {
+        let cands = (try? database?.djCandidates(
+            minBPM: min(startBPM, endBPM), maxBPM: max(startBPM, endBPM),
+            tags: tags, excludeLive: excludeLive
+        )) ?? []
+        return DJSetBuilder.build(candidates: cands, count: count, startBPM: startBPM, endBPM: endBPM, curve: curve)
+    }
+
+    public func playDJSet(_ set: [DatabaseManager.DJCandidate], zoneID: String) async {
+        let tracks = set.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
+        await curateTracks(tracks, zoneID: zoneID)
+    }
+
+    public func saveDJSet(name: String, set: [DatabaseManager.DJCandidate]) {
+        let tracks = set.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
+        _ = savePlaylist(name: name, tracks: tracks)
+    }
+
     // MARK: - Discovery sections
 
     public func undiscoveredAlbums(limit: Int = 16) -> [DatabaseManager.AlbumResult] {

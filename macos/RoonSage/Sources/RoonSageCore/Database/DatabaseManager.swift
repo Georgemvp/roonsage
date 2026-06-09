@@ -495,6 +495,53 @@ public final class DatabaseManager: Sendable {
         }
     }
 
+    public struct DJCandidate: Sendable {
+        public var id: String
+        public var title: String
+        public var artist: String?
+        public var album: String?
+        public var bpm: Double
+        public var camelot: String
+        public var energy: Double
+        public var tags: String?
+    }
+
+    /// Tracks with audio features inside the BPM window (incl. half/double-time),
+    /// optional tag filter, deduped by title+artist.
+    public func djCandidates(minBPM: Double, maxBPM: Double, tags: [String], excludeLive: Bool) throws -> [DJCandidate] {
+        try pool.read { db in
+            var sql = """
+                SELECT t.id, t.title, t.artist, t.album, f.bpm, f.camelot, f.energy, f.tags
+                FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
+                WHERE f.bpm IS NOT NULL AND (
+                      (f.bpm BETWEEN ? AND ?) OR (f.bpm/2.0 BETWEEN ? AND ?) OR (f.bpm*2.0 BETWEEN ? AND ?)
+                )
+            """
+            var args: [DatabaseValueConvertible] = [minBPM, maxBPM, minBPM, maxBPM, minBPM, maxBPM]
+            if excludeLive { sql += " AND t.is_live = 0" }
+            if !tags.isEmpty {
+                let clause = tags.map { _ in "LOWER(f.tags) LIKE ?" }.joined(separator: " OR ")
+                sql += " AND (\(clause))"
+                args.append(contentsOf: tags.map { "%\"\($0.lowercased())\"%" as DatabaseValueConvertible })
+            }
+            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
+            var seen = Set<String>()
+            var result: [DJCandidate] = []
+            for r in rows {
+                let title = r["title"] as String? ?? ""
+                let artist = r["artist"] as String?
+                let dedup = "\(title.lowercased())|\((artist ?? "").lowercased())"
+                guard !seen.contains(dedup) else { continue }
+                seen.insert(dedup)
+                result.append(DJCandidate(
+                    id: r["id"] ?? "", title: title, artist: artist, album: r["album"],
+                    bpm: r["bpm"] ?? 0, camelot: r["camelot"] ?? "", energy: r["energy"] ?? 0.5, tags: r["tags"]
+                ))
+            }
+            return result
+        }
+    }
+
     /// (features stored, tracks in the library that have a matching feature).
     public func audioFeaturesStats() throws -> (total: Int, matched: Int) {
         try pool.read { db in

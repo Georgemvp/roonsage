@@ -29,6 +29,7 @@ struct MainAppView: View {
         case generate   = "Generate"
         case recommend  = "Recommend"
         case playlists  = "Playlists"
+        case djSet      = "DJ Set"
         case discovery  = "Discovery"
         case taste      = "Taste Profile"
         case settings   = "Settings"
@@ -40,6 +41,7 @@ struct MainAppView: View {
             case .generate:   "wand.and.stars"
             case .recommend:  "sparkles.rectangle.stack"
             case .playlists:  "list.star"
+            case .djSet:      "slider.horizontal.3"
             case .discovery:  "sparkles"
             case .taste:      "chart.radar"
             case .settings:   "gearshape"
@@ -73,6 +75,7 @@ struct MainAppView: View {
             case .generate:   GenerateView()
             case .recommend:  RecommendView()
             case .playlists:  PlaylistsView()
+            case .djSet:      DJSetView()
             case .discovery:  DiscoveryView()
             case .taste:      TasteProfileView()
             case .settings:   SettingsView()
