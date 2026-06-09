@@ -24,6 +24,14 @@ actor TransportService {
         )
     }
 
+    /// Jump to a track in the zone's play queue.
+    func playFromHere(zoneID: String, queueItemID: Int) async throws {
+        try await transport.dispatch(
+            "\(RoonService.transport)/play_from_here",
+            body: ["zone_or_output_id": zoneID, "queue_item_id": queueItemID]
+        )
+    }
+
     // MARK: - Volume
 
     func changeVolume(outputID: String, how: String = "absolute", value: Int) async throws {

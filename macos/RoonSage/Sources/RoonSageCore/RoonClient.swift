@@ -52,6 +52,16 @@ public final class RoonClient {
 
     public private(set) var connectionState: ConnectionState = .disconnected
     public private(set) var zones: [Zone] = []
+
+    public struct QueueItem: Sendable, Identifiable {
+        public var id: Int
+        public var title: String
+        public var subtitle: String?
+        public var length: Int
+        public var imageKey: String?
+    }
+    public private(set) var queueItems: [QueueItem] = []
+    private var queueTask: Task<Void, Never>?
     public private(set) var isSyncing = false
     public private(set) var syncProgress = SyncProgress(phase: "", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0)
     public private(set) var trackCount = 0
@@ -621,6 +631,65 @@ public final class RoonClient {
                 await self.applyZoneUpdate(body)
             }
         }
+    }
+
+    // MARK: - Play queue
+
+    /// Subscribe to a zone's play queue. Maintains `queueItems` (initial list +
+    /// incremental insert/remove changes from Roon).
+    public func startQueue(zoneID: String) {
+        queueTask?.cancel()
+        queueItems = []
+        queueTask = Task {
+            guard let stream = try? await transport.subscribe(
+                service: RoonService.transport, endpoint: "queue",
+                params: ["zone_or_output_id": zoneID, "max_item_count": 200]
+            ) else { return }
+            for await body in stream {
+                applyQueue(body)
+            }
+        }
+    }
+
+    public func stopQueue() {
+        queueTask?.cancel()
+        queueTask = nil
+        queueItems = []
+    }
+
+    public func playFromHere(zoneID: String, queueItemID: Int) async {
+        try? await transportService?.playFromHere(zoneID: zoneID, queueItemID: queueItemID)
+    }
+
+    private func applyQueue(_ body: [String: Any]) {
+        if let items = body["items"] as? [[String: Any]] {
+            queueItems = items.compactMap(Self.parseQueueItem)
+        } else if let changes = body["changes"] as? [[String: Any]] {
+            var current = queueItems
+            for change in changes {
+                let op = change["operation"] as? String
+                let index = change["index"] as? Int ?? 0
+                if op == "remove" {
+                    let count = change["count"] as? Int ?? 0
+                    if index < current.count {
+                        current.removeSubrange(index..<min(index + count, current.count))
+                    }
+                } else if op == "insert", let its = change["items"] as? [[String: Any]] {
+                    current.insert(contentsOf: its.compactMap(Self.parseQueueItem), at: min(index, current.count))
+                }
+            }
+            queueItems = current
+        }
+    }
+
+    private static func parseQueueItem(_ d: [String: Any]) -> QueueItem? {
+        guard let id = d["queue_item_id"] as? Int else { return nil }
+        let two = d["two_line"] as? [String: Any]
+        let three = d["three_line"] as? [String: Any]
+        let title = (three?["line1"] as? String) ?? (two?["line1"] as? String) ?? "Unknown"
+        let subtitle = (two?["line2"] as? String) ?? (three?["line2"] as? String)
+        return QueueItem(id: id, title: title, subtitle: subtitle,
+                         length: d["length"] as? Int ?? 0, imageKey: d["image_key"] as? String)
     }
 
     private func applyZoneUpdate(_ body: [String: Any]) async {
