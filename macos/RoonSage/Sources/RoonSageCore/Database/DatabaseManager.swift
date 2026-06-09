@@ -551,6 +551,17 @@ public final class DatabaseManager: Sendable {
         }
     }
 
+    /// Audio features for one track by its content match key (for Now Playing).
+    public func featuresForMatchKey(_ matchKey: String) -> (bpm: Double, camelot: String, tags: [String])? {
+        (try? pool.read { db -> (Double, String, [String])? in
+            guard let r = try Row.fetchOne(db, sql: "SELECT bpm, camelot, tags FROM track_audio_features WHERE match_key = ?", arguments: [matchKey]) else { return nil }
+            var tags: [String] = []
+            if let t = r["tags"] as String?, let d = t.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: d) as? [Any] { tags = arr.compactMap { $0 as? String } }
+            return (r["bpm"] ?? 0, r["camelot"] ?? "", tags)
+        }) ?? nil
+    }
+
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) throws {
         let iso = ISO8601DateFormatter().string(from: Date())
         try pool.write { db in

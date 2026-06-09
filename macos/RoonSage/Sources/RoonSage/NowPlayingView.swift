@@ -32,6 +32,7 @@ struct ZoneRow: View {
 
     @State private var volumeValue: Double = 50
     @State private var displayPosition: Double = 0
+    @State private var feat: (bpm: Double, camelot: String, tags: [String])?
     private var isSelected: Bool { client.selectedZone?.id == zone.id }
 
     var body: some View {
@@ -97,6 +98,26 @@ struct ZoneRow: View {
                 }
             }
 
+            // Audio features + Radio (when the track is analyzed)
+            if let np = zone.nowPlaying, let f = feat {
+                HStack(spacing: 6) {
+                    if f.bpm > 0 { featBadge("\(Int(f.bpm)) BPM") }
+                    if !f.camelot.isEmpty { featBadge(f.camelot) }
+                    if !f.tags.isEmpty {
+                        Text(f.tags.prefix(3).joined(separator: " · "))
+                            .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                    }
+                    Spacer()
+                    Button {
+                        let mix = client.buildRadio(title: np.title, artist: np.artist, album: np.album)
+                        if !mix.isEmpty { Task { await client.playDJSet(mix, zoneID: zone.id) } }
+                    } label: {
+                        Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+                    }
+                    .buttonStyle(.bordered).controlSize(.small)
+                }
+            }
+
             // Transport controls
             HStack(spacing: 0) {
                 Group {
@@ -149,8 +170,9 @@ struct ZoneRow: View {
                         .strokeBorder(isSelected ? Color.accentColor.opacity(0.25) : Color.clear, lineWidth: 1)
                 )
         )
-        .onAppear { displayPosition = zone.seekPosition ?? 0 }
+        .onAppear { displayPosition = zone.seekPosition ?? 0; refreshFeatures() }
         .onChange(of: zone.seekPosition) { _, pos in displayPosition = pos ?? 0 }
+        .onChange(of: zone.nowPlaying?.title) { _, _ in refreshFeatures() }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             if zone.state == .playing { displayPosition += 1 }
         }
@@ -159,6 +181,22 @@ struct ZoneRow: View {
     private func formatTime(_ seconds: Double) -> String {
         let s = Int(max(0, seconds))
         return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    private func refreshFeatures() {
+        if let np = zone.nowPlaying {
+            feat = client.featuresFor(title: np.title, artist: np.artist, album: np.album)
+        } else {
+            feat = nil
+        }
+    }
+
+    private func featBadge(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2.monospacedDigit())
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .background(.quaternary, in: Capsule())
+            .foregroundStyle(.secondary)
     }
 
     private var playPauseButton: some View {

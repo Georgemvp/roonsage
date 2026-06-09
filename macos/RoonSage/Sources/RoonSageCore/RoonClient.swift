@@ -1,3 +1,4 @@
+import AudioAnalysis
 import Foundation
 import Observation
 import RoonProtocol
@@ -410,6 +411,20 @@ public final class RoonClient {
             tags: tags, excludeLive: excludeLive
         )) ?? []
         return DJSetBuilder.build(candidates: cands, count: count, startBPM: startBPM, endBPM: endBPM, curve: curve)
+    }
+
+    /// Audio features for a now-playing track (by content match key), if synced.
+    public func featuresFor(title: String, artist: String?, album: String?) -> (bpm: Double, camelot: String, tags: [String])? {
+        database?.featuresForMatchKey(TrackIdentity.matchKey(artist: artist, album: album, title: title))
+    }
+
+    /// Build an endless-style mix seeded from a track: harmonically-compatible
+    /// tracks within ±12 BPM of the seed, ordered by the DJ-set builder.
+    public func buildRadio(title: String, artist: String?, album: String?, count: Int = 25) -> [DatabaseManager.DJCandidate] {
+        guard let seed = featuresFor(title: title, artist: artist, album: album), seed.bpm > 0 else { return [] }
+        let cands = (try? database?.djCandidates(minBPM: seed.bpm - 12, maxBPM: seed.bpm + 12, tags: [], excludeLive: true)) ?? []
+        guard !cands.isEmpty else { return [] }
+        return DJSetBuilder.build(candidates: cands, count: count, startBPM: seed.bpm, endBPM: seed.bpm, curve: .flat)
     }
 
     public func playDJSet(_ set: [DatabaseManager.DJCandidate], zoneID: String) async {
