@@ -185,6 +185,10 @@ public final class RoonClient {
         _ = try? await transportService?.changeVolume(outputID: outputID, how: "absolute", value: value)
     }
 
+    public func seek(zoneID: String, seconds: Double) async {
+        _ = try? await transportService?.seek(zoneID: zoneID, how: "absolute", seconds: seconds)
+    }
+
     public func adjustVolume(outputID: String, delta: Int) async {
         _ = try? await transportService?.changeVolume(outputID: outputID, how: "relative", value: delta)
     }

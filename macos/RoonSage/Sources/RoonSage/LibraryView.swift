@@ -8,6 +8,7 @@ struct LibraryView: View {
     @State private var selectedTag: String?
     @State private var tracks: [DatabaseManager.LibraryTrackRow] = []
     @State private var tags: [(tag: String, count: Int)] = []
+    @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,7 +42,13 @@ struct LibraryView: View {
                 }
             }
         }
-        .onChange(of: searchText) { _, _ in reloadTracks() }
+        .onChange(of: searchText) { _, _ in
+            searchTask?.cancel()
+            searchTask = Task {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                if !Task.isCancelled { reloadTracks() }
+            }
+        }
         .onChange(of: selectedTag) { _, _ in reloadTracks() }
         .onChange(of: client.trackCount) { _, _ in reload() }
         .onAppear { reload() }

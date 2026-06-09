@@ -32,6 +32,7 @@ struct ZoneRow: View {
 
     @State private var volumeValue: Double = 50
     @State private var displayPosition: Double = 0
+    @State private var isSeeking = false
     @State private var feat: (bpm: Double, camelot: String, tags: [String])?
     private var isSelected: Bool { client.selectedZone?.id == zone.id }
 
@@ -85,9 +86,14 @@ struct ZoneRow: View {
             // Track progress bar
             if let np = zone.nowPlaying, let length = np.length, length > 0 {
                 VStack(spacing: 3) {
-                    ProgressView(value: min(displayPosition / Double(length), 1))
-                        .progressViewStyle(.linear)
-                        .tint(Color.accentColor)
+                    Slider(value: $displayPosition, in: 0...Double(length)) { editing in
+                        isSeeking = editing
+                        if !editing {
+                            Task { await client.seek(zoneID: zone.id, seconds: displayPosition) }
+                        }
+                    }
+                    .controlSize(.mini)
+                    .tint(Color.accentColor)
                     HStack {
                         Text(formatTime(displayPosition))
                         Spacer()
@@ -174,7 +180,7 @@ struct ZoneRow: View {
         .onChange(of: zone.seekPosition) { _, pos in displayPosition = pos ?? 0 }
         .onChange(of: zone.nowPlaying?.title) { _, _ in refreshFeatures() }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
-            if zone.state == .playing { displayPosition += 1 }
+            if zone.state == .playing, !isSeeking { displayPosition += 1 }
         }
     }
 

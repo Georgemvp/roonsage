@@ -32,6 +32,19 @@ struct RoonSageApp: App {
                 }
                 .disabled(isCheckingForUpdates)
             }
+            CommandMenu("Controls") {
+                Button("Play / Pause") { transport { z in await client.playPause(zoneID: z) } }
+                    .keyboardShortcut("p", modifiers: .command)
+                Button("Next Track") { transport { z in await client.next(zoneID: z) } }
+                    .keyboardShortcut("]", modifiers: .command)
+                Button("Previous Track") { transport { z in await client.previous(zoneID: z) } }
+                    .keyboardShortcut("[", modifiers: .command)
+                Divider()
+                Button("Volume Up") { volume(+4) }
+                    .keyboardShortcut(.upArrow, modifiers: .command)
+                Button("Volume Down") { volume(-4) }
+                    .keyboardShortcut(.downArrow, modifiers: .command)
+            }
         }
 
         Settings {
@@ -46,6 +59,18 @@ struct RoonSageApp: App {
             Image(systemName: "music.note.house")
         }
         .menuBarExtraStyle(.window)
+    }
+
+    // MARK: - Transport shortcuts
+
+    private func transport(_ action: @escaping (String) async -> Void) {
+        guard let zone = client.selectedZone?.id else { return }
+        Task { await action(zone) }
+    }
+
+    private func volume(_ delta: Int) {
+        guard let output = client.selectedZone?.outputs.first?.id else { return }
+        Task { await client.adjustVolume(outputID: output, delta: delta) }
     }
 
     // MARK: - Update checks
