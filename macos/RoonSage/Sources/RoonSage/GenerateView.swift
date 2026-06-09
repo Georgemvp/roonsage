@@ -246,7 +246,7 @@ struct GenerateView: View {
         phase = "Selecting candidates…"
         let candidates = buildCandidates(
             genres: analysis.genres, decades: analysis.decades,
-            keywords: analysis.keywords, target: targetCount
+            keywords: analysis.keywords, tags: analysis.tags, target: targetCount
         )
         guard !candidates.isEmpty else {
             errorMessage = "No matching tracks — sync your library, or try a broader request."
@@ -293,51 +293,60 @@ struct GenerateView: View {
         }
     }
 
-    private struct Analysis { var genres: [String]; var decades: [Int]; var keywords: String }
+    private struct Analysis { var genres: [String]; var decades: [Int]; var keywords: String; var tags: [String] }
 
-    /// LLM stage 1: map the request to genres (chosen from the library's actual
-    /// genres) + decades + keywords. Degrades gracefully to no filter.
+    /// LLM stage 1: map the request to genres + decades + keywords + mood tags,
+    /// each chosen from what the library actually has. Degrades to no filter.
     private func analyzeRequest(_ request: String, config: LLMConfig) async -> Analysis {
         let available = (client.libraryStats()?.topGenres.map { $0.genre }) ?? []
-        guard !available.isEmpty else { return Analysis(genres: [], decades: [], keywords: "") }
+        let availableTags = client.topTags(limit: 60).map { $0.tag }
+        guard !available.isEmpty || !availableTags.isEmpty else {
+            return Analysis(genres: [], decades: [], keywords: "", tags: [])
+        }
 
         let genreList = available.prefix(40).joined(separator: ", ")
+        let tagLine = availableTags.isEmpty ? ""
+            : "\n- tags: 0-5 mood/vibe tags chosen EXACTLY from this list that fit the request: \(availableTags.prefix(50).joined(separator: ", "))"
         let system = """
         You map a music playlist request to library filters. \
         Respond with ONLY a JSON object, no prose: \
-        {"genres": [], "decades": [], "keywords": ""} \
+        {"genres": [], "decades": [], "keywords": "", "tags": []} \
         - genres: 0-6 names chosen EXACTLY from the available list that fit the request's mood/style. Empty = no genre constraint. \
         - decades: 0-3 decade start years like 1980 if an era is implied, else []. \
-        - keywords: short extra search terms for title/artist, or "". \
+        - keywords: short extra search terms for title/artist, or "".\(tagLine)
         Available genres: \(genreList)
         """
         guard let resp = try? await LLMClient.shared.complete(system: system, user: "Request: \(request)", config: config),
               let obj = extractJSON(resp) else {
-            return Analysis(genres: [], decades: [], keywords: "")
+            return Analysis(genres: [], decades: [], keywords: "", tags: [])
         }
 
-        var canonical: [String: String] = [:]
-        for g in available { canonical[g.lowercased()] = g }
-        let genres = (obj["genres"] as? [Any])?
-            .compactMap { ($0 as? String)?.lowercased() }
-            .compactMap { canonical[$0] } ?? []
-        let decades = (obj["decades"] as? [Any])?
-            .compactMap { ($0 as? Int) ?? Int(String(describing: $0)) } ?? []
+        var canonicalGenres: [String: String] = [:]
+        for g in available { canonicalGenres[g.lowercased()] = g }
+        let genres = (obj["genres"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() }.compactMap { canonicalGenres[$0] } ?? []
+        let decades = (obj["decades"] as? [Any])?.compactMap { ($0 as? Int) ?? Int(String(describing: $0)) } ?? []
         let keywords = (obj["keywords"] as? String) ?? ""
-        return Analysis(genres: genres, decades: decades, keywords: keywords)
+        let tagSet = Set(availableTags.map { $0.lowercased() })
+        let tags = (obj["tags"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() }.filter { tagSet.contains($0) } ?? []
+        return Analysis(genres: genres, decades: decades, keywords: keywords, tags: tags)
     }
 
     /// Filter the library by the analysed criteria, broadening if too sparse,
     /// then shuffle so the LLM sees a varied sample rather than an A→Z slice.
-    private func buildCandidates(genres: [String], decades: [Int], keywords: String, target: Int) -> [TrackRecord] {
+    private func buildCandidates(genres: [String], decades: [Int], keywords: String, tags: [String], target: Int) -> [TrackRecord] {
         let minPool = max(target * 3, 40)
         var opts = DatabaseManager.FilterOptions()
         opts.genres = genres
         opts.decades = decades
         opts.keywords = keywords
+        opts.tags = tags
         opts.limit = 3000
 
         var pool = client.filterTracks(options: opts)
+        // Tags are the most specific (and need synced audio features) — drop first.
+        if pool.count < minPool, !tags.isEmpty {
+            opts.tags = []; pool = client.filterTracks(options: opts)
+        }
         if pool.count < minPool, !keywords.isEmpty {
             opts.keywords = ""; pool = client.filterTracks(options: opts)
         }
@@ -354,6 +363,7 @@ struct GenerateView: View {
     private func summarise(_ a: Analysis, poolSize: Int) -> String {
         var parts: [String] = []
         if !a.genres.isEmpty  { parts.append(a.genres.joined(separator: ", ")) }
+        if !a.tags.isEmpty    { parts.append(a.tags.joined(separator: ", ")) }
         if !a.decades.isEmpty { parts.append(a.decades.sorted().map { "\($0)s" }.joined(separator: ", ")) }
         let scope = parts.isEmpty ? "whole library" : parts.joined(separator: " · ")
         return "From \(scope) (\(poolSize) candidates)"

@@ -253,6 +253,7 @@ public final class DatabaseManager: Sendable {
         public var decades:     [Int]    = []
         public var artists:     [String] = []
         public var keywords:    String   = ""
+        public var tags:        [String] = []   // LLM audio tags (matched via track_audio_features)
         public var albumKey:    String?  = nil
         public var excludeLive: Bool     = true
         public var limit:       Int      = 500
@@ -283,6 +284,11 @@ public final class DatabaseManager: Sendable {
                 conditions.append("(LOWER(t.title) LIKE LOWER(?) OR LOWER(t.artist) LIKE LOWER(?) OR LOWER(t.album) LIKE LOWER(?))")
                 let kw: DatabaseValueConvertible = "%\(options.keywords)%"
                 args.append(contentsOf: [kw, kw, kw])
+            }
+            if !options.tags.isEmpty {
+                let tc = options.tags.map { _ in "LOWER(f.tags) LIKE ?" }.joined(separator: " OR ")
+                conditions.append("t.match_key IN (SELECT match_key FROM track_audio_features f WHERE \(tc))")
+                args.append(contentsOf: options.tags.map { "%\"\($0.lowercased())\"%" as DatabaseValueConvertible })
             }
             if let key = options.albumKey {
                 conditions.append("t.album_key = ?")
