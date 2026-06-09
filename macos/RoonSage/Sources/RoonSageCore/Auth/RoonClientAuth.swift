@@ -6,7 +6,7 @@ struct RoonClientAuth {
 
     static let extensionInfo: [String: Any] = [
         "extension_id":    "com.roonsage.native",
-        "display_name":    "RoonSage",
+        "display_name":    "RoonSage Native",
         "display_version": "2.0.0",
         "publisher":       "RoonSage",
         "email":           "hello@roonsage.app",

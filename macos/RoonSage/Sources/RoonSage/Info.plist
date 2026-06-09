@@ -2,28 +2,28 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>
-    <string>RoonSage</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.roonsage.native</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.5.24</string>
-    <key>CFBundleExecutable</key>
-    <string>RoonSage</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>NSLocalNetworkUsageDescription</key>
-    <string>RoonSage searches for your Roon Core on the local network using the SOOD discovery protocol.</string>
-    <key>NSBonjourServices</key>
-    <array>
-        <string>_RAAT._tcp</string>
-        <string>_roon._tcp</string>
-    </array>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
+	<key>CFBundleExecutable</key>
+	<string>RoonSage</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.roonsage.native</string>
+	<key>CFBundleName</key>
+	<string>RoonSage</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.5.25</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_RAAT._tcp</string>
+		<string>_roon._tcp</string>
+	</array>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>RoonSage searches for your Roon Core on the local network using the SOOD discovery protocol.</string>
 </dict>
 </plist>
