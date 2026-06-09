@@ -53,6 +53,7 @@ struct DiscoveryView: View {
             }
             ForEach(undiscovered, id: \.albumKey) { album in
                 HStack(spacing: 10) {
+                    AlbumArtView(imageKey: album.imageKey, size: 44)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(album.album).font(.callout).lineLimit(1)
                         Text("\(album.artist ?? "Unknown")\(album.year.map { " · \($0)" } ?? "") · \(album.trackCount) tracks")

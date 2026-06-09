@@ -111,7 +111,8 @@ actor LibrarySyncService {
                     albumKey: albumKey,
                     year: year,
                     isLive: isLive,
-                    matchKey: TrackIdentity.matchKey(artist: artist, album: album.title, title: item.title)
+                    matchKey: TrackIdentity.matchKey(artist: artist, album: album.title, title: item.title),
+                    imageKey: item.imageKey ?? album.imageKey
                 ))
             }
 

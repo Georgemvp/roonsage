@@ -32,6 +32,7 @@ struct PlaylistsView: View {
                                         Text("\(i + 1).")
                                             .foregroundStyle(.tertiary)
                                             .frame(width: 30, alignment: .trailing)
+                                        AlbumArtView(imageKey: t.imageKey, size: 32)
                                         Text(t.title)
                                         if let a = t.artist {
                                             Text("— \(a)").foregroundStyle(.secondary)
@@ -117,7 +118,7 @@ struct PlaylistsView: View {
             expanded = nil
         } else {
             expanded = pl.id
-            tracks = client.playlistTracks(id: pl.id)
+            tracks = client.playlistTracksForDisplay(id: pl.id)
         }
     }
 

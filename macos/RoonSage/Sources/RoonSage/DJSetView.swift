@@ -96,6 +96,7 @@ struct DJSetView: View {
         ForEach(Array(set.enumerated()), id: \.offset) { i, t in
             HStack(spacing: 10) {
                 Text("\(i + 1)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 24, alignment: .trailing)
+                AlbumArtView(imageKey: t.imageKey, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t.title).lineLimit(1)
                     if let a = t.artist { Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1) }

@@ -209,6 +209,16 @@ public final class DatabaseManager: Sendable {
         public var artist: String?
         public var year: Int?
         public var trackCount: Int
+        public var imageKey: String?
+
+        public init(albumKey: String, album: String, artist: String?, year: Int?, trackCount: Int, imageKey: String? = nil) {
+            self.albumKey = albumKey
+            self.album = album
+            self.artist = artist
+            self.year = year
+            self.trackCount = trackCount
+            self.imageKey = imageKey
+        }
     }
 
     public func searchAlbums(query: String, limit: Int = 100) throws -> [AlbumResult] {
@@ -217,7 +227,7 @@ public final class DatabaseManager: Sendable {
             let args: StatementArguments
             if query.isEmpty {
                 sql = """
-                    SELECT album_key, album, artist, year, COUNT(*) as track_count
+                    SELECT album_key, album, artist, year, COUNT(*) as track_count, MAX(image_key) as image_key
                     FROM tracks GROUP BY album_key
                     ORDER BY artist, year, album LIMIT ?
                 """
@@ -225,7 +235,7 @@ public final class DatabaseManager: Sendable {
             } else {
                 let pattern = "%\(query)%"
                 sql = """
-                    SELECT album_key, album, artist, year, COUNT(*) as track_count
+                    SELECT album_key, album, artist, year, COUNT(*) as track_count, MAX(image_key) as image_key
                     FROM tracks
                     WHERE LOWER(album) LIKE LOWER(?) OR LOWER(artist) LIKE LOWER(?)
                     GROUP BY album_key
@@ -240,7 +250,8 @@ public final class DatabaseManager: Sendable {
                     album:      $0["album"]        as String? ?? "",
                     artist:     $0["artist"],
                     year:       $0["year"],
-                    trackCount: $0["track_count"]  as Int? ?? 0
+                    trackCount: $0["track_count"]  as Int? ?? 0,
+                    imageKey:   $0["image_key"]
                 )
             }
         }
@@ -386,7 +397,7 @@ public final class DatabaseManager: Sendable {
     public func undiscoveredAlbums(limit: Int = 16) throws -> [AlbumResult] {
         try pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT album_key, album, artist, year, COUNT(*) AS track_count
+                SELECT album_key, album, artist, year, COUNT(*) AS track_count, MAX(image_key) as image_key
                 FROM tracks
                 WHERE album IS NOT NULL AND album <> ''
                   AND LOWER(album) NOT IN (
@@ -403,7 +414,8 @@ public final class DatabaseManager: Sendable {
                     album:      $0["album"]        as String? ?? "",
                     artist:     $0["artist"],
                     year:       $0["year"],
-                    trackCount: $0["track_count"]  as Int? ?? 0
+                    trackCount: $0["track_count"]  as Int? ?? 0,
+                    imageKey:   $0["image_key"]
                 )
             }
         }
@@ -475,6 +487,7 @@ public final class DatabaseManager: Sendable {
         public var album: String?
         public var year: Int?
         public var isLive: Bool
+        public var imageKey: String?
         public var bpm: Double?
         public var camelot: String?
         public var tags: [String]
@@ -497,7 +510,7 @@ public final class DatabaseManager: Sendable {
             }
             let whereClause = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
             let sql = """
-                SELECT t.id, t.title, t.artist, t.album, t.year, t.is_live, f.bpm, f.camelot, f.tags
+                SELECT t.id, t.title, t.artist, t.album, t.year, t.is_live, t.image_key, f.bpm, f.camelot, f.tags
                 FROM tracks t LEFT JOIN track_audio_features f ON t.match_key = f.match_key
                 \(whereClause)
                 ORDER BY t.artist, t.year, t.title LIMIT ?
@@ -513,6 +526,7 @@ public final class DatabaseManager: Sendable {
                 return LibraryTrackRow(
                     id: r["id"] ?? "", title: r["title"] ?? "", artist: r["artist"], album: r["album"],
                     year: r["year"], isLive: (r["is_live"] as Bool?) ?? false,
+                    imageKey: r["image_key"],
                     bpm: r["bpm"], camelot: r["camelot"], tags: tags
                 )
             }
@@ -588,6 +602,7 @@ public final class DatabaseManager: Sendable {
         public var camelot: String
         public var energy: Double
         public var tags: String?
+        public var imageKey: String?
     }
 
     /// Tracks with audio features inside the BPM window (incl. half/double-time),
@@ -595,7 +610,7 @@ public final class DatabaseManager: Sendable {
     public func djCandidates(minBPM: Double, maxBPM: Double, tags: [String], excludeLive: Bool) throws -> [DJCandidate] {
         try pool.read { db in
             var sql = """
-                SELECT t.id, t.title, t.artist, t.album, f.bpm, f.camelot, f.energy, f.tags
+                SELECT t.id, t.title, t.artist, t.album, t.image_key, f.bpm, f.camelot, f.energy, f.tags
                 FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
                 WHERE f.bpm IS NOT NULL AND (
                       (f.bpm BETWEEN ? AND ?) OR (f.bpm/2.0 BETWEEN ? AND ?) OR (f.bpm*2.0 BETWEEN ? AND ?)
@@ -619,7 +634,8 @@ public final class DatabaseManager: Sendable {
                 seen.insert(dedup)
                 result.append(DJCandidate(
                     id: r["id"] ?? "", title: title, artist: artist, album: r["album"],
-                    bpm: r["bpm"] ?? 0, camelot: r["camelot"] ?? "", energy: r["energy"] ?? 0.5, tags: r["tags"]
+                    bpm: r["bpm"] ?? 0, camelot: r["camelot"] ?? "", energy: r["energy"] ?? 0.5, tags: r["tags"],
+                    imageKey: r["image_key"]
                 ))
             }
             return result

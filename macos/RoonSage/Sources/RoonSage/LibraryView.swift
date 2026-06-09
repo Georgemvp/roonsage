@@ -129,6 +129,7 @@ struct LibraryTrackRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            AlbumArtView(imageKey: track.imageKey, size: 40)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(track.title).font(.body).lineLimit(1)

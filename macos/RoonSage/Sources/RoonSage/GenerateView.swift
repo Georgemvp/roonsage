@@ -199,6 +199,7 @@ struct GenerateView: View {
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.tertiary)
                                 .frame(width: 28, alignment: .trailing)
+                            AlbumArtView(imageKey: t.imageKey, size: 40)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(t.title).font(.body).lineLimit(1)
                                 if let a = t.artist {

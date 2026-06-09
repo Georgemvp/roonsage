@@ -366,7 +366,8 @@ public final class RoonClient {
             guard let k = t.albumKey, !k.isEmpty, !seen.contains(k) else { continue }
             seen.insert(k)
             albums.append(DatabaseManager.AlbumResult(
-                albumKey: k, album: t.album ?? "", artist: t.artist, year: t.year, trackCount: counts[k] ?? 0
+                albumKey: k, album: t.album ?? "", artist: t.artist, year: t.year, trackCount: counts[k] ?? 0,
+                imageKey: t.imageKey
             ))
         }
         albums.shuffle()
@@ -529,6 +530,16 @@ public final class RoonClient {
 
     public func playlistTracks(id: Int64) -> [TrackRecord] {
         (try? database?.playlistTracks(id: id)) ?? []
+    }
+
+    /// Saved tracks re-resolved to the current library (so album art / item_keys
+    /// are populated). Falls back to the stored rows for any that don't resolve.
+    public func playlistTracksForDisplay(id: Int64) -> [TrackRecord] {
+        let saved = playlistTracks(id: id)
+        guard !saved.isEmpty else { return [] }
+        let resolved = (try? database?.resolveCurrentTracks(saved)) ?? []
+        guard resolved.count == saved.count else { return saved }
+        return resolved
     }
 
     public func deletePlaylist(id: Int64) {

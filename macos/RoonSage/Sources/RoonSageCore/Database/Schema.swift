@@ -91,6 +91,12 @@ enum Schema {
             }
         }
 
+        migrator.registerMigration("v5_track_image_key") { db in
+            try db.alter(table: "tracks") { t in
+                t.add(column: "image_key", .text)   // Roon album-art key, set during sync
+            }
+        }
+
         try migrator.migrate(db)
     }
 }

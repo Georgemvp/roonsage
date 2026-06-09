@@ -16,12 +16,14 @@ actor BrowseService {
         let subtitle: String?
         let itemKey: String?
         let hint: String?
+        let imageKey: String?
 
         init(from dict: [String: Any]) {
-            title    = dict["title"]    as? String ?? ""
-            subtitle = dict["subtitle"] as? String
-            itemKey  = dict["item_key"] as? String
-            hint     = dict["hint"]     as? String
+            title    = dict["title"]     as? String ?? ""
+            subtitle = dict["subtitle"]  as? String
+            itemKey  = dict["item_key"]  as? String
+            hint     = dict["hint"]      as? String
+            imageKey = dict["image_key"] as? String
         }
     }
 

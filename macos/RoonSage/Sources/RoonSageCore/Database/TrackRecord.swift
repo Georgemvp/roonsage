@@ -12,6 +12,7 @@ public struct TrackRecord: Codable, FetchableRecord, PersistableRecord, Sendable
     public var year: Int?
     public var isLive: Bool
     public var matchKey: String?
+    public var imageKey: String?
 
     public init(
         id: String,
@@ -21,7 +22,8 @@ public struct TrackRecord: Codable, FetchableRecord, PersistableRecord, Sendable
         albumKey: String? = nil,
         year: Int? = nil,
         isLive: Bool = false,
-        matchKey: String? = nil
+        matchKey: String? = nil,
+        imageKey: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -31,6 +33,7 @@ public struct TrackRecord: Codable, FetchableRecord, PersistableRecord, Sendable
         self.year = year
         self.isLive = isLive
         self.matchKey = matchKey
+        self.imageKey = imageKey
     }
 
     enum CodingKeys: String, CodingKey {
@@ -38,5 +41,6 @@ public struct TrackRecord: Codable, FetchableRecord, PersistableRecord, Sendable
         case albumKey = "album_key"
         case isLive   = "is_live"
         case matchKey = "match_key"
+        case imageKey = "image_key"
     }
 }
