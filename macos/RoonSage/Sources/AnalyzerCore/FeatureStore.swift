@@ -125,8 +125,13 @@ public final class FeatureStore {
         var arr: [[String: Any]] = []
         arr.reserveCapacity(rows.count)
         for r in rows {
+            // Compute the match key fresh from artist/title so it always reflects
+            // the current TrackIdentity scheme — the stored PK may predate a
+            // normaliser change (no re-analysis needed to re-key the export).
+            let matchKey = TrackIdentity.matchKey(
+                artist: r["artist"], album: r["album"], title: r["title"])
             var obj: [String: Any] = [
-                "match_key": r["match_key"] as String? ?? "",
+                "match_key": matchKey,
                 "artist": r["artist"] as String? ?? "",
                 "title": r["title"] as String? ?? "",
                 "album": r["album"] as String? ?? "",
