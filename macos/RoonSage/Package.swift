@@ -7,9 +7,11 @@ let package = Package(
     products: [
         .library(name: "RoonSageCore", targets: ["RoonSageCore"]),
         .library(name: "AudioAnalysis", targets: ["AudioAnalysis"]),
+        .library(name: "AnalyzerCore", targets: ["AnalyzerCore"]),
         .executable(name: "RoonSage", targets: ["RoonSage"]),
         .executable(name: "roonsage-mcp", targets: ["RoonSageMCP"]),
         .executable(name: "roonsage-analyzer", targets: ["RoonSageAnalyzer"]),
+        .executable(name: "RoonSageAnalyzerApp", targets: ["RoonSageAnalyzerApp"]),
     ],
     dependencies: [
         .package(path: "../RoonProtocol"),
@@ -39,13 +41,24 @@ let package = Package(
             name: "AudioAnalysis",
             path: "Sources/AudioAnalysis"
         ),
-        .executableTarget(
-            name: "RoonSageAnalyzer",
+        .target(
+            name: "AnalyzerCore",
             dependencies: [
                 "AudioAnalysis",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
+            path: "Sources/AnalyzerCore"
+        ),
+        .executableTarget(
+            name: "RoonSageAnalyzer",
+            dependencies: ["AnalyzerCore", "AudioAnalysis"],
             path: "Sources/RoonSageAnalyzer"
+        ),
+        .executableTarget(
+            name: "RoonSageAnalyzerApp",
+            dependencies: ["AnalyzerCore", "AudioAnalysis"],
+            path: "Sources/RoonSageAnalyzerApp",
+            exclude: ["Info.plist"]
         ),
         .testTarget(
             name: "RoonSageCoreTests",

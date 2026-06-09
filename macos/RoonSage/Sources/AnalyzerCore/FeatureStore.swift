@@ -3,37 +3,47 @@ import Foundation
 import GRDB
 
 /// Persistent store for analyzed track features on the analysis host.
-/// Keyed by content match key so the app can join by the same key.
-struct TrackFeatureRow {
-    var matchKey: String
-    var artist: String?
-    var title: String?
-    var album: String?
-    var year: Int?
-    var filePath: String
-    var fileMtime: Double
-    var bpm: Double
-    var bpmConfidence: Double
-    var keyRoot: String
-    var keyMode: String
-    var camelot: String
-    var energy: Double
-    var duration: Double
-    var tags: String?          // JSON array
-    var analyzedAt: String
+public struct TrackFeatureRow {
+    public var matchKey: String
+    public var artist: String?
+    public var title: String?
+    public var album: String?
+    public var year: Int?
+    public var filePath: String
+    public var fileMtime: Double
+    public var bpm: Double
+    public var bpmConfidence: Double
+    public var keyRoot: String
+    public var keyMode: String
+    public var camelot: String
+    public var energy: Double
+    public var duration: Double
+    public var tags: String?
+    public var analyzedAt: String
+
+    public init(matchKey: String, artist: String?, title: String?, album: String?, year: Int?,
+                filePath: String, fileMtime: Double, bpm: Double, bpmConfidence: Double,
+                keyRoot: String, keyMode: String, camelot: String, energy: Double, duration: Double,
+                tags: String?, analyzedAt: String) {
+        self.matchKey = matchKey; self.artist = artist; self.title = title; self.album = album
+        self.year = year; self.filePath = filePath; self.fileMtime = fileMtime; self.bpm = bpm
+        self.bpmConfidence = bpmConfidence; self.keyRoot = keyRoot; self.keyMode = keyMode
+        self.camelot = camelot; self.energy = energy; self.duration = duration; self.tags = tags
+        self.analyzedAt = analyzedAt
+    }
 }
 
-final class FeatureStore {
+public final class FeatureStore {
     private let dbQueue: DatabaseQueue
 
-    init(path: String) throws {
+    public init(path: String) throws {
         dbQueue = try DatabaseQueue(path: path)
         try migrate()
     }
 
-    static func defaultPath() -> String {
+    public static func defaultPath() -> String {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("RoonSage", isDirectory: true)
+            .appendingPathComponent("RoonSageAnalyzer", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("analyzer.db").path
     }
@@ -57,15 +67,14 @@ final class FeatureStore {
         }
     }
 
-    /// True if this exact file (path + mtime) was already analyzed.
-    func isAnalyzed(path: String, mtime: Double) -> Bool {
+    public func isAnalyzed(path: String, mtime: Double) -> Bool {
         (try? dbQueue.read { db in
             try Bool.fetchOne(db, sql: "SELECT 1 FROM track_features WHERE file_path = ? AND file_mtime = ?",
                               arguments: [path, mtime]) ?? false
         }) ?? false
     }
 
-    func upsert(_ r: TrackFeatureRow) throws {
+    public func upsert(_ r: TrackFeatureRow) throws {
         try dbQueue.write { db in
             try db.execute(sql: """
                 INSERT INTO track_features
@@ -85,31 +94,28 @@ final class FeatureStore {
         }
     }
 
-    func count() -> Int {
+    public func count() -> Int {
         (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_features") ?? 0 }) ?? 0
     }
 
-    func taggedCount() -> Int {
+    public func taggedCount() -> Int {
         (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_features WHERE tags IS NOT NULL") ?? 0 }) ?? 0
     }
 
-    /// Rows still needing LLM tags (metadata + features available).
-    func untagged(limit: Int) -> [TrackFeatureRow] {
+    public func untagged(limit: Int) -> [TrackFeatureRow] {
         (try? dbQueue.read { db in
-            try Row.fetchAll(db, sql: """
-                SELECT * FROM track_features WHERE tags IS NULL AND bpm IS NOT NULL LIMIT ?
-            """, arguments: [limit]).map(Self.row)
+            try Row.fetchAll(db, sql: "SELECT * FROM track_features WHERE tags IS NULL AND bpm IS NOT NULL LIMIT ?",
+                             arguments: [limit]).map(Self.row)
         }) ?? []
     }
 
-    func setTags(matchKey: String, tags: String) throws {
+    public func setTags(matchKey: String, tags: String) throws {
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE track_features SET tags = ? WHERE match_key = ?", arguments: [tags, matchKey])
         }
     }
 
-    /// All features as a JSON array (keyed by match_key) for the app to sync.
-    func exportJSON() -> Data {
+    public func exportJSON() -> Data {
         let rows = (try? dbQueue.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT match_key, artist, title, album, bpm, camelot, key_root, key_mode, energy, duration, tags

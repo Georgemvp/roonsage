@@ -1,0 +1,76 @@
+name: Release Analyzer App
+
+on:
+  push:
+    tags:
+      - 'analyzer-v[0-9]*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 1.0.0)'
+        required: true
+        default: '0.0.0-test'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Analyzer DMG
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#analyzer-v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      - name: Build analyzer app DMG (ad-hoc signed)
+        run: |
+          cd macos
+          chmod +x scripts/build-analyzer-release.sh
+          ./scripts/build-analyzer-release.sh "${{ steps.version.outputs.version }}"
+
+      - name: Build CLI binary
+        run: |
+          cd macos/RoonSage
+          swift build -c release --product roonsage-analyzer
+          cp .build/release/roonsage-analyzer ../build/roonsage-analyzer
+          (cd ../build && zip "roonsage-analyzer-cli-${{ steps.version.outputs.version }}.zip" roonsage-analyzer)
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cat > /tmp/notes.md << 'NOTES'
+          **RoonSage Analyzer** — standalone macOS app that runs on your music
+          host. Analyzes your library (BPM, Camelot key, energy) and generates
+          LLM tags, then serves the data to the RoonSage app over your network.
+
+          ### Install
+          1. Download the DMG, drag **RoonSage Analyzer** to Applications
+          2. First launch: right-click → Open (unsigned app)
+          3. Choose your music folder → Analyze → Generate tags → Start serving
+          4. In RoonSage: Settings → Audio Analyzer → `http://THIS-MAC-IP:5766`
+
+          Auto-updates from future `analyzer-v*` releases. A CLI build is attached too.
+          NOTES
+          gh release create "analyzer-v${VERSION}" \
+            --title "RoonSage Analyzer v${VERSION}" \
+            --notes-file /tmp/notes.md \
+            "macos/build/RoonSage-Analyzer-${VERSION}.dmg" \
+            "macos/build/roonsage-analyzer-cli-${VERSION}.zip"

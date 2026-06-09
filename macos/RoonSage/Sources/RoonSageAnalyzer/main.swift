@@ -1,7 +1,8 @@
+import AnalyzerCore
 import AudioAnalysis
 import Foundation
 
-setvbuf(stdout, nil, _IOLBF, 0)   // line-buffered so progress shows when piped
+setvbuf(stdout, nil, _IOLBF, 0)
 
 func option(_ name: String) -> String? {
     let a = CommandLine.arguments
@@ -17,32 +18,37 @@ case "analyze":
     guard args.count >= 3 else {
         print("usage: roonsage-analyzer analyze <musicdir> [--db <path>] [--workers N]"); exit(1)
     }
-    let dbPath = option("--db") ?? FeatureStore.defaultPath()
-    let store = try FeatureStore(path: dbPath)
+    let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
     let workers = option("--workers").flatMap { Int($0) } ?? max(2, ProcessInfo.processInfo.activeProcessorCount - 1)
-    print("DB: \(dbPath)")
-    await LibraryWalker(store: store, concurrency: workers).run(musicDir: args[2])
+    print("Analyzing \(args[2]) with \(workers) workers (resumable)…")
+    let (ok, failed) = await LibraryWalker(store: store, concurrency: workers).run(musicDir: args[2]) { p in
+        if (p.done + p.failed) % 50 == 0 {
+            print(String(format: "  %d/%d (%.1f/s, ETA %.0fs, %d failed)", p.done + p.failed, p.total, p.rate, p.etaSeconds, p.failed))
+        }
+    }
+    print("Done. \(ok) analyzed, \(failed) failed. Store holds \(store.count()) tracks.")
 
 case "tag":
-    let dbPath = option("--db") ?? FeatureStore.defaultPath()
-    let store = try FeatureStore(path: dbPath)
+    let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
     let ollama = option("--ollama") ?? "http://127.0.0.1:11434"
     let model = option("--model") ?? "qwen3.5:4b-mlx"
-    await Tagger(store: store, ollamaURL: ollama, model: model).run()
+    print("Tagging via \(ollama) (\(model))…")
+    await Tagger(store: store, ollamaURL: ollama, model: model).run { p in
+        if (p.tagged + p.failed) % 25 == 0 { print("  \(p.tagged) tagged, \(p.failed) failed (\(p.total) total)") }
+    }
+    print("Tagging done: \(store.taggedCount())/\(store.count()).")
 
 case "serve":
-    let dbPath = option("--db") ?? FeatureStore.defaultPath()
-    let store = try FeatureStore(path: dbPath)
+    let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
     let port = UInt16(option("--port") ?? "5766") ?? 5766
-    let server = try HTTPServer(port: port, store: store)   // retained for the loop's lifetime
+    let server = HTTPServer(port: port, store: store)
     try server.start()
     print("Serving \(store.count()) tracks on http://0.0.0.0:\(port)/features  (Ctrl-C to stop)")
     while true { try await Task.sleep(nanoseconds: 3_600_000_000_000) }
 
 case "stats":
-    let dbPath = option("--db") ?? FeatureStore.defaultPath()
-    let store = try FeatureStore(path: dbPath)
-    print("DB: \(dbPath)\n  tracks: \(store.count())\n  tagged: \(store.taggedCount())")
+    let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
+    print("tracks: \(store.count())  tagged: \(store.taggedCount())")
 
 case "":
     print("""

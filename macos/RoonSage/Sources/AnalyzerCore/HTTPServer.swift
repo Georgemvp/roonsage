@@ -1,27 +1,31 @@
 import Foundation
 import Network
 
-/// Minimal HTTP/1.1 server (Network framework, no deps) exposing the analyzed
+/// Minimal HTTP/1.1 server (Network framework, no deps) exposing analyzed
 /// features so the app can pull them over ZeroTier.
-///   GET /features  → JSON array of all track features (keyed by match_key)
-///   GET /health    → {"status":"ok","tracks":N}
-final class HTTPServer {
+///   GET /features → JSON array (keyed by match_key)   GET /health → status
+public final class HTTPServer {
     private let port: UInt16
     private let store: FeatureStore
     private var listener: NWListener?
 
-    init(port: UInt16, store: FeatureStore) {
+    public init(port: UInt16, store: FeatureStore) {
         self.port = port
         self.store = store
     }
 
-    func start() throws {
+    public func start() throws {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
         let listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
         listener.newConnectionHandler = { [weak self] conn in self?.handle(conn) }
         listener.start(queue: .global())
         self.listener = listener
+    }
+
+    public func stop() {
+        listener?.cancel()
+        listener = nil
     }
 
     private func handle(_ conn: NWConnection) {
@@ -45,8 +49,7 @@ final class HTTPServer {
             header += "Content-Length: \(body.count)\r\n"
             header += "Access-Control-Allow-Origin: *\r\n"
             header += "Connection: close\r\n\r\n"
-            var out = Data(header.utf8)
-            out.append(body)
+            var out = Data(header.utf8); out.append(body)
             conn.send(content: out, completion: .contentProcessed { _ in
                 conn.send(content: nil, isComplete: true, completion: .contentProcessed { _ in conn.cancel() })
             })
@@ -54,12 +57,8 @@ final class HTTPServer {
     }
 
     private func route(_ path: String) -> (String, Data, String) {
-        if path.hasPrefix("/features") {
-            return ("200 OK", store.exportJSON(), "application/json")
-        }
-        if path.hasPrefix("/health") {
-            return ("200 OK", Data("{\"status\":\"ok\",\"tracks\":\(store.count())}".utf8), "application/json")
-        }
+        if path.hasPrefix("/features") { return ("200 OK", store.exportJSON(), "application/json") }
+        if path.hasPrefix("/health") { return ("200 OK", Data("{\"status\":\"ok\",\"tracks\":\(store.count())}".utf8), "application/json") }
         return ("404 Not Found", Data("not found".utf8), "text/plain")
     }
 }
