@@ -9,6 +9,24 @@ struct LibraryView: View {
     @State private var tracks: [DatabaseManager.LibraryTrackRow] = []
     @State private var tags: [(tag: String, count: Int)] = []
     @State private var searchTask: Task<Void, Never>?
+    @State private var sort: SortField = .title
+    @State private var selection = Set<String>()
+    @State private var showSaveSheet = false
+    @State private var newPlaylistName = ""
+
+    enum SortField: String, CaseIterable, Identifiable {
+        case title = "Title", artist = "Artist", year = "Year", bpm = "BPM"
+        var id: String { rawValue }
+    }
+
+    private var sortedTracks: [DatabaseManager.LibraryTrackRow] {
+        switch sort {
+        case .title:  return tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .artist: return tracks.sorted { ($0.artist ?? "").localizedCaseInsensitiveCompare($1.artist ?? "") == .orderedAscending }
+        case .year:   return tracks.sorted { ($0.year ?? 0) < ($1.year ?? 0) }
+        case .bpm:    return tracks.sorted { ($0.bpm ?? 0) < ($1.bpm ?? 0) }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,18 +37,27 @@ struct LibraryView: View {
             if tracks.isEmpty && !client.isSyncing {
                 emptyState
             } else {
-                List(tracks) { track in
+                List(sortedTracks, selection: $selection) { track in
                     LibraryTrackRow(track: track, canPlay: client.selectedZone != nil) {
-                        if let zone = client.selectedZone {
-                            Task { await client.playTrack(id: track.id, title: track.title, artist: track.artist, zoneID: zone.id) }
-                        }
+                        play([asRecord(track)])
                     }
+                    .contextMenu { rowMenu(track) }
+                    .tag(track.id)
                 }
+                if !selection.isEmpty { selectionBar }
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: selection.isEmpty)
         .navigationTitle("Library (\(client.trackCount) tracks)")
         .searchable(text: $searchText, prompt: "Search title, artist or album…")
         .toolbar {
+            ToolbarItem {
+                Picker("Sort", selection: $sort) {
+                    ForEach(SortField.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .help("Sort tracks")
+            }
             ToolbarItem {
                 if client.isSyncing {
                     Button("Cancel", role: .cancel) { client.cancelSync() }
@@ -52,6 +79,79 @@ struct LibraryView: View {
         .onChange(of: selectedTag) { _, _ in reloadTracks() }
         .onChange(of: client.trackCount) { _, _ in reload() }
         .onAppear { reload() }
+        .alert("Save as playlist", isPresented: $showSaveSheet) {
+            TextField("Playlist name", text: $newPlaylistName)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                let name = newPlaylistName.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return }
+                _ = client.savePlaylist(name: name, tracks: selectedRecords())
+                newPlaylistName = ""
+                selection.removeAll()
+            }
+        } message: {
+            Text("Save \(selection.count) selected track\(selection.count == 1 ? "" : "s") as a local playlist.")
+        }
+    }
+
+    // MARK: - Selection action bar
+
+    private var selectionBar: some View {
+        HStack(spacing: Spacing.md) {
+            Text("\(selection.count) selected").font(.callout).foregroundStyle(.secondary)
+            Spacer()
+            Button { play(selectedRecords()) } label: { Label("Play", systemImage: "play.fill") }
+                .disabled(client.selectedZone == nil)
+            Button { queue(selectedRecords()) } label: { Label("Queue", systemImage: "text.append") }
+                .disabled(client.selectedZone == nil)
+            Button { showSaveSheet = true } label: { Label("Save", systemImage: "plus.rectangle.on.folder") }
+            Button { selection.removeAll() } label: { Label("Clear", systemImage: "xmark") }
+                .labelStyle(.iconOnly)
+        }
+        .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.sm)
+        .background(.bar)
+        .transition(.move(edge: .bottom))
+    }
+
+    // MARK: - Per-row context menu
+
+    @ViewBuilder
+    private func rowMenu(_ track: DatabaseManager.LibraryTrackRow) -> some View {
+        let rec = asRecord(track)
+        let hasZone = client.selectedZone != nil
+        Button("Play Now") { play([rec]) }.disabled(!hasZone)
+        Button("Play Next") { queue([rec], next: true) }.disabled(!hasZone)
+        Button("Add to Queue") { queue([rec]) }.disabled(!hasZone)
+        Divider()
+        Button("Start Sonic Radio") {
+            guard let zone = client.selectedZone else { return }
+            Task { await client.playSonicRadio(title: track.title, artist: track.artist, album: track.album, zoneID: zone.id) }
+        }.disabled(!hasZone)
+        Divider()
+        Button("Save as Playlist…") {
+            selection = [track.id]
+            showSaveSheet = true
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func asRecord(_ t: DatabaseManager.LibraryTrackRow) -> TrackRecord {
+        TrackRecord(id: t.id, title: t.title, artist: t.artist, album: t.album, year: t.year, isLive: t.isLive)
+    }
+
+    private func selectedRecords() -> [TrackRecord] {
+        sortedTracks.filter { selection.contains($0.id) }.map(asRecord)
+    }
+
+    private func play(_ tracks: [TrackRecord]) {
+        guard let zone = client.selectedZone, !tracks.isEmpty else { return }
+        Task { await client.curateTracks(tracks, zoneID: zone.id) }
+    }
+
+    private func queue(_ tracks: [TrackRecord], next: Bool = false) {
+        guard let zone = client.selectedZone, !tracks.isEmpty else { return }
+        Task { await client.queueTracks(tracks, next: next, zoneID: zone.id) }
     }
 
     private var tagChips: some View {

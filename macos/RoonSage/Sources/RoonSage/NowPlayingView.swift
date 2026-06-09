@@ -225,6 +225,7 @@ struct ZoneRow: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 12)
+        .accessibilityLabel(zone.state == .playing ? "Pause" : "Play")
     }
 
     private func controlButton(_ icon: String, action: @escaping () -> Void) -> some View {
@@ -234,5 +235,6 @@ struct ZoneRow: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 8)
+        .accessibilityLabel(icon.contains("backward") ? "Previous track" : "Next track")
     }
 }

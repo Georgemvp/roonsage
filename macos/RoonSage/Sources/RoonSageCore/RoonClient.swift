@@ -307,6 +307,16 @@ public final class RoonClient {
         await curateTracks([TrackRecord(id: id, title: title, artist: artist)], zoneID: zoneID)
     }
 
+    /// Add tracks to the queue without interrupting playback. `next: true` uses
+    /// Roon's "Add Next" instead of "Queue" (end of queue).
+    public func queueTracks(_ tracks: [TrackRecord], next: Bool = false, zoneID: String) async {
+        guard let browse = browseService else { return }
+        let action = next ? "add_next" : "queue"
+        for track in tracks {
+            try? await browse.playByBrowse(itemKey: track.id, zoneID: zoneID, action: action)
+        }
+    }
+
     // MARK: - LLM request analysis (shared by Generate & Recommend)
 
     public struct RequestFilters: Sendable {

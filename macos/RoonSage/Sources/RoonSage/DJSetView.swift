@@ -15,6 +15,7 @@ struct DJSetView: View {
     @State private var set: [DatabaseManager.DJCandidate] = []
     @State private var saveName = ""
     @State private var status: String?
+    @State private var showRebuildConfirm = false
 
     var body: some View {
         let stats = client.audioFeaturesStats()
@@ -57,10 +58,19 @@ struct DJSetView: View {
                             }.frame(maxWidth: 220)
                         }
                         Spacer()
-                        Button { build() } label: {
+                        Button {
+                            if set.isEmpty { build() } else { showRebuildConfirm = true }
+                        } label: {
                             Label("Build DJ Set", systemImage: "slider.horizontal.3")
                         }
                         .buttonStyle(.borderedProminent)
+                        .confirmationDialog(
+                            "Rebuild the set? The current set will be replaced.",
+                            isPresented: $showRebuildConfirm, titleVisibility: .visible
+                        ) {
+                            Button("Rebuild", role: .destructive) { build() }
+                            Button("Cancel", role: .cancel) {}
+                        }
                     }
 
                     if let status { Text(status).font(.callout).foregroundStyle(.secondary) }
@@ -93,6 +103,11 @@ struct DJSetView: View {
             .buttonStyle(.borderedProminent).disabled(selectedZoneID == nil)
         }
 
+        // BPM flow preview
+        BPMCurvePreview(bpms: set.map { $0.bpm })
+            .frame(height: 56)
+            .padding(.vertical, 4)
+
         ForEach(Array(set.enumerated()), id: \.offset) { i, t in
             HStack(spacing: 10) {
                 Text("\(i + 1)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 24, alignment: .trailing)
@@ -106,9 +121,25 @@ struct DJSetView: View {
                 Text(t.camelot).font(.caption.monospacedDigit().bold())
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(.quaternary, in: Capsule())
+                HStack(spacing: 0) {
+                    Button { move(i, by: -1) } label: { Image(systemName: "chevron.up") }
+                        .disabled(i == 0).help("Move up")
+                    Button { move(i, by: 1) } label: { Image(systemName: "chevron.down") }
+                        .disabled(i == set.count - 1).help("Move down")
+                    Button(role: .destructive) {
+                        set.remove(at: i)
+                    } label: { Image(systemName: "trash") }.help("Remove from set")
+                }
+                .buttonStyle(.borderless).controlSize(.small).foregroundStyle(.secondary)
             }
             .padding(.vertical, 2)
         }
+    }
+
+    private func move(_ index: Int, by offset: Int) {
+        let target = index + offset
+        guard set.indices.contains(index), set.indices.contains(target) else { return }
+        set.swapAt(index, target)
     }
 
     private func build() {
@@ -116,5 +147,48 @@ struct DJSetView: View {
         set = client.buildDJSet(count: count, startBPM: startBPM, endBPM: endBPM, curve: curve, tags: tags)
         status = set.isEmpty ? "No tracks matched — widen the BPM range or drop the tags." : nil
         if saveName.isEmpty { saveName = "DJ set \(Int(startBPM))–\(Int(endBPM)) BPM" }
+    }
+}
+
+// MARK: - BPM flow preview
+
+/// Sparkline of the set's tempo progression so the curve is visible at a glance.
+private struct BPMCurvePreview: View {
+    let bpms: [Double]
+
+    var body: some View {
+        Canvas { ctx, size in
+            guard bpms.count > 1 else { return }
+            let lo = (bpms.min() ?? 0) - 2
+            let hi = (bpms.max() ?? 1) + 2
+            let span = max(1, hi - lo)
+            let stepX = size.width / CGFloat(bpms.count - 1)
+            func pt(_ i: Int) -> CGPoint {
+                let y = size.height - CGFloat((bpms[i] - lo) / span) * size.height
+                return CGPoint(x: CGFloat(i) * stepX, y: y)
+            }
+            // Filled area under the line.
+            var area = Path()
+            area.move(to: CGPoint(x: 0, y: size.height))
+            for i in 0..<bpms.count { area.addLine(to: pt(i)) }
+            area.addLine(to: CGPoint(x: size.width, y: size.height))
+            area.closeSubpath()
+            ctx.fill(area, with: .color(Color.roonGold.opacity(0.15)))
+
+            var line = Path()
+            line.move(to: pt(0))
+            for i in 1..<bpms.count { line.addLine(to: pt(i)) }
+            ctx.stroke(line, with: .color(Color.roonGold), lineWidth: 2)
+
+            for i in 0..<bpms.count {
+                let p = pt(i)
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2, y: p.y - 2, width: 4, height: 4)),
+                         with: .color(Color.roonGold))
+            }
+            ctx.draw(Text("\(Int(hi)) BPM").font(.caption2).foregroundColor(.secondary),
+                     at: CGPoint(x: 28, y: 8))
+            ctx.draw(Text("\(Int(lo)) BPM").font(.caption2).foregroundColor(.secondary),
+                     at: CGPoint(x: 28, y: size.height - 8))
+        }
     }
 }

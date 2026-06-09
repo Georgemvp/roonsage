@@ -92,6 +92,19 @@ struct MainAppView: View {
         }
         .navigationTitle("")
         .toolbar { toolbarContent }
+        .background { tabShortcuts }
+    }
+
+    /// Cmd+1…9 jump straight to a sidebar tab. Hidden but active.
+    private var tabShortcuts: some View {
+        ZStack {
+            ForEach(Array(SidebarItem.allCases.prefix(9).enumerated()), id: \.offset) { idx, item in
+                Button("") { selection = item }
+                    .keyboardShortcut(KeyEquivalent(Character("\(idx + 1)")), modifiers: .command)
+            }
+        }
+        .opacity(0)
+        .accessibilityHidden(true)
     }
 
     @ToolbarContentBuilder
@@ -121,18 +134,21 @@ struct MainAppView: View {
                 } label: {
                     Image(systemName: "backward.fill")
                 }
+                .accessibilityLabel("Previous track")
 
                 Button {
                     Task { await client.playPause(zoneID: zone.id) }
                 } label: {
                     Image(systemName: zone.state == .playing ? "pause.fill" : "play.fill")
                 }
+                .accessibilityLabel(zone.state == .playing ? "Pause" : "Play")
 
                 Button {
                     Task { await client.next(zoneID: zone.id) }
                 } label: {
                     Image(systemName: "forward.fill")
                 }
+                .accessibilityLabel("Next track")
             }
         }
     }
