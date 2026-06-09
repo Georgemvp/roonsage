@@ -115,8 +115,9 @@ public final class UpdateInstaller {
     /// Persistent update log path (created if missing). Surfaced so the UI/user
     /// can find it after a failed update.
     public static var updateLogPath: String {
-        let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Logs/RoonSage", isDirectory: true)
+        let base = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library")
+        let dir = base.appendingPathComponent("Logs/RoonSage", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("update.log").path
     }
@@ -162,6 +163,28 @@ public final class UpdateInstaller {
             hdiutil detach "$MNT" -quiet -force; open "$DEST"; exit 1
         fi
 
+        # --- Code-signature verification (anti-tamper for the downloaded app) ---
+        # If the currently-installed app is signed with a Team ID, require the
+        # downloaded app to (a) pass codesign verification and (b) carry the SAME
+        # Team ID. This blocks a MITM'd/forged DMG from replacing a signed install.
+        # Unsigned dev builds (no current Team ID) skip the check so updates keep
+        # working locally.
+        EXPECTED_TEAM=$(codesign -dvv "$DEST" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2}')
+        if [ -n "$EXPECTED_TEAM" ] && [ "$EXPECTED_TEAM" != "not set" ]; then
+            echo "Verifying code signature (expected team: $EXPECTED_TEAM)"
+            if ! codesign --verify --deep --strict "$SRC" 2>>"$LOG"; then
+                echo "ERROR: downloaded app failed code signature verification — aborting"
+                hdiutil detach "$MNT" -quiet -force; open "$DEST"; exit 1
+            fi
+            NEW_TEAM=$(codesign -dvv "$SRC" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2}')
+            if [ "$NEW_TEAM" != "$EXPECTED_TEAM" ]; then
+                echo "ERROR: signature team mismatch ($NEW_TEAM != $EXPECTED_TEAM) — aborting"
+                hdiutil detach "$MNT" -quiet -force; open "$DEST"; exit 1
+            fi
+        else
+            echo "WARN: current app is unsigned — skipping signature check (dev build)"
+        fi
+
         echo "Copying new app to staging ($DEST.new)"
         if ! ditto "$SRC" "$DEST.new"; then
             echo "ERROR: copy failed"
@@ -188,10 +211,14 @@ public final class UpdateInstaller {
 
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
 
-        // Launch fully detached (nohup + background) so it outlives our exit.
+        // Launch fully detached via nohup, passing the script path as a real
+        // argument (NOT through `bash -c "...path..."`), so no shell metacharacter
+        // in the path can be interpreted. nohup keeps it alive past our exit.
         let launcher = Process()
-        launcher.executableURL = URL(fileURLWithPath: "/bin/bash")
-        launcher.arguments = ["-c", "nohup bash '\(scriptURL.path)' >/dev/null 2>&1 &"]
+        launcher.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
+        launcher.arguments = ["/bin/bash", scriptURL.path]
+        launcher.standardOutput = FileHandle.nullDevice
+        launcher.standardError = FileHandle.nullDevice
         try launcher.run()
     }
 }

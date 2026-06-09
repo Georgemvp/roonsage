@@ -16,6 +16,7 @@ public struct TempoAnalyzer {
         let half = frameSize / 2
 
         var prev = [Float](repeating: 0, count: half)
+        var mag = [Float](repeating: 0, count: half)
         var onset: [Float] = []
         onset.reserveCapacity(samples.count / hop + 1)
         var frame = [Float](repeating: 0, count: frameSize)
@@ -23,14 +24,14 @@ public struct TempoAnalyzer {
         var i = 0
         while i + frameSize <= samples.count {
             for j in 0..<frameSize { frame[j] = samples[i + j] * window[j] }
-            let mag = fft.magnitudes(frame)
+            fft.magnitudes(frame, into: &mag)
             var flux: Float = 0
             for j in 0..<half {
                 let d = mag[j] - prev[j]
                 if d > 0 { flux += d }
             }
             onset.append(flux)
-            prev = mag
+            swap(&prev, &mag)   // O(1) buffer swap instead of copying the spectrum
             i += hop
         }
 

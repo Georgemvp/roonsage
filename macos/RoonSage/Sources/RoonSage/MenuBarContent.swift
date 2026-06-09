@@ -143,7 +143,7 @@ struct MenuBarContent: View {
                     HStack(spacing: 8) {
                         Image(systemName: zone.state.icon)
                             .font(.caption)
-                            .foregroundStyle(zone.state == .playing ? Color.accentColor : .secondary)
+                            .foregroundStyle(zone.state == .playing ? Color.roonGold : .secondary)
                             .frame(width: 14)
                         Text(zone.displayName)
                             .font(.callout)
@@ -151,7 +151,7 @@ struct MenuBarContent: View {
                         if client.selectedZone?.id == zone.id {
                             Image(systemName: "checkmark")
                                 .font(.caption.bold())
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.roonGold)
                         }
                     }
                     .contentShape(Rectangle())
@@ -175,7 +175,7 @@ struct MenuBarContent: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(font)
-                .foregroundStyle(accent ? Color.accentColor : .primary)
+                .foregroundStyle(accent ? Color.roonGold : .primary)
                 .frame(width: 32, height: 32)
         }
         .buttonStyle(.plain)

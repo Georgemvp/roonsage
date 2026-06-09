@@ -46,13 +46,13 @@ struct ZoneRow: View {
                     HStack {
                         Text(zone.displayName)
                             .font(.subheadline.bold())
-                            .foregroundStyle(isSelected ? Color.accentColor : .primary)
+                            .foregroundStyle(isSelected ? Color.roonGold : .primary)
                         Spacer()
                         if zone.state == .playing {
                             Label("Playing", systemImage: "waveform")
                                 .labelStyle(.iconOnly)
                                 .font(.caption)
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.roonGold)
                                 .symbolEffect(.variableColor.iterative, options: .repeating)
                         }
                     }
@@ -93,7 +93,7 @@ struct ZoneRow: View {
                         }
                     }
                     .controlSize(.mini)
-                    .tint(Color.accentColor)
+                    .tint(Color.roonGold)
                     HStack {
                         Text(formatTime(displayPosition))
                         Spacer()
@@ -170,10 +170,10 @@ struct ZoneRow: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(isSelected ? Color.accentColor.opacity(0.08) : Color(.windowBackgroundColor).opacity(0.5))
+                .fill(isSelected ? Color.roonGold.opacity(0.08) : Color(.windowBackgroundColor).opacity(0.5))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(isSelected ? Color.accentColor.opacity(0.25) : Color.clear, lineWidth: 1)
+                        .strokeBorder(isSelected ? Color.roonGold.opacity(0.25) : Color.clear, lineWidth: 1)
                 )
         )
         .onAppear { displayPosition = zone.seekPosition ?? 0; refreshFeatures() }
@@ -211,7 +211,7 @@ struct ZoneRow: View {
         } label: {
             Image(systemName: zone.state == .playing ? "pause.circle.fill" : "play.circle.fill")
                 .font(.title2)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.roonGold)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 12)

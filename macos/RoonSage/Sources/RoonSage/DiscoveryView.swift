@@ -218,7 +218,7 @@ struct DiscoveryView: View {
 
                     GeometryReader { geo in
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.accentColor.opacity(0.7))
+                            .fill(Color.roonGold.opacity(0.7))
                             .frame(width: geo.size.width * CGFloat(item.count) / CGFloat(maxCount))
                     }
                     .frame(height: 14)
@@ -253,7 +253,7 @@ struct DiscoveryView: View {
                             .foregroundStyle(.secondary)
 
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.accentColor.opacity(0.65))
+                            .fill(Color.roonGold.opacity(0.65))
                             .frame(
                                 width: 36,
                                 height: max(4, 100 * CGFloat(item.count) / CGFloat(maxCount))

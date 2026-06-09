@@ -31,7 +31,7 @@ struct QueueView: View {
                             Spacer()
                             if index == 0 {
                                 Image(systemName: "speaker.wave.2.fill")
-                                    .font(.caption).foregroundStyle(Color.accentColor)
+                                    .font(.caption).foregroundStyle(Color.roonGold)
                             } else if item.length > 0 {
                                 Text(formatTime(item.length))
                                     .font(.caption.monospacedDigit()).foregroundStyle(.tertiary)

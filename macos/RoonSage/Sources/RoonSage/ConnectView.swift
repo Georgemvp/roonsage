@@ -31,7 +31,7 @@ struct ConnectView: View {
             VStack(spacing: 12) {
                 Image(systemName: "music.note.house.fill")
                     .font(.system(size: 64))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.roonGold)
                 Text("RoonSage")
                     .font(.largeTitle.bold())
                 Text("Native macOS Client")

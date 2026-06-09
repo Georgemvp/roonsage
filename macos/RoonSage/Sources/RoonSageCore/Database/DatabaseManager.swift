@@ -27,10 +27,40 @@ public final class DatabaseManager: Sendable {
         }
     }
 
+    /// Largest number of bound parameters we put in one statement. SQLite's
+    /// historical limit is 999; staying under it keeps us portable across SQLite
+    /// builds. Rows per chunk = this / columns-per-row.
+    private static let maxBoundParams = 900
+
+    private static func rowsPerChunk(columns: Int) -> Int { max(1, maxBoundParams / columns) }
+
+    /// Multi-row upsert (one statement per chunk) — far fewer VDBE round-trips
+    /// than a per-record `save()` loop on a full-library sync.
     public func upsertTracks(_ records: [TrackRecord]) throws {
+        guard !records.isEmpty else { return }
+        let chunk = Self.rowsPerChunk(columns: 9)
         try pool.write { db in
-            for record in records {
-                try record.save(db)
+            var start = 0
+            while start < records.count {
+                let slice = records[start..<min(start + chunk, records.count)]
+                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                let sql = """
+                    INSERT INTO tracks
+                      (id, title, artist, album, album_key, year, is_live, match_key, image_key)
+                    VALUES \(placeholders)
+                    ON CONFLICT(id) DO UPDATE SET
+                      title=excluded.title, artist=excluded.artist, album=excluded.album,
+                      album_key=excluded.album_key, year=excluded.year, is_live=excluded.is_live,
+                      match_key=excluded.match_key, image_key=excluded.image_key
+                """
+                var args: [DatabaseValueConvertible?] = []
+                args.reserveCapacity(slice.count * 9)
+                for r in slice {
+                    args.append(contentsOf: [r.id, r.title, r.artist, r.album, r.albumKey,
+                                             r.year, r.isLive, r.matchKey, r.imageKey] as [DatabaseValueConvertible?])
+                }
+                try db.execute(sql: sql, arguments: StatementArguments(args))
+                start += chunk
             }
         }
     }
@@ -88,16 +118,28 @@ public final class DatabaseManager: Sendable {
                 albumToTracks[albumLower, default: []].append(id)
             }
 
+            var pairs: [(String, String)] = []
             for (albumLower, genres) in mapping {
                 guard let trackIds = albumToTracks[albumLower] else { continue }
                 for trackId in trackIds {
-                    for genre in genres {
-                        try db.execute(
-                            sql: "INSERT OR IGNORE INTO track_genres (track_id, genre) VALUES (?, ?)",
-                            arguments: [trackId, genre]
-                        )
-                    }
+                    for genre in genres { pairs.append((trackId, genre)) }
                 }
+            }
+            // Batch multi-row insert (was one statement per track-genre pair —
+            // tens of thousands on a large library).
+            let chunk = Self.rowsPerChunk(columns: 2)
+            var start = 0
+            while start < pairs.count {
+                let slice = pairs[start..<min(start + chunk, pairs.count)]
+                let placeholders = slice.map { _ in "(?,?)" }.joined(separator: ",")
+                var args: [DatabaseValueConvertible] = []
+                args.reserveCapacity(slice.count * 2)
+                for p in slice { args.append(p.0); args.append(p.1) }
+                try db.execute(
+                    sql: "INSERT OR IGNORE INTO track_genres (track_id, genre) VALUES \(placeholders)",
+                    arguments: StatementArguments(args)
+                )
+                start += chunk
             }
         }
     }
@@ -329,11 +371,23 @@ public final class DatabaseManager: Sendable {
             let iso = ISO8601DateFormatter().string(from: Date())
             try db.execute(sql: "INSERT INTO playlists (name, created_at) VALUES (?, ?)", arguments: [name, iso])
             let pid = db.lastInsertedRowID
-            for (i, t) in tracks.enumerated() {
+            let chunk = Self.rowsPerChunk(columns: 9)
+            var start = 0
+            while start < tracks.count {
+                let end = min(start + chunk, tracks.count)
+                let placeholders = (start..<end).map { _ in "(?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                var args: [DatabaseValueConvertible?] = []
+                args.reserveCapacity((end - start) * 9)
+                for i in start..<end {
+                    let t = tracks[i]
+                    args.append(contentsOf: [pid, i, t.id, t.title, t.artist, t.album, t.albumKey, t.year, t.isLive] as [DatabaseValueConvertible?])
+                }
                 try db.execute(sql: """
-                    INSERT INTO playlist_tracks (playlist_id, position, track_id, title, artist, album, album_key, year, is_live)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [pid, i, t.id, t.title, t.artist, t.album, t.albumKey, t.year, t.isLive])
+                    INSERT INTO playlist_tracks
+                      (playlist_id, position, track_id, title, artist, album, album_key, year, is_live)
+                    VALUES \(placeholders)
+                """, arguments: StatementArguments(args))
+                start += chunk
             }
             return pid
         }
@@ -376,18 +430,33 @@ public final class DatabaseManager: Sendable {
     /// Re-resolve a saved track to a CURRENT library track (Roon item_keys change
     /// across resyncs). Matches by title + artist, case-insensitive.
     public func resolveCurrentTracks(_ saved: [TrackRecord]) throws -> [TrackRecord] {
-        try pool.read { db in
-            var resolved: [TrackRecord] = []
-            for t in saved {
-                let current = try TrackRecord.fetchOne(db, sql: """
-                    SELECT * FROM tracks
-                    WHERE LOWER(title) = LOWER(?)
-                      AND (? IS NULL OR artist IS NULL OR LOWER(artist) = LOWER(?))
-                    LIMIT 1
-                """, arguments: [t.title, t.artist, t.artist])
-                if let current { resolved.append(current) }
+        guard !saved.isEmpty else { return [] }
+        return try pool.read { db in
+            // One query fetching every candidate by title, then resolve in-memory
+            // (was one SELECT per saved track).
+            let titles = Array(Set(saved.map { $0.title.lowercased() }))
+            var byTitle: [String: [TrackRecord]] = [:]
+            let chunk = Self.rowsPerChunk(columns: 1)
+            var start = 0
+            while start < titles.count {
+                let slice = titles[start..<min(start + chunk, titles.count)]
+                let ph = slice.map { _ in "?" }.joined(separator: ",")
+                let rows = try TrackRecord.fetchAll(
+                    db, sql: "SELECT * FROM tracks WHERE LOWER(title) IN (\(ph))",
+                    arguments: StatementArguments(Array(slice) as [DatabaseValueConvertible])
+                )
+                for r in rows { byTitle[r.title.lowercased(), default: []].append(r) }
+                start += chunk
             }
-            return resolved
+            return saved.compactMap { s in
+                let candidates = byTitle[s.title.lowercased()] ?? []
+                let savedArtist = s.artist?.lowercased()
+                // Mirror the old WHERE: match when saved artist is nil, the
+                // library artist is nil, or both match (case-insensitive).
+                return candidates.first { c in
+                    savedArtist == nil || c.artist == nil || c.artist?.lowercased() == savedArtist
+                }
+            }
         }
     }
 
@@ -426,29 +495,29 @@ public final class DatabaseManager: Sendable {
     public func forgottenFavorites(days: Int = 60, limit: Int = 20) throws -> [TrackRecord] {
         try pool.read { db in
             let cutoff = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Double(days) * 86_400))
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT title, artist, MAX(played_at) AS last_play, COUNT(*) AS plays
-                FROM listening_history
-                WHERE artist IS NOT NULL
-                GROUP BY LOWER(title), LOWER(artist)
-                HAVING last_play < ?
-                ORDER BY plays DESC, last_play ASC
+            // Single JOIN: history aggregate → current library track (was an
+            // N+1 point-lookup per history row). 2-per-artist cap stays in Swift.
+            let rows = try TrackRecord.fetchAll(db, sql: """
+                SELECT t.* FROM tracks t
+                JOIN (
+                    SELECT title, artist, MAX(played_at) AS last_play, COUNT(*) AS plays
+                    FROM listening_history
+                    WHERE artist IS NOT NULL
+                    GROUP BY LOWER(title), LOWER(artist)
+                    HAVING last_play < ?
+                ) h ON LOWER(t.title) = LOWER(h.title) AND LOWER(t.artist) = LOWER(h.artist)
+                GROUP BY LOWER(t.title), LOWER(t.artist)
+                ORDER BY h.plays DESC, h.last_play ASC
             """, arguments: [cutoff])
 
             var perArtist: [String: Int] = [:]
             var result: [TrackRecord] = []
-            for row in rows {
-                let title = row["title"] as String? ?? ""
-                let artist = row["artist"] as String? ?? ""
-                let aKey = artist.lowercased()
+            for t in rows {
+                let aKey = (t.artist ?? "").lowercased()
                 if perArtist[aKey, default: 0] >= 2 { continue }
-                if let t = try TrackRecord.fetchOne(db, sql: """
-                    SELECT * FROM tracks WHERE LOWER(title) = LOWER(?) AND LOWER(artist) = LOWER(?) LIMIT 1
-                """, arguments: [title, artist]) {
-                    perArtist[aKey, default: 0] += 1
-                    result.append(t)
-                    if result.count >= limit { break }
-                }
+                perArtist[aKey, default: 0] += 1
+                result.append(t)
+                if result.count >= limit { break }
             }
             return result
         }
@@ -458,23 +527,18 @@ public final class DatabaseManager: Sendable {
     /// library item_keys.
     public func topTracks(limit: Int = 25) throws -> [TrackRecord] {
         try pool.read { db in
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT title, artist, COUNT(*) AS plays
-                FROM listening_history WHERE artist IS NOT NULL
-                GROUP BY LOWER(title), LOWER(artist)
-                ORDER BY plays DESC LIMIT ?
+            // Single JOIN instead of N+1 per-row lookups.
+            return try TrackRecord.fetchAll(db, sql: """
+                SELECT t.* FROM tracks t
+                JOIN (
+                    SELECT title, artist, COUNT(*) AS plays
+                    FROM listening_history WHERE artist IS NOT NULL
+                    GROUP BY LOWER(title), LOWER(artist)
+                    ORDER BY plays DESC LIMIT ?
+                ) h ON LOWER(t.title) = LOWER(h.title) AND LOWER(t.artist) = LOWER(h.artist)
+                GROUP BY LOWER(t.title), LOWER(t.artist)
+                ORDER BY h.plays DESC
             """, arguments: [limit])
-            var result: [TrackRecord] = []
-            for row in rows {
-                let title = row["title"] as String? ?? ""
-                let artist = row["artist"] as String? ?? ""
-                if let t = try TrackRecord.fetchOne(db, sql: """
-                    SELECT * FROM tracks WHERE LOWER(title) = LOWER(?) AND LOWER(artist) = LOWER(?) LIMIT 1
-                """, arguments: [title, artist]) {
-                    result.append(t)
-                }
-            }
-            return result
         }
     }
 
@@ -577,18 +641,30 @@ public final class DatabaseManager: Sendable {
     }
 
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) throws {
+        guard !rows.isEmpty else { return }
         let iso = ISO8601DateFormatter().string(from: Date())
+        let chunk = Self.rowsPerChunk(columns: 9)
         try pool.write { db in
-            for r in rows {
+            var start = 0
+            while start < rows.count {
+                let slice = rows[start..<min(start + chunk, rows.count)]
+                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                var args: [DatabaseValueConvertible?] = []
+                args.reserveCapacity(slice.count * 9)
+                for r in slice {
+                    args.append(contentsOf: [r.matchKey, r.bpm, r.camelot, r.keyRoot,
+                                             r.keyMode, r.energy, r.duration, r.tags, iso] as [DatabaseValueConvertible?])
+                }
                 try db.execute(sql: """
                     INSERT INTO track_audio_features
                       (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, synced_at)
-                    VALUES (?,?,?,?,?,?,?,?,?)
+                    VALUES \(placeholders)
                     ON CONFLICT(match_key) DO UPDATE SET
                       bpm=excluded.bpm, camelot=excluded.camelot, key_root=excluded.key_root,
                       key_mode=excluded.key_mode, energy=excluded.energy, duration=excluded.duration,
                       tags=excluded.tags, synced_at=excluded.synced_at
-                """, arguments: [r.matchKey, r.bpm, r.camelot, r.keyRoot, r.keyMode, r.energy, r.duration, r.tags, iso])
+                """, arguments: StatementArguments(args))
+                start += chunk
             }
         }
     }

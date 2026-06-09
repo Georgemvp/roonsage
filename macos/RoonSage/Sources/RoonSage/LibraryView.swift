@@ -65,7 +65,7 @@ struct LibraryView: View {
                         Text(item.tag)
                             .font(.caption)
                             .padding(.horizontal, 9).padding(.vertical, 4)
-                            .background(isOn ? Color.accentColor : Color(.quaternaryLabelColor).opacity(0.5),
+                            .background(isOn ? Color.roonGold : Color(.quaternaryLabelColor).opacity(0.5),
                                         in: Capsule())
                             .foregroundStyle(isOn ? .white : .primary)
                     }

@@ -4,7 +4,11 @@ import Security
 public enum KeychainStore {
     private static let service = "com.roonsage.native"
 
-    public static func save(key: String, value: String) {
+    /// Stores `value` under `key`. Returns false if the Keychain write failed
+    /// (e.g. permission/disk error) so callers can surface lost-credential state
+    /// instead of silently "succeeding".
+    @discardableResult
+    public static func save(key: String, value: String) -> Bool {
         let data = Data(value.utf8)
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
@@ -14,7 +18,8 @@ public enum KeychainStore {
         SecItemDelete(query as CFDictionary)
         var attrs = query
         attrs[kSecValueData] = data
-        SecItemAdd(attrs as CFDictionary, nil)
+        let status = SecItemAdd(attrs as CFDictionary, nil)
+        return status == errSecSuccess
     }
 
     public static func load(key: String) -> String? {
@@ -32,12 +37,14 @@ public enum KeychainStore {
         return String(data: data, encoding: .utf8)
     }
 
-    public static func delete(key: String) {
+    @discardableResult
+    public static func delete(key: String) -> Bool {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: key,
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
     }
 }
