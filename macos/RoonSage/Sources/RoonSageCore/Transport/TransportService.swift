@@ -20,7 +20,7 @@ actor TransportService {
     func control(_ action: Control, zoneID: String) async throws {
         try await transport.dispatch(
             "\(RoonService.transport)/control",
-            body: ["zone_id": zoneID, "control": action.rawValue]
+            body: ["zone_or_output_id": zoneID, "control": action.rawValue]
         )
     }
 
@@ -45,7 +45,7 @@ actor TransportService {
     func seek(zoneID: String, how: String = "absolute", seconds: Double) async throws {
         try await transport.dispatch(
             "\(RoonService.transport)/seek",
-            body: ["zone_id": zoneID, "how": how, "seconds": seconds]
+            body: ["zone_or_output_id": zoneID, "how": how, "seconds": seconds]
         )
     }
 
@@ -54,7 +54,7 @@ actor TransportService {
     func setShuffle(zoneID: String, enabled: Bool) async throws {
         try await transport.dispatch(
             "\(RoonService.transport)/change_settings",
-            body: ["zone_id": zoneID, "shuffle": enabled]
+            body: ["zone_or_output_id": zoneID, "shuffle": enabled]
         )
     }
 
@@ -65,7 +65,7 @@ actor TransportService {
     func setRepeat(zoneID: String, mode: RepeatMode) async throws {
         try await transport.dispatch(
             "\(RoonService.transport)/change_settings",
-            body: ["zone_id": zoneID, "loop": mode.rawValue]
+            body: ["zone_or_output_id": zoneID, "loop": mode.rawValue]
         )
     }
 
@@ -88,7 +88,7 @@ actor TransportService {
     func transferZone(fromZoneID: String, toZoneID: String) async throws {
         try await transport.dispatch(
             "\(RoonService.transport)/transfer_zone",
-            body: ["from_zone_id": fromZoneID, "to_zone_id": toZoneID]
+            body: ["from_zone_or_output_id": fromZoneID, "to_zone_or_output_id": toZoneID]
         )
     }
 }
