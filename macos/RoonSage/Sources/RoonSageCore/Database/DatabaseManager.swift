@@ -460,6 +460,73 @@ public final class DatabaseManager: Sendable {
         }
     }
 
+    // MARK: - Library browse (tracks + audio features + tags)
+
+    public struct LibraryTrackRow: Sendable, Identifiable {
+        public var id: String
+        public var title: String
+        public var artist: String?
+        public var album: String?
+        public var year: Int?
+        public var isLive: Bool
+        public var bpm: Double?
+        public var camelot: String?
+        public var tags: [String]
+    }
+
+    /// Tracks (left-joined with audio features) filtered by free-text query and
+    /// an optional tag. Returns title/artist/album + bpm/camelot/tags when known.
+    public func browseTracks(query: String, tag: String?, limit: Int = 300) throws -> [LibraryTrackRow] {
+        try pool.read { db in
+            var conditions: [String] = []
+            var args: [DatabaseValueConvertible] = []
+            if !query.isEmpty {
+                conditions.append("(LOWER(t.title) LIKE ? OR LOWER(t.artist) LIKE ? OR LOWER(t.album) LIKE ?)")
+                let p = "%\(query.lowercased())%"
+                args.append(contentsOf: [p, p, p])
+            }
+            if let tag, !tag.isEmpty {
+                conditions.append("LOWER(f.tags) LIKE ?")
+                args.append("%\"\(tag.lowercased())\"%")
+            }
+            let whereClause = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
+            let sql = """
+                SELECT t.id, t.title, t.artist, t.album, t.year, t.is_live, f.bpm, f.camelot, f.tags
+                FROM tracks t LEFT JOIN track_audio_features f ON t.match_key = f.match_key
+                \(whereClause)
+                ORDER BY t.artist, t.year, t.title LIMIT ?
+            """
+            args.append(limit)
+            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
+            return rows.map { r in
+                var tags: [String] = []
+                if let t = r["tags"] as String?, let data = t.data(using: .utf8),
+                   let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] {
+                    tags = arr.compactMap { $0 as? String }
+                }
+                return LibraryTrackRow(
+                    id: r["id"] ?? "", title: r["title"] ?? "", artist: r["artist"], album: r["album"],
+                    year: r["year"], isLive: (r["is_live"] as Bool?) ?? false,
+                    bpm: r["bpm"], camelot: r["camelot"], tags: tags
+                )
+            }
+        }
+    }
+
+    /// Most common LLM tags (parsed from the JSON arrays), for filter chips.
+    public func topTags(limit: Int = 30) throws -> [(tag: String, count: Int)] {
+        try pool.read { db in
+            let rows = try String.fetchAll(db, sql: "SELECT tags FROM track_audio_features WHERE tags IS NOT NULL")
+            var counts: [String: Int] = [:]
+            for json in rows {
+                guard let data = json.data(using: .utf8),
+                      let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] else { continue }
+                for case let t as String in arr { counts[t.lowercased(), default: 0] += 1 }
+            }
+            return counts.sorted { $0.value > $1.value }.prefix(limit).map { (tag: $0.key, count: $0.value) }
+        }
+    }
+
     // MARK: - Audio features (synced from the native analyzer)
 
     public struct AudioFeatureRow: Sendable {

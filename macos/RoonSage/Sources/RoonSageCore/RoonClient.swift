@@ -278,6 +278,19 @@ public final class RoonClient {
         (try? database?.searchAlbums(query: query)) ?? []
     }
 
+    public func browseTracks(query: String, tag: String?, limit: Int = 300) -> [DatabaseManager.LibraryTrackRow] {
+        (try? database?.browseTracks(query: query, tag: tag, limit: limit)) ?? []
+    }
+
+    public func topTags(limit: Int = 30) -> [(tag: String, count: Int)] {
+        (try? database?.topTags(limit: limit)) ?? []
+    }
+
+    /// Play a single library track by id to a zone (first plays now).
+    public func playTrack(id: String, title: String, artist: String?, zoneID: String) async {
+        await curateTracks([TrackRecord(id: id, title: title, artist: artist)], zoneID: zoneID)
+    }
+
     // MARK: - LLM request analysis (shared by Generate & Recommend)
 
     public struct RequestFilters: Sendable {
