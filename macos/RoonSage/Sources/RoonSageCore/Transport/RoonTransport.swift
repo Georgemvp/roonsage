@@ -36,6 +36,11 @@ actor RoonTransport {
     // initial messages (matching the pyroon / node-roon-api convention).
     private var nextID = 10
 
+    // Watchdog: fires handleClose when no frame has been received for >20s.
+    // Roon pings every ~10s, so silence beyond 20s means a half-open TCP socket.
+    private var watchdogTask: Task<Void, Never>?
+    private var lastReceivedAt: Date = .distantPast
+
     // MARK: - Pending request tracking
 
     private var pendingRequests: [Int: CheckedContinuation<[String: Any], Error>] = [:]
@@ -91,6 +96,8 @@ actor RoonTransport {
     }
 
     func disconnect() {
+        watchdogTask?.cancel()
+        watchdogTask = nil
         wsTask?.cancel(with: .normalClosure, reason: nil)
         wsTask = nil
         delegate = nil
@@ -176,6 +183,7 @@ actor RoonTransport {
     ) async {
         switch result {
         case .success(let message):
+            lastReceivedAt = Date()
             let data: Data?
             switch message {
             case .data(let d):   data = d
@@ -238,13 +246,31 @@ actor RoonTransport {
 
     private func handleOpen() async {
         isConnected = true
+        lastReceivedAt = Date()
+        startWatchdog()
         await onOpen?()
     }
 
     private func handleClose() async {
+        watchdogTask?.cancel()
+        watchdogTask = nil
         isConnected = false
         failAllPending(with: URLError(.networkConnectionLost))
         await onClose?()
+    }
+
+    private func startWatchdog() {
+        watchdogTask?.cancel()
+        watchdogTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard !Task.isCancelled, isConnected else { return }
+                if Date().timeIntervalSince(lastReceivedAt) > 20 {
+                    await handleClose()
+                    return
+                }
+            }
+        }
     }
 
     private func failAllPending(with error: Error) {

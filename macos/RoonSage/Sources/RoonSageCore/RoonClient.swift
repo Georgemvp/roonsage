@@ -70,6 +70,13 @@ public final class RoonClient {
     private var syncTask: Task<Void, Never>?
     private var lastNowPlaying: [String: String] = [:]  // zoneID → title (dedup guard)
 
+    // Reconnect state
+    private var intentionalDisconnect = false
+    private var reconnectAttempt = 0
+    private var reconnectTask: Task<Void, Never>?
+    private var attemptHost: String?
+    private var attemptPort: UInt16 = 9330
+
     // Services — initialised after connection is confirmed
     private var transportService: TransportService?
     private var browseService: BrowseService?
@@ -101,6 +108,11 @@ public final class RoonClient {
             connectionState = .failed("Invalid host or port: \(rawHost.debugDescription)")
             return
         }
+        intentionalDisconnect = false
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        attemptHost = host
+        attemptPort = port
         coreHost = host
         corePort = port
         connectionState = .connecting(host: host)
@@ -123,6 +135,9 @@ public final class RoonClient {
     }
 
     public func disconnect() async {
+        intentionalDisconnect = true
+        reconnectTask?.cancel()
+        reconnectTask = nil
         syncTask?.cancel()
         await transport.disconnect()
         transportService = nil
@@ -134,6 +149,9 @@ public final class RoonClient {
     }
 
     public func clearAndReauthorize() async {
+        intentionalDisconnect = true
+        reconnectTask?.cancel()
+        reconnectTask = nil
         RoonClientAuth.clearCredentials()
         await disconnect()
     }
@@ -477,6 +495,7 @@ public final class RoonClient {
     }
 
     private func handleOpen(host: String) async {
+        reconnectAttempt = 0
         let ts = TransportService(transport: transport)
         let bs = BrowseService(transport: transport)
         transportService = ts
@@ -497,18 +516,41 @@ public final class RoonClient {
             persistHost(host, port: corePort)
             connectionState = .connected(coreName: reg.coreName)
             await subscribeZones()
+            if trackCount == 0 { startSync() }
         } catch {
             connectionState = .failed(error.localizedDescription)
         }
     }
 
     private func handleClose() async {
+        // Capture reconnect context before clearing state.
+        // Only reconnect if we had a fully established connection — not on
+        // initial connect failures (connecting/awaitingAuthorization states).
+        let wasConnected: Bool
+        if case .connected = connectionState { wasConnected = true } else { wasConnected = false }
+        let host = attemptHost
+        let port = attemptPort
+
         transportService = nil
         browseService = nil
         coreHost = nil
         connectionState = .disconnected
         zones = []
         zoneMap = [:]
+
+        guard !intentionalDisconnect, wasConnected, let host else { return }
+
+        // Exponential backoff: 2 → 4 → 8 → 16 → 30s (stays at 30s after that).
+        let delays: [UInt64] = [2, 4, 8, 16, 30]
+        let delay = delays[min(reconnectAttempt, delays.count - 1)]
+        reconnectAttempt += 1
+
+        reconnectTask?.cancel()
+        reconnectTask = Task {
+            try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+            guard !Task.isCancelled, !self.intentionalDisconnect else { return }
+            await self.connect(host: host, port: port)
+        }
     }
 
     private func subscribeZones() async {
