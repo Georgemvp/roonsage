@@ -17,9 +17,8 @@ actor TransportService {
         case play, pause, playpause, previous, next, stop
     }
 
-    @discardableResult
-    func control(_ action: Control, zoneID: String) async throws -> [String: Any] {
-        try await transport.request(
+    func control(_ action: Control, zoneID: String) async throws {
+        try await transport.dispatch(
             "\(RoonService.transport)/control",
             body: ["zone_id": zoneID, "control": action.rawValue]
         )
@@ -27,17 +26,15 @@ actor TransportService {
 
     // MARK: - Volume
 
-    @discardableResult
-    func changeVolume(outputID: String, how: String = "absolute", value: Int) async throws -> [String: Any] {
-        try await transport.request(
+    func changeVolume(outputID: String, how: String = "absolute", value: Int) async throws {
+        try await transport.dispatch(
             "\(RoonService.transport)/change_volume",
             body: ["output_id": outputID, "how": how, "value": value]
         )
     }
 
-    @discardableResult
-    func mute(outputID: String, muted: Bool) async throws -> [String: Any] {
-        try await transport.request(
+    func mute(outputID: String, muted: Bool) async throws {
+        try await transport.dispatch(
             "\(RoonService.transport)/mute",
             body: ["output_id": outputID, "how": muted ? "mute" : "unmute"]
         )
@@ -45,9 +42,8 @@ actor TransportService {
 
     // MARK: - Seek
 
-    @discardableResult
-    func seek(zoneID: String, how: String = "absolute", seconds: Double) async throws -> [String: Any] {
-        try await transport.request(
+    func seek(zoneID: String, how: String = "absolute", seconds: Double) async throws {
+        try await transport.dispatch(
             "\(RoonService.transport)/seek",
             body: ["zone_id": zoneID, "how": how, "seconds": seconds]
         )
@@ -55,9 +51,8 @@ actor TransportService {
 
     // MARK: - Zone settings
 
-    @discardableResult
-    func setShuffle(zoneID: String, enabled: Bool) async throws -> [String: Any] {
-        try await transport.request(
+    func setShuffle(zoneID: String, enabled: Bool) async throws {
+        try await transport.dispatch(
             "\(RoonService.transport)/change_settings",
             body: ["zone_id": zoneID, "shuffle": enabled]
         )
@@ -67,9 +62,8 @@ actor TransportService {
         case off = "disabled", loop, one = "loop_one"
     }
 
-    @discardableResult
-    func setRepeat(zoneID: String, mode: RepeatMode) async throws -> [String: Any] {
-        try await transport.request(
+    func setRepeat(zoneID: String, mode: RepeatMode) async throws {
+        try await transport.dispatch(
             "\(RoonService.transport)/change_settings",
             body: ["zone_id": zoneID, "loop": mode.rawValue]
         )
@@ -77,25 +71,22 @@ actor TransportService {
 
     // MARK: - Zone management
 
-    @discardableResult
-    func groupOutputs(outputIDs: [String]) async throws -> [String: Any] {
-        try await transport.request(
+    func groupOutputs(outputIDs: [String]) async throws {
+        try await transport.dispatch(
             "\(RoonService.transport)/group_outputs",
             body: ["output_ids": outputIDs]
         )
     }
 
-    @discardableResult
-    func ungroupOutputs(outputIDs: [String]) async throws -> [String: Any] {
-        try await transport.request(
+    func ungroupOutputs(outputIDs: [String]) async throws {
+        try await transport.dispatch(
             "\(RoonService.transport)/ungroup_outputs",
             body: ["output_ids": outputIDs]
         )
     }
 
-    @discardableResult
-    func transferZone(fromZoneID: String, toZoneID: String) async throws -> [String: Any] {
-        try await transport.request(
+    func transferZone(fromZoneID: String, toZoneID: String) async throws {
+        try await transport.dispatch(
             "\(RoonService.transport)/transfer_zone",
             body: ["from_zone_id": fromZoneID, "to_zone_id": toZoneID]
         )

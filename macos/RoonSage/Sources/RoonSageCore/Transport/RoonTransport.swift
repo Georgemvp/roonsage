@@ -133,10 +133,23 @@ actor RoonTransport {
     func request(_ endpoint: String, body: [String: Any]? = nil) async throws -> [String: Any] {
         let id = nextID; nextID += 1
         let frame = try MOOFrame.request(endpoint, requestID: id, json: body)
+        // Send first so a send failure throws immediately instead of leaving
+        // an orphaned continuation in pendingRequests.
+        try await send(frame)
         return try await withCheckedThrowingContinuation { cont in
             pendingRequests[id] = cont
-            Task { try? await self.send(frame) }
         }
+    }
+
+    /// Send a request frame without waiting for the response.
+    /// Used for fire-and-forget commands (transport control, volume, etc.)
+    /// where results come back via zone-subscription updates, not the response body.
+    func dispatch(_ endpoint: String, body: [String: Any]? = nil) async throws {
+        let id = nextID; nextID += 1
+        let frame = try MOOFrame.request(endpoint, requestID: id, json: body)
+        try await send(frame)
+        // The COMPLETE that Roon sends back has no matching pendingRequest entry;
+        // routeFrame silently drops it, which is the intended behaviour here.
     }
 
     // MARK: - Subscriptions
