@@ -47,10 +47,11 @@ case "stats":
 case "":
     print("""
     usage: roonsage-analyzer <command>
-      analyze <musicdir> [--db path] [--workers N]   walk + analyze + store
-      tag [--db path] [--ollama url] [--model name]   LLM-tag stored tracks
-      stats [--db path]                               show counts
-      <audiofile> …                                   analyze single file(s)
+      analyze <musicdir> [--db path] [--workers N]    walk + analyze + store
+      tag [--db path] [--ollama url] [--model name]    LLM-tag stored tracks
+      serve [--db path] [--port 5766]                  serve features over HTTP
+      stats [--db path]                                show counts
+      <audiofile> …                                    analyze single file(s)
     """)
     exit(1)
 

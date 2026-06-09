@@ -52,6 +52,13 @@ jobs:
           echo "App bundle OK"
           hdiutil detach /tmp/roonsage-verify -quiet
 
+      - name: Build analyzer CLI
+        run: |
+          cd macos/RoonSage
+          swift build -c release --product roonsage-analyzer
+          cp .build/release/roonsage-analyzer ../build/roonsage-analyzer
+          (cd ../build && zip "roonsage-analyzer-${{ steps.version.outputs.version }}.zip" roonsage-analyzer)
+
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -77,7 +84,8 @@ jobs:
           gh release create "v${VERSION}" \
             --title "RoonSage v${VERSION}" \
             --notes-file /tmp/release-notes.md \
-            "$DMG"
+            "$DMG" \
+            "macos/build/roonsage-analyzer-${VERSION}.zip"
 
       - name: Upload DMG artifact (workflow_dispatch)
         if: github.event_name == 'workflow_dispatch'
