@@ -489,6 +489,61 @@ public final class RoonClient {
         await curateTracks(tracks, zoneID: zoneID)
     }
 
+    // MARK: - Sonic similarity (Radio / Fingerprint)
+
+    /// Library tracks sonically similar to a seed (tempo, key, energy, tags).
+    /// Heavy scan runs off the main actor.
+    public func similarTracks(toMatchKey matchKey: String, limit: Int = 30) async -> [SonicEngine.Scored] {
+        guard let db = database, !matchKey.isEmpty else { return [] }
+        return await Task.detached {
+            let lib = (try? db.sonicTracks()) ?? []
+            guard let seed = lib.first(where: { $0.matchKey == matchKey }) else { return [] }
+            return SonicEngine.similar(to: seed, in: lib, limit: limit)
+        }.value
+    }
+
+    public func similarTracks(title: String, artist: String?, album: String?, limit: Int = 30) async -> [SonicEngine.Scored] {
+        await similarTracks(toMatchKey: TrackIdentity.matchKey(artist: artist, album: album, title: title), limit: limit)
+    }
+
+    /// Seed a station from a now-playing track and play the similar set.
+    public func playSonicRadio(title: String, artist: String?, album: String?, count: Int = 30, zoneID: String) async {
+        let scored = await similarTracks(title: title, artist: artist, album: album, limit: count)
+        let tracks = scored.map { TrackRecord(id: $0.track.id, title: $0.track.title, artist: $0.track.artist, album: $0.track.album) }
+        guard !tracks.isEmpty else { return }
+        await curateTracks(tracks, zoneID: zoneID)
+    }
+
+    public struct Fingerprint: Sendable {
+        public var profile: SonicEngine.Profile
+        public var recommendations: [SonicEngine.Scored]
+        public var seedCount: Int
+    }
+
+    /// Your "musical DNA": a profile of your most-played analyzed tracks plus
+    /// library recommendations closest to that taste. Computed off-main.
+    public func sonicFingerprint(seedLimit: Int = 40, recommendCount: Int = 60) async -> Fingerprint? {
+        guard let db = database else { return nil }
+        return await Task.detached {
+            let lib = (try? db.sonicTracks()) ?? []
+            guard !lib.isEmpty else { return nil }
+            let top = (try? db.topTracks(limit: seedLimit)) ?? []
+            let byKey = Dictionary(lib.map { ($0.matchKey, $0) }, uniquingKeysWith: { a, _ in a })
+            let seeds = top.compactMap { $0.matchKey.flatMap { byKey[$0] } }
+            // Fall back to the loudest/most-typical slice if there's no play history yet.
+            let effectiveSeeds = seeds.isEmpty ? Array(lib.prefix(min(40, lib.count))) : seeds
+            let profile = SonicEngine.profile(of: effectiveSeeds)
+            let recs = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount)
+            return Fingerprint(profile: profile, recommendations: recs, seedCount: effectiveSeeds.count)
+        }.value
+    }
+
+    /// All analyzed tracks (for the Music Map). Off-main.
+    public func sonicLibrary() async -> [DatabaseManager.SonicTrack] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.sonicTracks()) ?? [] }.value
+    }
+
     // MARK: - Qobuz / global search
 
     /// Search Qobuz (via Roon global search). Returns tracks whose `id` is a

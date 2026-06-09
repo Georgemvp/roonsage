@@ -31,6 +31,8 @@ struct MainAppView: View {
         case recommend  = "Recommend"
         case playlists  = "Playlists"
         case djSet      = "DJ Set"
+        case fingerprint = "Sonic DNA"
+        case musicMap   = "Music Map"
         case discovery  = "Discovery"
         case taste      = "Taste Profile"
         case settings   = "Settings"
@@ -44,6 +46,8 @@ struct MainAppView: View {
             case .recommend:  "sparkles.rectangle.stack"
             case .playlists:  "list.star"
             case .djSet:      "slider.horizontal.3"
+            case .fingerprint: "waveform.path.ecg"
+            case .musicMap:   "map"
             case .discovery:  "sparkles"
             case .taste:      "chart.radar"
             case .settings:   "gearshape"
@@ -79,6 +83,8 @@ struct MainAppView: View {
             case .recommend:  RecommendView()
             case .playlists:  PlaylistsView()
             case .djSet:      DJSetView()
+            case .fingerprint: SonicFingerprintView()
+            case .musicMap:   MusicMapView()
             case .discovery:  DiscoveryView()
             case .taste:      TasteProfileView()
             case .settings:   SettingsView()

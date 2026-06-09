@@ -34,6 +34,7 @@ struct ZoneRow: View {
     @State private var displayPosition: Double = 0
     @State private var isSeeking = false
     @State private var feat: (bpm: Double, camelot: String, tags: [String])?
+    @State private var startingRadio = false
     private var isSelected: Bool { client.selectedZone?.id == zone.id }
 
     var body: some View {
@@ -115,12 +116,21 @@ struct ZoneRow: View {
                     }
                     Spacer()
                     Button {
-                        let mix = client.buildRadio(title: np.title, artist: np.artist, album: np.album)
-                        if !mix.isEmpty { Task { await client.playDJSet(mix, zoneID: zone.id) } }
+                        startingRadio = true
+                        Task {
+                            await client.playSonicRadio(title: np.title, artist: np.artist, album: np.album, zoneID: zone.id)
+                            startingRadio = false
+                        }
                     } label: {
-                        Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+                        if startingRadio {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Sonic Radio", systemImage: "dot.radiowaves.left.and.right")
+                        }
                     }
                     .buttonStyle(.bordered).controlSize(.small)
+                    .disabled(startingRadio)
+                    .help("Play a station of tracks sonically similar to this one")
                 }
             }
 

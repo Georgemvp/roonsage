@@ -718,6 +718,55 @@ public final class DatabaseManager: Sendable {
         }
     }
 
+    public struct SonicTrack: Sendable, Identifiable {
+        public var id: String
+        public var title: String
+        public var artist: String?
+        public var album: String?
+        public var imageKey: String?
+        public var matchKey: String
+        public var bpm: Double?
+        public var camelot: String
+        public var energy: Double?
+        public var tags: [String]
+    }
+
+    /// Every library track that has analyzed audio features, deduped by
+    /// title+artist. Source data for Sonic Radio / Fingerprint / Music Map.
+    public func sonicTracks(excludeLive: Bool = true) throws -> [SonicTrack] {
+        try pool.read { db in
+            var sql = """
+                SELECT t.id, t.title, t.artist, t.album, t.image_key, t.match_key,
+                       f.bpm, f.camelot, f.energy, f.tags
+                FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
+                WHERE f.match_key IS NOT NULL
+            """
+            if excludeLive { sql += " AND t.is_live = 0" }
+            let rows = try Row.fetchAll(db, sql: sql)
+            var seen = Set<String>()
+            var out: [SonicTrack] = []
+            out.reserveCapacity(rows.count)
+            for r in rows {
+                let title = r["title"] as String? ?? ""
+                let artist = r["artist"] as String?
+                let dedup = "\(title.lowercased())|\((artist ?? "").lowercased())"
+                guard !seen.contains(dedup) else { continue }
+                seen.insert(dedup)
+                var tags: [String] = []
+                if let t = r["tags"] as String?, let d = t.data(using: .utf8),
+                   let arr = try? JSONSerialization.jsonObject(with: d) as? [Any] {
+                    tags = arr.compactMap { ($0 as? String)?.lowercased() }
+                }
+                out.append(SonicTrack(
+                    id: r["id"] ?? "", title: title, artist: artist, album: r["album"],
+                    imageKey: r["image_key"], matchKey: r["match_key"] ?? "",
+                    bpm: r["bpm"], camelot: r["camelot"] ?? "", energy: r["energy"], tags: tags
+                ))
+            }
+            return out
+        }
+    }
+
     /// (features stored, tracks in the library that have a matching feature).
     public func audioFeaturesStats() throws -> (total: Int, matched: Int) {
         try pool.read { db in
