@@ -14,36 +14,62 @@ public final class Tagger {
     private let store: FeatureStore
     private let ollamaURL: String
     private let model: String
+    private let concurrency: Int
     private var cancelled = false
 
-    public init(store: FeatureStore, ollamaURL: String, model: String) {
+    public init(store: FeatureStore, ollamaURL: String, model: String, concurrency: Int = 6) {
         self.store = store
         self.ollamaURL = ollamaURL
         self.model = model
+        self.concurrency = max(1, concurrency)
     }
 
     public func cancel() { cancelled = true }
 
+    /// Tags every untagged row, keeping up to `concurrency` Ollama requests in
+    /// flight (a sliding window). Network calls run in child tasks; DB writes and
+    /// progress happen serially on the parent task, so the store needs no locking.
     public func run(onProgress: @escaping @Sendable (TagProgress) -> Void) async {
         let total = store.count()
         guard total > 0 else { return }
-        var ok = 0, failed = 0
+        let url = ollamaURL, model = self.model
+        var failed = 0
+
         while !cancelled {
             let batch = store.untagged(limit: 200)
             if batch.isEmpty { break }
-            let before = ok
-            for row in batch {
-                if cancelled { break }
-                if let tags = await tag(row) {
-                    try? store.setTags(matchKey: row.matchKey, tags: tags); ok += 1
-                } else { failed += 1 }
-                onProgress(TagProgress(tagged: store.taggedCount(), failed: failed, total: total))
+            var producedAny = false
+
+            await withTaskGroup(of: (String, String?).self) { group in
+                var iterator = batch.makeIterator()
+                var inFlight = 0
+
+                func addNext() {
+                    guard !cancelled, let row = iterator.next() else { return }
+                    inFlight += 1
+                    group.addTask { (row.matchKey, await Tagger.tag(row, ollamaURL: url, model: model)) }
+                }
+
+                for _ in 0..<concurrency { addNext() }
+
+                while inFlight > 0, let (matchKey, tags) = await group.next() {
+                    inFlight -= 1
+                    if let tags {
+                        try? store.setTags(matchKey: matchKey, tags: tags)
+                        producedAny = true
+                    } else {
+                        failed += 1
+                    }
+                    onProgress(TagProgress(tagged: store.taggedCount(), failed: failed, total: total))
+                    addNext()
+                }
             }
-            if ok == before { break }   // no progress — stop instead of looping
+
+            if !producedAny { break }   // no progress — stop instead of looping
         }
     }
 
-    private func tag(_ r: TrackFeatureRow) async -> String? {
+    private static func tag(_ r: TrackFeatureRow, ollamaURL: String, model: String) async -> String? {
         let prompt = """
         Track: \(r.artist ?? "?") — \(r.title ?? "?")
         Album: \(r.album ?? "?")\(r.year.map { " (\($0))" } ?? "")

@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 
 /// Persistent store for analyzed track features on the analysis host.
-public struct TrackFeatureRow {
+public struct TrackFeatureRow: Sendable {
     public var matchKey: String
     public var artist: String?
     public var title: String?
