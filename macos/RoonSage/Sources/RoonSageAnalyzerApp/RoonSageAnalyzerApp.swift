@@ -13,6 +13,7 @@ struct RoonSageAnalyzerApp: App {
                 .environment(updater)
                 .frame(minWidth: 540, minHeight: 600)
                 .task { await updater.checkOnLaunch() }
+                .task { model.autoStartIfEnabled() }
         }
         .windowResizability(.contentSize)
     }

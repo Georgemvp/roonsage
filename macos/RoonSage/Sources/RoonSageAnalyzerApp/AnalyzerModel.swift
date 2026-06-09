@@ -9,6 +9,7 @@ final class AnalyzerModel {
     var ollamaURL: String { didSet { UserDefaults.standard.set(ollamaURL, forKey: "ollama_url") } }
     var model: String { didSet { UserDefaults.standard.set(model, forKey: "ollama_model") } }
     var port: String { didSet { UserDefaults.standard.set(port, forKey: "serve_port") } }
+    var autoStart: Bool { didSet { UserDefaults.standard.set(autoStart, forKey: "auto_start") } }
 
     private(set) var trackCount = 0
     private(set) var taggedCount = 0
@@ -30,12 +31,18 @@ final class AnalyzerModel {
         ollamaURL = UserDefaults.standard.string(forKey: "ollama_url") ?? "http://127.0.0.1:11434"
         model = UserDefaults.standard.string(forKey: "ollama_model") ?? "qwen3.5:4b-mlx"
         port = UserDefaults.standard.string(forKey: "serve_port") ?? "5766"
+        autoStart = UserDefaults.standard.object(forKey: "auto_start") as? Bool ?? true
         refresh()
     }
 
     func refresh() {
         trackCount = store?.count() ?? 0
         taggedCount = store?.taggedCount() ?? 0
+    }
+
+    /// Called on launch: start analyzing if auto-start is on and a folder is set.
+    func autoStartIfEnabled() {
+        if autoStart, !musicPath.isEmpty, !isAnalyzing { startAnalyze() }
     }
 
     func startAnalyze() {

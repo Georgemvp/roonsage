@@ -18,9 +18,12 @@ public final class LibraryWalker {
     private let concurrency: Int
     private var cancelled = false
 
-    public init(store: FeatureStore, concurrency: Int = max(2, ProcessInfo.processInfo.activeProcessorCount - 1)) {
+    /// Default concurrency is low (3): the library typically lives on a slow
+    /// external HDD where many parallel reads thrash the disk (seek contention)
+    /// and *reduce* throughput. Raise it only for fast (SSD/local) storage.
+    public init(store: FeatureStore, concurrency: Int = 3) {
         self.store = store
-        self.concurrency = concurrency
+        self.concurrency = max(1, concurrency)
     }
 
     public func cancel() { cancelled = true }

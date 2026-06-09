@@ -39,9 +39,13 @@ struct AnalyzerView: View {
                 GroupBox("1 · Analyze") {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Button(model.isAnalyzing ? "Analyzing…" : "Analyze library") { model.startAnalyze() }
-                                .disabled(model.musicPath.isEmpty || model.isAnalyzing)
-                            if model.isAnalyzing { Button("Cancel") { model.cancelAnalyze() } }
+                            Button(model.isAnalyzing ? "Analyzing…" : (model.trackCount > 0 ? "Resume analyzing" : "Analyze library")) {
+                                model.startAnalyze()
+                            }
+                            .disabled(model.musicPath.isEmpty || model.isAnalyzing)
+                            if model.isAnalyzing {
+                                Button("Pause") { model.cancelAnalyze() }
+                            }
                             Spacer()
                         }
                         if let p = model.analyze, model.isAnalyzing {
@@ -93,6 +97,7 @@ struct AnalyzerView: View {
                 // Settings
                 DisclosureGroup("Settings") {
                     VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Start analyzing automatically on launch", isOn: $model.autoStart)
                         labeled("Ollama URL") { TextField("", text: $model.ollamaURL).textFieldStyle(.roundedBorder) }
                         labeled("Model") { TextField("", text: $model.model).textFieldStyle(.roundedBorder) }
                         labeled("Serve port") { TextField("", text: $model.port).textFieldStyle(.roundedBorder).frame(width: 90) }
