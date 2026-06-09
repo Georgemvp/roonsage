@@ -83,7 +83,9 @@ public final class Tagger {
             "messages": [["role": "user", "content": prompt]],
             "stream": false,
             "think": false,
-            "options": ["temperature": 0.4],
+            // Tiny prompts — cap the context so Ollama can fit several parallel
+            // slots instead of reserving the model's full (262k) KV cache per slot.
+            "options": ["temperature": 0.4, "num_ctx": 8192],
         ]
         guard let url = URL(string: "\(ollamaURL)/api/chat"),
               let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
