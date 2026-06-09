@@ -1,5 +1,7 @@
 """Prompt analysis and seed track dimension extraction."""
 
+import contextlib
+
 from backend.llm_client import get_llm_client
 from backend.models import (
     AnalyzePromptResponse,
@@ -193,6 +195,7 @@ def _load_available_vibes() -> tuple[list[str], list[str]]:
     """Return (contexts, moods) present in track_vibes."""
     try:
         import json
+
         from backend.db import get_connection
         with get_connection() as conn:
             ctx_rows = conn.execute(
@@ -203,16 +206,12 @@ def _load_available_vibes() -> tuple[list[str], list[str]]:
             ).fetchall()
         all_ctx: set[str] = set()
         for row in ctx_rows:
-            try:
+            with contextlib.suppress(Exception):
                 all_ctx.update(json.loads(row[0]))
-            except Exception:
-                pass
         all_moods: set[str] = set()
         for row in mood_rows:
-            try:
+            with contextlib.suppress(Exception):
                 all_moods.update(json.loads(row[0]))
-            except Exception:
-                pass
         return sorted(all_ctx), sorted(all_moods)
     except Exception:
         return [], []
@@ -223,6 +222,7 @@ def _load_top_lastfm_tags(limit: int = 40) -> list[str]:
     try:
         import json
         from collections import Counter
+
         from backend.db import get_connection
         with get_connection() as conn:
             rows = conn.execute(

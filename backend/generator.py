@@ -12,16 +12,16 @@ from datetime import datetime
 from backend import library_cache, llm_cache
 from backend.config import get_llm_cache_enabled, get_llm_cache_ttl_seconds
 from backend.llm_client import create_client_for_override, get_llm_client, user_generation_context
-
-
-@asynccontextmanager
-async def _null_context():
-    yield
 from backend.models import GenerateResponse, Track
 from backend.roon_client import RoonQueryError, get_roon_client
 from backend.taste_profile import TasteProfile, build_profile_summary
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _null_context():
+    yield
 
 
 async def generate_narrative(

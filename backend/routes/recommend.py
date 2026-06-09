@@ -15,7 +15,6 @@ from backend import library_cache
 from backend.config import get_config
 from backend.dependencies import limiter
 from backend.llm_client import TOKENS_PER_ALBUM, estimate_cost_for_model, get_llm_client
-from backend.taste_profile import TasteProfile
 from backend.models import (
     AlbumCandidate,
     AlbumPreviewResponse,
@@ -31,6 +30,7 @@ from backend.models import (
     album_key,
 )
 from backend.roon_client import get_roon_client
+from backend.taste_profile import TasteProfile
 
 logger = logging.getLogger(__name__)
 
