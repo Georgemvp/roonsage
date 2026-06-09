@@ -362,22 +362,28 @@ public final class RoonClient {
         let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
         guard let url = URL(string: "\(trimmed)/features"),
               let (data, resp) = try? await URLSession.shared.data(from: url),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
 
-        let rows = arr.compactMap { o -> DatabaseManager.AudioFeatureRow? in
-            guard let mk = o["match_key"] as? String, !mk.isEmpty else { return nil }
-            return DatabaseManager.AudioFeatureRow(
-                matchKey: mk,
-                bpm: o["bpm"] as? Double, camelot: o["camelot"] as? String,
-                keyRoot: o["key_root"] as? String, keyMode: o["key_mode"] as? String,
-                energy: o["energy"] as? Double, duration: o["duration"] as? Double,
-                tags: o["tags"] as? String
-            )
-        }
-        try? database?.upsertAudioFeatures(rows)
-        let stats = audioFeaturesStats()
-        return (rows.count, stats.matched)
+        // Parsing thousands of feature rows, the bulk upsert transaction, and the
+        // JOIN-based stats query are all CPU/IO-heavy. Run them off the MainActor
+        // so the UI doesn't freeze while a large feature set syncs.
+        let db = database
+        return await Task.detached { () -> (received: Int, matched: Int)? in
+            guard let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
+            let rows = arr.compactMap { o -> DatabaseManager.AudioFeatureRow? in
+                guard let mk = o["match_key"] as? String, !mk.isEmpty else { return nil }
+                return DatabaseManager.AudioFeatureRow(
+                    matchKey: mk,
+                    bpm: o["bpm"] as? Double, camelot: o["camelot"] as? String,
+                    keyRoot: o["key_root"] as? String, keyMode: o["key_mode"] as? String,
+                    energy: o["energy"] as? Double, duration: o["duration"] as? Double,
+                    tags: o["tags"] as? String
+                )
+            }
+            try? db?.upsertAudioFeatures(rows)
+            let stats = (try? db?.audioFeaturesStats()) ?? (total: 0, matched: 0)
+            return (received: rows.count, matched: stats.matched)
+        }.value
     }
 
     // MARK: - Discovery sections
@@ -572,35 +578,47 @@ public final class RoonClient {
             ?? (body["zones"]         as? [[String: Any]]) ?? []
         let toRemove = body["zones_removed"] as? [String] ?? []
 
+        // Roon emits `zones_seek_changed` roughly once per second per playing
+        // zone. We don't consume those frames (the progress bar advances via a
+        // local timer in the view), so a seek-only update carries no structural
+        // change. Returning early avoids rebuilding and reassigning the
+        // observable `zones` array every second, which would otherwise
+        // re-invalidate the whole Now Playing list on every tick.
+        if toUpdate.isEmpty && toRemove.isEmpty { return }
+
         for dict in toUpdate {
             let zone = Zone(from: dict)
 
-            // Log a listen when now-playing changes on a playing zone
+            // Log a listen + scrobble when now-playing changes on a playing zone.
+            // Keychain reads (SecItemCopyMatching) and the SQLite write are
+            // blocking IO; with several zones changing track at once they would
+            // otherwise stall the main thread. Do all of it off the MainActor —
+            // only the dedup guard below needs to stay here.
             if zone.state == .playing, let np = zone.nowPlaying {
                 let key = zone.id
                 if lastNowPlaying[key] != np.title {
                     lastNowPlaying[key] = np.title
-                    try? database?.logListen(
-                        title: np.title,
-                        artist: np.artist,
-                        album: np.album,
-                        zoneID: zone.id,
-                        zoneName: zone.displayName
-                    )
-                    if let token = KeychainStore.load(key: "listenbrainz_token"), !token.isEmpty {
-                        let title = np.title; let artist = np.artist; let album = np.album
-                        Task { await ListenBrainzClient.shared.submit(title: title, artist: artist, album: album, token: token) }
-                    }
-                    if let apiKey = KeychainStore.load(key: "lastfm_api_key"), !apiKey.isEmpty,
-                       let secret = KeychainStore.load(key: "lastfm_api_secret"), !secret.isEmpty,
-                       let sk = KeychainStore.load(key: "lastfm_session_key"), !sk.isEmpty,
-                       let artist = np.artist, !artist.isEmpty {
-                        let title = np.title; let album = np.album
-                        let creds = LastfmClient.Credentials(apiKey: apiKey, apiSecret: secret, sessionKey: sk)
-                        let ts = Int(Date().timeIntervalSince1970)
-                        Task {
-                            await LastfmClient.shared.updateNowPlaying(artist: artist, track: title, album: album, creds: creds)
-                            await LastfmClient.shared.scrobble(artist: artist, track: title, album: album, timestamp: ts, creds: creds)
+                    let db = database
+                    let zoneID = zone.id
+                    let zoneName = zone.displayName
+                    Task.detached {
+                        try? db?.logListen(
+                            title: np.title, artist: np.artist, album: np.album,
+                            zoneID: zoneID, zoneName: zoneName
+                        )
+                        if let token = KeychainStore.load(key: "listenbrainz_token"), !token.isEmpty {
+                            await ListenBrainzClient.shared.submit(
+                                title: np.title, artist: np.artist, album: np.album, token: token
+                            )
+                        }
+                        if let apiKey = KeychainStore.load(key: "lastfm_api_key"), !apiKey.isEmpty,
+                           let secret = KeychainStore.load(key: "lastfm_api_secret"), !secret.isEmpty,
+                           let sk = KeychainStore.load(key: "lastfm_session_key"), !sk.isEmpty,
+                           let artist = np.artist, !artist.isEmpty {
+                            let creds = LastfmClient.Credentials(apiKey: apiKey, apiSecret: secret, sessionKey: sk)
+                            let ts = Int(Date().timeIntervalSince1970)
+                            await LastfmClient.shared.updateNowPlaying(artist: artist, track: np.title, album: np.album, creds: creds)
+                            await LastfmClient.shared.scrobble(artist: artist, track: np.title, album: np.album, timestamp: ts, creds: creds)
                         }
                     }
                 }
