@@ -85,6 +85,14 @@ public struct DJSetView: View {
         .onAppear { if selectedZoneID == nil { selectedZoneID = client.selectedZone?.id } }
     }
 
+    private var setlistText: String {
+        SetlistExport.text(
+            name: saveName.trimmingCharacters(in: .whitespaces).isEmpty ? "DJ Set" : saveName,
+            tracks: set.enumerated().map { i, c in
+                .init(n: i + 1, title: c.title, artist: c.artist, bpm: c.bpm, camelot: c.camelot)
+            })
+    }
+
     @ViewBuilder
     private var resultView: some View {
         Divider()
@@ -97,6 +105,10 @@ public struct DJSetView: View {
                 guard !n.isEmpty else { return }
                 client.saveDJSet(name: n, set: set); status = "Saved playlist “\(n)”."
             }.disabled(saveName.trimmingCharacters(in: .whitespaces).isEmpty)
+            ShareLink(item: setlistText) {
+                Label("Exporteer", systemImage: "square.and.arrow.up")
+            }
+            .help("Deel de setlist (met BPM en toonsoort)")
             Button {
                 guard let z = selectedZoneID else { return }
                 Task { await client.playDJSet(set, zoneID: z) }
