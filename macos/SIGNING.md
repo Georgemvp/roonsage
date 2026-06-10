@@ -23,12 +23,15 @@ appleid.apple.com → Sign-In & Security → **App-Specific Passwords** → gene
 ### Add these GitHub repo secrets (Settings → Secrets and variables → Actions)
 | Secret | Value |
 |--------|-------|
-| `MACOS_CERT_P12` | the base64 string from step 4 |
-| `MACOS_CERT_PASSWORD` | the `.p12` export password |
-| `MACOS_SIGN_IDENTITY` | `Developer ID Application: <Name> (TEAMID)` |
+| `APPLE_CERTIFICATE` | the base64 string from step 4 |
+| `APPLE_CERTIFICATE_PASSWORD` | the `.p12` export password |
+| `KEYCHAIN_PASSWORD` | any throwaway password for the CI keychain |
 | `APPLE_ID` | your Apple ID email |
 | `APPLE_APP_PASSWORD` | the app-specific password |
-| `APPLE_TEAM_ID` | your 10-char Team ID (e.g. `ABCDE12345`) |
+| `APPLE_TEAM_ID` | `5W3QDZ94FH` |
+
+The signing identity (`Developer ID Application: … (5W3QDZ94FH)`) is **auto-detected**
+from the imported certificate — no separate secret needed.
 
 That's it — the next `vX.Y.Z` tag will produce a **signed + notarized + stapled** DMG.
 Without these secrets the workflow still builds an ad-hoc DMG (current behaviour).
