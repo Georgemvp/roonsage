@@ -102,12 +102,12 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          xcrun altool --upload-app \
-            -f "macos/iosapp/build/export/RoonSage.ipa" \
-            -t ios \
+          # xcrun altool was removed in Xcode 16; use iTMSTransporter instead.
+          xcrun iTMSTransporter \
+            -m upload \
             -u "$APPLE_ID" \
             -p "$APPLE_APP_PASSWORD" \
-            --output-format xml
+            -f "macos/iosapp/build/export/RoonSage.ipa"
 
       - name: Upload IPA artifact (workflow_dispatch)
         if: github.event_name == 'workflow_dispatch'
