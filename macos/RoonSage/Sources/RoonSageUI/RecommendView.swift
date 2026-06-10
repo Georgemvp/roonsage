@@ -126,7 +126,7 @@ public struct RecommendView: View {
         let filters = await client.analyzeForFilters(request: request)
 
         phase = "Gathering albums…"
-        let candidates = client.candidateAlbums(filters: filters, limit: 60)
+        let candidates = await client.candidateAlbums(filters: filters, limit: 60)
         guard !candidates.isEmpty else {
             errorMessage = "No albums to recommend — sync your library first."
             return

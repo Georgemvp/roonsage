@@ -246,7 +246,7 @@ public struct GenerateView: View {
 
         // Stage 2 — build a varied candidate pool from the filtered library.
         phase = "Selecting candidates…"
-        let candidates = buildCandidates(
+        let candidates = await buildCandidates(
             genres: analysis.genres, decades: analysis.decades,
             keywords: analysis.keywords, tags: analysis.tags, target: targetCount
         )
@@ -335,7 +335,7 @@ public struct GenerateView: View {
 
     /// Filter the library by the analysed criteria, broadening if too sparse,
     /// then shuffle so the LLM sees a varied sample rather than an A→Z slice.
-    private func buildCandidates(genres: [String], decades: [Int], keywords: String, tags: [String], target: Int) -> [TrackRecord] {
+    private func buildCandidates(genres: [String], decades: [Int], keywords: String, tags: [String], target: Int) async -> [TrackRecord] {
         let minPool = max(target * 3, 40)
         var opts = DatabaseManager.FilterOptions()
         opts.genres = genres
@@ -344,19 +344,19 @@ public struct GenerateView: View {
         opts.tags = tags
         opts.limit = 3000
 
-        var pool = client.filterTracks(options: opts)
+        var pool = await client.filterTracks(options: opts)
         // Tags are the most specific (and need synced audio features) — drop first.
         if pool.count < minPool, !tags.isEmpty {
-            opts.tags = []; pool = client.filterTracks(options: opts)
+            opts.tags = []; pool = await client.filterTracks(options: opts)
         }
         if pool.count < minPool, !keywords.isEmpty {
-            opts.keywords = ""; pool = client.filterTracks(options: opts)
+            opts.keywords = ""; pool = await client.filterTracks(options: opts)
         }
         if pool.count < minPool, !decades.isEmpty {
-            opts.decades = []; pool = client.filterTracks(options: opts)
+            opts.decades = []; pool = await client.filterTracks(options: opts)
         }
         if pool.count < minPool, !genres.isEmpty {
-            opts.genres = []; pool = client.filterTracks(options: opts)
+            opts.genres = []; pool = await client.filterTracks(options: opts)
         }
         pool.shuffle()
         return Array(pool.prefix(400))

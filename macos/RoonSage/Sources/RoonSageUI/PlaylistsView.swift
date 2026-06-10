@@ -98,10 +98,10 @@ public struct PlaylistsView: View {
     }
 
     private func saveToQobuz(_ pl: DatabaseManager.PlaylistSummary) {
-        let tracks = client.playlistTracks(id: pl.id)
-        guard !tracks.isEmpty else { return }
-        qobuzStatus = "Saving “\(pl.name)” to Qobuz…"
         Task {
+            let tracks = await client.playlistTracks(id: pl.id)
+            guard !tracks.isEmpty else { return }
+            qobuzStatus = "Saving “\(pl.name)” to Qobuz…"
             if let r = await client.saveToQobuz(name: pl.name, tracks: tracks) {
                 qobuzStatus = "“\(pl.name)” → Qobuz: \(r.matched)/\(r.total) matched."
             } else {
@@ -119,7 +119,7 @@ public struct PlaylistsView: View {
             expanded = nil
         } else {
             expanded = pl.id
-            tracks = client.playlistTracksForDisplay(id: pl.id)
+            Task { tracks = await client.playlistTracksForDisplay(id: pl.id) }
         }
     }
 

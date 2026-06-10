@@ -46,7 +46,7 @@ public struct DiscoveryView: View {
             HStack {
                 Text("Undiscovered Albums").font(.headline)
                 Spacer()
-                Button { undiscovered = client.undiscoveredAlbums() } label: {
+                Button { Task { undiscovered = await client.undiscoveredAlbums() } } label: {
                     Image(systemName: "shuffle")
                 }
                 .buttonStyle(.borderless)
@@ -290,10 +290,12 @@ public struct DiscoveryView: View {
 
     private func load() {
         stats = client.libraryStats()
-        undiscovered = client.undiscoveredAlbums()
-        forgotten = client.forgottenFavorites()
-        topTracks = client.topTracks()
-        isLoaded = true
+        Task {
+            undiscovered = await client.undiscoveredAlbums()
+            forgotten = await client.forgottenFavorites()
+            topTracks = await client.topTracks()
+            isLoaded = true
+        }
     }
 }
 

@@ -220,8 +220,12 @@ public final class RoonClient {
 
     // MARK: - Library queries (for UI + MCP)
 
-    public func filterTracks(options: DatabaseManager.FilterOptions) -> [TrackRecord] {
-        (try? database?.filterTracks(options: options)) ?? []
+    /// Heavy library reads run off the main actor (GRDB's `pool.read` blocks the
+    /// calling thread); the caller `await`s so the UI stays responsive on large
+    /// libraries. Light count queries below stay synchronous.
+    public func filterTracks(options: DatabaseManager.FilterOptions) async -> [TrackRecord] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.filterTracks(options: options)) ?? [] }.value
     }
 
     public func libraryStats() -> DatabaseManager.LibraryStats? {
@@ -286,16 +290,19 @@ public final class RoonClient {
         isSyncing = false
     }
 
-    public func searchTracks(query: String) -> [TrackRecord] {
-        (try? database?.searchTracks(query: query, limit: 300)) ?? []
+    public func searchTracks(query: String) async -> [TrackRecord] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.searchTracks(query: query, limit: 300)) ?? [] }.value
     }
 
-    public func searchAlbums(query: String) -> [DatabaseManager.AlbumResult] {
-        (try? database?.searchAlbums(query: query)) ?? []
+    public func searchAlbums(query: String) async -> [DatabaseManager.AlbumResult] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.searchAlbums(query: query)) ?? [] }.value
     }
 
-    public func browseTracks(query: String, tag: String?, limit: Int = 300) -> [DatabaseManager.LibraryTrackRow] {
-        (try? database?.browseTracks(query: query, tag: tag, limit: limit)) ?? []
+    public func browseTracks(query: String, tag: String?, limit: Int = 300) async -> [DatabaseManager.LibraryTrackRow] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.browseTracks(query: query, tag: tag, limit: limit)) ?? [] }.value
     }
 
     public func topTags(limit: Int = 30) -> [(tag: String, count: Int)] {
@@ -359,15 +366,15 @@ public final class RoonClient {
 
     /// Distinct albums whose tracks match the filters — a candidate pool for
     /// album-level recommendation. Shuffled so the LLM sees a varied sample.
-    public func candidateAlbums(filters: RequestFilters, limit: Int = 60) -> [DatabaseManager.AlbumResult] {
+    public func candidateAlbums(filters: RequestFilters, limit: Int = 60) async -> [DatabaseManager.AlbumResult] {
         var opts = DatabaseManager.FilterOptions()
         opts.genres = filters.genres
         opts.decades = filters.decades
         opts.keywords = filters.keywords
         opts.excludeLive = true
         opts.limit = 4000
-        var tracks = filterTracks(options: opts)
-        if tracks.count < 30 { opts.genres = []; opts.decades = []; opts.keywords = ""; tracks = filterTracks(options: opts) }
+        var tracks = await filterTracks(options: opts)
+        if tracks.count < 30 { opts.genres = []; opts.decades = []; opts.keywords = ""; tracks = await filterTracks(options: opts) }
 
         var counts: [String: Int] = [:]
         for t in tracks { if let k = t.albumKey { counts[k, default: 0] += 1 } }
@@ -465,23 +472,26 @@ public final class RoonClient {
 
     // MARK: - Discovery sections
 
-    public func undiscoveredAlbums(limit: Int = 16) -> [DatabaseManager.AlbumResult] {
-        (try? database?.undiscoveredAlbums(limit: limit)) ?? []
+    public func undiscoveredAlbums(limit: Int = 16) async -> [DatabaseManager.AlbumResult] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.undiscoveredAlbums(limit: limit)) ?? [] }.value
     }
 
-    public func forgottenFavorites(days: Int = 60, limit: Int = 20) -> [TrackRecord] {
-        (try? database?.forgottenFavorites(days: days, limit: limit)) ?? []
+    public func forgottenFavorites(days: Int = 60, limit: Int = 20) async -> [TrackRecord] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.forgottenFavorites(days: days, limit: limit)) ?? [] }.value
     }
 
-    public func topTracks(limit: Int = 25) -> [TrackRecord] {
-        (try? database?.topTracks(limit: limit)) ?? []
+    public func topTracks(limit: Int = 25) async -> [TrackRecord] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.topTracks(limit: limit)) ?? [] }.value
     }
 
     /// Filter by `options`, shuffle, and play a random `count`-track mix.
     public func playShuffledMix(options: DatabaseManager.FilterOptions, count: Int, zoneID: String) async {
         var opts = options
         opts.limit = max(opts.limit, 500)
-        var pool = filterTracks(options: opts)
+        var pool = await filterTracks(options: opts)
         pool.shuffle()
         let pick = Array(pool.prefix(count))
         guard !pick.isEmpty else { return }
@@ -494,7 +504,7 @@ public final class RoonClient {
         opts.albumKey = albumKey
         opts.excludeLive = false
         opts.limit = 200
-        let tracks = filterTracks(options: opts)
+        let tracks = await filterTracks(options: opts)
         guard !tracks.isEmpty else { return }
         await curateTracks(tracks, zoneID: zoneID)
     }
@@ -594,14 +604,15 @@ public final class RoonClient {
         (try? database?.listPlaylists()) ?? []
     }
 
-    public func playlistTracks(id: Int64) -> [TrackRecord] {
-        (try? database?.playlistTracks(id: id)) ?? []
+    public func playlistTracks(id: Int64) async -> [TrackRecord] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.playlistTracks(id: id)) ?? [] }.value
     }
 
     /// Saved tracks re-resolved to the current library (so album art / item_keys
     /// are populated). Falls back to the stored rows for any that don't resolve.
-    public func playlistTracksForDisplay(id: Int64) -> [TrackRecord] {
-        let saved = playlistTracks(id: id)
+    public func playlistTracksForDisplay(id: Int64) async -> [TrackRecord] {
+        let saved = await playlistTracks(id: id)
         guard !saved.isEmpty else { return [] }
         let resolved = (try? database?.resolveCurrentTracks(saved)) ?? []
         guard resolved.count == saved.count else { return saved }
@@ -616,7 +627,7 @@ public final class RoonClient {
     /// number of tracks that resolved + started.
     @discardableResult
     public func playPlaylist(id: Int64, zoneID: String) async -> Int {
-        let saved = playlistTracks(id: id)
+        let saved = await playlistTracks(id: id)
         guard !saved.isEmpty else { return 0 }
         let current = (try? database?.resolveCurrentTracks(saved)) ?? []
         guard !current.isEmpty else { return 0 }

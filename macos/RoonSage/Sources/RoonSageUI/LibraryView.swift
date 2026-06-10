@@ -184,7 +184,8 @@ public struct LibraryView: View {
     }
 
     private func reloadTracks() {
-        tracks = client.browseTracks(query: searchText, tag: selectedTag)
+        let q = searchText, tag = selectedTag
+        Task { tracks = await client.browseTracks(query: q, tag: tag) }
     }
 
     @ViewBuilder

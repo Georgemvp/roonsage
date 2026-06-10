@@ -251,7 +251,7 @@ final class MCPServer {
 
         case "roon_search_library":
             let query = args["query"]?.stringValue ?? ""
-            let tracks = client.searchTracks(query: query)
+            let tracks = await client.searchTracks(query: query)
             if tracks.isEmpty { return "No tracks found for '\(query)'." }
             let lines = tracks.prefix(50).map { t in
                 var s = "• \(t.title)"
@@ -285,7 +285,7 @@ final class MCPServer {
 
         case "get_albums":
             let query = args["query"]?.stringValue ?? ""
-            let albums = client.searchAlbums(query: query)
+            let albums = await client.searchAlbums(query: query)
             if albums.isEmpty { return "No albums found\(query.isEmpty ? "" : " for '\(query)'")" }
             let lines = albums.prefix(80).map { a in
                 var s = "[\(a.albumKey)] \(a.album)"
@@ -305,7 +305,7 @@ final class MCPServer {
             options.albumKey = albumKey
             options.excludeLive = false
             options.limit = 200
-            let tracks = client.filterTracks(options: options)
+            let tracks = await client.filterTracks(options: options)
             if tracks.isEmpty { return "No tracks found for album key '\(albumKey)'. Run get_albums to find the correct key." }
             await client.curateTracks(tracks, zoneID: zoneID)
             return "Playing \(tracks.count) tracks from album in zone \(zoneID)."
@@ -354,7 +354,7 @@ final class MCPServer {
             if let lim = args["limit"]?.intValue       { options.limit   = min(lim, 1000) }
             if let excl = args["exclude_live"]?.boolValue { options.excludeLive = excl }
 
-            let tracks = client.filterTracks(options: options)
+            let tracks = await client.filterTracks(options: options)
             if tracks.isEmpty { return "No tracks matched the filter criteria." }
 
             let sessionID = await sessions.store(tracks)
