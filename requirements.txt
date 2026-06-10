@@ -8,6 +8,8 @@ annotated-doc==0.0.4
     #   typer
 annotated-types==0.7.0
     # via pydantic
+aiosqlite>=0.20
+    # via -r requirements.in
 anthropic==0.77.1
     # via -r requirements.in
 anyio==4.12.1
