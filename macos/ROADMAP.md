@@ -62,8 +62,8 @@
 - [x] **B2. Appearance settings** — done (see Track B header note).
 - [x] **B3. Album-art-driven dynamic color** — Now Playing cards get a gradient backdrop tinted by the art's dominant colour (CIAreaAverage, cached), animated on track change.
 - [~] **B4. Per-screen polish pass:** `SkeletonRows` loading placeholder shipped + applied to the Library's async load. Remaining: skeletons/empty-states on the other list views, consistent toolbar/SF Symbols, onboarding refinement.
-- [ ] **B5. Proper signing & notarization (Mac).** Replace the ad-hoc-sign + quarantine-strip hack with Developer ID + notarization → Gatekeeper hack gone, updater becomes reliable. (iOS requires the Developer Program anyway.)
-- [ ] **B6. Icon refresh** for both the main app and the analyzer; consistent iconography.
+- [~] **B5. Proper signing & notarization (Mac).** Infra DONE: `build-release.sh` already signs+notarizes when env set; the release workflow now imports a Developer ID cert + passes notarization creds **when secrets exist** (ad-hoc fallback otherwise). `macos/SIGNING.md` documents the cert + GitHub secrets + iOS TestFlight path. **Needs Casper:** Apple Developer membership, the 6 macOS secrets, and his Team ID for iOS.
+- [x] **B6. App icon** — gold `music.note.house` glyph on a dark gradient; `make-icon.swift` + `RoonSage.icns` (macOS) + `AppIcon.appiconset` (iOS), wired into both apps. (Analyzer app icon = future.)
 
 **Acceptance:** user can switch theme + accent; Now Playing adapts to art; notarized DMG installs without quarantine workarounds.
 
