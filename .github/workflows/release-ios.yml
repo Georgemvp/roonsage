@@ -61,6 +61,7 @@ jobs:
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \
             CODE_SIGN_STYLE=Automatic \
             -allowProvisioningUpdates \
+            -allowProvisioningDeviceRegistration \
             -authenticationKeyPath "$HOME/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
             -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.ASC_KEY_ISSUER_ID }}"
