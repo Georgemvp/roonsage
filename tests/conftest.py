@@ -4,7 +4,23 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import backend.db as _db_module
+import backend.db.connection as _db_connection
 from backend.models import Dimension, Track
+
+
+@pytest.fixture(autouse=True)
+def _patch_db_path(tmp_path, monkeypatch):
+    """Redirect every DB read to a per-test temp file.
+
+    get_connection() reads backend.db.connection.DB_PATH directly;
+    patching only the re-export in backend.db.__init__ leaves it stale.
+    """
+    db_path = tmp_path / "test_roonsage.db"
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(_db_module, "_schema_initialized", False)
 
 
 @pytest.fixture

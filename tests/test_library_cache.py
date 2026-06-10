@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import pytest
 
 import backend.db as _db
+import backend.db.connection as _db_connection
 import backend.sync as _sync
 from backend import library_cache
 
@@ -15,12 +16,11 @@ from backend import library_cache
 def temp_db(tmp_path, monkeypatch):
     """Create a temporary database for testing."""
     db_path = tmp_path / "test_library_cache.db"
-    # Patch DB_PATH and DATA_DIR on the canonical module (backend.db) where
-    # the connection helpers actually read them.  Also patch them on the
-    # re-export module so any code that reads library_cache.DB_PATH still
-    # gets the right value.
+    # Patch DB_PATH everywhere it is READ — both the re-exports and the
+    # module-level variable in connection.py that get_connection() uses directly.
     monkeypatch.setattr(_db, "DB_PATH", db_path)
     monkeypatch.setattr(_db, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(library_cache, "DB_PATH", db_path)
     monkeypatch.setattr(library_cache, "DATA_DIR", tmp_path)
     # Reset schema initialization flag so each test gets a fresh schema
