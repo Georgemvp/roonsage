@@ -97,6 +97,14 @@ enum Schema {
             }
         }
 
+        // TrackIdentity.matchKey changed from artist|album|title to artist|title
+        // (with Roon track-number prefix + feat. stripping).  Any match_key values
+        // stored in the old format won't join against the analyzer's new-format
+        // keys — clear them so the next library sync repopulates them correctly.
+        migrator.registerMigration("v6_reset_matchkey_format") { db in
+            try db.execute(sql: "UPDATE tracks SET match_key = NULL")
+        }
+
         try migrator.migrate(db)
     }
 }

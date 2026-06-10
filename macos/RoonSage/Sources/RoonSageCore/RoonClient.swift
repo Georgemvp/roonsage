@@ -664,7 +664,8 @@ public final class RoonClient {
             persistHost(host, port: corePort)
             connectionState = .connected(coreName: reg.coreName)
             await subscribeZones()
-            if trackCount == 0 { startSync() }
+            let needsResync = trackCount == 0 || (try? database?.hasNullMatchKeys()) == true
+            if needsResync { startSync() }
         } catch {
             connectionState = .failed(error.localizedDescription)
         }

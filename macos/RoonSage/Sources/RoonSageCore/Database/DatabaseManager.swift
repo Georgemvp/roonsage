@@ -71,6 +71,15 @@ public final class DatabaseManager: Sendable {
         }
     }
 
+    /// True if any track row has a NULL match_key — signals that a library
+    /// re-sync is needed to repopulate keys in the current format.
+    public func hasNullMatchKeys() throws -> Bool {
+        try pool.read { db in
+            let n = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM tracks WHERE match_key IS NULL LIMIT 1") ?? 0
+            return n > 0
+        }
+    }
+
     public func searchTracks(query: String, limit: Int = 200) throws -> [TrackRecord] {
         try pool.read { db in
             if query.isEmpty {
