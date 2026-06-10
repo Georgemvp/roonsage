@@ -82,7 +82,7 @@ extension RoonClient {
     }
 
     /// How a candidate's Camelot key mixes with the current key (for UI badges).
-    public static func harmonicRelation(current: String, candidate: String) -> HarmonicRelation {
+    public nonisolated static func harmonicRelation(current: String, candidate: String) -> HarmonicRelation {
         guard !current.isEmpty, !candidate.isEmpty else { return .tempo }
         if current == candidate { return .sameKey }
         if Camelot.compatible(current).contains(candidate) { return .harmonic }
