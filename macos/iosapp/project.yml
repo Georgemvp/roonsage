@@ -35,6 +35,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"          # iPhone + iPad
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 5W3QDZ94FH          # Casper's Apple Developer Team (not secret)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # --- Synthesized Info.plist keys ---
         INFOPLIST_KEY_CFBundleDisplayName: RoonSage

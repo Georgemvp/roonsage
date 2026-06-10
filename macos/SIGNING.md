@@ -68,6 +68,7 @@ Create the app record (bundle id `com.roonsage.ios`) at appstoreconnect.apple.co
 
 ---
 
-## What I need from you to finish wiring this
-- Your **Team ID** (10 chars) — so I can hardcode `DEVELOPMENT_TEAM` in `project.yml` if you prefer not to set it in Xcode each time.
-- Confirmation you've added the macOS secrets above — then the next tag is a clean signed release.
+## Status
+- iOS `DEVELOPMENT_TEAM` is wired in `project.yml` (`5W3QDZ94FH`) — iOS archives sign automatically.
+- macOS notarization is fully wired in CI and waits only on the **6 GitHub secrets** above. Add them and the next `vX.Y.Z` tag is a clean signed + notarized release.
+- Your `MACOS_SIGN_IDENTITY` will read `Developer ID Application: <Your Name> (5W3QDZ94FH)`.
