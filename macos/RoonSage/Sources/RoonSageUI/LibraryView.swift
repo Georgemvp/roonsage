@@ -9,6 +9,7 @@ public struct LibraryView: View {
     @State private var selectedTag: String?
     @State private var tracks: [DatabaseManager.LibraryTrackRow] = []
     @State private var tags: [(tag: String, count: Int)] = []
+    @State private var isLoadingTracks = false
     @State private var searchTask: Task<Void, Never>?
     @State private var sort: SortField = .title
     @State private var selection = Set<String>()
@@ -35,7 +36,9 @@ public struct LibraryView: View {
 
             if !tags.isEmpty { tagChips }
 
-            if tracks.isEmpty && !client.isSyncing {
+            if isLoadingTracks && tracks.isEmpty {
+                SkeletonRows()
+            } else if tracks.isEmpty && !client.isSyncing {
                 emptyState
             } else {
                 List(sortedTracks, selection: $selection) { track in
@@ -185,7 +188,12 @@ public struct LibraryView: View {
 
     private func reloadTracks() {
         let q = searchText, tag = selectedTag
-        Task { tracks = await client.browseTracks(query: q, tag: tag) }
+        if tracks.isEmpty { isLoadingTracks = true }
+        Task {
+            let rows = await client.browseTracks(query: q, tag: tag)
+            tracks = rows
+            isLoadingTracks = false
+        }
     }
 
     @ViewBuilder
