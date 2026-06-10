@@ -116,10 +116,17 @@ public struct DJSetView: View {
             .buttonStyle(.borderedProminent).disabled(selectedZoneID == nil)
         }
 
-        // BPM flow preview
-        BPMCurvePreview(bpms: set.map { $0.bpm })
-            .frame(height: 56)
-            .padding(.vertical, 4)
+        // Set analysis: BPM flow, energy arc, harmonic transitions
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Tempo", systemImage: "metronome").font(.caption).foregroundStyle(.secondary)
+            BPMCurvePreview(bpms: set.map { $0.bpm })
+                .frame(height: 50)
+            Label("Energie", systemImage: "bolt.fill").font(.caption).foregroundStyle(.secondary)
+            EnergyCurvePreview(energies: set.map { $0.energy })
+                .frame(height: 34)
+            HarmonicTransitionStrip(camelots: set.map { $0.camelot })
+        }
+        .padding(.vertical, 4)
 
         ForEach(Array(set.enumerated()), id: \.offset) { i, t in
             HStack(spacing: 10) {
@@ -202,6 +209,80 @@ private struct BPMCurvePreview: View {
                      at: CGPoint(x: 28, y: 8))
             ctx.draw(Text("\(Int(lo)) BPM").font(.caption2).foregroundColor(.secondary),
                      at: CGPoint(x: 28, y: size.height - 8))
+        }
+    }
+}
+
+// MARK: - Energy arc
+
+/// Energy progression of the set on a fixed 0–1 scale (so the build-up/wind-down
+/// shape is honest, not auto-stretched).
+private struct EnergyCurvePreview: View {
+    let energies: [Double]
+
+    var body: some View {
+        Canvas { ctx, size in
+            guard energies.count > 1 else { return }
+            let stepX = size.width / CGFloat(energies.count - 1)
+            func pt(_ i: Int) -> CGPoint {
+                let e = min(1, max(0, energies[i]))
+                return CGPoint(x: CGFloat(i) * stepX, y: size.height - CGFloat(e) * size.height)
+            }
+            var area = Path()
+            area.move(to: CGPoint(x: 0, y: size.height))
+            for i in 0..<energies.count { area.addLine(to: pt(i)) }
+            area.addLine(to: CGPoint(x: size.width, y: size.height))
+            area.closeSubpath()
+            ctx.fill(area, with: .linearGradient(
+                Gradient(colors: [.orange.opacity(0.30), .orange.opacity(0.05)]),
+                startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: size.height)))
+
+            var line = Path()
+            line.move(to: pt(0))
+            for i in 1..<energies.count { line.addLine(to: pt(i)) }
+            ctx.stroke(line, with: .color(.orange), lineWidth: 2)
+        }
+    }
+}
+
+// MARK: - Harmonic transitions
+
+/// One pill per transition between consecutive tracks, coloured by how cleanly
+/// the keys mix (gold = harmonic, green = same key, grey = tempo-only), with a
+/// summary so key clashes are obvious before you play the set.
+private struct HarmonicTransitionStrip: View {
+    let camelots: [String]
+
+    private var relations: [RoonClient.HarmonicRelation] {
+        guard camelots.count > 1 else { return [] }
+        return (0..<camelots.count - 1).map {
+            RoonClient.harmonicRelation(current: camelots[$0], candidate: camelots[$0 + 1])
+        }
+    }
+
+    private func color(_ r: RoonClient.HarmonicRelation) -> Color {
+        switch r {
+        case .harmonic: .roonGold
+        case .sameKey:  .green
+        case .tempo:    .gray.opacity(0.4)
+        }
+    }
+
+    var body: some View {
+        let rels = relations
+        let smooth = rels.filter { $0 != .tempo }.count
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 2) {
+                ForEach(Array(rels.enumerated()), id: \.offset) { _, r in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(color(r))
+                        .frame(height: 6)
+                }
+            }
+            if !rels.isEmpty {
+                Text("\(smooth)/\(rels.count) harmonische overgangen")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
         }
     }
 }
