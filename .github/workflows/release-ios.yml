@@ -60,7 +60,6 @@ jobs:
             DEVELOPMENT_TEAM=5W3QDZ94FH \
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \
             CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$HOME/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
             -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
