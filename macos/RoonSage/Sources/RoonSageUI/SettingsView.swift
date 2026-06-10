@@ -5,6 +5,8 @@ import RoonSageCore
 public struct SettingsView: View {
     @Environment(RoonClient.self) private var client
     @Environment(\.openURL) private var openURL
+    @AppStorage("themeMode") private var themeMode: ThemeMode = .system
+    @AppStorage("accentChoice") private var accent: AccentChoice = .gold
     @State private var lastSync: String = "—"
 
     public init() {}
@@ -44,6 +46,25 @@ public struct SettingsView: View {
 
     public var body: some View {
         Form {
+            // Appearance
+            Section("Verschijning") {
+                Picker("Thema", selection: $themeMode) {
+                    ForEach(ThemeMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                Picker("Accentkleur", selection: $accent) {
+                    ForEach(AccentChoice.allCases) { choice in
+                        Label {
+                            Text(choice.label)
+                        } icon: {
+                            Circle().fill(choice.color).frame(width: 12, height: 12)
+                        }
+                        .tag(choice)
+                    }
+                }
+            }
+
             // Connection
             Section("Roon Connection") {
                 LabeledContent("Status", value: client.connectionState.label)

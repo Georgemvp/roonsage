@@ -15,7 +15,7 @@ struct RoonSageApp: App {
         WindowGroup {
             ContentView()
                 .environment(client)
-                .tint(.roonGold)
+                .roonSageAppearance()
                 .frame(minWidth: 900, minHeight: 600)
                 .sheet(isPresented: $showUpdateSheet) {
                     if let update = availableUpdate {
@@ -52,13 +52,13 @@ struct RoonSageApp: App {
         Settings {
             SettingsView()
                 .environment(client)
-                .tint(.roonGold)
+                .roonSageAppearance()
         }
 
         MenuBarExtra {
             MenuBarContent()
                 .environment(client)
-                .tint(.roonGold)
+                .roonSageAppearance()
         } label: {
             Image(systemName: "music.note.house")
         }

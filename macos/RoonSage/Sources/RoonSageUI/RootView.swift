@@ -17,6 +17,7 @@ public struct ContentView: View {
             }
         }
         .animation(.easeInOut, value: client.connectionState.isConnected)
+        .roonSageAppearance()
     }
 }
 
