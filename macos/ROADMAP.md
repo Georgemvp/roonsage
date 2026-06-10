@@ -60,8 +60,8 @@
 - [x] **B2. Appearance settings.** `Appearance.swift` in `RoonSageUI`: `@AppStorage` ThemeMode (Systeem/Licht/Donker) + AccentChoice (7 presets, Roon gold default) + `.roonSageAppearance()` applied at the shared root. Dutch "Verschijning" section in Settings. (Done out of order — highest-visibility win.)
 - [ ] **B1. Real design system.** Expand `Theme.swift` into tokens backed by an **asset catalog** (so light/dark resolve automatically): semantic colors (success/warning/danger/info), elevation levels, radius scale, motion tokens. Keep `Spacing`/`Typography`/`Badge`. (Light mode now works via B2 — audit hardcoded dark colors next.)
 - [x] **B2. Appearance settings** — done (see Track B header note).
-- [ ] **B3. Album-art-driven dynamic color** on Now Playing — extract dominant color → subtle gradient backdrop. High perceived-quality win.
-- [ ] **B4. Per-screen polish pass:** consistent empty-states, loading **skeletons** instead of spinners, consistent toolbar + SF Symbols, refined Connect/onboarding flow (`ConnectView.swift`).
+- [x] **B3. Album-art-driven dynamic color** — Now Playing cards get a gradient backdrop tinted by the art's dominant colour (CIAreaAverage, cached), animated on track change.
+- [~] **B4. Per-screen polish pass:** `SkeletonRows` loading placeholder shipped + applied to the Library's async load. Remaining: skeletons/empty-states on the other list views, consistent toolbar/SF Symbols, onboarding refinement.
 - [ ] **B5. Proper signing & notarization (Mac).** Replace the ad-hoc-sign + quarantine-strip hack with Developer ID + notarization → Gatekeeper hack gone, updater becomes reliable. (iOS requires the Developer Program anyway.)
 - [ ] **B6. Icon refresh** for both the main app and the analyzer; consistent iconography.
 
@@ -75,7 +75,7 @@
 
 - [x] **C1. Heavy DB reads off the main thread.** The 9 bulk reads (filter/browse/search/candidate/playlist/discovery) are now `async` on `RoonClient`, running the blocking `pool.read` off the main actor via `Task.detached`; light count queries stay sync. Call sites (5 views + MCP) updated. (Future: `ValueObservation` for live lists.)
 - [ ] **C2. Split `RoonClient`** (842 lines) into feature services that feed the `@Observable` store: `PlaybackService`, `LibraryQueryService`, `CurationService`, `SyncService`. Smaller units, testable, and required for clean iOS reuse.
-- [ ] **C3. Album-art caching** — verify/harden `AlbumArtView` (44 lines): memory + disk cache; avoid re-fetching on scroll.
+- [x] **C3. Album-art caching** — `ImageCache` actor (NSCache + in-flight dedupe) + `CachedArtImage`; `AlbumArtView` no longer re-fetches/re-decodes on scroll.
 - [ ] **C4. Precompute heavy vectors** — Music Map / Sonic similarity cached in the DB instead of recomputed per view (`SonicEngine`/`SonicSimilarity`).
 - [ ] **C5. Split `DatabaseManager`** (806 lines) by domain (queries vs schema vs sync).
 - [ ] **C6. Tests** around the new services (currently mostly DB/Sonic). Reminder: always `swift build -c release` before tagging — release strict-concurrency catches what debug misses.
