@@ -17,16 +17,26 @@ public struct LibraryView: View {
     @State private var newPlaylistName = ""
 
     enum SortField: String, CaseIterable, Identifiable {
-        case title = "Title", artist = "Artist", year = "Year", bpm = "BPM"
+        case title = "Title", artist = "Artist", album = "Album", year = "Year", bpm = "BPM", random = "Random"
         var id: String { rawValue }
     }
 
     private var sortedTracks: [DatabaseManager.LibraryTrackRow] {
+        let sorted: [DatabaseManager.LibraryTrackRow]
         switch sort {
-        case .title:  return tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .artist: return tracks.sorted { ($0.artist ?? "").localizedCaseInsensitiveCompare($1.artist ?? "") == .orderedAscending }
-        case .year:   return tracks.sorted { ($0.year ?? 0) < ($1.year ?? 0) }
-        case .bpm:    return tracks.sorted { ($0.bpm ?? 0) < ($1.bpm ?? 0) }
+        case .title:  sorted = tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .artist: sorted = tracks.sorted { ($0.artist ?? "").localizedCaseInsensitiveCompare($1.artist ?? "") == .orderedAscending }
+        case .album:  sorted = tracks.sorted { ($0.album ?? "").localizedCaseInsensitiveCompare($1.album ?? "") == .orderedAscending }
+        case .year:   sorted = tracks.sorted { ($0.year ?? 0) < ($1.year ?? 0) }
+        case .bpm:    sorted = tracks.sorted { ($0.bpm ?? 0) < ($1.bpm ?? 0) }
+        case .random: sorted = tracks.shuffled()
+        }
+        // Deduplicate: keep the first occurrence of each artist+title pair so
+        // remasters, deluxe editions, and box-set copies don't all show up.
+        var seen = Set<String>()
+        return sorted.filter { track in
+            let key = "\(track.artist?.lowercased() ?? "")|\(track.title.lowercased())"
+            return seen.insert(key).inserted
         }
     }
 

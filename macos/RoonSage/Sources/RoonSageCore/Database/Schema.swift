@@ -112,6 +112,13 @@ enum Schema {
             try db.execute(sql: "UPDATE tracks SET match_key = NULL")
         }
 
+        // LibrarySyncService now strips Roon's disc-track number prefix from stored
+        // titles ("1-4 Don't Look Back…" → "Don't Look Back…"). NULL match_keys so
+        // the next auto-resync re-stores all titles in the clean format.
+        migrator.registerMigration("v8_strip_title_prefix") { db in
+            try db.execute(sql: "UPDATE tracks SET match_key = NULL")
+        }
+
         try migrator.migrate(db)
     }
 }

@@ -113,7 +113,7 @@ actor LibrarySyncService {
                 let artist = trackArtist ?? albumArtist
                 batch.append(TrackRecord(
                     id: key,
-                    title: item.title,
+                    title: TrackIdentity.stripTrackPrefix(item.title),
                     artist: artist,
                     album: album.title,
                     albumKey: albumKey,

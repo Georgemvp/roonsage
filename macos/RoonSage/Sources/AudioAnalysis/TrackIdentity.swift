@@ -33,7 +33,7 @@ public enum TrackIdentity {
     /// prepends but on-disk file tags don't: "1. ", "13. " and disc-track
     /// "3-10 ", "1-21 ". Only digit-dot or digit-hyphen-digit forms — never a
     /// bare leading number, so "7 Years" / "99 Luftballons" survive.
-    static func stripTrackPrefix(_ title: String) -> String {
+    public static func stripTrackPrefix(_ title: String) -> String {
         title.replacingOccurrences(
             of: #"^\s*(\d+-\d+|\d+\.)\s*"#, with: "", options: .regularExpression)
     }
