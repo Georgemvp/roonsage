@@ -66,19 +66,21 @@ jobs:
             -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.ASC_KEY_ISSUER_ID }}"
 
-      - name: Export IPA
+      - name: Export & Upload to TestFlight
         run: |
+          # destination=upload tells xcodebuild to push directly to App Store
+          # Connect after export — no separate iTMSTransporter step needed.
           cat > /tmp/ExportOptions.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
             <key>method</key>
-            <string>app-store</string>
+            <string>app-store-connect</string>
+            <key>destination</key>
+            <string>upload</string>
             <key>teamID</key>
             <string>5W3QDZ94FH</string>
-            <key>uploadBitcode</key>
-            <false/>
             <key>uploadSymbols</key>
             <true/>
             <key>signingStyle</key>
@@ -96,21 +98,6 @@ jobs:
             -authenticationKeyPath "$HOME/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
             -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.ASC_KEY_ISSUER_ID }}"
-
-      - name: Upload to TestFlight
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_KEY_ISSUER_ID: ${{ secrets.ASC_KEY_ISSUER_ID }}
-        run: |
-          # iTMSTransporter (Xcode 16+) requires API key auth; copy the .p8 to
-          # the location it scans by default.
-          mkdir -p ~/.appstoreconnect/private_keys
-          cp ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 ~/.appstoreconnect/private_keys/
-          xcrun iTMSTransporter \
-            -m upload \
-            -f "$(pwd)/macos/iosapp/build/export/RoonSageiOS.ipa" \
-            -apiKey "$ASC_KEY_ID" \
-            -apiIssuer "$ASC_KEY_ISSUER_ID"
 
       - name: Upload IPA artifact (workflow_dispatch)
         if: github.event_name == 'workflow_dispatch'
