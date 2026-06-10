@@ -212,11 +212,15 @@ public final class RoonClient {
     }
 
     func handleClose() async {
-        // Capture reconnect context before clearing state.
-        // Only reconnect if we had a fully established connection — not on
-        // initial connect failures (connecting/awaitingAuthorization states).
-        let wasConnected: Bool
-        if case .connected = connectionState { wasConnected = true } else { wasConnected = false }
+        // Reconnect after any established or authorization-pending connection drop.
+        // "awaitingAuthorization" drops can happen over flaky networks (ZeroTier etc.)
+        // before the user has a chance to approve; retry so Roon re-shows the prompt.
+        let shouldReconnect: Bool
+        switch connectionState {
+        case .connected:             shouldReconnect = true
+        case .awaitingAuthorization: shouldReconnect = true
+        default:                     shouldReconnect = false
+        }
         let host = attemptHost
         let port = attemptPort
 
@@ -227,7 +231,7 @@ public final class RoonClient {
         zones = []
         zoneMap = [:]
 
-        guard !intentionalDisconnect, wasConnected, let host else { return }
+        guard !intentionalDisconnect, shouldReconnect, let host else { return }
 
         // Exponential backoff: 2 → 4 → 8 → 16 → 30s (stays at 30s after that).
         let delays: [UInt64] = [2, 4, 8, 16, 30]
