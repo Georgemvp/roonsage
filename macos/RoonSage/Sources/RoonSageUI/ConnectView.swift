@@ -5,7 +5,8 @@ import RoonSageCore
 /// On launch: tries the last-used host first (works over ZeroTier/VPN).
 /// Falls back to SOOD discovery or manual IP entry.
 @MainActor
-struct ConnectView: View {
+public struct ConnectView: View {
+    public init() {}
     @Environment(RoonClient.self) private var client
     @State private var host       = ""
     @State private var port       = "9330"
@@ -23,7 +24,7 @@ struct ConnectView: View {
         return false
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 28) {
             Spacer()
 

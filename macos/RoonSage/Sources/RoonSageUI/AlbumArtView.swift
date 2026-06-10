@@ -3,13 +3,19 @@ import RoonSageCore
 
 /// Loads album art from the Roon HTTP image API.
 /// Falls back to a music-note placeholder on missing key or network error.
-struct AlbumArtView: View {
+public struct AlbumArtView: View {
     @Environment(RoonClient.self) private var client
     let imageKey: String?
     var size: CGFloat = 56
     var cornerRadius: CGFloat? = nil
 
-    var body: some View {
+    public init(imageKey: String?, size: CGFloat = 56, cornerRadius: CGFloat? = nil) {
+        self.imageKey = imageKey
+        self.size = size
+        self.cornerRadius = cornerRadius
+    }
+
+    public var body: some View {
         let r = cornerRadius ?? size * 0.12
         Group {
             if let key = imageKey,

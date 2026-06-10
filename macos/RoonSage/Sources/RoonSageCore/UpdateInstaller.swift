@@ -4,6 +4,10 @@ import Observation
 import AppKit
 #endif
 
+// The in-app DMG updater is macOS-only (Process + hdiutil + bundle swap).
+// On iOS, updates ship through the App Store, so this whole subsystem is omitted.
+#if os(macOS)
+
 /// Manages the full lifecycle of an in-app update:
 /// download DMG with progress → mount → replace .app bundle → relaunch.
 @MainActor
@@ -223,3 +227,5 @@ public final class UpdateInstaller {
     }
 }
 
+
+#endif

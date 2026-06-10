@@ -3,7 +3,8 @@ import SwiftUI
 
 /// Build a beatmatched, harmonically-mixed DJ set from analyzed audio features.
 @MainActor
-struct DJSetView: View {
+public struct DJSetView: View {
+    public init() {}
     @Environment(RoonClient.self) private var client
 
     @State private var count = 20
@@ -17,7 +18,7 @@ struct DJSetView: View {
     @State private var status: String?
     @State private var showRebuildConfirm = false
 
-    var body: some View {
+    public var body: some View {
         let stats = client.audioFeaturesStats()
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -156,7 +157,7 @@ struct DJSetView: View {
 private struct BPMCurvePreview: View {
     let bpms: [Double]
 
-    var body: some View {
+    public var body: some View {
         Canvas { ctx, size in
             guard bpms.count > 1 else { return }
             let lo = (bpms.min() ?? 0) - 2

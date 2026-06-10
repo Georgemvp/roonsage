@@ -5,14 +5,15 @@ import RoonSageCore
 /// key. Click a point to play that track. A purely native, ML-free "map" built
 /// from the analyzer's features.
 @MainActor
-struct MusicMapView: View {
+public struct MusicMapView: View {
+    public init() {}
     @Environment(RoonClient.self) private var client
     @State private var tracks: [DatabaseManager.SonicTrack] = []
     @State private var isLoading = false
     @State private var loaded = false
     @State private var selected: DatabaseManager.SonicTrack?
 
-    var body: some View {
+    public var body: some View {
         Group {
             if isLoading {
                 ContentUnavailableView("Mapping your library…", systemImage: "map")

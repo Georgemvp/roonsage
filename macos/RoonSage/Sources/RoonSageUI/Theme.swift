@@ -9,54 +9,54 @@ import SwiftUI
 ///   - Use `Color.roonGold` / `Color.roonBg` directly for custom chrome.
 ///   - Use `Spacing` / `Typography` instead of magic numbers.
 ///   - Wrap short metadata labels in `Badge`.
-enum RoonTheme {
+public enum RoonTheme {
     /// Roon gold — the web UI's `--color-accent #e5a00d`.
-    static let gold = Color(red: 0.898, green: 0.627, blue: 0.051)
+    public static let gold = Color(red: 0.898, green: 0.627, blue: 0.051)
     /// Dark surface — the web UI's `--color-bg #1a1a1a`.
-    static let background = Color(red: 0.102, green: 0.102, blue: 0.102)
+    public static let background = Color(red: 0.102, green: 0.102, blue: 0.102)
     /// Slightly raised card surface.
-    static let surface = Color(red: 0.149, green: 0.149, blue: 0.149)
+    public static let surface = Color(red: 0.149, green: 0.149, blue: 0.149)
 }
 
 extension Color {
     /// Roon gold accent (`#e5a00d`). Mirrors the web UI accent colour.
-    static let roonGold = RoonTheme.gold
+    public static let roonGold = RoonTheme.gold
     /// App dark background (`#1a1a1a`).
-    static let roonBg = RoonTheme.background
+    public static let roonBg = RoonTheme.background
     /// Raised card surface.
-    static let roonSurface = RoonTheme.surface
+    public static let roonSurface = RoonTheme.surface
 }
 
 /// 4-pt spacing scale. Prefer these over inline magic numbers.
-enum Spacing {
-    static let xs: CGFloat = 4
-    static let sm: CGFloat = 8
-    static let md: CGFloat = 12
-    static let lg: CGFloat = 16
-    static let xl: CGFloat = 24
-    static let xxl: CGFloat = 48
+public enum Spacing {
+    public static let xs: CGFloat = 4
+    public static let sm: CGFloat = 8
+    public static let md: CGFloat = 12
+    public static let lg: CGFloat = 16
+    public static let xl: CGFloat = 24
+    public static let xxl: CGFloat = 48
 }
 
 /// Semantic typography ramp.
-enum Typography {
-    static let title = Font.system(size: 22, weight: .bold)
-    static let heading = Font.system(size: 17, weight: .semibold)
-    static let body = Font.body
-    static let caption = Font.caption
+public enum Typography {
+    public static let title = Font.system(size: 22, weight: .bold)
+    public static let heading = Font.system(size: 17, weight: .semibold)
+    public static let body = Font.body
+    public static let caption = Font.caption
 }
 
 /// Small pill used for metadata (BPM, key, year, tags). Was duplicated across
 /// LibraryView / NowPlayingView / DJSetView — now one component.
-struct Badge: View {
+public struct Badge: View {
     let text: String
     var tint: Color = .secondary
 
-    init(_ text: String, tint: Color = .secondary) {
+    public init(_ text: String, tint: Color = .secondary) {
         self.text = text
         self.tint = tint
     }
 
-    var body: some View {
+    public var body: some View {
         Text(text)
             .font(.caption2.weight(.medium))
             .padding(.horizontal, Spacing.sm)

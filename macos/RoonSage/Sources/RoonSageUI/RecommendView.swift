@@ -4,7 +4,8 @@ import RoonSageCore
 /// Album-level recommendations: describe a vibe, the LLM picks albums from your
 /// library to explore (library-first). Each recommendation is playable.
 @MainActor
-struct RecommendView: View {
+public struct RecommendView: View {
+    public init() {}
     @Environment(RoonClient.self) private var client
 
     @State private var prompt        = ""
@@ -23,7 +24,7 @@ struct RecommendView: View {
         "Energetic albums to start the day",
     ]
 
-    var body: some View {
+    public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 8) {

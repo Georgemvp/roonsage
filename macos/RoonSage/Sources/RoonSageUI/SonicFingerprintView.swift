@@ -2,13 +2,14 @@ import SwiftUI
 import RoonSageCore
 
 @MainActor
-struct SonicFingerprintView: View {
+public struct SonicFingerprintView: View {
+    public init() {}
     @Environment(RoonClient.self) private var client
     @State private var fingerprint: RoonClient.Fingerprint?
     @State private var isLoading = false
     @State private var loaded = false
 
-    var body: some View {
+    public var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: Spacing.xl) {
                 if let fp = fingerprint {
@@ -160,7 +161,7 @@ private struct RadarChart: View {
     /// (label, value 0…1)
     let axes: [(String, Double)]
 
-    var body: some View {
+    public var body: some View {
         Canvas { ctx, size in
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
             let radius = min(size.width, size.height) / 2 - 26
@@ -217,7 +218,7 @@ private struct RadarChart: View {
 
 private struct FlowTags: View {
     let tags: [String]
-    var body: some View {
+    public var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 60), spacing: 6, alignment: .leading)],
                   alignment: .leading, spacing: 6) {
             ForEach(tags, id: \.self) { Badge($0, tint: .roonGold) }

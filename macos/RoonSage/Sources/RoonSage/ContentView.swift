@@ -1,5 +1,6 @@
 import SwiftUI
 import RoonSageCore
+import RoonSageUI
 
 struct ContentView: View {
     @Environment(RoonClient.self) private var client

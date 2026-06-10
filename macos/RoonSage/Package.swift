@@ -3,9 +3,10 @@ import PackageDescription
 
 let package = Package(
     name: "RoonSage",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "RoonSageCore", targets: ["RoonSageCore"]),
+        .library(name: "RoonSageUI", targets: ["RoonSageUI"]),
         .library(name: "AudioAnalysis", targets: ["AudioAnalysis"]),
         .library(name: "AnalyzerCore", targets: ["AnalyzerCore"]),
         .executable(name: "RoonSage", targets: ["RoonSage"]),
@@ -26,9 +27,14 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift"),
             ]
         ),
+        .target(
+            name: "RoonSageUI",
+            dependencies: ["RoonSageCore"],
+            path: "Sources/RoonSageUI"
+        ),
         .executableTarget(
             name: "RoonSage",
-            dependencies: ["RoonSageCore"],
+            dependencies: ["RoonSageCore", "RoonSageUI"],
             path: "Sources/RoonSage",
             exclude: ["Info.plist"]
         ),

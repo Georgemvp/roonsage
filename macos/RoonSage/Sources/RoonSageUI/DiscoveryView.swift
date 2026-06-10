@@ -2,7 +2,8 @@ import SwiftUI
 import RoonSageCore
 
 @MainActor
-struct DiscoveryView: View {
+public struct DiscoveryView: View {
+    public init() {}
     @Environment(RoonClient.self) private var client
     @State private var stats: DatabaseManager.LibraryStats?
     @State private var undiscovered: [DatabaseManager.AlbumResult] = []
@@ -10,7 +11,7 @@ struct DiscoveryView: View {
     @State private var topTracks: [TrackRecord] = []
     @State private var isLoaded = false
 
-    var body: some View {
+    public var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
                 if let stats {
@@ -302,7 +303,7 @@ private struct StatCard: View {
     let label: String
     let value: String
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 4) {
             Text(value)
                 .font(.title2.bold().monospacedDigit())

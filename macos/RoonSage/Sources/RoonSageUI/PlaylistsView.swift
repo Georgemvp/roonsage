@@ -5,7 +5,8 @@ import RoonSageCore
 /// zone, or delete. Playlists are created via curation (save_playlist in the
 /// MCP flow) and persist across library re-syncs.
 @MainActor
-struct PlaylistsView: View {
+public struct PlaylistsView: View {
+    public init() {}
     @Environment(RoonClient.self) private var client
 
     @State private var playlists: [DatabaseManager.PlaylistSummary] = []
@@ -13,7 +14,7 @@ struct PlaylistsView: View {
     @State private var tracks: [TrackRecord] = []
     @State private var qobuzStatus: String? = nil
 
-    var body: some View {
+    public var body: some View {
         Group {
             if playlists.isEmpty {
                 ContentUnavailableView(

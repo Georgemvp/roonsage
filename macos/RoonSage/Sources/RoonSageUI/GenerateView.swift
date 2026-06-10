@@ -28,7 +28,8 @@ private let templates: [PlaylistTemplate] = [
 // MARK: - View
 
 @MainActor
-struct GenerateView: View {
+public struct GenerateView: View {
+    public init() {}
     @Environment(RoonClient.self) private var client
 
     @State private var prompt       = ""
@@ -43,7 +44,7 @@ struct GenerateView: View {
     @State private var qobuzStatus: String? = nil
     @State private var errorMessage: String? = nil
 
-    var body: some View {
+    public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
 

@@ -4,10 +4,11 @@ import SwiftUI
 /// The selected zone's Roon play queue. Tap a track to jump to it (play from
 /// here). Roon's extension API is read + play-from-here only (no reorder/remove).
 @MainActor
-struct QueueView: View {
+public struct QueueView: View {
+    public init() {}
     @Environment(RoonClient.self) private var client
 
-    var body: some View {
+    public var body: some View {
         Group {
             if client.selectedZone == nil {
                 ContentUnavailableView("No zone selected", systemImage: "list.number",

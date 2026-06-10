@@ -1,10 +1,11 @@
 import SwiftUI
 import RoonSageCore
 
-struct NowPlayingView: View {
+public struct NowPlayingView: View {
+    public init() {}
     @Environment(RoonClient.self) private var client
 
-    var body: some View {
+    public var body: some View {
         if client.zones.isEmpty {
             ContentUnavailableView(
                 "No Active Zones",
@@ -37,7 +38,7 @@ struct ZoneRow: View {
     @State private var startingRadio = false
     private var isSelected: Bool { client.selectedZone?.id == zone.id }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Top row: art + track info + state badge
             HStack(alignment: .top, spacing: 12) {
@@ -180,7 +181,7 @@ struct ZoneRow: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(isSelected ? Color.roonGold.opacity(0.08) : Color(.windowBackgroundColor).opacity(0.5))
+                .fill(isSelected ? Color.roonGold.opacity(0.08) : Color.platformCardBackground.opacity(0.5))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .strokeBorder(isSelected ? Color.roonGold.opacity(0.25) : Color.clear, lineWidth: 1)

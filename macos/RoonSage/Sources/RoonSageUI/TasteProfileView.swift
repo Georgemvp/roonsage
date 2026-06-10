@@ -2,7 +2,8 @@ import SwiftUI
 import RoonSageCore
 
 @MainActor
-struct TasteProfileView: View {
+public struct TasteProfileView: View {
+    public init() {}
     @Environment(RoonClient.self) private var client
     @State private var topArtists: [(artist: String, count: Int)] = []
     @State private var recentListens: [DatabaseManager.ListenEntry] = []
@@ -15,7 +16,7 @@ struct TasteProfileView: View {
         case recent     = "Recent Plays"
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 0) {
             if isLoaded && totalListens == 0 {
                 emptyState

@@ -2,7 +2,8 @@ import RoonSageCore
 import SwiftUI
 
 @MainActor
-struct LibraryView: View {
+public struct LibraryView: View {
+    public init() {}
     @Environment(RoonClient.self) private var client
     @State private var searchText = ""
     @State private var selectedTag: String?
@@ -28,7 +29,7 @@ struct LibraryView: View {
         }
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 0) {
             if client.isSyncing { SyncProgressBanner() }
 
@@ -165,7 +166,7 @@ struct LibraryView: View {
                         Text(item.tag)
                             .font(.caption)
                             .padding(.horizontal, 9).padding(.vertical, 4)
-                            .background(isOn ? Color.roonGold : Color(.quaternaryLabelColor).opacity(0.5),
+                            .background(isOn ? Color.roonGold : Color.platformQuaternaryFill.opacity(0.5),
                                         in: Capsule())
                             .foregroundStyle(isOn ? .white : .primary)
                     }
@@ -204,7 +205,7 @@ struct LibraryView: View {
 struct SyncProgressBanner: View {
     @Environment(RoonClient.self) private var client
 
-    var body: some View {
+    public var body: some View {
         let progress = client.syncProgress
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -227,7 +228,7 @@ struct LibraryTrackRow: View {
     let canPlay: Bool
     let onPlay: () -> Void
 
-    var body: some View {
+    public var body: some View {
         HStack(spacing: 10) {
             AlbumArtView(imageKey: track.imageKey, size: 40)
             VStack(alignment: .leading, spacing: 2) {
