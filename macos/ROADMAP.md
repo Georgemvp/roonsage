@@ -40,13 +40,14 @@
 - [x] **A1. Multiplatform package.** `Package.swift`: `platforms: [.macOS(.v14), .iOS(.v17)]` + `RoonSageUI` library target; reusable views moved out of the `RoonSage` executable.
 - [~] **A2. Isolate macOS chrome behind `#if os(macOS)`:**
   - [x] DMG updater (`UpdateInstaller.swift`) — guarded; irrelevant on iOS (App Store).
-  - [ ] `RoonSageApp.swift` — `MenuBarExtra`, `Settings` scene, window styling (still macOS-only; an iOS app target gets its own root scene).
-  - [ ] `NSAlert` (`RoonSageApp.swift`) + `NSWorkspace` (`SettingsView.swift`) → SwiftUI `.alert` / `openURL` when those move to shared code.
-  - [ ] Define an `UpdateService` protocol with a macOS impl + iOS no-op.
-- [ ] **A3. Adaptive navigation.** Keep `NavigationSplitView` for Mac/iPad; add a `TabView` path for iPhone (5 primary tabs + "Meer"). One `AppNavigation` view that switches on `horizontalSizeClass`. (`MainAppView` currently lives in the macOS exe — move it / fork it into `RoonSageUI`.)
+  - [x] `NSWorkspace` (`SettingsView.swift`) → `openURL`; `SettingsView` is now shared & cross-platform.
+  - [ ] `RoonSageApp.swift` — `MenuBarExtra`, `Settings` scene, window styling stay macOS-only (the iOS app has its own root scene — fine as-is).
+  - [ ] `NSAlert` (`RoonSageApp.swift` manual update check) → SwiftUI `.alert` (macOS-only path, low priority).
+  - [ ] Define an `UpdateService` protocol with a macOS impl + iOS no-op (optional).
+- [x] **A3. Adaptive navigation.** `RootView` in `RoonSageUI`: `NavigationSplitView` on regular width (macOS/iPad), `TabView` on compact (iPhone). Shared destination switch + zone/transport toolbar. `ContentView`/`SidebarItem` moved to `RoonSageUI` and made public.
 - [x] **A4. Audit `RoonClient` for Mac assumptions** — compiles clean for iOS; no AppKit leaked into the shared path (the only `Process`/AppKit use was the now-guarded updater).
-- [ ] **A5. iOS app target + entitlements** — needs an Xcode project (SPM can't emit an `.app`/`.ipa`); local-network usage description (ZeroTier/SOOD), background audio mode if needed.
-- [ ] **A6. Verify:** TestFlight-able iOS build that connects and plays (needs simulator runtime / device + signing).
+- [x] **A5. iOS app target.** `macos/iosapp/` — `RoonSageiOSApp.swift` (@main → shared `ContentView`) + `project.yml` (xcodegen) referencing the local `RoonSage` package (RoonSageUI + RoonSageCore), synthesized Info.plist with `NSLocalNetworkUsageDescription`, iPhone+iPad, iOS 17. `xcodegen generate` succeeds; package graph + `RoonSageiOS` scheme resolve.
+- [ ] **A6. Verify:** TestFlight-able build. **Blocked on the iOS platform runtime** — only the SDK is installed, not the simulator/device platform. Install with `xcodebuild -downloadPlatform iOS` (~7–12 GB; deferred — only 19 GB free), then `cd macos/iosapp && xcodebuild -scheme RoonSageiOS -destination 'generic/platform=iOS Simulator' build`. Plus a Developer Team for signing.
 
 **Acceptance:** Mac app unchanged; iOS app connects over ZeroTier, browses library, plays, curates, builds a DJ set from synced features.
 
@@ -56,7 +57,8 @@
 
 **Outcome:** a polished, configurable, "feels native on both platforms" look.
 
-- [ ] **B1. Real design system.** Expand `Theme.swift` into tokens backed by an **asset catalog** (so light/dark resolve automatically): semantic colors (success/warning/danger/info), elevation levels, radius scale, motion tokens. Keep `Spacing`/`Typography`/`Badge`.
+- [x] **B2. Appearance settings.** `Appearance.swift` in `RoonSageUI`: `@AppStorage` ThemeMode (Systeem/Licht/Donker) + AccentChoice (7 presets, Roon gold default) + `.roonSageAppearance()` applied at the shared root. Dutch "Verschijning" section in Settings. (Done out of order — highest-visibility win.)
+- [ ] **B1. Real design system.** Expand `Theme.swift` into tokens backed by an **asset catalog** (so light/dark resolve automatically): semantic colors (success/warning/danger/info), elevation levels, radius scale, motion tokens. Keep `Spacing`/`Typography`/`Badge`. (Light mode now works via B2 — audit hardcoded dark colors next.)
 - [ ] **B2. Appearance settings** (Dutch labels): "Verschijning" (Licht / Donker / Systeem) + "Accentkleur" picker. Today everything is hardcoded gold via `.tint(.roonGold)` at the app root — make the tint user-driven via `@AppStorage`.
 - [ ] **B3. Album-art-driven dynamic color** on Now Playing — extract dominant color → subtle gradient backdrop. High perceived-quality win.
 - [ ] **B4. Per-screen polish pass:** consistent empty-states, loading **skeletons** instead of spinners, consistent toolbar + SF Symbols, refined Connect/onboarding flow (`ConnectView.swift`).
