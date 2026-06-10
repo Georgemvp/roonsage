@@ -34,8 +34,7 @@ public struct DiscoveryView: View {
             .padding(20)
         }
         .navigationTitle("Discovery")
-        .onAppear { load() }
-        .onChange(of: client.trackCount) { _, _ in load() }
+        .task(id: client.trackCount) { await load() }
     }
 
     // MARK: - Undiscovered albums (never played)
@@ -288,14 +287,13 @@ public struct DiscoveryView: View {
 
     // MARK: - Data loading
 
-    private func load() {
+    private func load() async {
         stats = client.libraryStats()
-        Task {
-            undiscovered = await client.undiscoveredAlbums()
-            forgotten = await client.forgottenFavorites()
-            topTracks = await client.topTracks()
-            isLoaded = true
-        }
+        async let u = client.undiscoveredAlbums()
+        async let f = client.forgottenFavorites()
+        async let t = client.topTracks()
+        (undiscovered, forgotten, topTracks) = await (u, f, t)
+        isLoaded = true
     }
 }
 

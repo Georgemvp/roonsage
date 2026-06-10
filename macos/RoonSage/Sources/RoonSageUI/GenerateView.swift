@@ -46,6 +46,9 @@ public struct GenerateView: View {
 
     public var body: some View {
         ScrollView {
+            #if os(iOS)
+            Color.clear.frame(height: 0)
+            #endif
             VStack(alignment: .leading, spacing: 22) {
 
                 // ── Prompt ────────────────────────────────────────────────
@@ -221,6 +224,9 @@ public struct GenerateView: View {
             .padding(24)
         }
         .navigationTitle("Generate Playlist")
+        #if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+        #endif
         .onAppear {
             if selectedZoneID == nil { selectedZoneID = client.selectedZone?.id }
         }

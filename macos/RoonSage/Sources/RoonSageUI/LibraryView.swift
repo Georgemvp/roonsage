@@ -10,6 +10,7 @@ public struct LibraryView: View {
     @State private var tracks: [DatabaseManager.LibraryTrackRow] = []
     @State private var tags: [(tag: String, count: Int)] = []
     @State private var isLoadingTracks = false
+    @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
     @State private var sort: SortField = .title
     @State private var selection = Set<String>()
@@ -66,6 +67,11 @@ public struct LibraryView: View {
         .searchable(text: $searchText, prompt: "Search title, artist or album…")
         .toolbar {
             ToolbarItem {
+                if isSearching {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            ToolbarItem {
                 Picker("Sort", selection: $sort) {
                     ForEach(SortField.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -84,6 +90,7 @@ public struct LibraryView: View {
             }
         }
         .onChange(of: searchText) { _, _ in
+            isSearching = true
             searchTask?.cancel()
             searchTask = Task {
                 try? await Task.sleep(nanoseconds: 250_000_000)
@@ -203,6 +210,7 @@ public struct LibraryView: View {
             let rows = await client.browseTracks(query: q, tag: tag)
             tracks = rows
             isLoadingTracks = false
+            isSearching = false
         }
     }
 

@@ -13,6 +13,7 @@ public struct PlaylistsView: View {
     @State private var expanded: Int64? = nil
     @State private var tracks: [TrackRecord] = []
     @State private var qobuzStatus: String? = nil
+    @State private var pendingDelete: DatabaseManager.PlaylistSummary? = nil
 
     public var body: some View {
         Group {
@@ -50,6 +51,24 @@ public struct PlaylistsView: View {
         }
         .navigationTitle("Playlists")
         .onAppear(perform: reload)
+        .confirmationDialog(
+            "Delete Playlist?",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let pl = pendingDelete { delete(pl) }
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            if let name = pendingDelete?.name {
+                Text("\(name) will be permanently removed.")
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if let qobuzStatus {
                 Text(qobuzStatus)
@@ -90,7 +109,7 @@ public struct PlaylistsView: View {
             }
             .buttonStyle(.borderless)
 
-            Button(role: .destructive) { delete(pl) } label: {
+            Button(role: .destructive) { pendingDelete = pl } label: {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)

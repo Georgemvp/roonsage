@@ -18,6 +18,20 @@ extension View {
 }
 #endif
 
+#if os(macOS)
+extension View {
+    /// `.navigationBarTitleDisplayMode` is iOS-only. No-op on macOS so hub views
+    /// in the shared library compile for both platforms.
+    @inlinable
+    public func navigationBarTitleDisplayMode(_ mode: NavigationBarTitleDisplayMode) -> some View { self }
+}
+
+/// Stub so the type compiles on macOS (only referenced in the no-op shim above).
+public enum NavigationBarTitleDisplayMode {
+    case automatic, inline, large
+}
+#endif
+
 // Cross-platform bitmap image type (NSImage on macOS, UIImage on iOS).
 #if os(macOS)
 public typealias PlatformImage = NSImage

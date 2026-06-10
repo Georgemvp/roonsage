@@ -128,38 +128,41 @@ public struct DJSetView: View {
         }
         .padding(.vertical, 4)
 
-        ForEach(Array(set.enumerated()), id: \.offset) { i, t in
-            HStack(spacing: 10) {
-                Text("\(i + 1)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 24, alignment: .trailing)
-                AlbumArtView(imageKey: t.imageKey, size: 40)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(t.title).lineLimit(1)
-                    if let a = t.artist { Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+        List {
+            ForEach(set, id: \.id) { t in
+                let i = set.firstIndex(where: { $0.id == t.id }) ?? 0
+                HStack(spacing: 10) {
+                    Text("\(i + 1)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 24, alignment: .trailing)
+                    AlbumArtView(imageKey: t.imageKey, size: 40)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(t.title).lineLimit(1)
+                        if let a = t.artist {
+                            Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                    Spacer()
+                    Text("\(Int(t.bpm)) BPM")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Text(t.camelot)
+                        .font(.caption.monospacedDigit().bold())
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(.quaternary, in: Capsule())
                 }
-                Spacer()
-                Text("\(Int(t.bpm)) BPM").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                Text(t.camelot).font(.caption.monospacedDigit().bold())
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(.quaternary, in: Capsule())
-                HStack(spacing: 0) {
-                    Button { move(i, by: -1) } label: { Image(systemName: "chevron.up") }
-                        .disabled(i == 0).help("Move up")
-                    Button { move(i, by: 1) } label: { Image(systemName: "chevron.down") }
-                        .disabled(i == set.count - 1).help("Move down")
-                    Button(role: .destructive) {
-                        set.remove(at: i)
-                    } label: { Image(systemName: "trash") }.help("Remove from set")
-                }
-                .buttonStyle(.borderless).controlSize(.small).foregroundStyle(.secondary)
+                .padding(.vertical, 2)
             }
-            .padding(.vertical, 2)
+            .onMove { from, to in set.move(fromOffsets: from, toOffset: to) }
+            .onDelete { indices in set.remove(atOffsets: indices) }
         }
-    }
-
-    private func move(_ index: Int, by offset: Int) {
-        let target = index + offset
-        guard set.indices.contains(index), set.indices.contains(target) else { return }
-        set.swapAt(index, target)
+        #if os(iOS)
+        .environment(\.editMode, .constant(.active))
+        #endif
+        .listStyle(.plain)
+        .scrollDisabled(true)
+        .frame(minHeight: CGFloat(set.count) * 58)
     }
 
     private func build() {
