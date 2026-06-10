@@ -365,7 +365,7 @@ class TestOllamaAsync:
 
         mock_http_response = MagicMock()
         mock_http_response.json.return_value = {
-            "response": '{"result": "test"}',
+            "message": {"content": '{"result": "test"}'},
             "prompt_eval_count": 100,
             "eval_count": 50,
         }
@@ -386,7 +386,7 @@ class TestOllamaAsync:
         assert result.model == "llama3:8b"
         # Verify correct endpoint was called
         call_args = client._ollama_client.post.call_args
-        assert "/api/generate" in call_args[0][0]
+        assert "/api/chat" in call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_complete_dispatch_routes_to_ollama(self, mocker):
@@ -412,7 +412,7 @@ class TestOllamaAsync:
 
         result = await client._complete("test prompt", "system prompt", "llama3:8b")
 
-        mock_ollama.assert_called_once_with("test prompt", "system prompt", "llama3:8b")
+        mock_ollama.assert_called_once_with("test prompt", "system prompt", "llama3:8b", 0.3)
         assert result is expected
 
     @pytest.mark.asyncio

@@ -21,6 +21,7 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(_db, "DB_PATH", db_path)
     monkeypatch.setattr(_db, "DATA_DIR", tmp_path)
     monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DATA_DIR", tmp_path)
     monkeypatch.setattr(library_cache, "DB_PATH", db_path)
     monkeypatch.setattr(library_cache, "DATA_DIR", tmp_path)
     # Reset schema initialization flag so each test gets a fresh schema
@@ -42,15 +43,23 @@ def initialized_db(temp_db):
 class TestSchemaCreation:
     """Test database schema initialization."""
 
-    def test_creates_data_directory(self, temp_db):
+    def test_creates_data_directory(self, tmp_path, monkeypatch):
         """Schema init creates data directory if missing."""
-        # Remove directory
-        temp_db.parent.rmdir() if temp_db.parent.exists() else None
+        # Use a fresh subdirectory so we can remove it without conflicting
+        # with other files that pytest or the autouse fixture placed in tmp_path.
+        fresh_dir = tmp_path / "fresh_data"
+        fresh_db = fresh_dir / "library.db"
+        monkeypatch.setattr(_db_connection, "DB_PATH", fresh_db)
+        monkeypatch.setattr(_db_connection, "DATA_DIR", fresh_dir)
+        monkeypatch.setattr(_db, "DB_PATH", fresh_db)
+        monkeypatch.setattr(_db, "DATA_DIR", fresh_dir)
+        monkeypatch.setattr(_db, "_schema_initialized", False)
+        # fresh_dir does not exist yet — ensure_db_initialized must create it.
 
         conn = library_cache.ensure_db_initialized()
         conn.close()
 
-        assert temp_db.parent.exists()
+        assert fresh_dir.exists()
 
     def test_creates_tracks_table(self, initialized_db):
         """Schema creates tracks table with correct columns."""

@@ -679,13 +679,15 @@ def get_max_albums_for_model(
 
 def get_model_context_limit(model: str, config: LLMConfig | None = None) -> int:
     """Get the context limit for a model in tokens."""
-    if model in MODEL_CONTEXT_LIMITS:
-        return MODEL_CONTEXT_LIMITS[model]
     if config:
         if config.provider == "custom":
             return config.custom_context_window
-        if config.provider == "ollama":
+        if config.provider == "ollama" and "ollama_context_window" in config.model_fields_set:
             return config.ollama_context_window
+    if model in MODEL_CONTEXT_LIMITS:
+        return MODEL_CONTEXT_LIMITS[model]
+    if config and config.provider == "ollama":
+        return config.ollama_context_window
     return 128_000
 
 

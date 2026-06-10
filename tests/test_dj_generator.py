@@ -14,10 +14,12 @@ def synthetic_db(tmp_path, monkeypatch):
     """Patch backend.db.DB_PATH to a temp file and seed it with synthetic data."""
     import sqlite3
 
+    import backend.db.connection as _db_connection
     from backend import db as db_module
 
     db_path = tmp_path / "test.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     # Reset cached schema flag so init_schema runs on the temp DB.
     monkeypatch.setattr(db_module, "_schema_initialized", False)
 
