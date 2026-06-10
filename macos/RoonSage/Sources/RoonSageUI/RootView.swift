@@ -31,6 +31,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case recommend   = "Recommend"
     case playlists   = "Playlists"
     case djSet       = "DJ Set"
+    case liveDJ      = "Live DJ"
     case fingerprint = "Sonic DNA"
     case musicMap    = "Music Map"
     case discovery   = "Discovery"
@@ -48,6 +49,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .recommend:   "sparkles.rectangle.stack"
         case .playlists:   "list.star"
         case .djSet:       "slider.horizontal.3"
+        case .liveDJ:      "slider.horizontal.2.gobackward"
         case .fingerprint: "waveform.path.ecg"
         case .musicMap:    "map"
         case .discovery:   "sparkles"
@@ -141,6 +143,7 @@ struct RootView: View {
         case .recommend:   RecommendView()
         case .playlists:   PlaylistsView()
         case .djSet:       DJSetView()
+        case .liveDJ:      LiveDJView()
         case .fingerprint: SonicFingerprintView()
         case .musicMap:    MusicMapView()
         case .discovery:   DiscoveryView()

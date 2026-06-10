@@ -73,6 +73,47 @@ extension RoonClient {
         return DJSetBuilder.build(candidates: cands, count: count, startBPM: seed.bpm, endBPM: seed.bpm, curve: .flat)
     }
 
+    // MARK: - Live DJ (next-track suggestions)
+
+    public enum HarmonicRelation: Sendable {
+        case harmonic   // adjacent on the Camelot wheel — smoothest mix
+        case sameKey    // identical key
+        case tempo      // tempo-compatible only
+    }
+
+    /// How a candidate's Camelot key mixes with the current key (for UI badges).
+    public static func harmonicRelation(current: String, candidate: String) -> HarmonicRelation {
+        guard !current.isEmpty, !candidate.isEmpty else { return .tempo }
+        if current == candidate { return .sameKey }
+        if Camelot.compatible(current).contains(candidate) { return .harmonic }
+        return .tempo
+    }
+
+    /// Live-DJ suggestions: tracks that mix well RIGHT NOW after the given key/BPM —
+    /// within a tight BPM window, ranked by Camelot-harmonic compatibility, BPM
+    /// proximity and energy. Runs off the main actor (blocking pool.read).
+    public func harmonicNextTracks(bpm: Double, camelot: String, excludeID: String? = nil,
+                                   limit: Int = 25) async -> [DatabaseManager.DJCandidate] {
+        guard let db = database, bpm > 0 else { return [] }
+        let lo = bpm - 8, hi = bpm + 8
+        let compatible = Camelot.compatible(camelot)
+        return await Task.detached {
+            let cands = (try? db.djCandidates(minBPM: lo, maxBPM: hi, tags: [], excludeLive: true)) ?? []
+            func rank(_ c: DatabaseManager.DJCandidate) -> Double {
+                let bpmPen = abs(c.bpm - bpm) / 4.0
+                let harm: Double
+                if !camelot.isEmpty, c.camelot == camelot { harm = 0.2 }
+                else if compatible.contains(c.camelot) { harm = 0.0 }
+                else { harm = 1.0 }
+                return bpmPen + harm - c.energy * 0.1
+            }
+            return cands.filter { $0.id != excludeID }
+                .sorted { rank($0) < rank($1) }
+                .prefix(limit)
+                .map { $0 }
+        }.value
+    }
+
     public func playDJSet(_ set: [DatabaseManager.DJCandidate], zoneID: String) async {
         let tracks = set.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
         await curateTracks(tracks, zoneID: zoneID)
