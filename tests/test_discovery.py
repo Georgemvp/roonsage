@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 import backend.db as _db
+import backend.db.connection as _db_connection
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -18,6 +19,7 @@ import backend.db as _db
 def tmp_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test_discovery.db"
     monkeypatch.setattr(_db, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(_db, "DATA_DIR", tmp_path)
     monkeypatch.setattr(_db, "_schema_initialized", False)
 

@@ -17,6 +17,7 @@ pytest.importorskip("sklearn")
 
 import numpy as np  # noqa: E402
 
+import backend.db.connection as _db_connection  # noqa: E402
 from backend.audio_features import clap_search, mood_tagger  # noqa: E402
 
 EMBED_DIM = clap_search.EMBEDDING_DIM
@@ -50,6 +51,7 @@ def seeded_db(tmp_path, monkeypatch):
 
     db_path = tmp_path / "moods.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
 
     conn = sqlite3.connect(str(db_path))
@@ -108,6 +110,7 @@ def test_run_mood_tagging_below_minimum_returns_failed(tmp_path, monkeypatch):
 
     db_path = tmp_path / "tiny.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row

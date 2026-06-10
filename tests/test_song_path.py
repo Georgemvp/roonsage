@@ -11,6 +11,7 @@ import sqlite3
 
 import pytest
 
+import backend.db.connection as _db_connection
 from backend.audio_features import song_path
 
 
@@ -19,6 +20,7 @@ def _seed_db(tmp_path, monkeypatch, n: int = 30):
 
     db_path = tmp_path / "path.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
 
     conn = sqlite3.connect(str(db_path))
@@ -78,6 +80,7 @@ def test_empty_library_returns_empty(tmp_path, monkeypatch):
     from backend import db as db_module
     db_path = tmp_path / "empty.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row

@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+import backend.db.connection as _db_connection
 from backend.audio_features import alchemy_profiles
 
 # ---------------------------------------------------------------------------
@@ -26,6 +27,7 @@ def _seed_db(tmp_path, monkeypatch):
 
     db_path = tmp_path / "alchemy_profiles.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
 

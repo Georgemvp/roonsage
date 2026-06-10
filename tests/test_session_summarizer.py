@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
+import backend.db.connection as _db_connection
 from backend import db as db_module
 from backend import session_summarizer
 
@@ -21,6 +22,7 @@ def _setup_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     db_module.init_schema(conn)

@@ -14,6 +14,7 @@ import pytest
 
 pytest.importorskip("sklearn")
 
+import backend.db.connection as _db_connection  # noqa: E402
 from backend.audio_features import sonic_radio as sr  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -28,6 +29,7 @@ def seeded_db(tmp_path, monkeypatch):
 
     db_path = tmp_path / "radio.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
 
     conn = sqlite3.connect(str(db_path))
@@ -163,6 +165,7 @@ async def test_start_without_history_raises(tmp_path, monkeypatch):
 
     db_path = tmp_path / "empty.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row

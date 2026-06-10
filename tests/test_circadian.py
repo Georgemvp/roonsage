@@ -10,6 +10,7 @@ import sqlite3
 
 import pytest
 
+import backend.db.connection as _db_connection
 from backend.audio_features import circadian
 
 # ---------------------------------------------------------------------------
@@ -22,6 +23,7 @@ def _seed_db(tmp_path, monkeypatch):
 
     db_path = tmp_path / "circadian.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
 
@@ -170,6 +172,7 @@ class TestCircadianPlaylist:
 
         db_path = tmp_path / "empty.db"
         monkeypatch.setattr(db_module, "DB_PATH", db_path)
+        monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
         monkeypatch.setattr(db_module, "DATA_DIR", tmp_path)
         monkeypatch.setattr(db_module, "_schema_initialized", False)
         conn = sqlite3.connect(str(db_path))

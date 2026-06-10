@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 import backend.db as _db
+import backend.db.connection as _db_connection
 from backend.automation_engine import (
     ActionType,
     AutomationEngine,
@@ -26,6 +27,7 @@ def tmp_db(tmp_path, monkeypatch):
     """Patch the DB path and initialise schema for each test."""
     db_path = tmp_path / "test_automations.db"
     monkeypatch.setattr(_db, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(_db, "DATA_DIR", tmp_path)
     monkeypatch.setattr(_db, "_schema_initialized", False)
 

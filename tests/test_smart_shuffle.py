@@ -6,6 +6,7 @@ import sqlite3
 
 import pytest
 
+import backend.db.connection as _db_connection
 from backend.audio_features import smart_shuffle as ss
 
 
@@ -15,6 +16,7 @@ def seeded_db(tmp_path, monkeypatch):
 
     db_path = tmp_path / "shuffle.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
 
     conn = sqlite3.connect(str(db_path))
@@ -113,6 +115,7 @@ def test_smart_radio_no_clusters_returns_empty(tmp_path, monkeypatch):
 
     db_path = tmp_path / "empty.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row

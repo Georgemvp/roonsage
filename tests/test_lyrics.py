@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 pytest.importorskip("numpy")
 pytest.importorskip("mutagen")
 
+import backend.db.connection as _db_connection  # noqa: E402
 from backend.lyrics import embedder, extractor, search  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -63,6 +64,7 @@ def _seed_db(tmp_path, monkeypatch):
 
     db_path = tmp_path / "lyrics.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
 
     conn = sqlite3.connect(str(db_path))

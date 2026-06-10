@@ -19,6 +19,7 @@ pytest.importorskip("fastapi")
 
 import numpy as np  # noqa: E402
 
+import backend.db.connection as _db_connection  # noqa: E402
 from backend.audio_features import song_path  # noqa: E402
 
 
@@ -27,6 +28,7 @@ def _seed_db(tmp_path, monkeypatch, n: int = 12, with_clap: bool = True):
 
     db_path = tmp_path / "clap_path.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
 
     conn = sqlite3.connect(str(db_path))
@@ -165,6 +167,7 @@ def app_client(tmp_path, monkeypatch):
 
     db_path = tmp_path / "route_clap_path.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
 
     # Force schema init on a real connection so subsequent get_db_connection()

@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import backend.db.connection as _db_connection
+
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
@@ -18,6 +20,7 @@ def client(tmp_path, monkeypatch):
 
     db_path = tmp_path / "routes.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
     db_module.ensure_db_initialized().close()
 

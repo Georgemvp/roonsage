@@ -16,6 +16,7 @@ pytest.importorskip("numpy")
 import numpy as np  # noqa: E402
 
 import backend.db as _db  # noqa: E402
+import backend.db.connection as _db_connection  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -26,6 +27,7 @@ import backend.db as _db  # noqa: E402
 def tmp_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test_discovery_clap.db"
     monkeypatch.setattr(_db, "DB_PATH", db_path)
+    monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(_db, "DATA_DIR", tmp_path)
     monkeypatch.setattr(_db, "_schema_initialized", False)
     from backend.db import ensure_db_initialized
