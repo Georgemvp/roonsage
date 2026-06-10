@@ -215,7 +215,7 @@ struct RootView: View {
             set: { client.selectZone($0) }
         )) {
             ForEach(client.zones) { zone in
-                Label(zone.displayName, systemImage: zone.state.icon)
+                Label(zone.displayName, systemImage: "hifi.speaker")
                     .tag(zone.id)
             }
         }

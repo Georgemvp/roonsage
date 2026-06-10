@@ -229,6 +229,13 @@ public struct SettingsView: View {
                     TextField("http://10.94.184.22:5766", text: $analyzerURL)
                         .textFieldStyle(.roundedBorder)
                 }
+                if let host = client.coreHost {
+                    Button {
+                        analyzerURL = "http://\(host):5766"
+                    } label: {
+                        Label("Vind automatisch", systemImage: "magnifyingglass")
+                    }
+                }
                 let stats = client.audioFeaturesStats()
                 LabeledContent("Synced features", value: "\(stats.matched) matched / \(stats.total) total")
                 Button(afBusy ? "Syncing…" : "Save & sync features") { Task { await syncAnalyzer() } }
