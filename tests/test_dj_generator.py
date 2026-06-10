@@ -105,11 +105,13 @@ def test_build_dj_set_no_duplicates(synthetic_db):
 
 
 def test_build_dj_set_returns_empty_when_pool_empty(synthetic_db):
-    # Use a BPM range that doesn't exist in our 100..129 pool.
+    # Use a BPM range outside our 100..129 pool, including allow_half_step ranges.
+    # allow_half_step=True also matches ~half and ~double of [start,end].
+    # 500-600 → half = 250-306, double = 1000-1206, none overlap 100-129.
     result = dj_generator.build_dj_set(
         track_count=10,
-        start_bpm=180,
-        end_bpm=200,
+        start_bpm=500,
+        end_bpm=600,
     )
     assert result["tracks"] == []
     assert result["total_matching"] == 0
