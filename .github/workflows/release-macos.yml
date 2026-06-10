@@ -59,11 +59,18 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain >/dev/null
           security list-keychains -d user -s build.keychain login.keychain-db
           rm /tmp/cert.p12
+
+          echo "── All code-signing identities in the keychain (need a private key):"
+          security find-identity -v -p codesigning build.keychain || true
+          echo "── All identities (any policy):"
+          security find-identity -v build.keychain || true
+
           # Derive the "Developer ID Application: … (TEAMID)" identity from the keychain.
           IDENTITY=$(security find-identity -v -p codesigning build.keychain \
             | grep "Developer ID Application" | head -1 | sed -E 's/^[^"]*"(.*)"$/\1/')
           if [[ -z "$IDENTITY" ]]; then
-            echo "::error::No 'Developer ID Application' identity found in the imported certificate."
+            echo "::error::No 'Developer ID Application' identity found. The dump above shows what's in APPLE_CERTIFICATE."
+            echo "::error::You need a *Developer ID Application* cert exported as .p12 WITH its private key. See macos/SIGNING.md."
             exit 1
           fi
           echo "Using signing identity: $IDENTITY"
