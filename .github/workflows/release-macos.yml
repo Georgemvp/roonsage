@@ -19,6 +19,10 @@ jobs:
     name: Build DMG
     runs-on: macos-14
     timeout-minutes: 30
+    env:
+      # Exposed at job level so the "Import signing certificate" step's `if:`
+      # can detect whether signing secrets are configured.
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
 
     steps:
       - name: Checkout
@@ -37,11 +41,34 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
 
-      - name: Build release DMG (ad-hoc signed)
+      # Imports the Developer ID cert into a temporary keychain — only runs when
+      # the MACOS_CERT_P12 secret is present; otherwise the build falls back to
+      # ad-hoc signing (no notarization). See macos/SIGNING.md.
+      - name: Import signing certificate
+        if: env.MACOS_CERT_P12 != ''
+        env:
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          echo "$MACOS_CERT_P12" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain >/dev/null
+          security list-keychains -d user -s build.keychain login.keychain-db
+          rm /tmp/cert.p12
+
+      - name: Build release DMG
+        env:
+          # When these secrets exist the script signs with Developer ID + notarizes;
+          # when they're empty it ad-hoc signs (unchanged behaviour).
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           cd macos
           mkdir -p build
-          # SIGN_IDENTITY not set → build-release.sh uses ad-hoc signing automatically
           ./scripts/build-release.sh "${{ steps.version.outputs.version }}"
 
       - name: Verify app bundle
@@ -49,6 +76,8 @@ jobs:
           DMG="macos/build/RoonSage-${{ steps.version.outputs.version }}.dmg"
           hdiutil attach "$DMG" -mountpoint /tmp/roonsage-verify -quiet
           codesign --verify --deep --verbose /tmp/roonsage-verify/RoonSage.app
+          # If notarized, confirm the staple too (non-fatal when ad-hoc).
+          xcrun stapler validate /tmp/roonsage-verify/RoonSage.app || echo "not stapled (ad-hoc build)"
           echo "App bundle OK"
           hdiutil detach /tmp/roonsage-verify -quiet
 
