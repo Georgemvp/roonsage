@@ -50,6 +50,17 @@ jobs:
           mkdir -p ~/.private_keys
           echo "$ASC_KEY_CONTENT" | base64 --decode > ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
 
+      - name: Unlock login keychain for code signing
+        env:
+          RUNNER_KEYCHAIN_PASSWORD: ${{ secrets.RUNNER_KEYCHAIN_PASSWORD }}
+        run: |
+          # Self-hosted runner: the login keychain is locked for background launchd services.
+          # Unlock it so codesign can access/create the Distribution private key.
+          security unlock-keychain -p "$RUNNER_KEYCHAIN_PASSWORD" ~/Library/Keychains/login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$RUNNER_KEYCHAIN_PASSWORD" \
+            ~/Library/Keychains/login.keychain-db >/dev/null 2>&1 || true
+          security list-keychains -s ~/Library/Keychains/login.keychain-db
+
       - name: Build archive
         run: |
           cd macos/iosapp
