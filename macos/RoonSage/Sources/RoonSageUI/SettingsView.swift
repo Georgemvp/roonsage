@@ -2,9 +2,12 @@ import SwiftUI
 import RoonSageCore
 
 @MainActor
-struct SettingsView: View {
+public struct SettingsView: View {
     @Environment(RoonClient.self) private var client
+    @Environment(\.openURL) private var openURL
     @State private var lastSync: String = "—"
+
+    public init() {}
 
     // ListenBrainz
     @State private var lbToken: String = ""
@@ -39,7 +42,7 @@ struct SettingsView: View {
     @State private var ollamaModels: [String] = []
     @State private var isFetchingModels = false
 
-    var body: some View {
+    public var body: some View {
         Form {
             // Connection
             Section("Roon Connection") {
@@ -221,12 +224,18 @@ struct SettingsView: View {
             Section("About") {
                 LabeledContent("Version", value: appVersion)
                 LabeledContent("Protocol", value: "MOO/1 · SOOD · GRDB 6")
+                #if os(macOS)
                 LabeledContent("Platform", value: "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+                #else
+                LabeledContent("Platform", value: "iOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+                #endif
             }
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+        #if os(macOS)
         .frame(width: 440)
+        #endif
         .onAppear {
             refreshLastSync()
             lbToken = KeychainStore.load(key: "listenbrainz_token") ?? ""
@@ -308,7 +317,7 @@ struct SettingsView: View {
         }
         lfPendingToken = token
         if let url = LastfmClient.shared.authURL(apiKey: key, token: token) {
-            NSWorkspace.shared.open(url)
+            openURL(url)
         }
         lfStatus = "Authorize RoonSage in the browser, then click Continue."
     }
