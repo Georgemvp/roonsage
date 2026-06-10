@@ -122,6 +122,14 @@ public struct SettingsView: View {
                             }
                         }
                     }
+                    if llmProvider == .ollama, let host = client.coreHost {
+                        Button {
+                            llmBaseURL = "http://\(host):11434"
+                            Task { await fetchOllamaModels() }
+                        } label: {
+                            Label("Vind automatisch", systemImage: "magnifyingglass")
+                        }
+                    }
                 }
 
                 LabeledContent("Model") {
