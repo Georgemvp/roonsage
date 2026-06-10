@@ -86,14 +86,14 @@
 
 ## Track D — New features (pick by taste)
 
-- [ ] **D1. Live DJ mode ("Tonight's Set")** — full-screen, beat-synced, next-track suggestions on Camelot + BPM while you play; key-clash warnings + transition hints.
+- [x] **D1. Live DJ mode** — "Live DJ" tab suggests harmonically-compatible next tracks (Camelot + BPM) for the now-playing track, with one-tap play/queue. (Full-screen beat-synced view = future.)
 - [ ] **D2. Smart endless radio ("Sonic Radio++")** — infinite stream that learns from skips/likes.
 - [ ] **D3. Energy/mood timeline** — visualize the energy curve of a playlist or DJ set.
 - [ ] **D4. In-app natural-language search** (not just via Claude Desktop MCP) — "speel iets donkers en hypnotisch rond 122 BPM".
 - [ ] **D5. Port watchlist + scheduler/automations** to native (still missing per project notes).
 - [ ] **D6. iOS Widgets + Live Activities** — now-playing on lockscreen / Dynamic Island.
 - [ ] **D7. Handoff / Continuity** — build a set on Mac, continue on iPhone.
-- [ ] **D8. Export DJ set** → Rekordbox / Serato / M3U.
+- [x] **D8. Export DJ set** — `SetlistExport` (readable tracklist + M3U, with BPM/Camelot) via a ShareLink in the DJ Set view.
 - [ ] **D9. AirPlay / local playback on iOS** (later) — phone as control *and* listening endpoint.
 
 ---
