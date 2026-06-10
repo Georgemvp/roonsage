@@ -17,25 +17,10 @@ public struct AlbumArtView: View {
 
     public var body: some View {
         let r = cornerRadius ?? size * 0.12
-        Group {
-            if let key = imageKey,
-               let url = client.imageURL(forKey: key, size: Int(size * 2)) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    default:
-                        placeholder
-                    }
-                }
-            } else {
-                placeholder
-            }
-        }
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: r))
+        let url = imageKey.flatMap { client.imageURL(forKey: $0, size: Int(size * 2)) }
+        CachedArtImage(url: url) { placeholder }
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: r))
     }
 
     private var placeholder: some View {

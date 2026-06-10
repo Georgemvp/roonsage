@@ -18,6 +18,24 @@ extension View {
 }
 #endif
 
+// Cross-platform bitmap image type (NSImage on macOS, UIImage on iOS).
+#if os(macOS)
+public typealias PlatformImage = NSImage
+#else
+public typealias PlatformImage = UIImage
+#endif
+
+extension Image {
+    /// Build a SwiftUI `Image` from a platform bitmap regardless of OS.
+    public init(platformImage: PlatformImage) {
+        #if os(macOS)
+        self.init(nsImage: platformImage)
+        #else
+        self.init(uiImage: platformImage)
+        #endif
+    }
+}
+
 extension Color {
     /// A faint fill (chip background) — `quaternaryLabel` on both platforms.
     public static var platformQuaternaryFill: Color {
