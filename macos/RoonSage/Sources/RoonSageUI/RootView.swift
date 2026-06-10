@@ -182,7 +182,7 @@ struct RootView: View {
 
     @ToolbarContentBuilder
     private var navToolbar: some ToolbarContent {
-        if client.zones.count > 1 {
+        if !client.zones.isEmpty {
             #if os(macOS)
             ToolbarItem(placement: .navigation) { zonePicker }
             #else
