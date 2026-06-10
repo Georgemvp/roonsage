@@ -1,0 +1,166 @@
+import Foundation
+import GRDB
+
+extension DatabaseManager {
+    // MARK: - Filter tracks (curation)
+
+    public struct FilterOptions: Sendable {
+        public var genres:      [String] = []
+        public var decades:     [Int]    = []
+        public var artists:     [String] = []
+        public var keywords:    String   = ""
+        public var tags:        [String] = []   // LLM audio tags (matched via track_audio_features)
+        public var albumKey:    String?  = nil
+        public var excludeLive: Bool     = true
+        public var limit:       Int      = 500
+        public init() {}
+    }
+
+    public func filterTracks(options: FilterOptions) throws -> [TrackRecord] {
+        try pool.read { db in
+            var conditions: [String] = []
+            var args: [DatabaseValueConvertible] = []
+
+            if !options.genres.isEmpty {
+                let ph = options.genres.map { _ in "?" }.joined(separator: ",")
+                conditions.append("t.id IN (SELECT track_id FROM track_genres WHERE genre IN (\(ph)))")
+                args.append(contentsOf: options.genres as [DatabaseValueConvertible])
+            }
+            if !options.decades.isEmpty {
+                let dc = options.decades.map { _ in "(t.year >= ? AND t.year < ?)" }.joined(separator: " OR ")
+                conditions.append("(\(dc))")
+                for d in options.decades { args.append(d); args.append(d + 10) }
+            }
+            if !options.artists.isEmpty {
+                let ac = options.artists.map { _ in "LOWER(t.artist) LIKE LOWER(?)" }.joined(separator: " OR ")
+                conditions.append("(\(ac))")
+                args.append(contentsOf: options.artists.map { "%\($0)%" as DatabaseValueConvertible })
+            }
+            if !options.keywords.isEmpty {
+                conditions.append("(LOWER(t.title) LIKE LOWER(?) OR LOWER(t.artist) LIKE LOWER(?) OR LOWER(t.album) LIKE LOWER(?))")
+                let kw: DatabaseValueConvertible = "%\(options.keywords)%"
+                args.append(contentsOf: [kw, kw, kw])
+            }
+            if !options.tags.isEmpty {
+                let tc = options.tags.map { _ in "LOWER(f.tags) LIKE ?" }.joined(separator: " OR ")
+                conditions.append("t.match_key IN (SELECT match_key FROM track_audio_features f WHERE \(tc))")
+                args.append(contentsOf: options.tags.map { "%\"\($0.lowercased())\"%" as DatabaseValueConvertible })
+            }
+            if let key = options.albumKey {
+                conditions.append("t.album_key = ?")
+                args.append(key as DatabaseValueConvertible)
+            }
+            if options.excludeLive { conditions.append("t.is_live = 0") }
+
+            let whereClause = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
+            let sql = "SELECT t.* FROM tracks t \(whereClause) ORDER BY t.artist, t.year, t.title LIMIT ?"
+            args.append(options.limit)
+
+            return try TrackRecord.fetchAll(db, sql: sql, arguments: StatementArguments(args))
+        }
+    }
+
+    // MARK: - Playlists
+
+    public struct PlaylistSummary: Sendable {
+        public var id: Int64
+        public var name: String
+        public var trackCount: Int
+        public var createdAt: String
+    }
+
+    public func savePlaylist(name: String, tracks: [TrackRecord]) throws -> Int64 {
+        try pool.write { db in
+            let iso = ISO8601DateFormatter().string(from: Date())
+            try db.execute(sql: "INSERT INTO playlists (name, created_at) VALUES (?, ?)", arguments: [name, iso])
+            let pid = db.lastInsertedRowID
+            let chunk = Self.rowsPerChunk(columns: 9)
+            var start = 0
+            while start < tracks.count {
+                let end = min(start + chunk, tracks.count)
+                let placeholders = (start..<end).map { _ in "(?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                var args: [DatabaseValueConvertible?] = []
+                args.reserveCapacity((end - start) * 9)
+                for i in start..<end {
+                    let t = tracks[i]
+                    args.append(contentsOf: [pid, i, t.id, t.title, t.artist, t.album, t.albumKey, t.year, t.isLive] as [DatabaseValueConvertible?])
+                }
+                try db.execute(sql: """
+                    INSERT INTO playlist_tracks
+                      (playlist_id, position, track_id, title, artist, album, album_key, year, is_live)
+                    VALUES \(placeholders)
+                """, arguments: StatementArguments(args))
+                start += chunk
+            }
+            return pid
+        }
+    }
+
+    public func listPlaylists() throws -> [PlaylistSummary] {
+        try pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT p.id, p.name, p.created_at, COUNT(pt.position) AS cnt
+                FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+                GROUP BY p.id ORDER BY p.created_at DESC
+            """)
+            return rows.map {
+                PlaylistSummary(
+                    id: $0["id"] as Int64? ?? 0,
+                    name: $0["name"] as String? ?? "",
+                    trackCount: $0["cnt"] as Int? ?? 0,
+                    createdAt: $0["created_at"] as String? ?? ""
+                )
+            }
+        }
+    }
+
+    /// Saved tracks as stored (track_id may be stale after a resync).
+    public func playlistTracks(id: Int64) throws -> [TrackRecord] {
+        try pool.read { db in
+            try TrackRecord.fetchAll(db, sql: """
+                SELECT track_id AS id, title, artist, album, album_key, year, is_live
+                FROM playlist_tracks WHERE playlist_id = ? ORDER BY position
+            """, arguments: [id])
+        }
+    }
+
+    public func deletePlaylist(id: Int64) throws {
+        try pool.write { db in
+            try db.execute(sql: "DELETE FROM playlists WHERE id = ?", arguments: [id])
+        }
+    }
+
+    /// Re-resolve a saved track to a CURRENT library track (Roon item_keys change
+    /// across resyncs). Matches by title + artist, case-insensitive.
+    public func resolveCurrentTracks(_ saved: [TrackRecord]) throws -> [TrackRecord] {
+        guard !saved.isEmpty else { return [] }
+        return try pool.read { db in
+            // One query fetching every candidate by title, then resolve in-memory
+            // (was one SELECT per saved track).
+            let titles = Array(Set(saved.map { $0.title.lowercased() }))
+            var byTitle: [String: [TrackRecord]] = [:]
+            let chunk = Self.rowsPerChunk(columns: 1)
+            var start = 0
+            while start < titles.count {
+                let slice = titles[start..<min(start + chunk, titles.count)]
+                let ph = slice.map { _ in "?" }.joined(separator: ",")
+                let rows = try TrackRecord.fetchAll(
+                    db, sql: "SELECT * FROM tracks WHERE LOWER(title) IN (\(ph))",
+                    arguments: StatementArguments(Array(slice) as [DatabaseValueConvertible])
+                )
+                for r in rows { byTitle[r.title.lowercased(), default: []].append(r) }
+                start += chunk
+            }
+            return saved.compactMap { s in
+                let candidates = byTitle[s.title.lowercased()] ?? []
+                let savedArtist = s.artist?.lowercased()
+                // Mirror the old WHERE: match when saved artist is nil, the
+                // library artist is nil, or both match (case-insensitive).
+                return candidates.first { c in
+                    savedArtist == nil || c.artist == nil || c.artist?.lowercased() == savedArtist
+                }
+            }
+        }
+    }
+
+}

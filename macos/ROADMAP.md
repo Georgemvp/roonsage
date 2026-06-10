@@ -77,7 +77,7 @@
 - [~] **C2. Split `RoonClient`** — done as a behaviour-neutral `extension` split: 853-line file → 382-line core + `RoonClient+{Transport,Library,Features,Qobuz,Playlists}.swift` (type-level `private`→`internal` so cross-file extensions reach state). Smaller/navigable units with zero runtime change. (Full service-object extraction with separate `PlaybackService`/`SyncService` deferred — needs live-Core verification.)
 - [x] **C3. Album-art caching** — `ImageCache` actor (NSCache + in-flight dedupe) + `CachedArtImage`; `AlbumArtView` no longer re-fetches/re-decodes on scroll.
 - [ ] **C4. Precompute heavy vectors** — Music Map / Sonic similarity cached in the DB instead of recomputed per view (`SonicEngine`/`SonicSimilarity`).
-- [ ] **C5. Split `DatabaseManager`** (806 lines) by domain (queries vs schema vs sync).
+- [x] **C5. Split `DatabaseManager`** — behaviour-neutral extension split: 806-line file → 22-line core (pool + init) + DatabaseManager+{Tracks,History,Filter,Discovery,AudioFeatures}.swift.
 - [ ] **C6. Tests** around the new services (currently mostly DB/Sonic). Reminder: always `swift build -c release` before tagging — release strict-concurrency catches what debug misses.
 
 **Acceptance:** scrolling/filtering a 31k library is smooth; `RoonClient` < ~300 lines; new services unit-tested.
