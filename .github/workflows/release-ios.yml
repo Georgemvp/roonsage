@@ -48,7 +48,7 @@ jobs:
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
         run: |
           mkdir -p ~/.private_keys
-          echo "$ASC_KEY_CONTENT" > ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          echo "$ASC_KEY_CONTENT" | base64 --decode > ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
 
       - name: Build archive
         run: |
