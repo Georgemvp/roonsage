@@ -121,6 +121,8 @@ class TestPlaylistGeneration:
 
         with patch("backend.generator.get_llm_client") as mock_llm:
             mock_client = MagicMock()
+            mock_client.config.model_generation = "test-model"
+            mock_client.config.smart_generation = False
             mock_client.generate = AsyncMock(return_value=mock_response)
             mock_client.analyze = AsyncMock(return_value=LLMResponse(
                 content='{"title": "Test", "narrative": "Test."}',

@@ -11,16 +11,28 @@ from backend.models import Dimension, Track
 
 @pytest.fixture(autouse=True)
 def _patch_db_path(tmp_path, monkeypatch):
-    """Redirect every DB read to a per-test temp file.
+    """Redirect every DB read to a per-test temp file and initialise schema.
 
     get_connection() reads backend.db.connection.DB_PATH directly;
     patching only the re-export in backend.db.__init__ leaves it stale.
     """
+    import sqlite3 as _sqlite3
+    from backend.db.migrations import init_schema as _init_schema
+
     db_path = tmp_path / "test_roonsage.db"
+    tmp_path.mkdir(parents=True, exist_ok=True)
+
     monkeypatch.setattr(_db_connection, "DB_PATH", db_path)
     monkeypatch.setattr(_db_module, "DB_PATH", db_path)
     monkeypatch.setattr(_db_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(_db_module, "_schema_initialized", False)
+
+    # Pre-initialise schema so tables exist for any test that opens a
+    # raw connection without going through ensure_db_initialized().
+    conn = _sqlite3.connect(str(db_path))
+    _init_schema(conn)
+    conn.commit()
+    conn.close()
 
 
 @pytest.fixture
