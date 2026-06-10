@@ -17,7 +17,7 @@ permissions:
 jobs:
   build-ipa:
     name: Build & Upload to TestFlight
-    runs-on: macos-16
+    runs-on: macos-15
     timeout-minutes: 60
 
     steps:
