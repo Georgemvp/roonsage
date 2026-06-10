@@ -38,6 +38,7 @@ def create_mock_config(
     mock.llm.api_key = llm_api_key
     mock.llm.model_analysis = model_analysis
     mock.llm.model_generation = model_generation
+    mock.llm.fast_model = ""
     mock.llm.ollama_url = ollama_url
     mock.llm.custom_url = custom_url
     mock.llm.custom_context_window = custom_context_window

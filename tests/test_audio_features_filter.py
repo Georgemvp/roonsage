@@ -8,6 +8,7 @@ import sqlite3
 
 import pytest
 
+import backend.db.connection as db_connection_module
 from backend import db as db_module
 from backend.tracks import get_tracks_by_filters
 
@@ -17,6 +18,7 @@ def seeded_db(tmp_path, monkeypatch):
     """Seed a temp DB with five tracks, three of them analysed."""
     db_path = tmp_path / "filter_test.db"
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(db_connection_module, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_schema_initialized", False)
 
     conn = sqlite3.connect(str(db_path))
