@@ -47,7 +47,7 @@
 - [x] **A3. Adaptive navigation.** `RootView` in `RoonSageUI`: `NavigationSplitView` on regular width (macOS/iPad), `TabView` on compact (iPhone). Shared destination switch + zone/transport toolbar. `ContentView`/`SidebarItem` moved to `RoonSageUI` and made public.
 - [x] **A4. Audit `RoonClient` for Mac assumptions** — compiles clean for iOS; no AppKit leaked into the shared path (the only `Process`/AppKit use was the now-guarded updater).
 - [x] **A5. iOS app target.** `macos/iosapp/` — `RoonSageiOSApp.swift` (@main → shared `ContentView`) + `project.yml` (xcodegen) referencing the local `RoonSage` package (RoonSageUI + RoonSageCore), synthesized Info.plist with `NSLocalNetworkUsageDescription`, iPhone+iPad, iOS 17. `xcodegen generate` succeeds; package graph + `RoonSageiOS` scheme resolve.
-- [ ] **A6. Verify:** TestFlight-able build. **Blocked on the iOS platform runtime** — only the SDK is installed, not the simulator/device platform. Install with `xcodebuild -downloadPlatform iOS` (~7–12 GB; deferred — only 19 GB free), then `cd macos/iosapp && xcodebuild -scheme RoonSageiOS -destination 'generic/platform=iOS Simulator' build`. Plus a Developer Team for signing.
+- [x] **A6. Verify (Simulator).** iOS 26.5 Simulator runtime installed; `RoonSage.app` **builds, installs, launches and renders** on iPhone 17 Pro sim (ConnectView with gold accent). Build: `cd macos/iosapp && xcodebuild -scheme RoonSageiOS -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`. **Still TODO for device/TestFlight:** a real Apple Developer Team for signing, app icon, and a live connect test over ZeroTier.
 
 **Acceptance:** Mac app unchanged; iOS app connects over ZeroTier, browses library, plays, curates, builds a DJ set from synced features.
 
@@ -59,7 +59,7 @@
 
 - [x] **B2. Appearance settings.** `Appearance.swift` in `RoonSageUI`: `@AppStorage` ThemeMode (Systeem/Licht/Donker) + AccentChoice (7 presets, Roon gold default) + `.roonSageAppearance()` applied at the shared root. Dutch "Verschijning" section in Settings. (Done out of order — highest-visibility win.)
 - [ ] **B1. Real design system.** Expand `Theme.swift` into tokens backed by an **asset catalog** (so light/dark resolve automatically): semantic colors (success/warning/danger/info), elevation levels, radius scale, motion tokens. Keep `Spacing`/`Typography`/`Badge`. (Light mode now works via B2 — audit hardcoded dark colors next.)
-- [ ] **B2. Appearance settings** (Dutch labels): "Verschijning" (Licht / Donker / Systeem) + "Accentkleur" picker. Today everything is hardcoded gold via `.tint(.roonGold)` at the app root — make the tint user-driven via `@AppStorage`.
+- [x] **B2. Appearance settings** — done (see Track B header note).
 - [ ] **B3. Album-art-driven dynamic color** on Now Playing — extract dominant color → subtle gradient backdrop. High perceived-quality win.
 - [ ] **B4. Per-screen polish pass:** consistent empty-states, loading **skeletons** instead of spinners, consistent toolbar + SF Symbols, refined Connect/onboarding flow (`ConnectView.swift`).
 - [ ] **B5. Proper signing & notarization (Mac).** Replace the ad-hoc-sign + quarantine-strip hack with Developer ID + notarization → Gatekeeper hack gone, updater becomes reliable. (iOS requires the Developer Program anyway.)
@@ -73,7 +73,7 @@
 
 **Outcome:** no main-thread hitches on a 31k-track library; smaller, testable units.
 
-- [ ] **C1. DB reads off the main thread.** `filterTracks`, `browseTracks`, `searchTracks`, `topTags` run synchronously on `@MainActor` today. Make them `async` via GRDB `DatabasePool.read`, or `ValueObservation` for live lists.
+- [x] **C1. Heavy DB reads off the main thread.** The 9 bulk reads (filter/browse/search/candidate/playlist/discovery) are now `async` on `RoonClient`, running the blocking `pool.read` off the main actor via `Task.detached`; light count queries stay sync. Call sites (5 views + MCP) updated. (Future: `ValueObservation` for live lists.)
 - [ ] **C2. Split `RoonClient`** (842 lines) into feature services that feed the `@Observable` store: `PlaybackService`, `LibraryQueryService`, `CurationService`, `SyncService`. Smaller units, testable, and required for clean iOS reuse.
 - [ ] **C3. Album-art caching** — verify/harden `AlbumArtView` (44 lines): memory + disk cache; avoid re-fetching on scroll.
 - [ ] **C4. Precompute heavy vectors** — Music Map / Sonic similarity cached in the DB instead of recomputed per view (`SonicEngine`/`SonicSimilarity`).
