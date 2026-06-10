@@ -88,8 +88,8 @@
 
 - [x] **D1. Live DJ mode** — "Live DJ" tab suggests harmonically-compatible next tracks (Camelot + BPM) for the now-playing track, with one-tap play/queue. (Full-screen beat-synced view = future.)
 - [ ] **D2. Smart endless radio ("Sonic Radio++")** — infinite stream that learns from skips/likes.
-- [ ] **D3. Energy/mood timeline** — visualize the energy curve of a playlist or DJ set.
-- [ ] **D4. In-app natural-language search** (not just via Claude Desktop MCP) — "speel iets donkers en hypnotisch rond 122 BPM".
+- [x] **D3. Energy/mood timeline** — DJ Set view now shows a BPM curve, a fixed-scale energy arc, and a harmonic-transition strip (gold=harmonic, green=same key, grey=tempo-only) with an "X/Y harmonische overgangen" summary.
+- [x] **D4. In-app natural-language search** — "Vraag het" tab: a vibe prompt → LLM `analyzeForFilters` → local filter → instantly-playable results (play now / queue next / play all). Lighter than Generate (one LLM call, no second curation stage).
 - [ ] **D5. Port watchlist + scheduler/automations** to native (still missing per project notes).
 - [ ] **D6. iOS Widgets + Live Activities** — now-playing on lockscreen / Dynamic Island.
 - [ ] **D7. Handoff / Continuity** — build a set on Mac, continue on iPhone.

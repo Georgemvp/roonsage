@@ -27,6 +27,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case nowPlaying  = "Now Playing"
     case queue       = "Queue"
     case library     = "Library"
+    case ask         = "Vraag het"
     case generate    = "Generate"
     case recommend   = "Recommend"
     case playlists   = "Playlists"
@@ -45,6 +46,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .nowPlaying:  "play.circle.fill"
         case .queue:       "list.number"
         case .library:     "music.note.list"
+        case .ask:         "text.magnifyingglass"
         case .generate:    "wand.and.stars"
         case .recommend:   "sparkles.rectangle.stack"
         case .playlists:   "list.star"
@@ -139,6 +141,7 @@ struct RootView: View {
         case .nowPlaying:  NowPlayingView()
         case .queue:       QueueView()
         case .library:     LibraryView()
+        case .ask:         AskView()
         case .generate:    GenerateView()
         case .recommend:   RecommendView()
         case .playlists:   PlaylistsView()
