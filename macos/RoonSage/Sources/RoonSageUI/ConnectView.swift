@@ -35,9 +35,15 @@ public struct ConnectView: View {
                     .foregroundStyle(Color.roonGold)
                 Text("RoonSage")
                     .font(.largeTitle.bold())
+                #if os(macOS)
                 Text("Native macOS Client")
                     .font(.title3)
                     .foregroundStyle(.secondary)
+                #else
+                Text("Native iOS Client")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                #endif
             }
 
             // Status
