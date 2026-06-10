@@ -35,6 +35,13 @@ def _patch_db_path(tmp_path, monkeypatch):
     conn.commit()
     conn.close()
 
+    # Clear module-level in-memory caches that could bleed across tests.
+    try:
+        from backend.audio_features.song_path import invalidate_song_path_cache
+        invalidate_song_path_cache()
+    except ImportError:
+        pass
+
 
 @pytest.fixture
 def mock_roon_tracks() -> list[Track]:

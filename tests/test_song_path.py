@@ -98,12 +98,12 @@ def test_mood_path_returns_valid_steps(tmp_path, monkeypatch):
 
 
 def test_load_mood_centroid_known_mood():
-    from backend.audio_features.song_path import _load_mood_centroid
-    vec = _load_mood_centroid("happy")
+    from backend.audio_features.song_path import _load_mood_centroid_raw
+    vec = _load_mood_centroid_raw("happy")
     assert vec is not None
     assert len(vec) == 6
 
 
 def test_load_mood_centroid_unknown_mood():
-    from backend.audio_features.song_path import _load_mood_centroid
-    assert _load_mood_centroid("nonexistent_mood_xyz") is None
+    from backend.audio_features.song_path import _load_mood_centroid_raw
+    assert _load_mood_centroid_raw("nonexistent_mood_xyz") is None
