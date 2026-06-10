@@ -81,7 +81,7 @@ if [[ -n "${APPLE_ID:-}" && -n "${APPLE_APP_PASSWORD:-}" && -n "${APPLE_TEAM_ID:
         --password "$APPLE_APP_PASSWORD" \
         --team-id "$APPLE_TEAM_ID" \
         --wait \
-        --timeout 30m
+        --timeout 50m
 
     rm "$ZIP_PATH"
     xcrun stapler staple "$APP_PATH"
