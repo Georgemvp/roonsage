@@ -74,7 +74,7 @@
 **Outcome:** no main-thread hitches on a 31k-track library; smaller, testable units.
 
 - [x] **C1. Heavy DB reads off the main thread.** The 9 bulk reads (filter/browse/search/candidate/playlist/discovery) are now `async` on `RoonClient`, running the blocking `pool.read` off the main actor via `Task.detached`; light count queries stay sync. Call sites (5 views + MCP) updated. (Future: `ValueObservation` for live lists.)
-- [ ] **C2. Split `RoonClient`** (842 lines) into feature services that feed the `@Observable` store: `PlaybackService`, `LibraryQueryService`, `CurationService`, `SyncService`. Smaller units, testable, and required for clean iOS reuse.
+- [~] **C2. Split `RoonClient`** — done as a behaviour-neutral `extension` split: 853-line file → 382-line core + `RoonClient+{Transport,Library,Features,Qobuz,Playlists}.swift` (type-level `private`→`internal` so cross-file extensions reach state). Smaller/navigable units with zero runtime change. (Full service-object extraction with separate `PlaybackService`/`SyncService` deferred — needs live-Core verification.)
 - [x] **C3. Album-art caching** — `ImageCache` actor (NSCache + in-flight dedupe) + `CachedArtImage`; `AlbumArtView` no longer re-fetches/re-decodes on scroll.
 - [ ] **C4. Precompute heavy vectors** — Music Map / Sonic similarity cached in the DB instead of recomputed per view (`SonicEngine`/`SonicSimilarity`).
 - [ ] **C5. Split `DatabaseManager`** (806 lines) by domain (queries vs schema vs sync).

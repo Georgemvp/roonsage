@@ -1,0 +1,180 @@
+import AudioAnalysis
+import Foundation
+import Observation
+import RoonProtocol
+
+@MainActor
+extension RoonClient {
+    // MARK: - Audio features (synced from the native analyzer)
+
+    public var analyzerURL: String {
+        get { UserDefaults.standard.string(forKey: "analyzer_url") ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: "analyzer_url") }
+    }
+
+    public func audioFeaturesStats() -> (total: Int, matched: Int) {
+        (try? database?.audioFeaturesStats()) ?? (0, 0)
+    }
+
+    /// Pull all features from the analyzer's HTTP endpoint and upsert them.
+    /// Returns (rows received, library tracks now matched), or nil on failure.
+    public func syncAudioFeatures(from baseURL: String) async -> (received: Int, matched: Int)? {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
+        guard let url = URL(string: "\(trimmed)/features"),
+              let (data, resp) = try? await URLSession.shared.data(from: url),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+
+        // Parsing thousands of feature rows, the bulk upsert transaction, and the
+        // JOIN-based stats query are all CPU/IO-heavy. Run them off the MainActor
+        // so the UI doesn't freeze while a large feature set syncs.
+        let db = database
+        return await Task.detached { () -> (received: Int, matched: Int)? in
+            guard let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
+            let rows = arr.compactMap { o -> DatabaseManager.AudioFeatureRow? in
+                guard let mk = o["match_key"] as? String, !mk.isEmpty else { return nil }
+                return DatabaseManager.AudioFeatureRow(
+                    matchKey: mk,
+                    bpm: o["bpm"] as? Double, camelot: o["camelot"] as? String,
+                    keyRoot: o["key_root"] as? String, keyMode: o["key_mode"] as? String,
+                    energy: o["energy"] as? Double, duration: o["duration"] as? Double,
+                    tags: o["tags"] as? String
+                )
+            }
+            try? db?.upsertAudioFeatures(rows)
+            let stats = (try? db?.audioFeaturesStats()) ?? (total: 0, matched: 0)
+            return (received: rows.count, matched: stats.matched)
+        }.value
+    }
+
+    // MARK: - DJ sets
+
+    public func buildDJSet(
+        count: Int, startBPM: Double, endBPM: Double,
+        curve: DJSetBuilder.Curve, tags: [String], excludeLive: Bool = true
+    ) -> [DatabaseManager.DJCandidate] {
+        let cands = (try? database?.djCandidates(
+            minBPM: min(startBPM, endBPM), maxBPM: max(startBPM, endBPM),
+            tags: tags, excludeLive: excludeLive
+        )) ?? []
+        return DJSetBuilder.build(candidates: cands, count: count, startBPM: startBPM, endBPM: endBPM, curve: curve)
+    }
+
+    /// Audio features for a now-playing track (by content match key), if synced.
+    public func featuresFor(title: String, artist: String?, album: String?) -> (bpm: Double, camelot: String, tags: [String])? {
+        database?.featuresForMatchKey(TrackIdentity.matchKey(artist: artist, album: album, title: title))
+    }
+
+    /// Build an endless-style mix seeded from a track: harmonically-compatible
+    /// tracks within ±12 BPM of the seed, ordered by the DJ-set builder.
+    public func buildRadio(title: String, artist: String?, album: String?, count: Int = 25) -> [DatabaseManager.DJCandidate] {
+        guard let seed = featuresFor(title: title, artist: artist, album: album), seed.bpm > 0 else { return [] }
+        let cands = (try? database?.djCandidates(minBPM: seed.bpm - 12, maxBPM: seed.bpm + 12, tags: [], excludeLive: true)) ?? []
+        guard !cands.isEmpty else { return [] }
+        return DJSetBuilder.build(candidates: cands, count: count, startBPM: seed.bpm, endBPM: seed.bpm, curve: .flat)
+    }
+
+    public func playDJSet(_ set: [DatabaseManager.DJCandidate], zoneID: String) async {
+        let tracks = set.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
+        await curateTracks(tracks, zoneID: zoneID)
+    }
+
+    public func saveDJSet(name: String, set: [DatabaseManager.DJCandidate]) {
+        let tracks = set.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
+        _ = savePlaylist(name: name, tracks: tracks)
+    }
+
+    // MARK: - Discovery sections
+
+    public func undiscoveredAlbums(limit: Int = 16) async -> [DatabaseManager.AlbumResult] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.undiscoveredAlbums(limit: limit)) ?? [] }.value
+    }
+
+    public func forgottenFavorites(days: Int = 60, limit: Int = 20) async -> [TrackRecord] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.forgottenFavorites(days: days, limit: limit)) ?? [] }.value
+    }
+
+    public func topTracks(limit: Int = 25) async -> [TrackRecord] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.topTracks(limit: limit)) ?? [] }.value
+    }
+
+    /// Filter by `options`, shuffle, and play a random `count`-track mix.
+    public func playShuffledMix(options: DatabaseManager.FilterOptions, count: Int, zoneID: String) async {
+        var opts = options
+        opts.limit = max(opts.limit, 500)
+        var pool = await filterTracks(options: opts)
+        pool.shuffle()
+        let pick = Array(pool.prefix(count))
+        guard !pick.isEmpty else { return }
+        await curateTracks(pick, zoneID: zoneID)
+    }
+
+    /// Play every track of an album by its album_key (first plays, rest queue).
+    public func playAlbum(albumKey: String, zoneID: String) async {
+        var opts = DatabaseManager.FilterOptions()
+        opts.albumKey = albumKey
+        opts.excludeLive = false
+        opts.limit = 200
+        let tracks = await filterTracks(options: opts)
+        guard !tracks.isEmpty else { return }
+        await curateTracks(tracks, zoneID: zoneID)
+    }
+
+    // MARK: - Sonic similarity (Radio / Fingerprint)
+
+    /// Library tracks sonically similar to a seed (tempo, key, energy, tags).
+    /// Heavy scan runs off the main actor.
+    public func similarTracks(toMatchKey matchKey: String, limit: Int = 30) async -> [SonicEngine.Scored] {
+        guard let db = database, !matchKey.isEmpty else { return [] }
+        return await Task.detached {
+            let lib = (try? db.sonicTracks()) ?? []
+            guard let seed = lib.first(where: { $0.matchKey == matchKey }) else { return [] }
+            return SonicEngine.similar(to: seed, in: lib, limit: limit)
+        }.value
+    }
+
+    public func similarTracks(title: String, artist: String?, album: String?, limit: Int = 30) async -> [SonicEngine.Scored] {
+        await similarTracks(toMatchKey: TrackIdentity.matchKey(artist: artist, album: album, title: title), limit: limit)
+    }
+
+    /// Seed a station from a now-playing track and play the similar set.
+    public func playSonicRadio(title: String, artist: String?, album: String?, count: Int = 30, zoneID: String) async {
+        let scored = await similarTracks(title: title, artist: artist, album: album, limit: count)
+        let tracks = scored.map { TrackRecord(id: $0.track.id, title: $0.track.title, artist: $0.track.artist, album: $0.track.album) }
+        guard !tracks.isEmpty else { return }
+        await curateTracks(tracks, zoneID: zoneID)
+    }
+
+    public struct Fingerprint: Sendable {
+        public var profile: SonicEngine.Profile
+        public var recommendations: [SonicEngine.Scored]
+        public var seedCount: Int
+    }
+
+    /// Your "musical DNA": a profile of your most-played analyzed tracks plus
+    /// library recommendations closest to that taste. Computed off-main.
+    public func sonicFingerprint(seedLimit: Int = 40, recommendCount: Int = 60) async -> Fingerprint? {
+        guard let db = database else { return nil }
+        return await Task.detached {
+            let lib = (try? db.sonicTracks()) ?? []
+            guard !lib.isEmpty else { return nil }
+            let top = (try? db.topTracks(limit: seedLimit)) ?? []
+            let byKey = Dictionary(lib.map { ($0.matchKey, $0) }, uniquingKeysWith: { a, _ in a })
+            let seeds = top.compactMap { $0.matchKey.flatMap { byKey[$0] } }
+            // Fall back to the loudest/most-typical slice if there's no play history yet.
+            let effectiveSeeds = seeds.isEmpty ? Array(lib.prefix(min(40, lib.count))) : seeds
+            let profile = SonicEngine.profile(of: effectiveSeeds)
+            let recs = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount)
+            return Fingerprint(profile: profile, recommendations: recs, seedCount: effectiveSeeds.count)
+        }.value
+    }
+
+    /// All analyzed tracks (for the Music Map). Off-main.
+    public func sonicLibrary() async -> [DatabaseManager.SonicTrack] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.sonicTracks()) ?? [] }.value
+    }
+
+}
