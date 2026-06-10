@@ -99,15 +99,18 @@ jobs:
 
       - name: Upload to TestFlight
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_ISSUER_ID: ${{ secrets.ASC_KEY_ISSUER_ID }}
         run: |
-          # xcrun altool was removed in Xcode 16; use iTMSTransporter instead.
+          # iTMSTransporter (Xcode 16+) requires API key auth; copy the .p8 to
+          # the location it scans by default.
+          mkdir -p ~/.appstoreconnect/private_keys
+          cp ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 ~/.appstoreconnect/private_keys/
           xcrun iTMSTransporter \
             -m upload \
-            -u "$APPLE_ID" \
-            -p "$APPLE_APP_PASSWORD" \
-            -f "macos/iosapp/build/export/RoonSage.ipa"
+            -f "$(pwd)/macos/iosapp/build/export/RoonSage.ipa" \
+            -apiKey "$ASC_KEY_ID" \
+            -apiIssuer "$ASC_KEY_ISSUER_ID"
 
       - name: Upload IPA artifact (workflow_dispatch)
         if: github.event_name == 'workflow_dispatch'
