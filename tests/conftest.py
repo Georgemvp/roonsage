@@ -17,6 +17,7 @@ def _patch_db_path(tmp_path, monkeypatch):
     patching only the re-export in backend.db.__init__ leaves it stale.
     """
     import sqlite3 as _sqlite3
+
     from backend.db.migrations import init_schema as _init_schema
 
     db_path = tmp_path / "test_roonsage.db"
