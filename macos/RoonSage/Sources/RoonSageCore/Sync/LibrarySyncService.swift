@@ -85,7 +85,11 @@ actor LibrarySyncService {
             guard !isCancelled else { break }
             guard let albumKey = album.itemKey else { continue }
 
-            let (artist, year) = parseSubtitle(album.subtitle)
+            let (albumArtist, year) = parseSubtitle(album.subtitle)
+            // Compilation detection: "Various Artists" / "Diverse artiesten" etc.
+            let isCompilation = albumArtist.map {
+                $0.lowercased().hasPrefix("various") || $0.lowercased().hasPrefix("diverse")
+            } ?? true
 
             let trackItems: [BrowseService.Item]
             do {
@@ -103,6 +107,10 @@ actor LibrarySyncService {
                 let liveHints = ["live", "concert", "unplugged", "acoustic"]
                 let combinedTitle = (item.title + (item.subtitle ?? "")).lowercased()
                 let isLive = liveHints.contains { combinedTitle.contains($0) }
+                // For compilations Roon Browse returns the track artist in item.subtitle;
+                // use it so the match_key aligns with the file-tag artist in the analyzer.
+                let (trackArtist, _) = isCompilation ? parseSubtitle(item.subtitle) : (nil, nil)
+                let artist = trackArtist ?? albumArtist
                 batch.append(TrackRecord(
                     id: key,
                     title: item.title,

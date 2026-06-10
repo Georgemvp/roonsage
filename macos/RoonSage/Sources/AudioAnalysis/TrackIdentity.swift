@@ -47,15 +47,24 @@ public enum TrackIdentity {
             with: "", options: [.regularExpression, .caseInsensitive])
     }
 
+    /// Strip remaster / edition / bonus-disc suffixes that diverge between
+    /// Roon metadata and file tags (the year is often different or absent).
+    /// Strips: "(2018 Remaster)", "(Remastered 2011)", "(Deluxe Edition)",
+    /// "(Super Deluxe)", "(Anniversary Edition)", "(Bonus Track)", etc.
+    /// Leaves version-meaningful parens alone: (Live), (Remix), (Radio Edit).
+    static func stripRemaster(_ title: String) -> String {
+        let pattern = #"\s*[\(\[]\s*(\d{4}\s+remaster(ed)?|remaster(ed)?\s+\d{4}|remaster(ed)?|deluxe(\s+edition)?|super\s+deluxe|anniversary(\s+edition)?|special(\s+edition)?|expanded(\s+edition)?|bonus\s+track|single\s+version|album\s+version)\s*[\)\]]"#
+        return title.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+    }
+
     /// Stable, duration-free match key for joining analyzer ↔ app tracks.
     ///
     /// Matches on **artist|title only**. `album` is accepted for call-site
     /// compatibility but intentionally ignored (editions/box-sets diverge). The
-    /// title is stripped of Roon's track-number prefix and any "(feat. …)"
-    /// credit so both sides agree. (Classical/compilation tracks still won't
-    /// match — Roon's composer/performer metadata diverges from file tags.)
+    /// title is stripped of Roon's track-number prefix, feat credits, and
+    /// remaster/edition annotations so both sides agree.
     public static func matchKey(artist: String?, album: String?, title: String?) -> String {
-        let cleaned = stripFeat(stripTrackPrefix(title ?? ""))
+        let cleaned = stripRemaster(stripFeat(stripTrackPrefix(title ?? "")))
         return "\(normalise(artist))\u{1f}\(normalise(cleaned))"
     }
 }

@@ -105,6 +105,13 @@ enum Schema {
             try db.execute(sql: "UPDATE tracks SET match_key = NULL")
         }
 
+        // TrackIdentity gains remaster/edition stripping + LibrarySyncService uses
+        // track-level artist for compilations.  Reset so the next sync regenerates
+        // match_keys with improved hit rate.
+        migrator.registerMigration("v7_reset_matchkey_remaster_and_compilation") { db in
+            try db.execute(sql: "UPDATE tracks SET match_key = NULL")
+        }
+
         try migrator.migrate(db)
     }
 }
