@@ -58,10 +58,10 @@
 **Outcome:** a polished, configurable, "feels native on both platforms" look.
 
 - [x] **B2. Appearance settings.** `Appearance.swift` in `RoonSageUI`: `@AppStorage` ThemeMode (Systeem/Licht/Donker) + AccentChoice (7 presets, Roon gold default) + `.roonSageAppearance()` applied at the shared root. Dutch "Verschijning" section in Settings. (Done out of order — highest-visibility win.)
-- [ ] **B1. Real design system.** Expand `Theme.swift` into tokens backed by an **asset catalog** (so light/dark resolve automatically): semantic colors (success/warning/danger/info), elevation levels, radius scale, motion tokens. Keep `Spacing`/`Typography`/`Badge`. (Light mode now works via B2 — audit hardcoded dark colors next.)
+- [x] **B1. Real design system.** `Theme.swift`: semantic state colors (`roonSuccess/Warning/Danger/Info`, adaptive via system palette), `Radius` scale, `Motion` tokens; ad-hoc `.green/.red/.orange` + exact cornerRadius literals swept across RoonSageUI + macOS shell; dead hardcoded-dark `roonBg`/`roonSurface` removed. (Asset-catalog backing deferred — system palette already resolves light/dark.)
 - [x] **B2. Appearance settings** — done (see Track B header note).
 - [x] **B3. Album-art-driven dynamic color** — Now Playing cards get a gradient backdrop tinted by the art's dominant colour (CIAreaAverage, cached), animated on track change.
-- [~] **B4. Per-screen polish pass:** `SkeletonRows` loading placeholder shipped + applied to the Library's async load. Remaining: skeletons/empty-states on the other list views, consistent toolbar/SF Symbols, onboarding refinement.
+- [x] **B4. Per-screen polish pass.** SkeletonRows on Library/Ask/LiveDJ/Discovery; every list view has a proper empty state; refresh toolbar button consistent across Library/MusicMap/SonicFingerprint/Discovery/Playlists/TasteProfile.
 - [~] **B5. Proper signing & notarization (Mac).** Infra DONE: `build-release.sh` already signs+notarizes when env set; the release workflow now imports a Developer ID cert + passes notarization creds **when secrets exist** (ad-hoc fallback otherwise). `macos/SIGNING.md` documents the cert + GitHub secrets + iOS TestFlight path. **Needs Casper:** Apple Developer membership, the 6 macOS secrets, and his Team ID for iOS.
 - [x] **B6. App icon** — gold `music.note.house` glyph on a dark gradient; `make-icon.swift` + `RoonSage.icns` (macOS) + `AppIcon.appiconset` (iOS), wired into both apps. (Analyzer app icon = future.)
 
@@ -76,7 +76,7 @@
 - [x] **C1. Heavy DB reads off the main thread.** The 9 bulk reads (filter/browse/search/candidate/playlist/discovery) are now `async` on `RoonClient`, running the blocking `pool.read` off the main actor via `Task.detached`; light count queries stay sync. Call sites (5 views + MCP) updated. (Future: `ValueObservation` for live lists.)
 - [~] **C2. Split `RoonClient`** — done as a behaviour-neutral `extension` split: 853-line file → 382-line core + `RoonClient+{Transport,Library,Features,Qobuz,Playlists}.swift` (type-level `private`→`internal` so cross-file extensions reach state). Smaller/navigable units with zero runtime change. (Full service-object extraction with separate `PlaybackService`/`SyncService` deferred — needs live-Core verification.)
 - [x] **C3. Album-art caching** — `ImageCache` actor (NSCache + in-flight dedupe) + `CachedArtImage`; `AlbumArtView` no longer re-fetches/re-decodes on scroll. **+ on-disk layer** (`DiskImageCache` in Core): lookup is memory → disk → Roon Core HTTP, so art survives app launches and the Core's image server isn't re-hit for already-fetched art (a connection-load win too); LRU-ish prune to 200 MB once per session; load runs detached so disk/network I/O doesn't serialise on the cache actor. 5 unit tests.
-- [ ] **C4. Precompute heavy vectors** — Music Map / Sonic similarity cached in the DB instead of recomputed per view (`SonicEngine`/`SonicSimilarity`).
+- [x] **C4. Sonic library cache.** `SonicLibraryCache` actor (single-flight, off-main) caches the tracks↔features join used by similarTracks/sonicFingerprint/sonicLibrary (Live DJ re-ran it per track change); invalidated on feature+library sync and the Reload buttons. 2 unit tests.
 - [x] **C5. Split `DatabaseManager`** — behaviour-neutral extension split: 806-line file → 22-line core (pool + init) + DatabaseManager+{Tracks,History,Filter,Discovery,AudioFeatures}.swift.
 - [ ] **C6. Tests** around the new services (currently mostly DB/Sonic). Reminder: always `swift build -c release` before tagging — release strict-concurrency catches what debug misses.
 
@@ -91,7 +91,7 @@
 - [x] **D3. Energy/mood timeline** — DJ Set view now shows a BPM curve, a fixed-scale energy arc, and a harmonic-transition strip (gold=harmonic, green=same key, grey=tempo-only) with an "X/Y harmonische overgangen" summary.
 - [x] **D4. In-app natural-language search** — "Vraag het" tab: a vibe prompt → LLM `analyzeForFilters` → local filter → instantly-playable results (play now / queue next / play all). Lighter than Generate (one LLM call, no second curation stage).
 - [ ] **D5. Port watchlist + scheduler/automations** to native (still missing per project notes).
-- [ ] **D6. iOS Widgets + Live Activities** — now-playing on lockscreen / Dynamic Island.
+- [~] **D6. iOS Widgets + Live Activities** — v1 SHIPPED: `RoonSageWidgets` extension + Live Activity (lock screen + Dynamic Island, system-side elapsed timer; controller keyed on nowPlaying/state/zone). Future: push-token updates (stays live when app suspended), home-screen widget (needs App Group).
 - [ ] **D7. Handoff / Continuity** — build a set on Mac, continue on iPhone.
 - [x] **D8. Export DJ set** — `SetlistExport` (readable tracklist + M3U, with BPM/Camelot) via a ShareLink in the DJ Set view.
 - [ ] **D9. AirPlay / local playback on iOS** (later) — phone as control *and* listening endpoint.
