@@ -121,13 +121,13 @@ struct RootView: View {
         }
     }
 
-    // MARK: Tabs (iPhone)
+    // MARK: Tabs (iPhone) — iOS only
     // 5 primary tabs to avoid the "More" overflow. Create/Explore are hub screens
     // with NavigationLinks into the full feature set.
 
+    #if os(iOS)
     private var tabView: some View {
         TabView(selection: iOSTabSelection) {
-            // Now Playing
             NavigationStack {
                 NowPlayingView()
                     .navigationTitle("Now Playing")
@@ -137,7 +137,6 @@ struct RootView: View {
             .tabItem { Label("Now Playing", systemImage: "play.circle.fill") }
             .tag(SidebarItem.nowPlaying)
 
-            // Library
             NavigationStack {
                 LibraryView()
                     .navigationTitle("Library (\(client.trackCount))")
@@ -147,23 +146,18 @@ struct RootView: View {
             .tabItem { Label("Library", systemImage: "music.note.list") }
             .tag(SidebarItem.library)
 
-            // Create hub: AI tools + DJ + Queue + Playlists
             NavigationStack {
-                iOSCreateHub
-                    .toolbar { navToolbar }
+                iOSCreateHub.toolbar { navToolbar }
             }
             .tabItem { Label("Create", systemImage: "wand.and.stars") }
             .tag(SidebarItem.generate)
 
-            // Explore hub: Discovery, Sonic, Map, Taste
             NavigationStack {
-                iOSExploreHub
-                    .toolbar { navToolbar }
+                iOSExploreHub.toolbar { navToolbar }
             }
             .tabItem { Label("Explore", systemImage: "sparkles") }
             .tag(SidebarItem.discovery)
 
-            // Settings
             NavigationStack {
                 SettingsView()
                     .navigationTitle("Settings")
@@ -180,7 +174,6 @@ struct RootView: View {
         }
     }
 
-    /// Map any selected SidebarItem to the correct iPhone tab tag.
     private var iOSTabSelection: Binding<SidebarItem> {
         let createItems: Set<SidebarItem> = [.generate, .ask, .recommend, .djSet, .liveDJ, .queue, .playlists]
         let exploreItems: Set<SidebarItem> = [.discovery, .fingerprint, .musicMap, .taste]
@@ -193,8 +186,6 @@ struct RootView: View {
             set: { selection = $0 }
         )
     }
-
-    // MARK: Hub screens (iPhone only)
 
     @ViewBuilder
     private var iOSCreateHub: some View {
@@ -254,6 +245,7 @@ struct RootView: View {
         .navigationTitle("Explore")
         .navigationBarTitleDisplayMode(.large)
     }
+    #endif
 
     // MARK: Shared destination switch
 
