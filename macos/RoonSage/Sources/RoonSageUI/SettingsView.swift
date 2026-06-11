@@ -116,13 +116,26 @@ public struct SettingsView: View {
 
                 // Import from a Mac that has sharing enabled — the fast path
                 // for first setup on iPhone (no hours-long Browse walk).
+                // One tap: probes the hosts the app already knows (Roon Core,
+                // analyzer, LLM server) on port 5767 and imports from the
+                // first that answers.
+                Button {
+                    Task { await autoImportFromMac() }
+                } label: {
+                    Label(importBusy ? "Importeren…" : "Importeer automatisch van Mac",
+                          systemImage: "antenna.radiowaves.left.and.right")
+                }
+                .disabled(importBusy || client.isSyncing)
+
+                // Manual fallback for a host the app can't guess.
                 HStack {
                     TextField("http://10.94.184.22:5767", text: $importURL)
                         .textFieldStyle(.roundedBorder)
-                    Button(importBusy ? "Importeren…" : "Importeer van Mac") {
+                    Button("Importeer") {
                         Task { await importFromMac() }
                     }
-                    .disabled(importBusy || importURL.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(importBusy || client.isSyncing
+                              || importURL.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 if let s = importStatus {
                     Text(s).font(.caption).foregroundStyle(.secondary)
@@ -344,6 +357,18 @@ public struct SettingsView: View {
             refreshLastSync()
         } else {
             importStatus = "Import mislukt — draait de Mac-app met 'Deel bibliotheek' aan op \(url)?"
+        }
+    }
+
+    private func autoImportFromMac() async {
+        importBusy = true; defer { importBusy = false }
+        importStatus = "Mac zoeken op poort 5767…"
+        if let result = await client.autoImportLibrary() {
+            importURL = result.source
+            importStatus = "\(result.count) tracks geïmporteerd van \(result.source) ✓"
+            refreshLastSync()
+        } else {
+            importStatus = "Geen delende Mac gevonden — zet 'Deel bibliotheek' aan in de Mac-app (Settings → Library)."
         }
     }
 

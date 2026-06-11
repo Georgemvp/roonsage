@@ -42,12 +42,66 @@ extension RoonClient {
 
     // MARK: - Library sync
 
+    /// Find a Mac that's sharing its library, without typing an address: the
+    /// app already knows likely hosts (Roon Core, analyzer, LLM server, last
+    /// import) — probe them all on port 5767 concurrently and return the
+    /// first base URL whose /health answers. Works over ZeroTier, where
+    /// Bonjour/multicast discovery wouldn't.
+    public func discoverShareServer() async -> String? {
+        var hosts: [String] = []
+        func addHost(fromURL s: String?) {
+            guard let s, let h = URL(string: s.trimmingCharacters(in: .whitespaces))?.host else { return }
+            hosts.append(h)
+        }
+        if let h = savedHost { hosts.append(h) }
+        addHost(fromURL: analyzerURL)
+        addHost(fromURL: LLMConfigStore.load().baseURL)
+        addHost(fromURL: UserDefaults.standard.string(forKey: "library_import_url"))
+        var seen = Set<String>()
+        let candidates = hosts.filter { seen.insert($0).inserted }
+        guard !candidates.isEmpty else { return nil }
+
+        return await withTaskGroup(of: String?.self) { group in
+            for host in candidates {
+                group.addTask {
+                    let base = "http://\(host):\(LibraryShareServer.defaultPort)"
+                    guard let url = URL(string: "\(base)/health") else { return nil }
+                    var req = URLRequest(url: url)
+                    req.timeoutInterval = 2
+                    guard let (data, resp) = try? await URLSession.shared.data(for: req),
+                          (resp as? HTTPURLResponse)?.statusCode == 200,
+                          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          (obj["tracks"] as? Int ?? 0) > 0 else { return nil }
+                    return base
+                }
+            }
+            for await result in group {
+                if let result {
+                    group.cancelAll()
+                    return result
+                }
+            }
+            return nil
+        }
+    }
+
+    /// One-tap import: find the sharing Mac (known hosts on port 5767) and
+    /// pull its library. Returns (sourceURL, trackCount), or nil when no
+    /// server was found or the import failed.
+    public func autoImportLibrary() async -> (source: String, count: Int)? {
+        guard let base = await discoverShareServer() else { return nil }
+        UserDefaults.standard.set(base, forKey: "library_import_url")
+        guard let count = await importLibrary(fromMac: base) else { return nil }
+        return (base, count)
+    }
+
     /// Import the full library from another device's share server
     /// (`http://<mac>:5767`) instead of walking Roon Browse locally — the
     /// fast path for first setup on iPhone over ZeroTier. Returns the number
     /// of imported tracks, or nil on failure.
     public func importLibrary(fromMac baseURL: String) async -> Int? {
-        guard let db = database else { return nil }
+        // A running sync writes the same tables the import replaces.
+        guard let db = database, !isSyncing else { return nil }
         let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
         guard let url = URL(string: "\(trimmed)/library"),
               let (data, resp) = try? await URLSession.shared.data(from: url),
