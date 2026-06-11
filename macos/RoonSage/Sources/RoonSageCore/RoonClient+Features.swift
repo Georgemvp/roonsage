@@ -16,33 +16,59 @@ extension RoonClient {
         (try? database?.audioFeaturesStats()) ?? (0, 0)
     }
 
-    /// Pull all features from the analyzer's HTTP endpoint and upsert them.
-    /// Returns (rows received, library tracks now matched), or nil on failure.
-    public func syncAudioFeatures(from baseURL: String) async -> (received: Int, matched: Int)? {
+    /// Pull all features from the analyzer's HTTP endpoint, upsert them, and
+    /// reconcile them against the library (exact match_key + fuzzy fallback).
+    /// Returns the match diagnostic, or nil on failure.
+    public func syncAudioFeatures(from baseURL: String) async -> DatabaseManager.AudioFeatureDiagnostic? {
+        guard let payload = await fetchFeaturePayload(from: baseURL) else { return nil }
+        let db = database
+        return await Task.detached { () -> DatabaseManager.AudioFeatureDiagnostic? in
+            try? db?.upsertAudioFeatures(payload.features)
+            // Fuzzy fallback rewrites tracks.match_key for confident matches so the
+            // DJ/Sonic joins pick them up; apply on a real sync.
+            return try? db?.reconcileFeatureMatches(payload.identities, apply: true)
+        }.value
+    }
+
+    /// Read-only: fetch features and report the match breakdown WITHOUT mutating
+    /// the library (no fuzzy rewrites). For the Settings "Diagnose" action.
+    public func diagnoseAudioFeatures(from baseURL: String) async -> DatabaseManager.AudioFeatureDiagnostic? {
+        guard let payload = await fetchFeaturePayload(from: baseURL) else { return nil }
+        let db = database
+        return await Task.detached { () -> DatabaseManager.AudioFeatureDiagnostic? in
+            try? db?.reconcileFeatureMatches(payload.identities, apply: false)
+        }.value
+    }
+
+    private struct FeaturePayload: Sendable {
+        var features: [DatabaseManager.AudioFeatureRow]
+        var identities: [DatabaseManager.FeatureIdentity]
+    }
+
+    /// Fetch + parse the analyzer `/features` JSON off the main actor.
+    private func fetchFeaturePayload(from baseURL: String) async -> FeaturePayload? {
         let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
         guard let url = URL(string: "\(trimmed)/features"),
               let (data, resp) = try? await URLSession.shared.data(from: url),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-
-        // Parsing thousands of feature rows, the bulk upsert transaction, and the
-        // JOIN-based stats query are all CPU/IO-heavy. Run them off the MainActor
-        // so the UI doesn't freeze while a large feature set syncs.
-        let db = database
-        return await Task.detached { () -> (received: Int, matched: Int)? in
+        return await Task.detached { () -> FeaturePayload? in
             guard let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
-            let rows = arr.compactMap { o -> DatabaseManager.AudioFeatureRow? in
-                guard let mk = o["match_key"] as? String, !mk.isEmpty else { return nil }
-                return DatabaseManager.AudioFeatureRow(
+            var features: [DatabaseManager.AudioFeatureRow] = []
+            var identities: [DatabaseManager.FeatureIdentity] = []
+            features.reserveCapacity(arr.count); identities.reserveCapacity(arr.count)
+            for o in arr {
+                guard let mk = o["match_key"] as? String, !mk.isEmpty else { continue }
+                features.append(DatabaseManager.AudioFeatureRow(
                     matchKey: mk,
                     bpm: o["bpm"] as? Double, camelot: o["camelot"] as? String,
                     keyRoot: o["key_root"] as? String, keyMode: o["key_mode"] as? String,
                     energy: o["energy"] as? Double, duration: o["duration"] as? Double,
                     tags: o["tags"] as? String
-                )
+                ))
+                identities.append(DatabaseManager.FeatureIdentity(
+                    matchKey: mk, artist: o["artist"] as? String, title: o["title"] as? String))
             }
-            try? db?.upsertAudioFeatures(rows)
-            let stats = (try? db?.audioFeaturesStats()) ?? (total: 0, matched: 0)
-            return (received: rows.count, matched: stats.matched)
+            return FeaturePayload(features: features, identities: identities)
         }.value
     }
 

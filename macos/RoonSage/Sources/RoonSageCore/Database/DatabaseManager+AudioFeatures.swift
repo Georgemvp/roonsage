@@ -1,3 +1,4 @@
+import AudioAnalysis
 import Foundation
 import GRDB
 
@@ -57,6 +58,101 @@ extension DatabaseManager {
                 """, arguments: StatementArguments(args))
                 start += chunk
             }
+        }
+    }
+
+    // MARK: - Feature-match reconciliation (exact + fuzzy fallback / diagnostics)
+
+    /// Identity (match_key + raw artist/title) of one analyzer feature row, as
+    /// delivered by the `/features` payload. Carries artist/title so the fuzzy
+    /// fallback and the diagnostic can compare against the library.
+    public struct FeatureIdentity: Sendable {
+        public var matchKey: String
+        public var artist: String?
+        public var title: String?
+        public init(matchKey: String, artist: String?, title: String?) {
+            self.matchKey = matchKey; self.artist = artist; self.title = title
+        }
+    }
+
+    public struct AudioFeatureDiagnostic: Sendable {
+        public var libraryTracks: Int       // tracks in the library
+        public var featureRows: Int          // feature rows received from the analyzer
+        public var exactMatched: Int         // library tracks joined by exact match_key
+        public var fuzzyMatched: Int         // additionally resolved by the fuzzy fallback
+        public var unmatched: Int            // library tracks still without features
+        public var sampleUnmatched: [String] // up to 30 "artist — title" examples
+        public var matchRate: Double {
+            libraryTracks == 0 ? 0 : Double(exactMatched + fuzzyMatched) / Double(libraryTracks)
+        }
+    }
+
+    /// Minimum token-containment score to accept a fuzzy title match.
+    private static let fuzzyTitleThreshold = 0.85
+
+    /// Reconcile library tracks against analyzer feature rows. Counts exact
+    /// match_key joins, then for the remainder runs a fuzzy title match *within
+    /// the same primary artist*. When `apply` is true, a confident fuzzy match
+    /// rewrites `tracks.match_key` to the feature's key so the existing joins
+    /// (`djCandidates`/`sonicTracks`) pick it up with no query change. When
+    /// false it only measures (read-only diagnostic).
+    public func reconcileFeatureMatches(_ feats: [FeatureIdentity], apply: Bool) throws -> AudioFeatureDiagnostic {
+        // Bucket features by normalised primary artist, precomputing title tokens
+        // so the inner loop is set intersections, not re-tokenisation.
+        struct Cand { let matchKey: String; let tokens: Set<String> }
+        var buckets: [String: [Cand]] = [:]
+        for f in feats {
+            let artistKey = TrackIdentity.normalise(TrackIdentity.primaryArtist(f.artist))
+            buckets[artistKey, default: []].append(Cand(matchKey: f.matchKey, tokens: FuzzyMatch.tokens(f.title)))
+        }
+
+        return try pool.write { db in
+            let libraryTracks = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM tracks") ?? 0
+            let exact = try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
+            """) ?? 0
+
+            // Library tracks with no exact feature match — fuzzy-fallback candidates.
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT t.id, t.artist, t.title FROM tracks t
+                LEFT JOIN track_audio_features f ON t.match_key = f.match_key
+                WHERE f.match_key IS NULL
+            """)
+
+            var fuzzy = 0
+            var sample: [String] = []
+            var links: [(String, String)] = []   // (trackID, featureMatchKey)
+
+            for r in rows {
+                let artist = r["artist"] as String?
+                let title = r["title"] as String?
+                let artistKey = TrackIdentity.normalise(TrackIdentity.primaryArtist(artist))
+                let titleTokens = FuzzyMatch.tokens(title)
+                var best = Self.fuzzyTitleThreshold
+                var bestKey: String?
+                for cand in buckets[artistKey] ?? [] {
+                    let s = FuzzyMatch.score(titleTokens, cand.tokens)
+                    if s >= best { best = s; bestKey = cand.matchKey }
+                }
+                if let key = bestKey {
+                    fuzzy += 1
+                    if apply, let id = r["id"] as String? { links.append((id, key)) }
+                } else if sample.count < 30 {
+                    sample.append("\(artist ?? "?") — \(title ?? "?")")
+                }
+            }
+
+            if apply, !links.isEmpty {
+                for (id, key) in links {
+                    try db.execute(sql: "UPDATE tracks SET match_key = ? WHERE id = ?", arguments: [key, id])
+                }
+            }
+
+            return AudioFeatureDiagnostic(
+                libraryTracks: libraryTracks, featureRows: feats.count,
+                exactMatched: exact, fuzzyMatched: fuzzy,
+                unmatched: rows.count - fuzzy, sampleUnmatched: sample
+            )
         }
     }
 

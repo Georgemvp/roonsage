@@ -50,6 +50,42 @@ case "stats":
     let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
     print("tracks: \(store.count())  tagged: \(store.taggedCount())")
 
+case "matchcheck":
+    // Measure analyzer↔library match rate on the real DBs (E1 proof).
+    guard let lib = option("--library") else {
+        print("usage: roonsage-analyzer matchcheck --library <library.db> [--db <analyzer.db>]"); exit(1)
+    }
+    let featureDB = option("--db") ?? FeatureStore.defaultPath()
+    print(try MatchChecker.run(libraryDB: lib, featureDB: featureDB))
+
+case "validate":
+    // Measure analyzer accuracy against a reference CSV (artist,title,bpm,camelot).
+    guard args.count >= 3, let ref = option("--reference") else {
+        print("usage: roonsage-analyzer validate <musicdir> --reference <csv> [--limit N]"); exit(1)
+    }
+    guard let csv = try? String(contentsOfFile: ref, encoding: .utf8) else {
+        print("Could not read reference CSV at \(ref)"); exit(1)
+    }
+    let reference = AccuracyValidator.parseReferenceCSV(csv)
+    print("Reference: \(reference.count) labelled tracks. Scanning \(args[2])…")
+    let limit = option("--limit").flatMap { Int($0) }
+    let exts: Set<String> = ["flac", "mp3", "m4a", "mp4", "aac", "ogg", "opus", "wav", "aiff", "aif"]
+    var report = AccuracyValidator.Report()
+    let en = FileManager.default.enumerator(at: URL(fileURLWithPath: args[2]),
+                                            includingPropertiesForKeys: nil)
+    while let any = en?.nextObject() {
+        guard let url = any as? URL, exts.contains(url.pathExtension.lowercased()) else { continue }
+        let meta = MetadataReader.read(url: url)
+        let key = TrackIdentity.matchKey(artist: meta.artist, album: nil, title: meta.title)
+        guard let refRow = reference[key] else { continue }
+        guard let f = try? AudioAnalyzer.analyze(url: url) else { continue }
+        report.add(analyzedBPM: f.bpm, refBPM: refRow.bpm,
+                   analyzedCamelot: f.camelot, refCamelot: refRow.camelot)
+        if report.compared % 25 == 0 { print("  compared \(report.compared)…") }
+        if let limit, report.compared >= limit { break }
+    }
+    print("\n" + report.formatted())
+
 case "":
     print("""
     usage: roonsage-analyzer <command>
@@ -57,6 +93,8 @@ case "":
       tag [--db path] [--ollama url] [--model name]    LLM-tag stored tracks
       serve [--db path] [--port 5766]                  serve features over HTTP
       stats [--db path]                                show counts
+      matchcheck --library <library.db> [--db path]    measure analyzer↔library match rate
+      validate <musicdir> --reference <csv> [--limit N]  measure BPM/key accuracy
       <audiofile> …                                    analyze single file(s)
     """)
     exit(1)

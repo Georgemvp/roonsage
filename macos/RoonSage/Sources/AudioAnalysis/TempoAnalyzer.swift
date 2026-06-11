@@ -55,7 +55,7 @@ public struct TempoAnalyzer {
 
         var bestScore = -Double.infinity
         var bestVal: Float = 0
-        var bestBpm = 0.0
+        var bestLag = minLag
         var total: Float = 0
         for lag in minLag...maxLag {
             var sum: Float = 0
@@ -65,10 +65,33 @@ public struct TempoAnalyzer {
             total += sum
             let bpm = 60.0 * onsetSR / Double(lag)
             let score = Double(sum) * prior(bpm)
-            if score > bestScore { bestScore = score; bestVal = sum; bestBpm = bpm }
+            if score > bestScore { bestScore = score; bestVal = sum; bestLag = lag }
         }
 
+        // Parabolic interpolation around the winning lag for sub-frame BPM
+        // precision (the true beat period rarely lands on an integer lag).
+        var refinedLag = Double(bestLag)
+        if bestLag > minLag, bestLag < maxLag {
+            let y0 = acAt(env, bestLag - 1), y1 = Double(bestVal), y2 = acAt(env, bestLag + 1)
+            let denom = y0 - 2 * y1 + y2
+            if denom != 0 {
+                let delta = 0.5 * (y0 - y2) / denom
+                if abs(delta) < 1 { refinedLag = Double(bestLag) + delta }
+            }
+        }
+
+        let bestBpm = 60.0 * onsetSR / refinedLag
         let confidence = total > 0 ? min(1.0, Double(bestVal / total) * Double(maxLag - minLag) / 4.0) : 0
         return ((bestBpm * 10).rounded() / 10, confidence)
+    }
+
+    /// Autocorrelation of `env` at a single lag (for peak interpolation).
+    private static func acAt(_ env: [Float], _ lag: Int) -> Double {
+        guard lag >= 0, lag < env.count else { return 0 }
+        var sum: Float = 0
+        let limit = env.count - lag
+        var k = 0
+        while k < limit { sum += env[k] * env[k + lag]; k += 1 }
+        return Double(sum)
     }
 }

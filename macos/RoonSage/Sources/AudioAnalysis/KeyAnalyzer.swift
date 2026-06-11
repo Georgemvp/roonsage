@@ -32,13 +32,20 @@ public struct KeyAnalyzer {
         }
 
         var chroma = [Float](repeating: 0, count: 12)
+        var frameChroma = [Float](repeating: 0, count: 12)
         var frame = [Float](repeating: 0, count: frameSize)
         var i = 0
         while i + frameSize <= samples.count {
             for j in 0..<frameSize { frame[j] = samples[i + j] * window[j] }
             let mag = fft.magnitudes(frame)
+            for k in 0..<12 { frameChroma[k] = 0 }
             // sqrt-compress magnitude so loud transients don't dominate the profile.
-            for b in 1..<half where pcOfBin[b] >= 0 { chroma[pcOfBin[b]] += mag[b].squareRoot() }
+            for b in 1..<half where pcOfBin[b] >= 0 { frameChroma[pcOfBin[b]] += mag[b].squareRoot() }
+            // Normalise each frame to unit sum before accumulating so every frame
+            // votes equally — a loud chorus shouldn't outweigh a quiet verse.
+            // Near-silent frames carry no tonal information, so skip them.
+            let fsum = frameChroma.reduce(0, +)
+            if fsum > 1e-6 { for k in 0..<12 { chroma[k] += frameChroma[k] / fsum } }
             i += hop
         }
 

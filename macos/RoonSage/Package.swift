@@ -68,7 +68,7 @@ let package = Package(
         ),
         .testTarget(
             name: "RoonSageCoreTests",
-            dependencies: ["RoonSageCore"]
+            dependencies: ["RoonSageCore", "AudioAnalysis", "AnalyzerCore"]
         ),
     ]
 )

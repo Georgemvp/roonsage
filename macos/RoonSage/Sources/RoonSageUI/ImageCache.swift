@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreImage
+import RoonSageCore
 
 // Decoded-image cache for album art. AsyncImage re-fetches and re-decodes on
 // every scroll; this keeps decoded images in an NSCache (thread-safe) and dedupes
@@ -12,17 +13,26 @@ public actor ImageCache {
 
     private init() {
         cache.countLimit = 400
+        // Bound the on-disk cache once per session, off the main thread.
+        Task.detached(priority: .utility) { DiskImageCache.prune() }
     }
 
     /// Return a decoded image for `url`, loading + caching it if needed.
-    /// Concurrent calls for the same URL share one network load.
+    /// Lookup order: in-memory NSCache → on-disk cache → Roon Core HTTP.
+    /// Concurrent calls for the same URL share one load.
     public func image(for url: URL) async -> PlatformImage? {
         if let cached = cache.object(forKey: url as NSURL) { return cached }
         if let existing = inFlight[url] { return await existing.value }
 
-        let task = Task<PlatformImage?, Never> {
+        // Detached so the disk read + network fetch run off this actor's
+        // executor — otherwise they'd serialise every image load.
+        let task = Task.detached(priority: .userInitiated) { () -> PlatformImage? in
+            if let data = DiskImageCache.data(for: url), let image = PlatformImage(data: data) {
+                return image
+            }
             guard let (data, _) = try? await URLSession.shared.data(from: url),
                   let image = PlatformImage(data: data) else { return nil }
+            DiskImageCache.store(data, for: url)
             return image
         }
         inFlight[url] = task

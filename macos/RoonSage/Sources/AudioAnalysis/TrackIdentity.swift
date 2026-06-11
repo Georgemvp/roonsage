@@ -38,6 +38,26 @@ public enum TrackIdentity {
             of: #"^\s*(\d+-\d+|\d+\.)\s*"#, with: "", options: .regularExpression)
     }
 
+    /// Reduce a possibly-multi-artist string to its first credited artist so the
+    /// app's Roon-sourced artist ("Calvin Harris") matches the on-disk file tag
+    /// ("Calvin Harris feat. Rihanna" / "Calvin Harris, Rihanna"). Cuts at a
+    /// non-parenthesised feat marker, then at the first join separator. Run on
+    /// BOTH sides (app sync + analyzer export) so the keys agree.
+    /// Note: aggressive on purpose ("AC/DC" → "AC", "Simon & Garfunkel" → "Simon")
+    /// — harmless because it's applied identically on both sides; the only cost
+    /// is a rare collision between two distinct artists sharing a first token.
+    public static func primaryArtist(_ artist: String?) -> String {
+        guard var s = artist, !s.isEmpty else { return "" }
+        if let r = s.range(of: #"\s+(feat\.?|ft\.?|featuring)\s+.*$"#,
+                           options: [.regularExpression, .caseInsensitive]) {
+            s.removeSubrange(r)
+        }
+        for sep in [",", ";", "/", "&"] {
+            if let i = s.range(of: sep) { s = String(s[s.startIndex..<i.lowerBound]) }
+        }
+        return s.trimmingCharacters(in: .whitespaces)
+    }
+
     /// Strip "(feat. …)" / "[ft. …]" / "(featuring …)" credits, which Roon hides
     /// but file tags keep. Deliberately keeps version parens like (Live)/(Remix)/
     /// (Radio Edit) — those are DIFFERENT recordings and must not be merged.
@@ -64,7 +84,13 @@ public enum TrackIdentity {
     /// title is stripped of Roon's track-number prefix, feat credits, and
     /// remaster/edition annotations so both sides agree.
     public static func matchKey(artist: String?, album: String?, title: String?) -> String {
-        let cleaned = stripRemaster(stripFeat(stripTrackPrefix(title ?? "")))
-        return "\(normalise(artist))\u{1f}\(normalise(cleaned))"
+        "\(normalise(primaryArtist(artist)))\u{1f}\(normalise(cleanTitle(title)))"
+    }
+
+    /// Title with Roon's track-number prefix, feat. credits and remaster/edition
+    /// annotations stripped — the canonical title form shared by `matchKey` and
+    /// the fuzzy fallback so both compare like-for-like.
+    public static func cleanTitle(_ title: String?) -> String {
+        stripRemaster(stripFeat(stripTrackPrefix(title ?? "")))
     }
 }

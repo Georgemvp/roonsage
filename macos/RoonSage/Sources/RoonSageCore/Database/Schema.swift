@@ -119,6 +119,16 @@ enum Schema {
             try db.execute(sql: "UPDATE tracks SET match_key = NULL")
         }
 
+        // TrackIdentity.matchKey now reduces the artist to its first credited
+        // artist (primaryArtist: cuts feat./ft./featuring + the first , ; / &)
+        // so Roon's "A" matches file tags' "A feat. B" / "A & B". NULL match_keys
+        // so the next auto-resync regenerates them under the new scheme. The
+        // analyzer re-keys its export automatically (FeatureStore.exportJSON
+        // recomputes via TrackIdentity), so app + analyzer must ship together.
+        migrator.registerMigration("v9_primary_artist_matchkey") { db in
+            try db.execute(sql: "UPDATE tracks SET match_key = NULL")
+        }
+
         try migrator.migrate(db)
     }
 }
