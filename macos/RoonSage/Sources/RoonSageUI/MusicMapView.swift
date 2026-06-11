@@ -167,6 +167,7 @@ public struct MusicMapView: View {
     private func load(force: Bool) async {
         if !tracks.isEmpty && !force { return }
         isLoading = true
+        if force { await client.invalidateSonicCache() }
         tracks = await client.sonicLibrary()
         isLoading = false
         loaded = true

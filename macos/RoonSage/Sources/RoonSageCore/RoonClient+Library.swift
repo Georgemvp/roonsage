@@ -64,6 +64,8 @@ extension RoonClient {
                 }
                 trackCount = count
                 syncProgress = SyncProgress(phase: "Done — \(count) tracks", albumsCompleted: 0, albumsTotal: 0, tracksFound: count)
+                // Track rows (incl. match_key) may have changed → sonic cache is stale.
+                await sonicCache.invalidate()
             } catch {
                 syncProgress = SyncProgress(phase: "Error: \(error.localizedDescription)", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0)
             }

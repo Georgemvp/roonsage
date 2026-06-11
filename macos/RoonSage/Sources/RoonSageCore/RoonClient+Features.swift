@@ -22,12 +22,14 @@ extension RoonClient {
     public func syncAudioFeatures(from baseURL: String) async -> DatabaseManager.AudioFeatureDiagnostic? {
         guard let payload = await fetchFeaturePayload(from: baseURL) else { return nil }
         let db = database
-        return await Task.detached { () -> DatabaseManager.AudioFeatureDiagnostic? in
+        let diag = await Task.detached { () -> DatabaseManager.AudioFeatureDiagnostic? in
             try? db?.upsertAudioFeatures(payload.features)
             // Fuzzy fallback rewrites tracks.match_key for confident matches so the
             // DJ/Sonic joins pick them up; apply on a real sync.
             return try? db?.reconcileFeatureMatches(payload.identities, apply: true)
         }.value
+        await sonicCache.invalidate()
+        return diag
     }
 
     /// Read-only: fetch features and report the match breakdown WITHOUT mutating
@@ -195,8 +197,8 @@ extension RoonClient {
     /// Heavy scan runs off the main actor.
     public func similarTracks(toMatchKey matchKey: String, limit: Int = 30) async -> [SonicEngine.Scored] {
         guard let db = database, !matchKey.isEmpty else { return [] }
+        let lib = await sonicCache.tracks(from: db)
         return await Task.detached {
-            let lib = (try? db.sonicTracks()) ?? []
             guard let seed = lib.first(where: { $0.matchKey == matchKey }) else { return [] }
             return SonicEngine.similar(to: seed, in: lib, limit: limit)
         }.value
@@ -224,8 +226,8 @@ extension RoonClient {
     /// library recommendations closest to that taste. Computed off-main.
     public func sonicFingerprint(seedLimit: Int = 40, recommendCount: Int = 60) async -> Fingerprint? {
         guard let db = database else { return nil }
+        let lib = await sonicCache.tracks(from: db)
         return await Task.detached {
-            let lib = (try? db.sonicTracks()) ?? []
             guard !lib.isEmpty else { return nil }
             let top = (try? db.topTracks(limit: seedLimit)) ?? []
             let byKey = Dictionary(lib.map { ($0.matchKey, $0) }, uniquingKeysWith: { a, _ in a })
@@ -238,10 +240,16 @@ extension RoonClient {
         }.value
     }
 
-    /// All analyzed tracks (for the Music Map). Off-main.
+    /// All analyzed tracks (for the Music Map). Cached; loads off-main.
     public func sonicLibrary() async -> [DatabaseManager.SonicTrack] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.sonicTracks()) ?? [] }.value
+        return await sonicCache.tracks(from: db)
+    }
+
+    /// Drop the cached sonic library so the next read hits SQLite. For the
+    /// explicit "Reload" actions in Music Map / Sonic DNA.
+    public func invalidateSonicCache() async {
+        await sonicCache.invalidate()
     }
 
 }

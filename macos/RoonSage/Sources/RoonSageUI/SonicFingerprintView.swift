@@ -149,6 +149,7 @@ public struct SonicFingerprintView: View {
     private func load(force: Bool) async {
         if fingerprint != nil && !force { return }
         isLoading = true
+        if force { await client.invalidateSonicCache() }
         fingerprint = await client.sonicFingerprint()
         isLoading = false
         loaded = true

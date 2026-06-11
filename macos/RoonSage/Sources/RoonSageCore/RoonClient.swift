@@ -93,6 +93,9 @@ public final class RoonClient {
     var browseService: BrowseService?
     public internal(set) var database: DatabaseManager?
     var syncService: LibrarySyncService?
+    /// Cached analyzed library for Sonic features (C4) — invalidated on
+    /// feature/library sync.
+    let sonicCache = SonicLibraryCache()
 
     public init() {
         database = try? DatabaseManager(url: Self.databaseURL)
