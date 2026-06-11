@@ -42,6 +42,14 @@ extension RoonClient {
 
     // MARK: - Library sync
 
+    /// True when a previous sync run was interrupted (app quit or suspended
+    /// mid-walk). The next `startSync()` resumes it via album checkpoints
+    /// instead of starting over.
+    public var hasInterruptedSync: Bool {
+        guard !isSyncing, let db = database else { return false }
+        return ((try? db.syncStateValue(forKey: "sync_in_progress")) ?? nil) == "1"
+    }
+
     public func startSync() {
         guard !isSyncing, let browse = browseService, let db = database else { return }
         let service = LibrarySyncService(browse: browse, database: db)

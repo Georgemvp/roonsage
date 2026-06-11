@@ -12,6 +12,7 @@ import RoonSageUI
 struct RoonSageiOSApp: App {
     @State private var client = RoonClient()
     @State private var bgTaskID: UIBackgroundTaskIdentifier = .invalid
+    @Environment(\.scenePhase) private var scenePhase
     private let liveActivity = NowPlayingActivityController()
 
     var body: some Scene {
@@ -30,6 +31,20 @@ struct RoonSageiOSApp: App {
                 }
                 .onChange(of: client.selectedZoneID) { _, _ in
                     liveActivity.sync(zone: client.selectedZone)
+                }
+                // A sync that was interrupted by suspension resumes automatically
+                // (album checkpoints — it skips what's already done) once the app
+                // is active and the Core connection is back.
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active, client.hasInterruptedSync,
+                       client.connectionState.isConnected {
+                        client.startSync()
+                    }
+                }
+                .onChange(of: client.connectionState.isConnected) { _, connected in
+                    if connected, scenePhase == .active, client.hasInterruptedSync {
+                        client.startSync()
+                    }
                 }
                 .onChange(of: client.isSyncing) { _, syncing in
                     if syncing {

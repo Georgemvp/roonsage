@@ -84,12 +84,6 @@ extension DatabaseManager {
         }
     }
 
-    public func clearTracks() throws {
-        try pool.write { db in
-            try db.execute(sql: "DELETE FROM tracks")
-        }
-    }
-
     // MARK: - Genres
 
     /// Rebuild `track_genres` from an albumTitle(lowercased) → [genre] mapping.

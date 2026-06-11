@@ -74,16 +74,38 @@ actor LibrarySyncService {
 
         guard !isCancelled else { return 0 }
 
-        // 6. Clear stale data
-        try database.clearTracks()
+        // 6. Begin (or resume) the sync run. No destructive clear: albums are
+        //    replaced one-by-one as they're walked, and rows of vanished albums
+        //    are only dropped in finishSyncRun() after a COMPLETE walk. An
+        //    interrupted sync (screen lock / app suspend) therefore keeps the
+        //    old library intact and resumes by skipping checkpointed albums.
+        let run = try database.beginSyncRun()
+        if run.resumed {
+            onProgress(Progress(
+                phase: "Resuming sync (\(run.completedAlbums.count) albums done)…",
+                albumsCompleted: 0, albumsTotal: totalAlbums, tracksFound: 0))
+        }
 
         // 7. Walk each album
         var albumsCompleted = 0
         var tracksFound = 0
+        var seenThisRun = Set<String>()   // duplicate-edition fingerprints append, not replace
 
         for album in albumItems {
             guard !isCancelled else { break }
             guard let albumKey = album.itemKey else { continue }
+
+            let fingerprint = Self.albumFingerprint(title: album.title, subtitle: album.subtitle)
+
+            // Already completed in this (interrupted) generation — skip the
+            // expensive per-album browse; its rows are still in the DB. Also
+            // skips duplicate-edition occurrences of a checkpointed fingerprint:
+            // re-walking one would append onto the prior attempt's rows.
+            if run.completedAlbums.contains(fingerprint) {
+                seenThisRun.insert(fingerprint)
+                albumsCompleted += 1
+                continue
+            }
 
             let (albumArtist, year) = parseSubtitle(album.subtitle)
             // Compilation detection: "Various Artists" / "Diverse artiesten" etc.
@@ -124,7 +146,13 @@ actor LibrarySyncService {
                 ))
             }
 
-            try database.upsertTracks(batch)
+            try database.replaceAlbumTracks(
+                batch,
+                albumTitle: album.title,
+                fingerprint: fingerprint,
+                generation: run.generation,
+                append: seenThisRun.contains(fingerprint))
+            seenThisRun.insert(fingerprint)
             tracksFound += batch.count
             albumsCompleted += 1
 
@@ -136,7 +164,17 @@ actor LibrarySyncService {
             ))
         }
 
-        // 8. Genre pass — walk the Roon `genres` hierarchy and map albums → genres.
+        // 8. Complete walk → now it's safe to drop rows of albums that no
+        //    longer exist in Roon and close the generation. On cancel/crash we
+        //    skip this, leaving the checkpoints so the next run resumes.
+        if !isCancelled {
+            try database.finishSyncRun(generation: run.generation)
+            // Includes rows of resume-skipped albums (tracksFound only counts
+            // freshly walked ones).
+            tracksFound = try database.trackCount()
+        }
+
+        // 9. Genre pass — walk the Roon `genres` hierarchy and map albums → genres.
         //    Non-fatal: a failure here still leaves a fully-synced track library.
         if !isCancelled {
             // Immutable copy — the @Sendable progress closure below must not
@@ -159,13 +197,20 @@ actor LibrarySyncService {
             }
         }
 
-        // 9. Record sync timestamp
+        // 10. Record sync timestamp
         try database.setSyncState(key: "last_sync", value: ISO8601DateFormatter().string(from: Date()))
 
         return tracksFound
     }
 
     // MARK: - Helpers
+
+    /// Stable album identity across Roon sessions (item_keys are session-scoped
+    /// and can't key anything persistent). Title + subtitle ("Artist • Year")
+    /// survives reconnects; a same-titled re-release differs by year.
+    static func albumFingerprint(title: String, subtitle: String?) -> String {
+        "\(title.lowercased())|\((subtitle ?? "").lowercased())"
+    }
 
     private func parseSubtitle(_ subtitle: String?) -> (artist: String?, year: Int?) {
         guard let subtitle, !subtitle.isEmpty else { return (nil, nil) }

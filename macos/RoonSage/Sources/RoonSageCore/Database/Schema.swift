@@ -129,6 +129,23 @@ enum Schema {
             try db.execute(sql: "UPDATE tracks SET match_key = NULL")
         }
 
+        // Resumable sync: per-album checkpoints instead of a destructive
+        // clearTracks() upfront. `album_fp` is a stable album fingerprint
+        // (title|subtitle — Roon item_keys are session-scoped and can't key
+        // anything persistent); `sync_album_checkpoints` records which albums
+        // a sync generation has completed so an interrupted sync resumes
+        // instead of restarting.
+        migrator.registerMigration("v10_resumable_sync") { db in
+            try db.alter(table: "tracks") { t in
+                t.add(column: "album_fp", .text)
+            }
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_tracks_album_fp ON tracks(album_fp)")
+            try db.create(table: "sync_album_checkpoints", ifNotExists: true) { t in
+                t.primaryKey("fingerprint", .text)
+                t.column("generation", .integer).notNull()
+            }
+        }
+
         try migrator.migrate(db)
     }
 }
