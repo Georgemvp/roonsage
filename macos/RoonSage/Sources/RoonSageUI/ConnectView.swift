@@ -11,6 +11,12 @@ public struct ConnectView: View {
     @State private var host       = ""
     @State private var port       = "9330"
     @State private var showManual = false
+    /// Keep retrying the saved host until connected (every ~10 s). Covers the
+    /// common iOS case where the first attempt fails because ZeroTier isn't
+    /// back yet after a resume — without this, a failed attempt is a dead end
+    /// until the user taps Reconnect.
+    @AppStorage("autoConnectEnabled") private var autoConnectEnabled = true
+    @State private var retryCountdown: Int? = nil
 
     var isWorking: Bool {
         switch client.connectionState {
@@ -90,6 +96,23 @@ public struct ConnectView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+
+                // Auto-connect: keep retrying the saved host until it works.
+                if client.savedHost != nil {
+                    Toggle(isOn: $autoConnectEnabled) {
+                        HStack(spacing: 6) {
+                            Text("Automatisch verbinden")
+                            if let s = retryCountdown, !isWorking {
+                                Text("(opnieuw over \(s)s)")
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                        }
+                        .font(.callout)
+                    }
+                    .toggleStyle(.switch)
+                    .fixedSize()
+                }
             }
 
             // Manual entry form
@@ -116,6 +139,12 @@ public struct ConnectView: View {
         .padding(48)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await autoConnect() }
+        // Re-arms on every state change: a failed/dropped attempt schedules the
+        // next one ~10 s later, for as long as this view is on screen and the
+        // toggle is on. Connecting/connected states cancel the countdown.
+        .task(id: "\(autoConnectEnabled)|\(client.connectionState.label)") {
+            await autoRetryLoop()
+        }
     }
 
     // MARK: - Sub-views
@@ -163,6 +192,26 @@ public struct ConnectView: View {
         else { return }
         host = saved
         port = String(client.savedPort)
+        await client.connect(host: saved, port: client.savedPort)
+    }
+
+    /// While disconnected/failed with a known host: count down ~10 s, then try
+    /// again. The `.task(id:)` it runs under is cancelled and restarted on
+    /// every connection-state change, so a successful attempt kills the loop
+    /// and a failed one schedules the next.
+    private func autoRetryLoop() async {
+        defer { retryCountdown = nil }
+        guard autoConnectEnabled, let saved = client.savedHost else { return }
+        switch client.connectionState {
+        case .disconnected, .failed: break
+        default: return
+        }
+        for remaining in stride(from: 10, through: 1, by: -1) {
+            retryCountdown = remaining
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if Task.isCancelled { return }
+        }
+        retryCountdown = nil
         await client.connect(host: saved, port: client.savedPort)
     }
 }
