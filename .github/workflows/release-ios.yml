@@ -34,8 +34,10 @@ jobs:
           else
             VERSION="${GITHUB_REF_NAME#v}"
           fi
+          BUILD=$(git rev-list --count HEAD)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Version: $VERSION"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION  Build: $BUILD"
 
       - name: Install xcodegen
         run: brew install xcodegen
@@ -70,6 +72,7 @@ jobs:
             -archivePath build/RoonSage.xcarchive \
             DEVELOPMENT_TEAM=5W3QDZ94FH \
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
             CODE_SIGN_STYLE=Automatic \
             -allowProvisioningUpdates \
             -allowProvisioningDeviceRegistration \
