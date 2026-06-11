@@ -133,7 +133,7 @@ public struct GenerateView: View {
 
                 if let err = errorMessage {
                     Label(err, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.roonDanger)
                         .font(.callout)
                 }
 

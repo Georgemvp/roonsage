@@ -262,7 +262,7 @@ struct LibraryTrackRow: View {
                 HStack(spacing: 6) {
                     Text(track.title).font(.body).lineLimit(1)
                     if track.isLive {
-                        Text("LIVE").font(.caption2.bold()).foregroundStyle(.orange)
+                        Text("LIVE").font(.caption2.bold()).foregroundStyle(Color.roonWarning)
                     }
                     if let y = track.year {
                         Text(String(y)).font(.caption).foregroundStyle(.tertiary)

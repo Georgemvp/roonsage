@@ -271,7 +271,7 @@ struct RootView: View {
 
     private var connectedBadge: some View {
         HStack(spacing: 6) {
-            Circle().fill(.green).frame(width: 8, height: 8)
+            Circle().fill(Color.roonSuccess).frame(width: 8, height: 8)
             Text(client.connectionState.label)
                 .font(.caption)
                 .foregroundStyle(.secondary)

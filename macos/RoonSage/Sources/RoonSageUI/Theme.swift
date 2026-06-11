@@ -1,30 +1,38 @@
 import SwiftUI
 
 /// Centralised design tokens so the native app matches the web UI's identity
-/// (dark surface + Roon gold accent) and stays internally consistent.
+/// (Roon gold accent) and stays internally consistent on macOS and iOS, in
+/// light and dark mode.
 ///
 /// Usage:
-///   - `.tint(Color.roonGold)` is applied once at the app root, so every system
-///     control (buttons, pickers, toggles, sliders, progress) picks up the gold.
-///   - Use `Color.roonGold` / `Color.roonBg` directly for custom chrome.
-///   - Use `Spacing` / `Typography` instead of magic numbers.
+///   - `.tint(...)` is applied once at the app root (user accent, gold default),
+///     so every system control (buttons, pickers, toggles, sliders) picks it up.
+///   - Use the semantic `Color.roon*` tokens for state colours (success/warning/
+///     danger/info) instead of ad-hoc `.green`/`.red`/`.orange` so meaning stays
+///     consistent and there is one place to retune.
+///   - Use `Spacing` / `Radius` / `Typography` / `Motion` instead of magic numbers.
+///   - Surfaces: `Color.platformCardBackground` / `.platformQuaternaryFill`
+///     (Compat.swift) — adaptive on both platforms; never hardcode dark greys.
 ///   - Wrap short metadata labels in `Badge`.
 public enum RoonTheme {
     /// Roon gold — the web UI's `--color-accent #e5a00d`.
     public static let gold = Color(red: 0.898, green: 0.627, blue: 0.051)
-    /// Dark surface — the web UI's `--color-bg #1a1a1a`.
-    public static let background = Color(red: 0.102, green: 0.102, blue: 0.102)
-    /// Slightly raised card surface.
-    public static let surface = Color(red: 0.149, green: 0.149, blue: 0.149)
 }
 
 extension Color {
     /// Roon gold accent (`#e5a00d`). Mirrors the web UI accent colour.
     public static let roonGold = RoonTheme.gold
-    /// App dark background (`#1a1a1a`).
-    public static let roonBg = RoonTheme.background
-    /// Raised card surface.
-    public static let roonSurface = RoonTheme.surface
+
+    // MARK: Semantic state colours (adaptive light/dark via system palette)
+
+    /// Positive state: connected, harmonic match, saved, completed.
+    public static let roonSuccess = Color.green
+    /// Caution state: live versions, degraded connection, long operations.
+    public static let roonWarning = Color.orange
+    /// Error state: failures, destructive actions.
+    public static let roonDanger = Color.red
+    /// Informational accents: hints, neutral highlights.
+    public static let roonInfo = Color.blue
 }
 
 /// 4-pt spacing scale. Prefer these over inline magic numbers.
@@ -37,12 +45,32 @@ public enum Spacing {
     public static let xxl: CGFloat = 48
 }
 
+/// Corner-radius scale. `sm` chips/badges, `md` rows/thumbnails, `lg` cards,
+/// `xl` sheets/hero art.
+public enum Radius {
+    public static let sm: CGFloat = 4
+    public static let md: CGFloat = 6
+    public static let lg: CGFloat = 12
+    public static let xl: CGFloat = 16
+}
+
 /// Semantic typography ramp.
 public enum Typography {
     public static let title = Font.system(size: 22, weight: .bold)
     public static let heading = Font.system(size: 17, weight: .semibold)
     public static let body = Font.body
     public static let caption = Font.caption
+}
+
+/// Motion tokens — one place for animation durations/curves so transitions
+/// feel uniform across views.
+public enum Motion {
+    /// Quick state flips (selection, badge swap).
+    public static let quick = Animation.easeOut(duration: 0.15)
+    /// Standard content transitions (cards, lists appearing).
+    public static let standard = Animation.easeInOut(duration: 0.3)
+    /// Ambient/large transitions (art-driven backdrop tint).
+    public static let ambient = Animation.easeInOut(duration: 0.8)
 }
 
 /// Small pill used for metadata (BPM, key, year, tags). Was duplicated across

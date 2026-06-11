@@ -50,6 +50,10 @@ public struct PlaylistsView: View {
             }
         }
         .navigationTitle("Playlists")
+        .toolbar {
+            Button(action: reload) { Image(systemName: "arrow.clockwise") }
+                .help("Reload")
+        }
         .onAppear(perform: reload)
         .confirmationDialog(
             "Delete Playlist?",

@@ -1,5 +1,6 @@
 import SwiftUI
 import RoonSageCore
+import RoonSageUI
 
 @MainActor
 struct UpdateView: View {
@@ -49,7 +50,7 @@ struct UpdateView: View {
             if case .error(let msg) = installer.state {
                 Text(msg)
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.roonDanger)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 8)
             }
@@ -87,20 +88,20 @@ struct UpdateView: View {
         } else if case .readyToInstall = installer.state {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 56))
-                .foregroundStyle(.green)
+                .foregroundStyle(Color.roonSuccess)
         } else if case .installing = installer.state {
             Image(systemName: "gearshape.2.fill")
                 .font(.system(size: 56))
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.roonWarning)
                 .symbolEffect(.pulse)
         } else if case .error = installer.state {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 56))
-                .foregroundStyle(.red)
+                .foregroundStyle(Color.roonDanger)
         } else {
             Image(systemName: "arrow.down.circle.fill")
                 .font(.system(size: 56))
-                .foregroundStyle(.green)
+                .foregroundStyle(Color.roonSuccess)
         }
     }
 

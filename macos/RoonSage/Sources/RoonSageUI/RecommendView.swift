@@ -80,7 +80,7 @@ public struct RecommendView: View {
                 }
 
                 if let err = errorMessage {
-                    Label(err, systemImage: "exclamationmark.triangle").foregroundStyle(.red).font(.callout)
+                    Label(err, systemImage: "exclamationmark.triangle").foregroundStyle(Color.roonDanger).font(.callout)
                 }
 
                 if !albums.isEmpty {

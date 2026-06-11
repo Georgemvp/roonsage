@@ -29,6 +29,10 @@ public struct TasteProfileView: View {
             }
         }
         .navigationTitle("Taste Profile")
+        .toolbar {
+            Button(action: load) { Image(systemName: "arrow.clockwise") }
+                .help("Reload")
+        }
         .onAppear { load() }
         .onChange(of: client.zones) { _, _ in load() }
     }

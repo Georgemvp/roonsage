@@ -32,7 +32,7 @@ struct MenuBarContent: View {
             // Status footer
             HStack(spacing: 6) {
                 Circle()
-                    .fill(client.connectionState.isConnected ? .green : .red)
+                    .fill(client.connectionState.isConnected ? Color.roonSuccess : Color.roonDanger)
                     .frame(width: 6, height: 6)
                 Text(client.connectionState.label)
                     .font(.caption2)

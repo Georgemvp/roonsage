@@ -119,7 +119,7 @@ public struct LiveDJView: View {
     private func relationBadge(_ relation: RoonClient.HarmonicRelation) -> some View {
         switch relation {
         case .harmonic: Badge("Harmonisch", tint: .roonGold)
-        case .sameKey:  Badge("Zelfde toon", tint: .green)
+        case .sameKey:  Badge("Zelfde toon", tint: .roonSuccess)
         case .tempo:    EmptyView()
         }
     }

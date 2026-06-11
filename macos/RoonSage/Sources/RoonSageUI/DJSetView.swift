@@ -266,7 +266,7 @@ private struct HarmonicTransitionStrip: View {
     private func color(_ r: RoonClient.HarmonicRelation) -> Color {
         switch r {
         case .harmonic: .roonGold
-        case .sameKey:  .green
+        case .sameKey:  .roonSuccess
         case .tempo:    .gray.opacity(0.4)
         }
     }

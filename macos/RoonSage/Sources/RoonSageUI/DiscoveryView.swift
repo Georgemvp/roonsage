@@ -34,6 +34,10 @@ public struct DiscoveryView: View {
             .padding(20)
         }
         .navigationTitle("Discovery")
+        .toolbar {
+            Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }
+                .help("Reload")
+        }
         .task(id: client.trackCount) { await load() }
     }
 
@@ -69,7 +73,7 @@ public struct DiscoveryView: View {
             }
         }
         .padding(16)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
     // MARK: - Forgotten favorites
@@ -98,7 +102,7 @@ public struct DiscoveryView: View {
             }
         }
         .padding(16)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
     // MARK: - Decade picks
@@ -123,7 +127,7 @@ public struct DiscoveryView: View {
             }
         }
         .padding(16)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
     // MARK: - Genre explorer
@@ -148,7 +152,7 @@ public struct DiscoveryView: View {
             }
         }
         .padding(16)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
     // MARK: - Top tracks
@@ -179,7 +183,7 @@ public struct DiscoveryView: View {
             }
         }
         .padding(16)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
     private func play(_ action: @escaping (String) async -> Void) {
@@ -231,7 +235,7 @@ public struct DiscoveryView: View {
             }
         }
         .padding(16)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
     // MARK: - Decade distribution
@@ -252,7 +256,7 @@ public struct DiscoveryView: View {
                             .font(.caption2.monospacedDigit())
                             .foregroundStyle(.secondary)
 
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: Radius.sm)
                             .fill(Color.roonGold.opacity(0.65))
                             .frame(
                                 width: 36,
@@ -268,13 +272,13 @@ public struct DiscoveryView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(16)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
     // MARK: - States
 
     var loadingState: some View {
-        ContentUnavailableView("Loading…", systemImage: "ellipsis")
+        SkeletonRows(count: 8)
     }
 
     var emptyState: some View {

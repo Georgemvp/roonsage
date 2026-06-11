@@ -15,11 +15,11 @@ public struct SkeletonRows: View {
         VStack(spacing: 0) {
             ForEach(0..<count, id: \.self) { _ in
                 HStack(spacing: 10) {
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: Radius.md)
                         .frame(width: 40, height: 40)
                     VStack(alignment: .leading, spacing: 6) {
-                        RoundedRectangle(cornerRadius: 4).frame(width: 170, height: 11)
-                        RoundedRectangle(cornerRadius: 4).frame(width: 110, height: 9)
+                        RoundedRectangle(cornerRadius: Radius.sm).frame(width: 170, height: 11)
+                        RoundedRectangle(cornerRadius: Radius.sm).frame(width: 110, height: 9)
                     }
                     Spacer()
                 }

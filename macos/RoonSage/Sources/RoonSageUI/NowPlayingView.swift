@@ -182,15 +182,15 @@ struct ZoneRow: View {
         .padding(12)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: Radius.lg)
                     .fill(isSelected ? Color.roonGold.opacity(0.08) : Color.platformCardBackground.opacity(0.5))
                 // Subtle backdrop tinted by the album art's dominant colour.
                 if let artColor {
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: Radius.lg)
                         .fill(LinearGradient(colors: [artColor.opacity(0.30), artColor.opacity(0.04)],
                                              startPoint: .topLeading, endPoint: .bottomTrailing))
                 }
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: Radius.lg)
                     .strokeBorder(isSelected ? Color.roonGold.opacity(0.25) : Color.clear, lineWidth: 1)
             }
             .animation(.easeInOut(duration: 0.4), value: artColor)

@@ -125,7 +125,7 @@ public struct ConnectView: View {
             if isWorking {
                 ProgressView().controlSize(.small)
             } else {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.roonDanger)
             }
             Text(client.connectionState.label)
                 .font(.callout)

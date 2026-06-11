@@ -74,7 +74,7 @@ public struct SonicFingerprintView: View {
             }
         }
         .padding(Spacing.lg)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
     private func statRow(_ label: String, _ value: String) -> some View {
@@ -130,7 +130,7 @@ public struct SonicFingerprintView: View {
             }
         }
         .padding(Spacing.lg)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
     // MARK: - Helpers

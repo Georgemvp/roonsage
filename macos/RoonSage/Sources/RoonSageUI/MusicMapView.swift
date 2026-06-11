@@ -83,7 +83,7 @@ public struct MusicMapView: View {
                     }
                 }
             }
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
             .padding(.horizontal, Spacing.lg)
             .padding(.bottom, Spacing.lg)
         }
