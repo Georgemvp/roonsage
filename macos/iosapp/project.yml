@@ -19,12 +19,14 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      - path: Shared          # ActivityAttributes shared with the widget extension
       - path: Assets.xcassets
     dependencies:
       - package: RoonSage
         product: RoonSageUI
       - package: RoonSage
         product: RoonSageCore
+      - target: RoonSageWidgets   # embeds the Live Activity extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.roonsage.ios
@@ -47,7 +49,35 @@ targets:
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "RoonSage verbindt met je Roon Core op het lokale netwerk om je muziek te bedienen."
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        # Live Activity (lock screen / Dynamic Island now-playing).
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
         # Standard HTTPS-only encryption → exempt from US export compliance review.
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations~ipad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+
+  # Live Activity widget extension (lock screen / Dynamic Island now-playing).
+  # Dependency-free: only the shared ActivityAttributes file + WidgetKit/SwiftUI.
+  RoonSageWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+      - path: Shared
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: RoonSage Widgets
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.roonsage.ios.widgets
+        PRODUCT_NAME: RoonSageWidgets
+        MARKETING_VERSION: "1.6.2"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 5W3QDZ94FH
+        SKIP_INSTALL: YES

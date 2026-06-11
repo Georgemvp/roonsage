@@ -12,12 +12,25 @@ import RoonSageUI
 struct RoonSageiOSApp: App {
     @State private var client = RoonClient()
     @State private var bgTaskID: UIBackgroundTaskIdentifier = .invalid
+    private let liveActivity = NowPlayingActivityController()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(client)
                 .tint(.roonGold)
+                // Mirror the selected zone's now-playing onto the lock screen /
+                // Dynamic Island. Keyed on (nowPlaying, state) — not the whole
+                // zone — so per-second seek updates don't spam ActivityKit.
+                .onChange(of: client.selectedZone?.nowPlaying) { _, _ in
+                    liveActivity.sync(zone: client.selectedZone)
+                }
+                .onChange(of: client.selectedZone?.state) { _, _ in
+                    liveActivity.sync(zone: client.selectedZone)
+                }
+                .onChange(of: client.selectedZoneID) { _, _ in
+                    liveActivity.sync(zone: client.selectedZone)
+                }
                 .onChange(of: client.isSyncing) { _, syncing in
                     if syncing {
                         // Keep screen on so iOS doesn't suspend the app mid-sync.
