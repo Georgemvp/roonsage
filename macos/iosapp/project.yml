@@ -29,7 +29,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.roonsage.ios
         PRODUCT_NAME: RoonSage
-        MARKETING_VERSION: "1.0.0"
+        # Keep > the highest version already on TestFlight (1.6.1 was uploaded
+        # once via a manual workflow_dispatch). CI overrides both values: the
+        # version from the ios-v* tag, the build from `git rev-list --count`.
+        MARKETING_VERSION: "1.6.2"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1,2"          # iPhone + iPad

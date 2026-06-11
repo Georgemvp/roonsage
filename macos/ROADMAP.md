@@ -129,7 +129,9 @@ Track A is the lever: once Core is multiplatform and the chrome is isolated, the
 ## Conventions (don't regress)
 
 - Keep protocol/business logic in `RoonSageCore` / `AudioAnalysis` — never import AppKit there.
-- Mac app & analyzer have **separate** tag schemes: `vX.Y.Z` vs `analyzer-vX.Y.Z`. Pushing the tag triggers the release workflow.
+- Three **separate** tag schemes drive three release workflows — never share a namespace:
+  Mac app `vX.Y.Z`, analyzer `analyzer-vX.Y.Z`, iOS/TestFlight `ios-vX.Y.Z`. Pushing the tag triggers the matching workflow.
+  (iOS marketing version must stay **> 1.6.1** — a 1.6.1 build was uploaded to TestFlight once; current floor is `ios-v1.6.2`.)
 - `swift build -c release` **before** tagging (release strict-concurrency > debug).
 - UI text Dutch, code/API/commits English.
 ```

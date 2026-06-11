@@ -3,13 +3,17 @@ name: Release iOS TestFlight
 on:
   push:
     tags:
-      - 'v[0-9]*'
+      # iOS has its own tag namespace (like analyzer-v*) so a macOS `v*`
+      # release no longer also fires an iOS TestFlight upload — that coupling
+      # uploaded lower marketing versions and got rejected against the 1.6.1
+      # already on TestFlight. Tag iOS releases as `ios-v1.6.2`, etc.
+      - 'ios-v[0-9]*'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (e.g. 1.0.0)'
+        description: 'Version (e.g. 1.6.2)'
         required: true
-        default: '0.0.1'
+        default: '1.6.2'
 
 permissions:
   contents: read
@@ -32,7 +36,7 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             VERSION="${{ github.event.inputs.version }}"
           else
-            VERSION="${GITHUB_REF_NAME#v}"
+            VERSION="${GITHUB_REF_NAME#ios-v}"
           fi
           BUILD=$(git rev-list --count HEAD)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
