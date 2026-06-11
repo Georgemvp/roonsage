@@ -107,10 +107,13 @@ actor BrowseService {
     /// Play a library item by its browse item_key.
     /// action: "play_now" | "queue" | "add_next"
     func playByBrowse(itemKey: String, zoneID: String, action: String = "play_now") async throws {
-        // Synthetic Qobuz key from a global search — the real search item_keys are
-        // ephemeral, so re-issue a fresh search at play time (mirrors the Python
-        // `qobuz_search::` handling in roon_playback.play_tracks).
-        if itemKey.hasPrefix(Self.qobuzSearchPrefix) {
+        // Synthetic keys carry artist::title and are resolved by a fresh search
+        // at play time:
+        //  - `qobuz_search::` — global-search item_keys are ephemeral (mirrors
+        //    the Python handling in roon_playback.play_tracks).
+        //  - `import::` — library rows imported from another device; the source
+        //    Mac's item_keys are session-scoped and meaningless here.
+        if itemKey.hasPrefix(Self.qobuzSearchPrefix) || itemKey.hasPrefix(Self.importPrefix) {
             let parts = itemKey.components(separatedBy: "::")
             let artist = parts.count > 1 ? (parts[1].removingPercentEncoding ?? parts[1]) : ""
             let title  = parts.count > 2 ? (parts[2].removingPercentEncoding ?? parts[2]) : ""
@@ -214,6 +217,8 @@ actor BrowseService {
     // MARK: - Qobuz / global search
 
     static let qobuzSearchPrefix = "qobuz_search::"
+    /// Library rows imported from another device (DatabaseManager.importKeyPrefix).
+    static let importPrefix = DatabaseManager.importKeyPrefix
 
     struct SearchResult: Sendable {
         let title: String

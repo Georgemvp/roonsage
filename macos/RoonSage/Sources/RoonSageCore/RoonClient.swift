@@ -96,11 +96,33 @@ public final class RoonClient {
     /// Cached analyzed library for Sonic features (C4) — invalidated on
     /// feature/library sync.
     let sonicCache = SonicLibraryCache()
+    /// HTTP server other devices import the library from (Settings toggle).
+    var shareServer: LibraryShareServer?
 
     public init() {
         database = try? DatabaseManager(url: Self.databaseURL)
         refreshTrackCount()
+        if UserDefaults.standard.bool(forKey: "library_share_enabled") {
+            setLibrarySharing(enabled: true)
+        }
     }
+
+    /// Start/stop the library-share HTTP server (persisted; auto-starts at
+    /// launch when enabled). Other devices import via GET /library on port 5767.
+    public func setLibrarySharing(enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: "library_share_enabled")
+        if enabled {
+            guard shareServer == nil, let db = database else { return }
+            let server = LibraryShareServer(database: db)
+            try? server.start()
+            shareServer = server
+        } else {
+            shareServer?.stop()
+            shareServer = nil
+        }
+    }
+
+    public var isLibrarySharing: Bool { shareServer != nil }
 
     // MARK: - Database URL
 

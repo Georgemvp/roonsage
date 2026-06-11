@@ -42,6 +42,24 @@ extension RoonClient {
 
     // MARK: - Library sync
 
+    /// Import the full library from another device's share server
+    /// (`http://<mac>:5767`) instead of walking Roon Browse locally — the
+    /// fast path for first setup on iPhone over ZeroTier. Returns the number
+    /// of imported tracks, or nil on failure.
+    public func importLibrary(fromMac baseURL: String) async -> Int? {
+        guard let db = database else { return nil }
+        let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
+        guard let url = URL(string: "\(trimmed)/library"),
+              let (data, resp) = try? await URLSession.shared.data(from: url),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        guard let count = await Task.detached(priority: .userInitiated, operation: {
+            try? db.importLibrary(json: data)
+        }).value else { return nil }
+        refreshTrackCount()
+        await sonicCache.invalidate()
+        return count
+    }
+
     /// True when a previous sync run was interrupted (app quit or suspended
     /// mid-walk). The next `startSync()` resumes it via album checkpoints
     /// instead of starting over.

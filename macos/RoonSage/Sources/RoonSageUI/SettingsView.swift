@@ -9,6 +9,11 @@ public struct SettingsView: View {
     @AppStorage("accentChoice") private var accent: AccentChoice = .gold
     @State private var lastSync: String = "—"
 
+    // Library import (from a sharing Mac)
+    @State private var importURL: String = UserDefaults.standard.string(forKey: "library_import_url") ?? ""
+    @State private var importBusy = false
+    @State private var importStatus: String?
+
     public init() {}
 
     // ListenBrainz
@@ -98,6 +103,29 @@ public struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                }
+
+                #if os(macOS)
+                Toggle("Deel bibliotheek voor import (poort 5767)", isOn: Binding(
+                    get: { client.isLibrarySharing },
+                    set: { client.setLibrarySharing(enabled: $0) }
+                ))
+                Text("Andere apparaten (je iPhone) kunnen de gesyncte bibliotheek hiervandaan importeren in plaats van zelf urenlang te syncen.")
+                    .font(.caption).foregroundStyle(.secondary)
+                #endif
+
+                // Import from a Mac that has sharing enabled — the fast path
+                // for first setup on iPhone (no hours-long Browse walk).
+                HStack {
+                    TextField("http://10.94.184.22:5767", text: $importURL)
+                        .textFieldStyle(.roundedBorder)
+                    Button(importBusy ? "Importeren…" : "Importeer van Mac") {
+                        Task { await importFromMac() }
+                    }
+                    .disabled(importBusy || importURL.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                if let s = importStatus {
+                    Text(s).font(.caption).foregroundStyle(.secondary)
                 }
             }
 
@@ -304,6 +332,19 @@ public struct SettingsView: View {
 
     private func refreshLastSync() {
         lastSync = (try? client.database?.syncStateValue(forKey: "last_sync")) ?? "Never"
+    }
+
+    private func importFromMac() async {
+        importBusy = true; defer { importBusy = false }
+        let url = importURL.trimmingCharacters(in: .whitespaces)
+        UserDefaults.standard.set(url, forKey: "library_import_url")
+        importStatus = "Bibliotheek ophalen…"
+        if let count = await client.importLibrary(fromMac: url) {
+            importStatus = "\(count) tracks geïmporteerd ✓"
+            refreshLastSync()
+        } else {
+            importStatus = "Import mislukt — draait de Mac-app met 'Deel bibliotheek' aan op \(url)?"
+        }
     }
 
     private func saveLLMConfig() {
