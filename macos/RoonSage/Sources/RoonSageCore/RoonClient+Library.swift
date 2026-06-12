@@ -293,7 +293,10 @@ extension RoonClient {
         var opts = DatabaseManager.FilterOptions()
         opts.genres = filters.genres
         opts.decades = filters.decades
-        opts.keywords = filters.keywords
+        // Keywords from the LLM are often multi-word mood phrases ("Smooth, Late Night")
+        // that the FTS5 AND-query can't match, yielding 0 results and triggering the
+        // whole-library fallback. Only apply keywords when genres are absent.
+        opts.keywords = filters.genres.isEmpty ? filters.keywords : ""
         opts.excludeLive = true
         opts.limit = 4000
         var tracks = await filterTracks(options: opts)
