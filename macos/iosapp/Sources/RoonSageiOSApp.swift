@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import WidgetKit
 import RoonSageCore
 import RoonSageUI
 
@@ -27,16 +28,13 @@ struct RoonSageiOSApp: App {
                 // AirPods, CarPlay). Keyed on (nowPlaying, state) — not the
                 // whole zone — so per-second seek updates don't spam ActivityKit.
                 .onChange(of: client.selectedZone?.nowPlaying) { _, _ in
-                    liveActivity.sync(zone: client.selectedZone)
-                    nowPlayingCenter.sync(zone: client.selectedZone)
+                    syncSystemSurfaces()
                 }
                 .onChange(of: client.selectedZone?.state) { _, _ in
-                    liveActivity.sync(zone: client.selectedZone)
-                    nowPlayingCenter.sync(zone: client.selectedZone)
+                    syncSystemSurfaces()
                 }
                 .onChange(of: client.selectedZoneID) { _, _ in
-                    liveActivity.sync(zone: client.selectedZone)
-                    nowPlayingCenter.sync(zone: client.selectedZone)
+                    syncSystemSurfaces()
                 }
                 // A sync that was interrupted by suspension resumes automatically
                 // (album checkpoints — it skips what's already done) once the app
@@ -51,6 +49,11 @@ struct RoonSageiOSApp: App {
                     if connected, scenePhase == .active, client.hasInterruptedSync {
                         client.startSync()
                     }
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    // Bij naar achtergrond gaan: laatste stand vastleggen
+                    // zodat de home-screen widget actueel blijft.
+                    if phase == .background { syncSystemSurfaces() }
                 }
                 .onChange(of: client.isSyncing) { _, syncing in
                     if syncing {
@@ -71,5 +74,27 @@ struct RoonSageiOSApp: App {
                     }
                 }
         }
+    }
+
+    /// Eén plek die alle systeem-oppervlakken bijwerkt: de Live Activity,
+    /// MPNowPlayingInfoCenter (Lock Screen/Control Center) en de App Group-
+    /// snapshot waar de home-screen widget uit leest.
+    private func syncSystemSurfaces() {
+        let zone = client.selectedZone
+        liveActivity.sync(zone: zone)
+        nowPlayingCenter.sync(zone: zone)
+
+        if let zone, let np = zone.nowPlaying,
+           zone.state == .playing || zone.state == .paused {
+            SharedNowPlaying.save(SharedNowPlaying(
+                title: np.title,
+                artist: np.artist,
+                zoneName: zone.displayName,
+                isPlaying: zone.state == .playing,
+                updatedAt: Date()))
+        } else {
+            SharedNowPlaying.save(nil)
+        }
+        WidgetCenter.shared.reloadTimelines(ofKind: "ZoneControl")
     }
 }

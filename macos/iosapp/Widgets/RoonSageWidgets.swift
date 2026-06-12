@@ -9,6 +9,7 @@ private let roonGold = Color(red: 0.898, green: 0.627, blue: 0.051)
 @main
 struct RoonSageWidgetBundle: WidgetBundle {
     var body: some Widget {
+        ZoneControlWidget()
         NowPlayingLiveActivity()
     }
 }

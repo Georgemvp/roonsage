@@ -21,6 +21,11 @@ targets:
       - path: Sources
       - path: Shared          # ActivityAttributes shared with the widget extension
       - path: Assets.xcassets
+    entitlements:
+      path: RoonSageiOS.entitlements
+      properties:
+        # App Group: deelt de now-playing snapshot met de widget-extensie.
+        com.apple.security.application-groups: [group.com.roonsage.ios]
     dependencies:
       - package: RoonSage
         product: RoonSageUI
@@ -64,6 +69,10 @@ targets:
     sources:
       - path: Widgets
       - path: Shared
+    entitlements:
+      path: Widgets/RoonSageWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.roonsage.ios]
     info:
       path: Widgets/Info.plist
       properties:
