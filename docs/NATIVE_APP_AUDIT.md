@@ -32,7 +32,27 @@
 - **Interactieve Live Activity + Siri/Shortcuts**: `RoonClient.shared` + `ensureConnected()` (auto-reconnect voor background-intents); `PlayPauseIntent`/`NextTrackIntent`/`PreviousTrackIntent` als `LiveActivityIntent` in `Shared/` (type in beide targets via `WIDGET_EXTENSION`-conditie, perform draait in app-proces); transport-knoppen in Dynamic Island expanded + Lock Screen-banner; `RoonSageShortcuts` met NL Siri-frases.
 - Extra haptics: Library/Ask/Queue play- en queue-acties, DJ-set-build success.
 
-**Nog open (Fase 2-rest):** entitlements + App Group (nodig voor home-screen-widgets + art in Live Activity), home/Lock Screen "Zone Control"-widgets, APNs/ActivityKit-push, BGTaskScheduler, Handoff. **Fase 3:** features (templates-pariteit, Sonic Radio-knop bestaat al, scrobble-import, taste LB/LF-merge, Song Paths/Alchemy) + B3/B6/B7-perf + A10/A11/A12-techdebt + Discovery-editorial (Hero #4), Live DJ mix-radar (Hero #3), Sonic DNA living fingerprint (Hero #5).
+**Ronde 4 — releases + widget:**
+- **Uitgebracht**: macOS **v1.5.36** (DMG op GitHub Releases, in-app updater pikt hem op) en iOS **ios-v1.6.9** (TestFlight) — beide CI-runs groen.
+- **App Group + home-screen widget** (ios-v1.6.10): `group.com.roonsage.ios` entitlements op app + widget-extensie; `SharedNowPlaying`-snapshot (app schrijft bij elke wissel + reloadTimelines); `ZoneControlWidget` (systemSmall/Medium + accessoryRectangular Lock Screen-complicatie) met interactieve play/pause/next via de LiveActivityIntents; `syncSystemSurfaces()` bundelt Live Activity + MPNowPlayingInfo + widget-snapshot.
+
+**Ronde 5 — alle drie hero-redesigns (macOS v1.5.37):**
+- **Hero #5 Sonic DNA living fingerprint**: radar springt uit centrum + ademt (TimelineView, reduce-motion-gated), radiale goud→amber fill + vertex-dots, "personality"-headline, gestaggerde tag-drift, deelbaar via ImageRenderer, ViewThatFits voor iPhone.
+- **Hero #3 Live DJ mix-radar**: Camelot-wiel met huidige track in centrum, orbitende suggesties (A binnen/B buiten, grootte=tempo-match, kleur=hue), gloed+puls op compatibele keys, neon-gouden bogen, tap→snap-select + actiebalk; lijst blijft als detail.
+- **Hero #4 Discovery editorial**: hero "Herontdek"-kaart, cover-forward shelves (horizontale scroll + play-overlay), Swift Charts (gouden area-chart decennia + balkgrafiek genres) met tappbare chips, sectiekoppen met SF Symbol.
+
+**Hero-redesigns uit het audit-rapport: 5/5 geleverd** (Now Playing #1 + curatie deal-out #2 in eerdere rondes; #3/#4/#5 nu).
+
+**Nog open (Fase 2-rest):** art in Live Activity/widget via App Group-bestand, APNs/ActivityKit-push, BGTaskScheduler, Handoff — plus de eenmalige **App Group-registratie** (taak #18) die ios-v1.6.10 deblokkeert.
+**Ronde 6 — Fase 3 gestart + release-discipline:**
+- **Templates-pariteit** (macOS v1.5.39): alle 63 backend-sjablonen geport naar `PlaylistTemplates.swift` (8 NL-categorieën, prompts blijven Engels), met featured-rij + gecategoriseerde "Alle sjablonen"-sheet in GenerateView.
+- **Release-build-discipline**: v1.5.37 faalde op CI (release-modus is stricter: `ambiguous use of cos`); sindsdien `swift build -c release` lokaal vóór elke tag → v1.5.38 + v1.5.39 groen. Vastgelegd in geheugen.
+
+**Uitgebrachte versies vandaag:** macOS v1.5.36 · v1.5.38 (heroes) · v1.5.39 (templates) — alle DMG-releases groen. iOS ios-v1.6.9 (TestFlight, groen). iOS ios-v1.6.10 geblokkeerd op App Group-registratie (taak Casper).
+
+**Fase 3 features (nog te doen):** scrobble-import, taste LB/LF-merge, Song Paths/Alchemy, Year-in-Review.
+**Perf-diepte (nog te doen):** B3 (sonic feature-vectors/bitsets), B6 (vDSP-analyzer), B7 (batch-sync).
+**Tech-debt (nog te doen):** A10 (controllers extraheren), A11 (Codable responses), A12 (chunkedInsert-helper). **Fase 3:** features (templates-pariteit, Sonic Radio-knop bestaat al, scrobble-import, taste LB/LF-merge, Song Paths/Alchemy) + B3/B6/B7-perf + A10/A11/A12-techdebt + Discovery-editorial (Hero #4), Live DJ mix-radar (Hero #3), Sonic DNA living fingerprint (Hero #5).
 
 ---
 
