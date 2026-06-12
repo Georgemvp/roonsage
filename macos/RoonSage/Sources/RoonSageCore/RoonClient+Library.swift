@@ -255,6 +255,9 @@ extension RoonClient {
             return RequestFilters(genres: [], decades: decades, keywords: keywords)
         }
 
+        var canonical: [String: String] = [:]
+        for g in available { canonical[g.lowercased()] = g }
+
         let genreList = available.prefix(40).joined(separator: ", ")
         let system = """
         You map a music request to library filters. Respond with ONLY a JSON object, no prose: \
@@ -266,10 +269,12 @@ extension RoonClient {
         """
         guard let resp = try? await LLMClient.shared.complete(system: system, user: "Request: \(request)", config: config),
               let obj = Self.firstJSONObject(resp) else {
-            return RequestFilters(genres: [], decades: [], keywords: "")
+            // LLM unreachable — fall back to direct genre-name substring match.
+            // "jazzy" contains "jazz" which matches genre "Jazz" without an LLM.
+            let requestLower = request.lowercased()
+            let matched = canonical.compactMap { key, value in requestLower.contains(key) ? value : nil }
+            return RequestFilters(genres: matched, decades: [], keywords: "")
         }
-        var canonical: [String: String] = [:]
-        for g in available { canonical[g.lowercased()] = g }
         let genres = (obj["genres"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() }.compactMap { canonical[$0] } ?? []
         let decades = (obj["decades"] as? [Any])?.compactMap { ($0 as? Int) ?? Int(String(describing: $0)) } ?? []
         let keywords = (obj["keywords"] as? String) ?? ""
