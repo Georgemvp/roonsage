@@ -231,10 +231,30 @@ extension RoonClient {
     }
 
     /// LLM stage 1: map a free-text request to genres (from the library's actual
-    /// genres) + decades + keywords. Degrades gracefully to no filter.
+    /// genres) + decades + keywords. When genre data is unavailable, still extracts
+    /// keywords/decades so the candidate pool is at least keyword-filtered.
     public func analyzeForFilters(request: String) async -> RequestFilters {
         let available = (await libraryStats())?.topGenres.map { $0.genre } ?? []
-        guard !available.isEmpty else { return RequestFilters(genres: [], decades: [], keywords: "") }
+        let config = LLMConfigStore.load()
+
+        if available.isEmpty {
+            // No genre data yet — fall back to keywords + decades only so the
+            // candidate pool isn't a random whole-library shuffle.
+            let system = """
+            Extract search keywords from a music request. \
+            Respond with ONLY a JSON object, no prose: {"decades": [], "keywords": ""} \
+            - decades: 0-3 decade start years like 1980 if an era is implied, else []. \
+            - keywords: 1-3 short English search terms capturing the mood/genre, or "".
+            """
+            guard let resp = try? await LLMClient.shared.complete(system: system, user: "Request: \(request)", config: config),
+                  let obj = Self.firstJSONObject(resp) else {
+                return RequestFilters(genres: [], decades: [], keywords: "")
+            }
+            let decades = (obj["decades"] as? [Any])?.compactMap { ($0 as? Int) ?? Int(String(describing: $0)) } ?? []
+            let keywords = (obj["keywords"] as? String) ?? ""
+            return RequestFilters(genres: [], decades: decades, keywords: keywords)
+        }
+
         let genreList = available.prefix(40).joined(separator: ", ")
         let system = """
         You map a music request to library filters. Respond with ONLY a JSON object, no prose: \
@@ -244,7 +264,7 @@ extension RoonClient {
         - keywords: short extra search terms, or "". \
         Available genres: \(genreList)
         """
-        guard let resp = try? await LLMClient.shared.complete(system: system, user: "Request: \(request)", config: LLMConfigStore.load()),
+        guard let resp = try? await LLMClient.shared.complete(system: system, user: "Request: \(request)", config: config),
               let obj = Self.firstJSONObject(resp) else {
             return RequestFilters(genres: [], decades: [], keywords: "")
         }
@@ -272,7 +292,17 @@ extension RoonClient {
         opts.excludeLive = true
         opts.limit = 4000
         var tracks = await filterTracks(options: opts)
-        if tracks.count < 30 { opts.genres = []; opts.decades = []; opts.keywords = ""; tracks = await filterTracks(options: opts) }
+        if tracks.count < 30 {
+            // Genre filter too narrow — drop genres but keep keywords/decades so
+            // the pool stays relevant instead of falling back to the whole library.
+            opts.genres = []
+            tracks = await filterTracks(options: opts)
+        }
+        if tracks.count < 30 {
+            // Keywords also too narrow — full library fallback.
+            opts.decades = []; opts.keywords = ""
+            tracks = await filterTracks(options: opts)
+        }
 
         var counts: [String: Int] = [:]
         for t in tracks { if let k = t.albumKey { counts[k, default: 0] += 1 } }
