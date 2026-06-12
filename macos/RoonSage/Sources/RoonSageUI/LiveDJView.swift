@@ -305,7 +305,7 @@ private struct MixRadar: View {
             perSlot[c.camelot] = k + 1
             if k >= 3 { continue }   // cap overlap per wheel slot
             let r = baseR - CGFloat(k) * 26
-            let pt = CGPoint(x: center.x + r * cos(angle), y: center.y + r * sin(angle))
+            let pt = CGPoint(x: center.x + r * CGFloat(cos(angle)), y: center.y + r * CGFloat(sin(angle)))
             let dBPM = abs(c.bpm - currentBPM)
             let match = max(0, 1 - dBPM / 12)
             let dotSize = 30 + 22 * match
@@ -347,7 +347,7 @@ private struct WheelCanvas: View {
 
             // Two faint guide rings (inner = minor/A, outer = major/B).
             for factor in [0.60, 0.92] {
-                let r = radius * factor
+                let r = radius * CGFloat(factor)
                 let ring = Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2))
                 ctx.stroke(ring, with: .color(.gray.opacity(0.15)), lineWidth: 1)
             }
@@ -358,8 +358,8 @@ private struct WheelCanvas: View {
                 let angle = -.pi / 2 + 2 * .pi * Double(num - 1) / 12
                 for (letter, factor) in [("A", 0.60), ("B", 0.92)] {
                     let code = "\(num)\(letter)"
-                    let r = radius * factor
-                    let pt = CGPoint(x: center.x + r * cos(angle), y: center.y + r * sin(angle))
+                    let r = radius * CGFloat(factor)
+                    let pt = CGPoint(x: center.x + r * CGFloat(cos(angle)), y: center.y + r * CGFloat(sin(angle)))
                     let isCurrent = code == currentCamelot
                     let isCompat = compatible.contains(code)
                     let base = Self.hue(code)
