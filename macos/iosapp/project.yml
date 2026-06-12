@@ -74,6 +74,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.roonsage.ios.widgets
         PRODUCT_NAME: RoonSageWidgets
+        # Onderscheidt de widget-compilatie van de app: de gedeelde intents
+        # importeren RoonSageCore alleen buiten de extensie.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WIDGET_EXTENSION"
         MARKETING_VERSION: "1.6.2"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"

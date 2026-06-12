@@ -10,27 +10,33 @@ import RoonSageUI
 @main
 @MainActor
 struct RoonSageiOSApp: App {
-    @State private var client = RoonClient()
+    @State private var client = RoonClient.shared
     @State private var bgTaskID: UIBackgroundTaskIdentifier = .invalid
     @Environment(\.scenePhase) private var scenePhase
     private let liveActivity = NowPlayingActivityController()
+    private let nowPlayingCenter = NowPlayingCenter()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(client)
                 .tint(.roonGold)
+                .onAppear { nowPlayingCenter.configure(client: client) }
                 // Mirror the selected zone's now-playing onto the lock screen /
-                // Dynamic Island. Keyed on (nowPlaying, state) — not the whole
-                // zone — so per-second seek updates don't spam ActivityKit.
+                // Dynamic Island + MPNowPlayingInfoCenter (Control Center,
+                // AirPods, CarPlay). Keyed on (nowPlaying, state) — not the
+                // whole zone — so per-second seek updates don't spam ActivityKit.
                 .onChange(of: client.selectedZone?.nowPlaying) { _, _ in
                     liveActivity.sync(zone: client.selectedZone)
+                    nowPlayingCenter.sync(zone: client.selectedZone)
                 }
                 .onChange(of: client.selectedZone?.state) { _, _ in
                     liveActivity.sync(zone: client.selectedZone)
+                    nowPlayingCenter.sync(zone: client.selectedZone)
                 }
                 .onChange(of: client.selectedZoneID) { _, _ in
                     liveActivity.sync(zone: client.selectedZone)
+                    nowPlayingCenter.sync(zone: client.selectedZone)
                 }
                 // A sync that was interrupted by suspension resumes automatically
                 // (album checkpoints — it skips what's already done) once the app

@@ -45,14 +45,39 @@ struct NowPlayingLiveActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack {
-                        Label(context.attributes.zoneName, systemImage: "hifispeaker")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        elapsedView(context.state)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                    VStack(spacing: 8) {
+                        // Interactive transport — the intents run in the app
+                        // process (LiveActivityIntent), which reconnects to
+                        // the Core if needed.
+                        HStack(spacing: 28) {
+                            Button(intent: PreviousTrackIntent()) {
+                                Image(systemName: "backward.fill")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.white)
+
+                            Button(intent: PlayPauseIntent()) {
+                                Image(systemName: context.state.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                    .font(.title)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(roonGold)
+
+                            Button(intent: NextTrackIntent()) {
+                                Image(systemName: "forward.fill")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.white)
+                        }
+                        HStack {
+                            Label(context.attributes.zoneName, systemImage: "hifispeaker")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            elapsedView(context.state)
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     .padding(.horizontal, 4)
                 }
@@ -112,9 +137,20 @@ private struct LockScreenView: View {
                 .foregroundStyle(.white.opacity(0.5))
             }
             Spacer()
-            Image(systemName: context.state.isPlaying ? "play.fill" : "pause.fill")
-                .font(.title3)
-                .foregroundStyle(roonGold)
+            // Interactive: tap pauses/resumes the zone (intent runs in-app).
+            Button(intent: PlayPauseIntent()) {
+                Image(systemName: context.state.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 34))
+                    .foregroundStyle(roonGold)
+            }
+            .buttonStyle(.plain)
+
+            Button(intent: NextTrackIntent()) {
+                Image(systemName: "forward.fill")
+                    .font(.title3)
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            .buttonStyle(.plain)
         }
         .padding(14)
     }

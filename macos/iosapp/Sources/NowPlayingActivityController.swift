@@ -40,13 +40,19 @@ final class NowPlayingActivityController {
             length: np.length ?? 0
         )
 
+        // Without push tokens the activity can't update while the app is
+        // suspended; mark it stale once the track should have ended so iOS
+        // dims it instead of showing a frozen wrong track indefinitely.
+        let remaining = max(60, Double(np.length ?? 600) - (zone.seekPosition ?? 0) + 30)
+        let stale = Date().addingTimeInterval(remaining)
+
         if let activity {
-            Task { await activity.update(ActivityContent(state: state, staleDate: nil)) }
+            Task { await activity.update(ActivityContent(state: state, staleDate: stale)) }
         } else {
             do {
                 activity = try Activity.request(
                     attributes: NowPlayingAttributes(zoneName: zone.displayName),
-                    content: ActivityContent(state: state, staleDate: nil)
+                    content: ActivityContent(state: state, staleDate: stale)
                 )
             } catch {
                 // Denied/limited by the system (e.g. too many activities) — fine.
