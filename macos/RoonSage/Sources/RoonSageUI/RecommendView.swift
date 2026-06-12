@@ -17,6 +17,10 @@ public struct RecommendView: View {
     @State private var summary: String? = nil
     @State private var errorMessage: String? = nil
 
+    @State private var history: [DatabaseManager.RecommendationSummary] = []
+    @State private var expandedHistoryID: Int64? = nil
+    @State private var historyAlbums: [DatabaseManager.AlbumResult] = []
+
     private let ideas = [
         "Albums voor een regenachtige zondagmiddag",
         "Diepe, meeslepende platen om van begin tot eind te luisteren",
@@ -94,32 +98,111 @@ public struct RecommendView: View {
                     if let summary {
                         Text(summary).font(.caption).foregroundStyle(.secondary)
                     }
-                    ForEach(albums, id: \.albumKey) { album in
-                        HStack(spacing: 10) {
-                            AlbumArtView(imageKey: album.imageKey, size: 44)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(album.album).font(.body).lineLimit(1)
-                                Text("\(album.artist ?? "Onbekend")\(album.year.map { " · \($0)" } ?? "")")
-                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    albumList(albums)
+                }
+
+                // History
+                if !history.isEmpty {
+                    Divider()
+                    Text("Eerdere aanbevelingen")
+                        .font(.headline)
+
+                    ForEach(history, id: \.id) { entry in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entry.prompt)
+                                        .font(.body)
+                                        .lineLimit(1)
+                                    Text("\(entry.albumCount) albums · \(formatDate(entry.createdAt))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button {
+                                    Task { await toggleHistory(entry) }
+                                } label: {
+                                    Image(systemName: expandedHistoryID == entry.id ? "chevron.up" : "chevron.down")
+                                }
+                                .buttonStyle(.borderless)
+                                Button(role: .destructive) {
+                                    client.deleteRecommendation(id: entry.id)
+                                    history.removeAll { $0.id == entry.id }
+                                    if expandedHistoryID == entry.id {
+                                        expandedHistoryID = nil
+                                        historyAlbums = []
+                                    }
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(.secondary)
                             }
-                            Spacer()
-                            Button {
-                                guard let zone = selectedZoneID else { return }
-                                Task { await client.playAlbum(albumKey: album.albumKey, zoneID: zone) }
-                            } label: {
-                                Image(systemName: "play.fill")
+                            .contentShape(Rectangle())
+                            .onTapGesture { Task { await toggleHistory(entry) } }
+
+                            if expandedHistoryID == entry.id {
+                                albumList(historyAlbums)
+                                    .padding(.top, 4)
                             }
-                            .buttonStyle(.bordered)
-                            .disabled(selectedZoneID == nil)
                         }
-                        .padding(.vertical, 2)
+                        .padding(.vertical, 4)
+                        Divider()
                     }
                 }
             }
             .padding(Spacing.xl)
         }
         .navigationTitle("Aanbevelen")
-        .onAppear { if selectedZoneID == nil { selectedZoneID = client.selectedZone?.id } }
+        .onAppear {
+            if selectedZoneID == nil { selectedZoneID = client.selectedZone?.id }
+            Task { history = await client.recommendations() }
+        }
+    }
+
+    @ViewBuilder
+    private func albumList(_ items: [DatabaseManager.AlbumResult]) -> some View {
+        ForEach(items, id: \.albumKey) { album in
+            HStack(spacing: 10) {
+                AlbumArtView(imageKey: album.imageKey, size: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(album.album).font(.body).lineLimit(1)
+                    Text("\(album.artist ?? "Onbekend")\(album.year.map { " · \($0)" } ?? "")")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                Button {
+                    guard let zone = selectedZoneID else { return }
+                    Task { await client.playAlbum(albumKey: album.albumKey, zoneID: zone) }
+                } label: {
+                    Image(systemName: "play.fill")
+                }
+                .buttonStyle(.bordered)
+                .disabled(selectedZoneID == nil)
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func toggleHistory(_ entry: DatabaseManager.RecommendationSummary) async {
+        if expandedHistoryID == entry.id {
+            expandedHistoryID = nil
+            historyAlbums = []
+        } else {
+            expandedHistoryID = entry.id
+            historyAlbums = await client.recommendationAlbums(id: entry.id)
+        }
+    }
+
+    private func formatDate(_ iso: String) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: iso) ?? ISO8601DateFormatter().date(from: iso) {
+            let rel = RelativeDateTimeFormatter()
+            rel.locale = Locale(identifier: "nl_NL")
+            return rel.localizedString(for: d, relativeTo: Date())
+        }
+        return iso
     }
 
     private func recommend() async {
@@ -160,6 +243,10 @@ public struct RecommendView: View {
             if !filters.genres.isEmpty  { parts.append(filters.genres.joined(separator: ", ")) }
             if !filters.decades.isEmpty { parts.append(filters.decades.sorted().map { "\($0)s" }.joined(separator: ", ")) }
             summary = parts.isEmpty ? "Uit je hele bibliotheek" : "Uit \(parts.joined(separator: " · "))"
+
+            // Persist to history
+            client.saveRecommendation(prompt: request, albums: albums)
+            history = await client.recommendations()
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -52,4 +52,25 @@ extension RoonClient {
         await runAction("Zone-overdracht") { _ = try await $0.transferZone(fromZoneID: fromZoneID, toZoneID: toZoneID) }
     }
 
+    // MARK: - Recommendation history
+
+    @discardableResult
+    public func saveRecommendation(prompt: String, albums: [DatabaseManager.AlbumResult]) -> Int64? {
+        try? database?.saveRecommendation(prompt: prompt, albums: albums)
+    }
+
+    public func recommendations() async -> [DatabaseManager.RecommendationSummary] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.listRecommendations()) ?? [] }.value
+    }
+
+    public func recommendationAlbums(id: Int64) async -> [DatabaseManager.AlbumResult] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.recommendationAlbums(id: id)) ?? [] }.value
+    }
+
+    public func deleteRecommendation(id: Int64) {
+        try? database?.deleteRecommendation(id: id)
+    }
+
 }

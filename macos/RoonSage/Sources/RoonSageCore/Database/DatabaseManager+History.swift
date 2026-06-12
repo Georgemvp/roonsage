@@ -95,6 +95,75 @@ extension DatabaseManager {
         }
     }
 
+    // MARK: - Recommendation history
+
+    public struct RecommendationSummary: Sendable {
+        public var id: Int64
+        public var prompt: String
+        public var albumCount: Int
+        public var createdAt: String
+    }
+
+    @discardableResult
+    public func saveRecommendation(prompt: String, albums: [AlbumResult]) throws -> Int64 {
+        try pool.write { db in
+            let iso = Self.isoFormatter.string(from: Date())
+            try db.execute(sql: "INSERT INTO recommendation_history (prompt, created_at) VALUES (?, ?)", arguments: [prompt, iso])
+            let hid = db.lastInsertedRowID
+            for (i, a) in albums.enumerated() {
+                try db.execute(sql: """
+                    INSERT INTO recommendation_albums (history_id, position, album_key, album, artist, year, image_key)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [hid, i, a.albumKey, a.album, a.artist, a.year, a.imageKey])
+            }
+            return hid
+        }
+    }
+
+    public func listRecommendations(limit: Int = 20) throws -> [RecommendationSummary] {
+        try pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT h.id, h.prompt, h.created_at, COUNT(a.position) AS cnt
+                FROM recommendation_history h
+                LEFT JOIN recommendation_albums a ON a.history_id = h.id
+                GROUP BY h.id ORDER BY h.created_at DESC LIMIT ?
+            """, arguments: [limit])
+            return rows.map {
+                RecommendationSummary(
+                    id:         $0["id"]         as Int64? ?? 0,
+                    prompt:     $0["prompt"]      as String? ?? "",
+                    albumCount: $0["cnt"]         as Int? ?? 0,
+                    createdAt:  $0["created_at"]  as String? ?? ""
+                )
+            }
+        }
+    }
+
+    public func recommendationAlbums(id: Int64) throws -> [AlbumResult] {
+        try pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT album_key, album, artist, year, image_key
+                FROM recommendation_albums WHERE history_id = ? ORDER BY position
+            """, arguments: [id])
+            return rows.map {
+                AlbumResult(
+                    albumKey:   $0["album_key"] as String? ?? "",
+                    album:      $0["album"]     as String? ?? "",
+                    artist:     $0["artist"],
+                    year:       $0["year"],
+                    trackCount: 0,
+                    imageKey:   $0["image_key"]
+                )
+            }
+        }
+    }
+
+    public func deleteRecommendation(id: Int64) throws {
+        try pool.write { db in
+            try db.execute(sql: "DELETE FROM recommendation_history WHERE id = ?", arguments: [id])
+        }
+    }
+
     // MARK: - Album search
 
     public struct AlbumResult: Sendable {

@@ -195,6 +195,26 @@ enum Schema {
             """)
         }
 
+        migrator.registerMigration("v13_recommendation_history") { db in
+            try db.create(table: "recommendation_history", ifNotExists: true) { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("prompt",     .text).notNull()
+                t.column("created_at", .text).notNull()
+            }
+            // Albums are denormalised so history survives library resyncs.
+            try db.create(table: "recommendation_albums", ifNotExists: true) { t in
+                t.column("history_id", .integer).notNull()
+                    .references("recommendation_history", onDelete: .cascade)
+                t.column("position",   .integer).notNull()
+                t.column("album_key",  .text).notNull()
+                t.column("album",      .text).notNull()
+                t.column("artist",     .text)
+                t.column("year",       .integer)
+                t.column("image_key",  .text)
+                t.primaryKey(["history_id", "position"])
+            }
+        }
+
         try migrator.migrate(db)
     }
 }
