@@ -1,6 +1,10 @@
 import SwiftUI
+import Charts
 import RoonSageCore
 
+/// Editorial "Listen Now"-style discovery: a hero rediscover card, cover-forward
+/// shelves, and Swift Charts for the library breakdown — instead of stacked
+/// grey text cards.
 @MainActor
 public struct DiscoveryView: View {
     public init() {}
@@ -15,16 +19,32 @@ public struct DiscoveryView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: Spacing.xl) {
                 if let stats {
+                    if let hero = heroItem { heroCard(hero) }
                     summaryCards(stats)
-                    if !stats.tracksByDecade.isEmpty { decadePicksSection(stats) }
-                    if !stats.topGenres.isEmpty { genreExplorerSection(stats) }
-                    if !undiscovered.isEmpty { undiscoveredSection }
-                    if !topTracks.isEmpty { topTracksSection }
-                    if !forgotten.isEmpty { forgottenSection }
-                    genreSection(stats)
-                    if !stats.tracksByDecade.isEmpty {
-                        decadeSection(stats)
+                    if !undiscovered.isEmpty {
+                        shelf("Onontdekte albums", "sparkles",
+                              covers: undiscovered.map(albumCover)) {
+                            Button { Task { undiscovered = await client.undiscoveredAlbums() } } label: {
+                                Image(systemName: "shuffle")
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Toon een andere selectie")
+                        }
                     }
+                    if !topTracks.isEmpty {
+                        shelf("Jouw toptracks", "star.fill",
+                              covers: topTracks.map(trackCover)) {
+                            playAllButton(topTracks)
+                        }
+                    }
+                    if forgotten.count > 1 {
+                        shelf("Vergeten favorieten", "clock.arrow.circlepath",
+                              covers: forgotten.dropFirst().map(trackCover)) {
+                            playAllButton(Array(forgotten))
+                        }
+                    }
+                    if !stats.tracksByDecade.isEmpty { decadeCard(stats) }
+                    if !stats.topGenres.isEmpty { genreCard(stats) }
                 } else if !isLoaded {
                     loadingState
                 } else {
@@ -41,144 +61,148 @@ public struct DiscoveryView: View {
         .task(id: client.trackCount) { await load() }
     }
 
-    // MARK: - Undiscovered albums (never played)
+    // MARK: - Hero "rediscover" card
 
-    @ViewBuilder
-    var undiscoveredSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Onontdekte albums").font(.headline)
-                Spacer()
-                Button { Task { undiscovered = await client.undiscoveredAlbums() } } label: {
-                    Image(systemName: "shuffle")
-                }
-                .buttonStyle(.borderless)
-                .help("Toon een andere selectie")
+    private struct HeroItem {
+        let title: String
+        let subtitle: String?
+        let imageKey: String?
+        let play: () -> Void
+    }
+
+    private var heroItem: HeroItem? {
+        if let t = forgotten.first {
+            return HeroItem(title: t.title, subtitle: t.artist, imageKey: t.imageKey) {
+                play { await client.curateTracks([t], zoneID: $0) }
             }
-            ForEach(undiscovered, id: \.albumKey) { album in
-                HStack(spacing: 10) {
-                    AlbumArtView(imageKey: album.imageKey, size: 44)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(album.album).font(.callout).lineLimit(1)
-                        Text("\(album.artist ?? "Onbekend")\(album.year.map { " · \($0)" } ?? "") · \(album.trackCount) tracks")
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer()
-                    Button { play { await client.playAlbum(albumKey: album.albumKey, zoneID: $0) } } label: {
-                        Image(systemName: "play.fill")
-                    }
-                    .buttonStyle(.borderless)
+        }
+        if let a = undiscovered.first {
+            return HeroItem(title: a.album, subtitle: a.artist, imageKey: a.imageKey) {
+                play { await client.playAlbum(albumKey: a.albumKey, zoneID: $0) }
+            }
+        }
+        return nil
+    }
+
+    private func heroCard(_ item: HeroItem) -> some View {
+        HStack(spacing: Spacing.lg) {
+            AlbumArtView(imageKey: item.imageKey, size: 120)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                .shadow(color: .black.opacity(0.3), radius: 10, y: 6)
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Label("Herontdek", systemImage: "sparkles")
+                    .font(.caption.bold())
+                    .foregroundStyle(Color.roonGold)
+                Text(item.title).font(.title2.bold()).lineLimit(2)
+                if let sub = item.subtitle {
+                    Text(sub).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: Spacing.sm)
+                Button {
+                    Haptics.tap()
+                    item.play()
+                } label: { Label("Speel nu", systemImage: "play.fill") }
+                    .buttonStyle(.borderedProminent)
                     .disabled(client.selectedZone == nil)
-                }
             }
+            Spacer(minLength: 0)
         }
-        .cardStyle()
+        .padding(Spacing.lg)
+        .background(
+            LinearGradient(colors: [Color.roonGold.opacity(0.18), Color.roonGold.opacity(0.03)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
-    // MARK: - Forgotten favorites
+    // MARK: - Cover shelves
 
-    @ViewBuilder
-    var forgottenSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Vergeten favorieten").font(.headline)
-                Spacer()
-                Button { play { await client.curateTracks(forgotten, zoneID: $0) } } label: {
-                    Label("Speel alles", systemImage: "play.fill")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(client.selectedZone == nil)
-            }
-            ForEach(Array(forgotten.enumerated()), id: \.offset) { _, t in
-                HStack(spacing: 8) {
-                    Text(t.title).font(.callout).lineLimit(1)
-                    if let a = t.artist {
-                        Text("— \(a)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer()
-                }
-            }
-        }
-        .cardStyle()
+    private struct Cover: Identifiable {
+        let id: String
+        let title: String
+        let subtitle: String?
+        let imageKey: String?
+        let play: () -> Void
     }
 
-    // MARK: - Decade picks
-
-    @ViewBuilder
-    func decadePicksSection(_ stats: DatabaseManager.LibraryStats) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Decennium-keuzes").font(.headline)
-            Text("Speel een willekeurige mix uit een decennium").font(.caption).foregroundStyle(.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 8) {
-                ForEach(stats.tracksByDecade, id: \.decade) { item in
-                    if let start = Int(item.decade.dropLast()) {
-                        Button(item.decade) {
-                            var opts = DatabaseManager.FilterOptions()
-                            opts.decades = [start]
-                            play { await client.playShuffledMix(options: opts, count: 25, zoneID: $0) }
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(client.selectedZone == nil)
-                    }
-                }
-            }
+    private func albumCover(_ a: DatabaseManager.AlbumResult) -> Cover {
+        Cover(id: a.albumKey, title: a.album, subtitle: a.artist, imageKey: a.imageKey) {
+            play { await client.playAlbum(albumKey: a.albumKey, zoneID: $0) }
         }
-        .cardStyle()
     }
 
-    // MARK: - Genre explorer
-
-    @ViewBuilder
-    func genreExplorerSection(_ stats: DatabaseManager.LibraryStats) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Genre-verkenner").font(.headline)
-            Text("Speel een willekeurige mix uit een genre").font(.caption).foregroundStyle(.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120))], spacing: 8) {
-                ForEach(stats.topGenres.prefix(12), id: \.genre) { item in
-                    Button {
-                        var opts = DatabaseManager.FilterOptions()
-                        opts.genres = [item.genre]
-                        play { await client.playShuffledMix(options: opts, count: 25, zoneID: $0) }
-                    } label: {
-                        Text(item.genre).lineLimit(1).frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(client.selectedZone == nil)
-                }
-            }
+    private func trackCover(_ t: TrackRecord) -> Cover {
+        Cover(id: t.id, title: t.title, subtitle: t.artist, imageKey: t.imageKey) {
+            play { await client.curateTracks([t], zoneID: $0) }
         }
-        .cardStyle()
     }
 
-    // MARK: - Top tracks
-
     @ViewBuilder
-    var topTracksSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Jouw toptracks").font(.headline)
-                Spacer()
-                Button { play { await client.curateTracks(topTracks, zoneID: $0) } } label: {
-                    Label("Speel alles", systemImage: "play.fill")
+    private func shelf<Trailing: View>(
+        _ title: String, _ icon: String, covers: [Cover],
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            sectionHeader(title, icon, trailing: trailing)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: Spacing.md) {
+                    ForEach(covers) { coverTile($0) }
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(client.selectedZone == nil)
-            }
-            ForEach(Array(topTracks.enumerated()), id: \.offset) { i, t in
-                HStack(spacing: 8) {
-                    Text("\(i + 1)").font(.caption.monospacedDigit())
-                        .foregroundStyle(.tertiary).frame(width: 24, alignment: .trailing)
-                    Text(t.title).font(.callout).lineLimit(1)
-                    if let a = t.artist {
-                        Text("— \(a)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer()
-                }
+                .padding(.horizontal, 2)
             }
         }
-        .cardStyle()
+    }
+
+    private func coverTile(_ c: Cover) -> some View {
+        Button {
+            Haptics.tap()
+            c.play()
+        } label: {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                AlbumArtView(imageKey: c.imageKey, size: 130)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.md))
+                    .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "play.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.white, Color.roonGold)
+                            .shadow(radius: 3)
+                            .padding(6)
+                    }
+                Text(c.title).font(.caption.weight(.medium)).lineLimit(1)
+                if let sub = c.subtitle {
+                    Text(sub).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .frame(width: 130)
+        }
+        .buttonStyle(.plain)
+        .disabled(client.selectedZone == nil)
+        .accessibilityLabel("Speel \(c.title)\(c.subtitle.map { " van \($0)" } ?? "")")
+    }
+
+    private func playAllButton(_ tracks: [TrackRecord]) -> some View {
+        Button {
+            Haptics.tap()
+            play { await client.curateTracks(tracks, zoneID: $0) }
+        } label: { Label("Speel alles", systemImage: "play.fill") }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(client.selectedZone == nil)
+    }
+
+    @ViewBuilder
+    private func sectionHeader<Trailing: View>(
+        _ title: String, _ icon: String, @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack {
+            Label {
+                Text(title).font(.headline)
+            } icon: {
+                Image(systemName: icon).foregroundStyle(Color.roonGold)
+            }
+            Spacer()
+            trailing()
+        }
     }
 
     private func play(_ action: @escaping (String) async -> Void) {
@@ -197,73 +221,91 @@ public struct DiscoveryView: View {
         }
     }
 
-    // MARK: - Genre breakdown
+    // MARK: - Decade distribution (Swift Charts area)
 
     @ViewBuilder
-    func genreSection(_ stats: DatabaseManager.LibraryStats) -> some View {
-        let genres = stats.topGenres
-        let maxCount = genres.first?.count ?? 1
+    func decadeCard(_ stats: DatabaseManager.LibraryStats) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            sectionHeader("Tracks per decennium", "chart.xyaxis.line") { EmptyView() }
 
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Topgenres")
-                .font(.headline)
+            Chart(stats.tracksByDecade, id: \.decade) { item in
+                AreaMark(
+                    x: .value("Decennium", item.decade),
+                    y: .value("Tracks", item.count)
+                )
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(.linearGradient(
+                    Gradient(colors: [Color.roonGold.opacity(0.55), Color.roonGold.opacity(0.04)]),
+                    startPoint: .top, endPoint: .bottom))
 
-            ForEach(genres.prefix(15), id: \.genre) { item in
-                HStack(spacing: 8) {
-                    Text(item.genre)
-                        .font(.callout)
-                        .frame(width: 150, alignment: .leading)
-                        .lineLimit(1)
+                LineMark(
+                    x: .value("Decennium", item.decade),
+                    y: .value("Tracks", item.count)
+                )
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(Color.roonGold)
+                .lineStyle(StrokeStyle(lineWidth: 2))
+            }
+            .chartYAxis { AxisMarks(position: .leading) }
+            .frame(height: 160)
 
-                    GeometryReader { geo in
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.roonGold.opacity(0.7))
-                            .frame(width: geo.size.width * CGFloat(item.count) / CGFloat(maxCount))
+            // Tap a decade to play a shuffled mix from it.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.sm) {
+                    ForEach(stats.tracksByDecade, id: \.decade) { item in
+                        if let start = Int(item.decade.dropLast()) {
+                            Button(item.decade) {
+                                Haptics.tap()
+                                var opts = DatabaseManager.FilterOptions()
+                                opts.decades = [start]
+                                play { await client.playShuffledMix(options: opts, count: 25, zoneID: $0) }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(client.selectedZone == nil)
+                        }
                     }
-                    .frame(height: 14)
-
-                    Text("\(item.count)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 44, alignment: .trailing)
                 }
             }
         }
         .cardStyle()
     }
 
-    // MARK: - Decade distribution
+    // MARK: - Genre breakdown (Swift Charts bars)
 
     @ViewBuilder
-    func decadeSection(_ stats: DatabaseManager.LibraryStats) -> some View {
-        let decades = stats.tracksByDecade
-        let maxCount = decades.map(\.count).max() ?? 1
+    func genreCard(_ stats: DatabaseManager.LibraryStats) -> some View {
+        let genres = Array(stats.topGenres.prefix(12))
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            sectionHeader("Topgenres", "guitars.fill") { EmptyView() }
 
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Tracks per decennium")
-                .font(.headline)
+            Chart(genres, id: \.genre) { item in
+                BarMark(
+                    x: .value("Tracks", item.count),
+                    y: .value("Genre", item.genre)
+                )
+                .foregroundStyle(Color.roonGold.gradient)
+                .cornerRadius(Radius.sm)
+            }
+            .chartXAxis { AxisMarks(position: .bottom) }
+            .frame(height: CGFloat(genres.count) * 26 + 20)
 
-            HStack(alignment: .bottom, spacing: 8) {
-                ForEach(decades, id: \.decade) { item in
-                    VStack(spacing: 4) {
-                        Text("\(item.count)")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-
-                        RoundedRectangle(cornerRadius: Radius.sm)
-                            .fill(Color.roonGold.opacity(0.65))
-                            .frame(
-                                width: 36,
-                                height: max(4, 100 * CGFloat(item.count) / CGFloat(maxCount))
-                            )
-
-                        Text(item.decade)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+            // Tap a genre to play a shuffled mix from it.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.sm) {
+                    ForEach(genres, id: \.genre) { item in
+                        Button(item.genre) {
+                            Haptics.tap()
+                            var opts = DatabaseManager.FilterOptions()
+                            opts.genres = [item.genre]
+                            play { await client.playShuffledMix(options: opts, count: 25, zoneID: $0) }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(client.selectedZone == nil)
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .cardStyle()
     }
