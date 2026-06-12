@@ -12,8 +12,8 @@ public struct TasteProfileView: View {
     @State private var selectedTab: Tab = .topArtists
 
     enum Tab: String, CaseIterable {
-        case topArtists = "Top Artists"
-        case recent     = "Recent Plays"
+        case topArtists = "Topartiesten"
+        case recent     = "Recent gespeeld"
     }
 
     public var body: some View {
@@ -28,10 +28,10 @@ public struct TasteProfileView: View {
                 tabContent
             }
         }
-        .navigationTitle("Taste Profile")
+        .navigationTitle("Smaakprofiel")
         .toolbar {
             Button(action: load) { Image(systemName: "arrow.clockwise") }
-                .help("Reload")
+                .help("Ververs")
         }
         .onAppear { load() }
         .onChange(of: client.zones) { _, _ in load() }
@@ -44,7 +44,7 @@ public struct TasteProfileView: View {
             VStack(spacing: 2) {
                 Text("\(totalListens.formatted())")
                     .font(.title2.bold().monospacedDigit())
-                Text("Total plays")
+                Text("Totaal afgespeeld")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -52,7 +52,7 @@ public struct TasteProfileView: View {
             VStack(spacing: 2) {
                 Text("\(topArtists.count.formatted())")
                     .font(.title2.bold().monospacedDigit())
-                Text("Artists heard")
+                Text("Artiesten gehoord")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -99,7 +99,7 @@ public struct TasteProfileView: View {
 
                     Spacer()
 
-                    Text("\(item.count) play\(item.count == 1 ? "" : "s")")
+                    Text("\(item.count)× gespeeld")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -157,19 +157,21 @@ public struct TasteProfileView: View {
 
     var emptyState: some View {
         ContentUnavailableView(
-            "No listening history yet",
+            "Nog geen luistergeschiedenis",
             systemImage: "chart.bar",
-            description: Text("Play music through Roon and your taste profile will build up here automatically.")
+            description: Text("Speel muziek via Roon en je smaakprofiel bouwt zich hier vanzelf op.")
         )
     }
 
     // MARK: - Helpers
 
     private func load() {
-        totalListens   = client.totalListens()
-        topArtists     = client.topArtistsListened(limit: 50)
-        recentListens  = client.recentListens(limit: 100)
-        isLoaded = true
+        Task {
+            totalListens   = await client.totalListens()
+            topArtists     = await client.topArtistsListened(limit: 50)
+            recentListens  = await client.recentListens(limit: 100)
+            isLoaded = true
+        }
     }
 
     private func formatDate(_ iso: String) -> String {

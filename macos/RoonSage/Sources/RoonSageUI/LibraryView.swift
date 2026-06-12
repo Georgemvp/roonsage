@@ -20,9 +20,24 @@ public struct LibraryView: View {
     enum SortField: String, CaseIterable, Identifiable {
         case title = "Title", artist = "Artist", album = "Album", year = "Year", bpm = "BPM", random = "Random"
         var id: String { rawValue }
+        /// Weergavenaam (NL); rawValue blijft het stabiele ID.
+        var label: String {
+            switch self {
+            case .title: "Titel"; case .artist: "Artiest"; case .album: "Album"
+            case .year: "Jaar"; case .bpm: "BPM"; case .random: "Willekeurig"
+            }
+        }
     }
 
-    private var sortedTracks: [DatabaseManager.LibraryTrackRow] {
+    /// Cached sort+dedup result. This used to be a computed property, which
+    /// re-ran a localized O(n log n) sort (and reshuffled `.random`!) on every
+    /// body evaluation — selection changes, keystrokes, sync ticks. Now it's
+    /// recomputed only when `tracks` or `sort` actually change.
+    @State private var displayTracks: [DatabaseManager.LibraryTrackRow] = []
+
+    private nonisolated static func sortAndDedupe(
+        _ tracks: [DatabaseManager.LibraryTrackRow], by sort: SortField
+    ) -> [DatabaseManager.LibraryTrackRow] {
         let sorted: [DatabaseManager.LibraryTrackRow]
         switch sort {
         case .title:  sorted = tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
@@ -52,7 +67,7 @@ public struct LibraryView: View {
             } else if tracks.isEmpty && !client.isSyncing {
                 emptyState
             } else {
-                List(sortedTracks, selection: $selection) { track in
+                List(displayTracks, selection: $selection) { track in
                     LibraryTrackRow(track: track, canPlay: client.selectedZone != nil) {
                         play([asRecord(track)])
                     }
@@ -62,9 +77,9 @@ public struct LibraryView: View {
                 if !selection.isEmpty { selectionBar }
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: selection.isEmpty)
-        .navigationTitle("Library (\(client.trackCount) tracks)")
-        .searchable(text: $searchText, prompt: "Search title, artist or album…")
+        .animation(Motion.quick, value: selection.isEmpty)
+        .navigationTitle("Bibliotheek (\(client.trackCount) tracks)")
+        .searchable(text: $searchText, prompt: "Zoek op titel, artiest of album…")
         .toolbar {
             ToolbarItem {
                 if isSearching {
@@ -72,18 +87,18 @@ public struct LibraryView: View {
                 }
             }
             ToolbarItem {
-                Picker("Sort", selection: $sort) {
-                    ForEach(SortField.allCases) { Text($0.rawValue).tag($0) }
+                Picker("Sorteer", selection: $sort) {
+                    ForEach(SortField.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.menu)
-                .help("Sort tracks")
+                .help("Sorteer tracks")
             }
             ToolbarItem {
                 if client.isSyncing {
-                    Button("Cancel", role: .cancel) { client.cancelSync() }
+                    Button("Annuleer", role: .cancel) { client.cancelSync() }
                 } else {
                     Button { client.startSync() } label: {
-                        Label("Sync Library", systemImage: "arrow.clockwise")
+                        Label("Synchroniseer bibliotheek", systemImage: "arrow.clockwise")
                     }
                     .disabled(!client.connectionState.isConnected)
                 }
@@ -98,12 +113,13 @@ public struct LibraryView: View {
             }
         }
         .onChange(of: selectedTag) { _, _ in reloadTracks() }
+        .onChange(of: sort) { _, _ in displayTracks = Self.sortAndDedupe(tracks, by: sort) }
         .onChange(of: client.trackCount) { _, _ in reload() }
         .onAppear { reload() }
-        .alert("Save as playlist", isPresented: $showSaveSheet) {
-            TextField("Playlist name", text: $newPlaylistName)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") {
+        .alert("Bewaar als playlist", isPresented: $showSaveSheet) {
+            TextField("Naam playlist", text: $newPlaylistName)
+            Button("Annuleer", role: .cancel) {}
+            Button("Bewaar") {
                 let name = newPlaylistName.trimmingCharacters(in: .whitespaces)
                 guard !name.isEmpty else { return }
                 _ = client.savePlaylist(name: name, tracks: selectedRecords())
@@ -111,7 +127,7 @@ public struct LibraryView: View {
                 selection.removeAll()
             }
         } message: {
-            Text("Save \(selection.count) selected track\(selection.count == 1 ? "" : "s") as a local playlist.")
+            Text("Bewaar \(selection.count) geselecteerde track\(selection.count == 1 ? "" : "s") als lokale playlist.")
         }
     }
 
@@ -119,14 +135,14 @@ public struct LibraryView: View {
 
     private var selectionBar: some View {
         HStack(spacing: Spacing.md) {
-            Text("\(selection.count) selected").font(.callout).foregroundStyle(.secondary)
+            Text("\(selection.count) geselecteerd").font(.callout).foregroundStyle(.secondary)
             Spacer()
-            Button { play(selectedRecords()) } label: { Label("Play", systemImage: "play.fill") }
+            Button { play(selectedRecords()) } label: { Label("Speel", systemImage: "play.fill") }
                 .disabled(client.selectedZone == nil)
-            Button { queue(selectedRecords()) } label: { Label("Queue", systemImage: "text.append") }
+            Button { queue(selectedRecords()) } label: { Label("Wachtrij", systemImage: "text.append") }
                 .disabled(client.selectedZone == nil)
-            Button { showSaveSheet = true } label: { Label("Save", systemImage: "plus.rectangle.on.folder") }
-            Button { selection.removeAll() } label: { Label("Clear", systemImage: "xmark") }
+            Button { showSaveSheet = true } label: { Label("Bewaar", systemImage: "plus.rectangle.on.folder") }
+            Button { selection.removeAll() } label: { Label("Wis", systemImage: "xmark") }
                 .labelStyle(.iconOnly)
         }
         .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.sm)
@@ -140,16 +156,16 @@ public struct LibraryView: View {
     private func rowMenu(_ track: DatabaseManager.LibraryTrackRow) -> some View {
         let rec = asRecord(track)
         let hasZone = client.selectedZone != nil
-        Button("Play Now") { play([rec]) }.disabled(!hasZone)
-        Button("Play Next") { queue([rec], next: true) }.disabled(!hasZone)
-        Button("Add to Queue") { queue([rec]) }.disabled(!hasZone)
+        Button("Speel nu") { play([rec]) }.disabled(!hasZone)
+        Button("Speel hierna") { queue([rec], next: true) }.disabled(!hasZone)
+        Button("Zet in wachtrij") { queue([rec]) }.disabled(!hasZone)
         Divider()
         Button("Start Sonic Radio") {
             guard let zone = client.selectedZone else { return }
             Task { await client.playSonicRadio(title: track.title, artist: track.artist, album: track.album, zoneID: zone.id) }
         }.disabled(!hasZone)
         Divider()
-        Button("Save as Playlist…") {
+        Button("Bewaar als playlist…") {
             selection = [track.id]
             showSaveSheet = true
         }
@@ -162,16 +178,18 @@ public struct LibraryView: View {
     }
 
     private func selectedRecords() -> [TrackRecord] {
-        sortedTracks.filter { selection.contains($0.id) }.map(asRecord)
+        displayTracks.filter { selection.contains($0.id) }.map(asRecord)
     }
 
     private func play(_ tracks: [TrackRecord]) {
         guard let zone = client.selectedZone, !tracks.isEmpty else { return }
+        Haptics.tap()
         Task { await client.curateTracks(tracks, zoneID: zone.id) }
     }
 
     private func queue(_ tracks: [TrackRecord], next: Bool = false) {
         guard let zone = client.selectedZone, !tracks.isEmpty else { return }
+        Haptics.tap()
         Task { await client.queueTracks(tracks, next: next, zoneID: zone.id) }
     }
 
@@ -188,7 +206,8 @@ public struct LibraryView: View {
                             .padding(.horizontal, 9).padding(.vertical, 4)
                             .background(isOn ? Color.roonGold : Color.platformQuaternaryFill.opacity(0.5),
                                         in: Capsule())
-                            .foregroundStyle(isOn ? .white : .primary)
+                            // Gold is a light colour — white on gold fails WCAG AA (~2.3:1).
+                            .foregroundStyle(isOn ? .black : .primary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -199,16 +218,18 @@ public struct LibraryView: View {
     }
 
     private func reload() {
-        tags = client.topTags(limit: 28)
+        Task { tags = await client.topTags(limit: 28) }
         reloadTracks()
     }
 
     private func reloadTracks() {
-        let q = searchText, tag = selectedTag
+        let q = searchText, tag = selectedTag, currentSort = sort
         if tracks.isEmpty { isLoadingTracks = true }
         Task {
             let rows = await client.browseTracks(query: q, tag: tag)
+            let display = await Task.detached { Self.sortAndDedupe(rows, by: currentSort) }.value
             tracks = rows
+            displayTracks = display
             isLoadingTracks = false
             isSearching = false
         }
@@ -217,11 +238,11 @@ public struct LibraryView: View {
     @ViewBuilder
     var emptyState: some View {
         if client.connectionState.isConnected {
-            ContentUnavailableView("No matching tracks", systemImage: "music.note.list",
-                description: Text(selectedTag != nil ? "No tracks tagged “\(selectedTag!)”." : "Sync your library, then search."))
+            ContentUnavailableView("Geen passende tracks", systemImage: "music.note.list",
+                description: Text(selectedTag != nil ? "Geen tracks met tag “\(selectedTag!)”." : "Synchroniseer je bibliotheek en zoek daarna."))
         } else {
-            ContentUnavailableView("Not connected", systemImage: "wifi.slash",
-                description: Text("Connect to your Roon Core first."))
+            ContentUnavailableView("Niet verbonden", systemImage: "wifi.slash",
+                description: Text("Verbind eerst met je Roon Core."))
         }
     }
 }
@@ -288,7 +309,8 @@ struct LibraryTrackRow: View {
             Button(action: onPlay) { Image(systemName: "play.fill") }
                 .buttonStyle(.borderless)
                 .disabled(!canPlay)
-                .help(canPlay ? "Play now" : "Select a zone first")
+                .accessibilityLabel("Speel nu")
+                .help(canPlay ? "Speel nu" : "Kies eerst een zone")
         }
         .padding(.vertical, 2)
     }

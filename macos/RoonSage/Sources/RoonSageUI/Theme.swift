@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 /// Centralised design tokens so the native app matches the web UI's identity
 /// (Roon gold accent) and stays internally consistent on macOS and iOS, in
@@ -71,6 +74,65 @@ public enum Motion {
     public static let standard = Animation.easeInOut(duration: 0.3)
     /// Ambient/large transitions (art-driven backdrop tint).
     public static let ambient = Animation.easeInOut(duration: 0.8)
+    /// Springy content pops (hero art, dealt-in rows) — ease curves feel
+    /// mechanical for physical-feeling moves; springs feel alive.
+    public static let spring = Animation.spring(response: 0.4, dampingFraction: 0.8)
+}
+
+/// One shared card surface. Three competing recipes coexisted
+/// (`.background.secondary`, `platformCardBackground.opacity(0.5)`,
+/// `cornerRadius: 10`) so padding, radius and fill drifted per view.
+/// Usage: `content.cardStyle()` or `Card { content }`.
+public struct Card<Content: View>: View {
+    private let content: Content
+
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    public var body: some View {
+        content
+            .padding(Spacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
+    }
+}
+
+extension View {
+    /// The shared card treatment as a modifier, for call-sites that already
+    /// have their own container view.
+    public func cardStyle() -> some View {
+        self
+            .padding(Spacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
+    }
+}
+
+/// Cross-platform haptics — award-quality iOS apps confirm every meaningful
+/// tap. No-op on macOS so call-sites stay clean of #if os(...) noise.
+public enum Haptics {
+    /// Light tap for ordinary actions (play, queue, zone select).
+    public static func tap() {
+        #if os(iOS)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
+    }
+
+    /// Success notification for completed work (playlist saved, set built,
+    /// curation finished).
+    public static func success() {
+        #if os(iOS)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+    }
+
+    /// Error notification — pairs with the ActionError toast.
+    public static func error() {
+        #if os(iOS)
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        #endif
+    }
 }
 
 /// Small pill used for metadata (BPM, key, year, tags). Was duplicated across

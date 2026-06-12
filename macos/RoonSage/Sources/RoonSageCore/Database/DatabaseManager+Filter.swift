@@ -36,10 +36,11 @@ extension DatabaseManager {
                 conditions.append("(\(ac))")
                 args.append(contentsOf: options.artists.map { "%\($0)%" as DatabaseValueConvertible })
             }
-            if !options.keywords.isEmpty {
-                conditions.append("(LOWER(t.title) LIKE LOWER(?) OR LOWER(t.artist) LIKE LOWER(?) OR LOWER(t.album) LIKE LOWER(?))")
-                let kw: DatabaseValueConvertible = "%\(options.keywords)%"
-                args.append(contentsOf: [kw, kw, kw])
+            if !options.keywords.isEmpty, let match = Self.ftsQuery(options.keywords) {
+                // FTS5 prefix match per keyword token (AND-combined) — replaces
+                // a leading-wildcard LIKE that scanned the whole table.
+                conditions.append("t.rowid IN (SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH ?)")
+                args.append(match)
             }
             if !options.tags.isEmpty {
                 let tc = options.tags.map { _ in "LOWER(f.tags) LIKE ?" }.joined(separator: " OR ")
@@ -71,7 +72,7 @@ extension DatabaseManager {
 
     public func savePlaylist(name: String, tracks: [TrackRecord]) throws -> Int64 {
         try pool.write { db in
-            let iso = ISO8601DateFormatter().string(from: Date())
+            let iso = Self.isoFormatter.string(from: Date())
             try db.execute(sql: "INSERT INTO playlists (name, created_at) VALUES (?, ?)", arguments: [name, iso])
             let pid = db.lastInsertedRowID
             let chunk = Self.rowsPerChunk(columns: 9)

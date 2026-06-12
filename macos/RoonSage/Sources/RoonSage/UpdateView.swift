@@ -40,7 +40,7 @@ struct UpdateView: View {
             if case .installing = installer.state {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Replacing app bundle…")
+                    Text("App-bundel vervangen…")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -73,7 +73,7 @@ struct UpdateView: View {
         }
         .padding(36)
         .frame(width: 460)
-        .animation(.easeInOut(duration: 0.2), value: stateTitle)
+        .animation(Motion.quick, value: stateTitle)
     }
 
     // MARK: - Dynamic content
@@ -107,26 +107,26 @@ struct UpdateView: View {
 
     var stateTitle: String {
         switch installer.state {
-        case .idle:             "Update Available"
-        case .downloading:      "Downloading…"
-        case .readyToInstall:   "Ready to Install"
-        case .installing:       "Installing…"
-        case .error:            "Update Failed"
+        case .idle:             "Update beschikbaar"
+        case .downloading:      "Downloaden…"
+        case .readyToInstall:   "Klaar om te installeren"
+        case .installing:       "Installeren…"
+        case .error:            "Update mislukt"
         }
     }
 
     var stateSubtitle: String {
         switch installer.state {
         case .idle:
-            "RoonSage \(update.version) is available."
+            "RoonSage \(update.version) is beschikbaar."
         case .downloading:
-            "Downloading RoonSage \(update.version)…"
+            "RoonSage \(update.version) wordt gedownload…"
         case .readyToInstall:
-            "The update is downloaded. Click Install to apply it\nand relaunch RoonSage automatically."
+            "De update is gedownload. Klik op Installeer om hem toe te passen\nen RoonSage automatisch te herstarten."
         case .installing:
-            "Do not close the app."
+            "Sluit de app niet af."
         case .error:
-            "Something went wrong. You can install manually instead."
+            "Er ging iets mis. Je kunt de update ook handmatig installeren."
         }
     }
 
@@ -138,20 +138,20 @@ struct UpdateView: View {
                 Button("Later") { dismiss() }
                     .keyboardShortcut(.cancelAction)
 
-                Button("Release Notes") {
+                Button("Releasenotities") {
                     if let url = URL(string: update.releasePageURL) {
                         NSWorkspace.shared.open(url)
                     }
                 }
 
                 if update.downloadURL.hasSuffix(".dmg") {
-                    Button("Download Update") {
+                    Button("Download update") {
                         installer.download(from: update.downloadURL)
                     }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                 } else {
-                    Button("View Release") {
+                    Button("Bekijk release") {
                         if let url = URL(string: update.releasePageURL) {
                             NSWorkspace.shared.open(url)
                         }
@@ -161,7 +161,7 @@ struct UpdateView: View {
                 }
 
             case .downloading:
-                Button("Cancel") {
+                Button("Annuleer") {
                     installer.cancelDownload()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -170,7 +170,7 @@ struct UpdateView: View {
                 Button("Later") { dismiss() }
                     .keyboardShortcut(.cancelAction)
 
-                Button("Install & Relaunch") {
+                Button("Installeer & herstart") {
                     Task { await installer.install(dmgURL: dmgURL) }
                 }
                 .buttonStyle(.borderedProminent)
@@ -183,7 +183,7 @@ struct UpdateView: View {
                 Button("Later") { dismiss() }
                     .keyboardShortcut(.cancelAction)
 
-                Button("Install Manually") {
+                Button("Installeer handmatig") {
                     if let url = URL(string: update.downloadURL) {
                         NSWorkspace.shared.open(url)
                     }
@@ -191,7 +191,7 @@ struct UpdateView: View {
                 }
                 .buttonStyle(.borderedProminent)
 
-                Button("Retry") {
+                Button("Probeer opnieuw") {
                     installer.download(from: update.downloadURL)
                 }
             }

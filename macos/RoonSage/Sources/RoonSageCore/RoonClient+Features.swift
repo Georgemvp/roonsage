@@ -12,8 +12,9 @@ extension RoonClient {
         set { UserDefaults.standard.set(newValue, forKey: "analyzer_url") }
     }
 
-    public func audioFeaturesStats() -> (total: Int, matched: Int) {
-        (try? database?.audioFeaturesStats()) ?? (0, 0)
+    public func audioFeaturesStats() async -> (total: Int, matched: Int) {
+        guard let db = database else { return (0, 0) }
+        return await Task.detached { (try? db.audioFeaturesStats()) ?? (0, 0) }.value
     }
 
     /// Pull all features from the analyzer's HTTP endpoint, upsert them, and
@@ -79,12 +80,15 @@ extension RoonClient {
     public func buildDJSet(
         count: Int, startBPM: Double, endBPM: Double,
         curve: DJSetBuilder.Curve, tags: [String], excludeLive: Bool = true
-    ) -> [DatabaseManager.DJCandidate] {
-        let cands = (try? database?.djCandidates(
-            minBPM: min(startBPM, endBPM), maxBPM: max(startBPM, endBPM),
-            tags: tags, excludeLive: excludeLive
-        )) ?? []
-        return DJSetBuilder.build(candidates: cands, count: count, startBPM: startBPM, endBPM: endBPM, curve: curve)
+    ) async -> [DatabaseManager.DJCandidate] {
+        guard let db = database else { return [] }
+        return await Task.detached {
+            let cands = (try? db.djCandidates(
+                minBPM: min(startBPM, endBPM), maxBPM: max(startBPM, endBPM),
+                tags: tags, excludeLive: excludeLive
+            )) ?? []
+            return DJSetBuilder.build(candidates: cands, count: count, startBPM: startBPM, endBPM: endBPM, curve: curve)
+        }.value
     }
 
     /// Audio features for a now-playing track (by content match key), if synced.
@@ -94,11 +98,14 @@ extension RoonClient {
 
     /// Build an endless-style mix seeded from a track: harmonically-compatible
     /// tracks within ±12 BPM of the seed, ordered by the DJ-set builder.
-    public func buildRadio(title: String, artist: String?, album: String?, count: Int = 25) -> [DatabaseManager.DJCandidate] {
-        guard let seed = featuresFor(title: title, artist: artist, album: album), seed.bpm > 0 else { return [] }
-        let cands = (try? database?.djCandidates(minBPM: seed.bpm - 12, maxBPM: seed.bpm + 12, tags: [], excludeLive: true)) ?? []
-        guard !cands.isEmpty else { return [] }
-        return DJSetBuilder.build(candidates: cands, count: count, startBPM: seed.bpm, endBPM: seed.bpm, curve: .flat)
+    public func buildRadio(title: String, artist: String?, album: String?, count: Int = 25) async -> [DatabaseManager.DJCandidate] {
+        guard let db = database,
+              let seed = featuresFor(title: title, artist: artist, album: album), seed.bpm > 0 else { return [] }
+        return await Task.detached {
+            let cands = (try? db.djCandidates(minBPM: seed.bpm - 12, maxBPM: seed.bpm + 12, tags: [], excludeLive: true)) ?? []
+            guard !cands.isEmpty else { return [] }
+            return DJSetBuilder.build(candidates: cands, count: count, startBPM: seed.bpm, endBPM: seed.bpm, curve: .flat)
+        }.value
     }
 
     // MARK: - Live DJ (next-track suggestions)

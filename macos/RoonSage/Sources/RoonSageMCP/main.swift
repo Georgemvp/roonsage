@@ -313,7 +313,7 @@ final class MCPServer {
         // ── Library stats ────────────────────────────────────────────────────
 
         case "get_library_stats":
-            guard let stats = client.libraryStats() else {
+            guard let stats = await client.libraryStats() else {
                 return "Library not synced yet. Use Sync Library first."
             }
             var lines = [
@@ -406,7 +406,7 @@ final class MCPServer {
 
         case "get_listening_history":
             let limit = args["limit"]?.intValue ?? 30
-            let listens = client.recentListens(limit: min(limit, 200))
+            let listens = await client.recentListens(limit: min(limit, 200))
             if listens.isEmpty { return "No listening history recorded yet." }
             let lines = listens.map { e -> String in
                 var s = "• \(e.title)"
@@ -421,15 +421,15 @@ final class MCPServer {
 
         case "get_top_artists":
             let limit = args["limit"]?.intValue ?? 20
-            let top = client.topArtistsListened(limit: min(limit, 100))
+            let top = await client.topArtistsListened(limit: min(limit, 100))
             if top.isEmpty { return "No play history yet." }
             return "Most-played artists:\n" + top.enumerated().map { i, a in
                 "\(i + 1). \(a.artist) — \(a.count) plays"
             }.joined(separator: "\n")
 
         case "get_taste_profile":
-            let total = client.totalListens()
-            let topArtists = client.topArtistsListened(limit: 10)
+            let total = await client.totalListens()
+            let topArtists = await client.topArtistsListened(limit: 10)
             if total == 0 && topArtists.isEmpty {
                 return "No taste data yet — play some music through RoonSage first."
             }
@@ -440,7 +440,7 @@ final class MCPServer {
                     lines.append("  \(i + 1). \(a.artist) — \(a.count) plays")
                 }
             }
-            if let stats = client.libraryStats(), !stats.topGenres.isEmpty {
+            if let stats = await client.libraryStats(), !stats.topGenres.isEmpty {
                 lines.append("")
                 lines.append("Library's top genres:")
                 for g in stats.topGenres.prefix(10) { lines.append("  \(g.genre): \(g.count) tracks") }
@@ -483,7 +483,7 @@ final class MCPServer {
             return "Saved playlist '\(name)' (id \(pid)) with \(tracks.count) tracks."
 
         case "list_playlists":
-            let lists = client.playlists()
+            let lists = await client.playlists()
             if lists.isEmpty { return "No saved playlists yet." }
             return "Saved playlists:\n" + lists.map {
                 "[\($0.id)] \($0.name) — \($0.trackCount) tracks  (\($0.createdAt.prefix(10)))"

@@ -100,14 +100,21 @@ extension DatabaseManager {
     /// exist in Roon (no checkpoint this generation), prune old-generation
     /// checkpoints, and clear the in-progress flag so the next sync starts a
     /// fresh generation.
-    public func finishSyncRun(generation: Int) throws {
+    ///
+    /// `pruneStale: false` skips the destructive delete. Used when albums
+    /// failed to browse during the walk: those albums have no checkpoint this
+    /// generation, so pruning would silently delete their (still valid) rows —
+    /// a flaky connection must never shrink the library.
+    public func finishSyncRun(generation: Int, pruneStale: Bool = true) throws {
         try pool.write { db in
-            try db.execute(
-                sql: """
-                    DELETE FROM tracks WHERE album_fp IS NULL OR album_fp NOT IN
-                      (SELECT fingerprint FROM sync_album_checkpoints WHERE generation = ?)
-                """,
-                arguments: [generation])
+            if pruneStale {
+                try db.execute(
+                    sql: """
+                        DELETE FROM tracks WHERE album_fp IS NULL OR album_fp NOT IN
+                          (SELECT fingerprint FROM sync_album_checkpoints WHERE generation = ?)
+                    """,
+                    arguments: [generation])
+            }
             try db.execute(
                 sql: "DELETE FROM sync_album_checkpoints WHERE generation < ?",
                 arguments: [generation])

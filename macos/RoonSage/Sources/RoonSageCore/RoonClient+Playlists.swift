@@ -12,8 +12,9 @@ extension RoonClient {
         try? database?.savePlaylist(name: name, tracks: tracks)
     }
 
-    public func playlists() -> [DatabaseManager.PlaylistSummary] {
-        (try? database?.listPlaylists()) ?? []
+    public func playlists() async -> [DatabaseManager.PlaylistSummary] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.listPlaylists()) ?? [] }.value
     }
 
     public func playlistTracks(id: Int64) async -> [TrackRecord] {
@@ -48,7 +49,7 @@ extension RoonClient {
     }
 
     public func transferZone(fromZoneID: String, toZoneID: String) async {
-        _ = try? await transportService?.transferZone(fromZoneID: fromZoneID, toZoneID: toZoneID)
+        await runAction("Zone-overdracht") { _ = try await $0.transferZone(fromZoneID: fromZoneID, toZoneID: toZoneID) }
     }
 
 }

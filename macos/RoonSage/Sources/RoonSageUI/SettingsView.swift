@@ -39,6 +39,8 @@ public struct SettingsView: View {
     @State private var analyzerURL: String = ""
     @State private var afBusy = false
     @State private var afStatus: String = ""
+    // Loaded in .task — a DB read in `body` blocked main on every render.
+    @State private var afStats: (total: Int, matched: Int) = (0, 0)
 
     // LLM
     @State private var llmProvider: LLMConfig.Provider = .ollama
@@ -71,18 +73,18 @@ public struct SettingsView: View {
             }
 
             // Connection
-            Section("Roon Connection") {
+            Section("Roon-verbinding") {
                 LabeledContent("Status", value: client.connectionState.label)
                 if let host = client.coreHost {
                     LabeledContent("Host", value: "\(host):\(client.corePort)")
                 }
                 HStack {
-                    Button("Disconnect") {
+                    Button("Verbreek verbinding") {
                         Task { await client.disconnect() }
                     }
                     .disabled(!client.connectionState.isConnected)
 
-                    Button("Re-authorize", role: .destructive) {
+                    Button("Opnieuw autoriseren", role: .destructive) {
                         Task { await client.clearAndReauthorize() }
                     }
                     .disabled(!client.connectionState.isConnected)
@@ -90,11 +92,11 @@ public struct SettingsView: View {
             }
 
             // Library
-            Section("Library") {
+            Section("Bibliotheek") {
                 LabeledContent("Tracks in database", value: "\(client.trackCount)")
-                LabeledContent("Last sync", value: lastSync)
+                LabeledContent("Laatste sync", value: lastSync)
                 HStack {
-                    Button("Sync Now") { client.startSync() }
+                    Button("Synchroniseer nu") { client.startSync() }
                         .disabled(!client.connectionState.isConnected || client.isSyncing)
                     if client.isSyncing {
                         ProgressView()
@@ -156,7 +158,7 @@ public struct SettingsView: View {
                             TextField("http://localhost:11434", text: $llmBaseURL)
                                 .textFieldStyle(.roundedBorder)
                             if llmProvider == .ollama {
-                                Button(isFetchingModels ? "…" : "Fetch models") {
+                                Button(isFetchingModels ? "…" : "Haal modellen op") {
                                     Task { await fetchOllamaModels() }
                                 }
                                 .disabled(isFetchingModels)
@@ -186,22 +188,22 @@ public struct SettingsView: View {
                 }
 
                 if llmProvider != .ollama {
-                    LabeledContent("API Key") {
-                        SecureField("Paste key here", text: $llmApiKey)
+                    LabeledContent("API-sleutel") {
+                        SecureField("Plak hier je sleutel", text: $llmApiKey)
                             .textFieldStyle(.roundedBorder)
                     }
                 }
 
-                Button(llmSaved ? "Saved!" : "Save LLM settings") { saveLLMConfig() }
+                Button(llmSaved ? "Bewaard!" : "Bewaar LLM-instellingen") { saveLLMConfig() }
             }
 
             // External Services
-            Section("External Services") {
-                LabeledContent("ListenBrainz token") {
+            Section("Externe diensten") {
+                LabeledContent("ListenBrainz-token") {
                     HStack(spacing: 8) {
-                        SecureField("Paste token here", text: $lbToken)
+                        SecureField("Plak hier je token", text: $lbToken)
                             .textFieldStyle(.roundedBorder)
-                        Button(lbSaved ? "Saved!" : "Save") {
+                        Button(lbSaved ? "Bewaard!" : "Bewaar") {
                             if lbToken.trimmingCharacters(in: .whitespaces).isEmpty {
                                 KeychainStore.delete(key: "listenbrainz_token")
                             } else {
@@ -212,7 +214,7 @@ public struct SettingsView: View {
                         }
                     }
                 }
-                Text("Scrobbles each track to ListenBrainz as it starts playing.")
+                Text("Scrobblet elke track naar ListenBrainz zodra hij echt geluisterd is.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -220,61 +222,61 @@ public struct SettingsView: View {
             // Last.fm
             Section("Last.fm") {
                 if lfConnected {
-                    LabeledContent("Connected as", value: lfUsername.isEmpty ? "✓" : lfUsername)
-                    Button("Disconnect Last.fm", role: .destructive) {
+                    LabeledContent("Verbonden als", value: lfUsername.isEmpty ? "✓" : lfUsername)
+                    Button("Ontkoppel Last.fm", role: .destructive) {
                         KeychainStore.delete(key: "lastfm_session_key")
                         KeychainStore.delete(key: "lastfm_username")
                         lfConnected = false; lfUsername = ""; lfStatus = ""
                     }
                 } else {
-                    LabeledContent("API Key") {
-                        SecureField("Last.fm API key", text: $lfApiKey)
+                    LabeledContent("API-sleutel") {
+                        SecureField("Last.fm API-sleutel", text: $lfApiKey)
                             .textFieldStyle(.roundedBorder)
                     }
-                    LabeledContent("API Secret") {
-                        SecureField("Last.fm API secret", text: $lfApiSecret)
+                    LabeledContent("API-secret") {
+                        SecureField("Last.fm API-secret", text: $lfApiSecret)
                             .textFieldStyle(.roundedBorder)
                     }
                     if lfPendingToken == nil {
-                        Button(lfBusy ? "…" : "Connect Last.fm") { Task { await lfStartAuth() } }
+                        Button(lfBusy ? "…" : "Koppel Last.fm") { Task { await lfStartAuth() } }
                             .disabled(lfBusy || lfApiKey.isEmpty || lfApiSecret.isEmpty)
                     } else {
-                        Button(lfBusy ? "…" : "Continue (after authorizing)") { Task { await lfCompleteAuth() } }
+                        Button(lfBusy ? "…" : "Ga verder (na goedkeuren)") { Task { await lfCompleteAuth() } }
                             .disabled(lfBusy)
                     }
                 }
                 if !lfStatus.isEmpty {
                     Text(lfStatus).font(.caption).foregroundStyle(.secondary)
                 }
-                Text("Scrobbles each track to Last.fm as it plays. Create API credentials at last.fm/api/account/create.")
+                Text("Scrobblet elke track naar Last.fm. Maak API-gegevens aan op last.fm/api/account/create.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             // Qobuz
             Section("Qobuz") {
-                LabeledContent("Email") {
-                    TextField("you@example.com", text: $qbEmail)
+                LabeledContent("E-mail") {
+                    TextField("jij@voorbeeld.nl", text: $qbEmail)
                         .textFieldStyle(.roundedBorder)
                         .textContentType(.username)
                 }
-                LabeledContent("Password") {
-                    SecureField("Qobuz password", text: $qbPassword)
+                LabeledContent("Wachtwoord") {
+                    SecureField("Qobuz-wachtwoord", text: $qbPassword)
                         .textFieldStyle(.roundedBorder)
                 }
-                Button(qbBusy ? "Verifying…" : "Save & verify") { Task { await saveQobuz() } }
+                Button(qbBusy ? "Verifiëren…" : "Bewaar & verifieer") { Task { await saveQobuz() } }
                     .disabled(qbBusy || qbEmail.isEmpty || qbPassword.isEmpty)
                 if !qbStatus.isEmpty {
                     Text(qbStatus).font(.caption).foregroundStyle(.secondary)
                 }
-                Text("Lets you save generated and saved playlists to your Qobuz account.")
+                Text("Hiermee kun je gegenereerde en bewaarde playlists in je Qobuz-account opslaan.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             // Audio analyzer
-            Section("Audio Analyzer (BPM / key / tags)") {
-                LabeledContent("Analyzer URL") {
+            Section("Audio-analyzer (BPM / toonsoort / tags)") {
+                LabeledContent("Analyzer-URL") {
                     TextField("http://10.94.184.22:5766", text: $analyzerURL)
                         .textFieldStyle(.roundedBorder)
                 }
@@ -285,23 +287,22 @@ public struct SettingsView: View {
                         Label("Vind automatisch", systemImage: "magnifyingglass")
                     }
                 }
-                let stats = client.audioFeaturesStats()
-                LabeledContent("Synced features", value: "\(stats.matched) matched / \(stats.total) total")
-                Button(afBusy ? "Syncing…" : "Save & sync features") { Task { await syncAnalyzer() } }
+                LabeledContent("Gesyncte kenmerken", value: "\(afStats.matched) gematcht / \(afStats.total) totaal")
+                Button(afBusy ? "Synchroniseren…" : "Bewaar & sync kenmerken") { Task { await syncAnalyzer() } }
                     .disabled(afBusy || analyzerURL.isEmpty)
-                Button("Diagnose match-rate") { Task { await diagnoseAnalyzer() } }
+                Button("Diagnose match-percentage") { Task { await diagnoseAnalyzer() } }
                     .disabled(afBusy || analyzerURL.isEmpty)
                 if !afStatus.isEmpty {
                     Text(afStatus).font(.caption).foregroundStyle(.secondary)
                 }
-                Text("Pulls BPM, Camelot key, energy and LLM tags from the analyzer running on your music host. Used for DJ sets and tag-based curation.")
+                Text("Haalt BPM, Camelot-toonsoort, energie en LLM-tags op van de analyzer op je muziek-host. Gebruikt voor DJ-sets en tag-curatie.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             // About
-            Section("About") {
-                LabeledContent("Version", value: appVersion)
+            Section("Over") {
+                LabeledContent("Versie", value: appVersion)
                 LabeledContent("Protocol", value: "MOO/1 · SOOD · GRDB 6")
                 #if os(macOS)
                 LabeledContent("Platform", value: "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
@@ -311,10 +312,11 @@ public struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Settings")
+        .navigationTitle("Instellingen")
         #if os(macOS)
         .frame(width: 440)
         #endif
+        .task { afStats = await client.audioFeaturesStats() }
         .onAppear {
             refreshLastSync()
             lbToken = KeychainStore.load(key: "listenbrainz_token") ?? ""
@@ -344,7 +346,7 @@ public struct SettingsView: View {
     }
 
     private func refreshLastSync() {
-        lastSync = (try? client.database?.syncStateValue(forKey: "last_sync")) ?? "Never"
+        lastSync = (try? client.database?.syncStateValue(forKey: "last_sync")) ?? "Nooit"
     }
 
     private func importFromMac() async {
@@ -384,27 +386,28 @@ public struct SettingsView: View {
         afBusy = true; defer { afBusy = false }
         let url = analyzerURL.trimmingCharacters(in: .whitespaces)
         client.analyzerURL = url
-        afStatus = "Fetching features…"
+        afStatus = "Kenmerken ophalen…"
         if let r = await client.syncAudioFeatures(from: url) {
             let pct = Int((r.matchRate * 100).rounded())
-            afStatus = "Synced \(r.featureRows) features — \(r.exactMatched) exact + \(r.fuzzyMatched) fuzzy = \(pct)% of \(r.libraryTracks) tracks matched."
+            afStatus = "\(r.featureRows) kenmerken gesynct — \(r.exactMatched) exact + \(r.fuzzyMatched) fuzzy = \(pct)% van \(r.libraryTracks) tracks gematcht."
+            afStats = await client.audioFeaturesStats()
         } else {
-            afStatus = "Could not reach the analyzer at \(url). Is `roonsage-analyzer serve` running?"
+            afStatus = "Kon de analyzer niet bereiken op \(url). Draait `roonsage-analyzer serve`?"
         }
     }
 
     private func diagnoseAnalyzer() async {
         afBusy = true; defer { afBusy = false }
         let url = analyzerURL.trimmingCharacters(in: .whitespaces)
-        afStatus = "Diagnosing…"
+        afStatus = "Diagnosticeren…"
         guard let r = await client.diagnoseAudioFeatures(from: url) else {
-            afStatus = "Could not reach the analyzer at \(url)."
+            afStatus = "Kon de analyzer niet bereiken op \(url)."
             return
         }
         let pct = Int((r.matchRate * 100).rounded())
-        var msg = "Match-rate \(pct)%: \(r.exactMatched) exact + \(r.fuzzyMatched) fuzzy / \(r.libraryTracks) tracks (\(r.unmatched) unmatched, \(r.featureRows) features). Read-only — nothing changed."
+        var msg = "Match-percentage \(pct)%: \(r.exactMatched) exact + \(r.fuzzyMatched) fuzzy / \(r.libraryTracks) tracks (\(r.unmatched) niet gematcht, \(r.featureRows) kenmerken). Alleen-lezen — niets gewijzigd."
         if !r.sampleUnmatched.isEmpty {
-            msg += "\n\nUnmatched examples:\n• " + r.sampleUnmatched.prefix(12).joined(separator: "\n• ")
+            msg += "\n\nVoorbeelden zonder match:\n• " + r.sampleUnmatched.prefix(12).joined(separator: "\n• ")
         }
         afStatus = msg
     }
@@ -418,9 +421,9 @@ public struct SettingsView: View {
         KeychainStore.save(key: "qobuz_email", value: email)
         KeychainStore.save(key: "qobuz_password", value: pw)
         if let name = await QobuzClient.shared.verify(email: email, password: pw) {
-            qbStatus = "Connected as \(name)."
+            qbStatus = "Verbonden als \(name)."
         } else {
-            qbStatus = "Login failed — check your email and password."
+            qbStatus = "Inloggen mislukt — controleer je e-mail en wachtwoord."
         }
     }
 
@@ -433,14 +436,14 @@ public struct SettingsView: View {
         KeychainStore.save(key: "lastfm_api_key", value: key)
         KeychainStore.save(key: "lastfm_api_secret", value: secret)
         guard let token = await LastfmClient.shared.getToken(apiKey: key, apiSecret: secret) else {
-            lfStatus = "Could not get a Last.fm token — check your API key and secret."
+            lfStatus = "Kon geen Last.fm-token krijgen — controleer je API-sleutel en -secret."
             return
         }
         lfPendingToken = token
         if let url = LastfmClient.shared.authURL(apiKey: key, token: token) {
             openURL(url)
         }
-        lfStatus = "Authorize RoonSage in the browser, then click Continue."
+        lfStatus = "Keur RoonSage goed in de browser en klik daarna op Ga verder."
     }
 
     private func lfCompleteAuth() async {
@@ -449,7 +452,7 @@ public struct SettingsView: View {
         let key = lfApiKey.trimmingCharacters(in: .whitespaces)
         let secret = lfApiSecret.trimmingCharacters(in: .whitespaces)
         guard let session = await LastfmClient.shared.getSession(apiKey: key, apiSecret: secret, token: token) else {
-            lfStatus = "Authorization not complete yet — approve in the browser, then click Continue."
+            lfStatus = "Goedkeuring nog niet afgerond — keur goed in de browser en klik daarna op Ga verder."
             return
         }
         KeychainStore.save(key: "lastfm_session_key", value: session.key)
@@ -457,7 +460,7 @@ public struct SettingsView: View {
         lfUsername = session.name
         lfConnected = true
         lfPendingToken = nil
-        lfStatus = "Connected as \(session.name)."
+        lfStatus = "Verbonden als \(session.name)."
     }
 
     private func fetchOllamaModels() async {

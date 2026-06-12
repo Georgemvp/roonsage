@@ -5,7 +5,7 @@ extension DatabaseManager {
     // MARK: - Listening history
 
     public func logListen(title: String, artist: String?, album: String?, zoneID: String, zoneName: String) throws {
-        let iso = ISO8601DateFormatter().string(from: Date())
+        let iso = Self.isoFormatter.string(from: Date())
         try pool.write { db in
             try db.execute(
                 sql: "INSERT INTO listening_history (title, artist, album, zone_id, zone_name, played_at) VALUES (?, ?, ?, ?, ?, ?)",

@@ -132,4 +132,41 @@ extension DatabaseManagerTests {
         let bpm = try db.pool.read { try Double.fetchOne($0, sql: "SELECT bpm FROM track_audio_features WHERE match_key='key-0'") }
         XCTAssertEqual(bpm, 340)
     }
+
+    // MARK: - FTS5 search
+
+    func testFTSSearchMatchesPrefixAndStaysInSync() throws {
+        try db.upsertTracks([
+            track("a", "Don't Look Back in Anger", "Oasis", album: "Morning Glory"),
+            track("b", "Champagne Supernova", "Oasis", album: "Morning Glory"),
+            track("c", "Karma Police", "Radiohead", album: "OK Computer"),
+        ])
+
+        // Prefix match on title token.
+        XCTAssertEqual(try db.searchTracks(query: "champ").map(\.id), ["b"])
+        // Artist match.
+        XCTAssertEqual(Set(try db.searchTracks(query: "oasis").map(\.id)), ["a", "b"])
+        // Multi-token AND across columns.
+        XCTAssertEqual(try db.searchTracks(query: "radiohead karma").map(\.id), ["c"])
+        // FTS operators in user input are neutralised by token quoting.
+        XCTAssertEqual(try db.searchTracks(query: "karma OR oasis").count, 0)
+
+        // UPDATE keeps the index in sync (upsert path).
+        var renamed = track("c", "Paranoid Android", "Radiohead", album: "OK Computer")
+        renamed.matchKey = "radiohead|paranoid android"
+        try db.upsertTracks([renamed])
+        XCTAssertEqual(try db.searchTracks(query: "karma").count, 0)
+        XCTAssertEqual(try db.searchTracks(query: "paranoid").map(\.id), ["c"])
+
+        // DELETE keeps the index in sync.
+        try db.pool.write { try $0.execute(sql: "DELETE FROM tracks WHERE id='b'") }
+        XCTAssertEqual(try db.searchTracks(query: "champ").count, 0)
+
+        // browseTracks + filterTracks route through FTS too.
+        XCTAssertEqual(try db.browseTracks(query: "parano", tag: nil).map(\.id), ["c"])
+        var opts = DatabaseManager.FilterOptions()
+        opts.keywords = "android"
+        opts.excludeLive = false
+        XCTAssertEqual(try db.filterTracks(options: opts).map(\.id), ["c"])
+    }
 }

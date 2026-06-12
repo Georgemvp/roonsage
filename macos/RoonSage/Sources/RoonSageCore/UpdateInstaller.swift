@@ -33,7 +33,7 @@ public final class UpdateInstaller {
 
     public func download(from urlString: String) {
         guard let url = URL(string: urlString) else {
-            state = .error("Invalid download URL.")
+            state = .error("Ongeldige download-URL.")
             return
         }
         state = .downloading(progress: 0)
@@ -48,11 +48,11 @@ public final class UpdateInstaller {
                 if let error {
                     // Ignore cancellation
                     if (error as NSError).code == NSURLErrorCancelled { return }
-                    self.state = .error("Download failed: \(error.localizedDescription)")
+                    self.state = .error("Download mislukt: \(error.localizedDescription)")
                     return
                 }
                 guard let location else {
-                    self.state = .error("Download produced no file.")
+                    self.state = .error("Download leverde geen bestand op.")
                     return
                 }
 
@@ -64,7 +64,7 @@ public final class UpdateInstaller {
                     try FileManager.default.moveItem(at: location, to: dest)
                     self.state = .readyToInstall(dmgURL: dest)
                 } catch {
-                    self.state = .error("Could not save download: \(error.localizedDescription)")
+                    self.state = .error("Kon de download niet opslaan: \(error.localizedDescription)")
                 }
             }
         }

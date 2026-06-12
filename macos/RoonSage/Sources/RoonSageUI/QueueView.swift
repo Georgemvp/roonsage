@@ -11,11 +11,11 @@ public struct QueueView: View {
     public var body: some View {
         Group {
             if client.selectedZone == nil {
-                ContentUnavailableView("No zone selected", systemImage: "list.number",
-                    description: Text("Pick a zone in the toolbar to see its queue."))
+                ContentUnavailableView("Geen zone gekozen", systemImage: "list.number",
+                    description: Text("Kies een zone in de werkbalk om de wachtrij te zien."))
             } else if client.queueItems.isEmpty {
-                ContentUnavailableView("Queue is empty", systemImage: "list.number",
-                    description: Text("Nothing queued in \(client.selectedZone?.displayName ?? "this zone")."))
+                ContentUnavailableView("Wachtrij is leeg", systemImage: "list.number",
+                    description: Text("Niets in de wachtrij van \(client.selectedZone?.displayName ?? "deze zone")."))
             } else {
                 List {
                     ForEach(Array(client.queueItems.enumerated()), id: \.element.id) { index, item in
@@ -45,7 +45,7 @@ public struct QueueView: View {
                 .listStyle(.plain)
             }
         }
-        .navigationTitle("Queue")
+        .navigationTitle("Wachtrij")
         .onAppear(perform: restart)
         .onChange(of: client.selectedZone?.id) { _, _ in restart() }
         .onDisappear { client.stopQueue() }
@@ -57,6 +57,7 @@ public struct QueueView: View {
 
     private func playFromHere(_ item: RoonClient.QueueItem) {
         guard let zone = client.selectedZone?.id else { return }
+        Haptics.tap()
         Task { await client.playFromHere(zoneID: zone, queueItemID: item.id) }
     }
 

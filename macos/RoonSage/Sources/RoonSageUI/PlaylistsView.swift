@@ -19,9 +19,9 @@ public struct PlaylistsView: View {
         Group {
             if playlists.isEmpty {
                 ContentUnavailableView(
-                    "No saved playlists",
+                    "Geen bewaarde playlists",
                     systemImage: "list.star",
-                    description: Text("Curate tracks and save them (save_playlist via Claude Desktop). They'll appear here and survive a re-sync.")
+                    description: Text("Stel tracks samen en bewaar ze als playlist — ze verschijnen hier en blijven staan na een hersynchronisatie.")
                 )
             } else {
                 List {
@@ -52,25 +52,25 @@ public struct PlaylistsView: View {
         .navigationTitle("Playlists")
         .toolbar {
             Button(action: reload) { Image(systemName: "arrow.clockwise") }
-                .help("Reload")
+                .help("Ververs")
         }
         .onAppear(perform: reload)
         .confirmationDialog(
-            "Delete Playlist?",
+            "Playlist verwijderen?",
             isPresented: Binding(
                 get: { pendingDelete != nil },
                 set: { if !$0 { pendingDelete = nil } }
             ),
             titleVisibility: .visible
         ) {
-            Button("Delete", role: .destructive) {
+            Button("Verwijder", role: .destructive) {
                 if let pl = pendingDelete { delete(pl) }
                 pendingDelete = nil
             }
-            Button("Cancel", role: .cancel) { pendingDelete = nil }
+            Button("Annuleer", role: .cancel) { pendingDelete = nil }
         } message: {
             if let name = pendingDelete?.name {
-                Text("\(name) will be permanently removed.")
+                Text("\(name) wordt definitief verwijderd.")
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -100,23 +100,27 @@ public struct PlaylistsView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(client.selectedZone == nil)
-            .help(client.selectedZone == nil ? "Select a zone first" : "Play to \(client.selectedZone?.displayName ?? "")")
+            .accessibilityLabel("Speel playlist")
+            .help(client.selectedZone == nil ? "Kies eerst een zone" : "Speel af in \(client.selectedZone?.displayName ?? "")")
 
             if client.qobuzConfigured {
                 Button { saveToQobuz(pl) } label: { Image(systemName: "cloud") }
                     .buttonStyle(.borderless)
-                    .help("Save to Qobuz")
+                    .accessibilityLabel("Bewaar in Qobuz")
+                    .help("Bewaar in Qobuz")
             }
 
             Button { toggle(pl) } label: {
                 Image(systemName: expanded == pl.id ? "chevron.up" : "chevron.down")
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel(expanded == pl.id ? "Verberg tracks" : "Toon tracks")
 
             Button(role: .destructive) { pendingDelete = pl } label: {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel("Verwijder playlist")
         }
     }
 
@@ -124,17 +128,17 @@ public struct PlaylistsView: View {
         Task {
             let tracks = await client.playlistTracks(id: pl.id)
             guard !tracks.isEmpty else { return }
-            qobuzStatus = "Saving “\(pl.name)” to Qobuz…"
+            qobuzStatus = "“\(pl.name)” bewaren in Qobuz…"
             if let r = await client.saveToQobuz(name: pl.name, tracks: tracks) {
-                qobuzStatus = "“\(pl.name)” → Qobuz: \(r.matched)/\(r.total) matched."
+                qobuzStatus = "“\(pl.name)” → Qobuz: \(r.matched)/\(r.total) gematcht."
             } else {
-                qobuzStatus = "Qobuz save failed — check your account in Settings."
+                qobuzStatus = "Bewaren in Qobuz mislukt — controleer je account in Instellingen."
             }
         }
     }
 
     private func reload() {
-        playlists = client.playlists()
+        Task { playlists = await client.playlists() }
     }
 
     private func toggle(_ pl: DatabaseManager.PlaylistSummary) {

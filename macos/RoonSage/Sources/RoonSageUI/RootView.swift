@@ -16,8 +16,52 @@ public struct ContentView: View {
                 ConnectView()
             }
         }
-        .animation(.easeInOut, value: client.connectionState.isConnected)
+        .animation(Motion.standard, value: client.connectionState.isConnected)
+        .overlay(alignment: .bottom) { ActionErrorToast() }
         .roonSageAppearance()
+    }
+}
+
+// MARK: - Action-error toast
+
+/// Transient bottom toast for failed user actions (play/seek/volume/curate).
+/// Driven by `RoonClient.lastActionError`; auto-dismisses after 4 seconds.
+@MainActor
+struct ActionErrorToast: View {
+    @Environment(RoonClient.self) private var client
+    @State private var visible = false
+    @State private var dismissTask: Task<Void, Never>?
+
+    var body: some View {
+        Group {
+            if visible, let err = client.lastActionError {
+                Label(err.message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .lineLimit(2)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.md)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.lg))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Radius.lg)
+                            .strokeBorder(Color.roonDanger.opacity(0.5))
+                    )
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.bottom, Spacing.xl)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
+        .animation(Motion.standard, value: visible)
+        .onChange(of: client.lastActionError) { _, err in
+            guard err != nil else { return }
+            visible = true
+            dismissTask?.cancel()
+            dismissTask = Task {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                guard !Task.isCancelled else { return }
+                visible = false
+            }
+        }
     }
 }
 
@@ -40,6 +84,27 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case settings    = "Settings"
 
     public var id: String { rawValue }
+
+    /// Weergavenaam (NL). rawValue blijft het stabiele ID; featurenamen
+    /// (DJ Set, Live DJ, Sonic DNA, Music Map) blijven onvertaald.
+    var title: String {
+        switch self {
+        case .nowPlaying:  "Nu speelt"
+        case .queue:       "Wachtrij"
+        case .library:     "Bibliotheek"
+        case .ask:         "Vraag het"
+        case .generate:    "Genereer"
+        case .recommend:   "Aanbevelen"
+        case .playlists:   "Playlists"
+        case .djSet:       "DJ Set"
+        case .liveDJ:      "Live DJ"
+        case .fingerprint: "Sonic DNA"
+        case .musicMap:    "Music Map"
+        case .discovery:   "Ontdek"
+        case .taste:       "Smaakprofiel"
+        case .settings:    "Instellingen"
+        }
+    }
 
     var icon: String {
         switch self {
@@ -99,7 +164,7 @@ struct RootView: View {
         NavigationSplitView {
             List(selection: sidebarSelection) {
                 ForEach(SidebarItem.allCases) { item in
-                    Label(item.rawValue, systemImage: item.icon)
+                    Label(item.title, systemImage: item.icon)
                         .tag(item)
                 }
             }
@@ -130,41 +195,41 @@ struct RootView: View {
         TabView(selection: iOSTabSelection) {
             NavigationStack {
                 NowPlayingView()
-                    .navigationTitle("Now Playing")
+                    .navigationTitle("Nu speelt")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar { navToolbar }
             }
-            .tabItem { Label("Now Playing", systemImage: "play.circle.fill") }
+            .tabItem { Label("Nu speelt", systemImage: "play.circle.fill") }
             .tag(SidebarItem.nowPlaying)
 
             NavigationStack {
                 LibraryView()
-                    .navigationTitle("Library (\(client.trackCount))")
+                    .navigationTitle("Bibliotheek (\(client.trackCount))")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar { navToolbar }
             }
-            .tabItem { Label("Library", systemImage: "music.note.list") }
+            .tabItem { Label("Bibliotheek", systemImage: "music.note.list") }
             .tag(SidebarItem.library)
 
             NavigationStack {
                 iOSCreateHub.toolbar { navToolbar }
             }
-            .tabItem { Label("Create", systemImage: "wand.and.stars") }
+            .tabItem { Label("Maak", systemImage: "wand.and.stars") }
             .tag(SidebarItem.generate)
 
             NavigationStack {
                 iOSExploreHub.toolbar { navToolbar }
             }
-            .tabItem { Label("Explore", systemImage: "sparkles") }
+            .tabItem { Label("Ontdek", systemImage: "sparkles") }
             .tag(SidebarItem.discovery)
 
             NavigationStack {
                 SettingsView()
-                    .navigationTitle("Settings")
+                    .navigationTitle("Instellingen")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar { navToolbar }
             }
-            .tabItem { Label("Settings", systemImage: "gearshape") }
+            .tabItem { Label("Instellingen", systemImage: "gearshape") }
             .tag(SidebarItem.settings)
         }
         .onChange(of: client.zones) { _, _ in
@@ -190,15 +255,15 @@ struct RootView: View {
     @ViewBuilder
     private var iOSCreateHub: some View {
         List {
-            Section("AI Curation") {
-                NavigationLink { GenerateView().navigationTitle("Generate").navigationBarTitleDisplayMode(.inline) } label: {
-                    Label("Generate Playlist", systemImage: SidebarItem.generate.icon)
+            Section("AI-curatie") {
+                NavigationLink { GenerateView().navigationTitle("Genereer").navigationBarTitleDisplayMode(.inline) } label: {
+                    Label("Genereer playlist", systemImage: SidebarItem.generate.icon)
                 }
                 NavigationLink { AskView().navigationTitle("Vraag het").navigationBarTitleDisplayMode(.inline) } label: {
-                    Label("Ask Library", systemImage: SidebarItem.ask.icon)
+                    Label("Vraag het je bibliotheek", systemImage: SidebarItem.ask.icon)
                 }
-                NavigationLink { RecommendView().navigationTitle("Recommend").navigationBarTitleDisplayMode(.inline) } label: {
-                    Label("Recommend Albums", systemImage: SidebarItem.recommend.icon)
+                NavigationLink { RecommendView().navigationTitle("Aanbevelen").navigationBarTitleDisplayMode(.inline) } label: {
+                    Label("Albums aanbevelen", systemImage: SidebarItem.recommend.icon)
                 }
             }
             Section("DJ") {
@@ -209,40 +274,40 @@ struct RootView: View {
                     Label("Live DJ", systemImage: SidebarItem.liveDJ.icon)
                 }
             }
-            Section("Playback") {
-                NavigationLink { QueueView().navigationTitle("Queue").navigationBarTitleDisplayMode(.inline) } label: {
-                    Label("Queue", systemImage: SidebarItem.queue.icon)
+            Section("Afspelen") {
+                NavigationLink { QueueView().navigationTitle("Wachtrij").navigationBarTitleDisplayMode(.inline) } label: {
+                    Label("Wachtrij", systemImage: SidebarItem.queue.icon)
                 }
                 NavigationLink { PlaylistsView().navigationTitle("Playlists").navigationBarTitleDisplayMode(.inline) } label: {
-                    Label("Saved Playlists", systemImage: SidebarItem.playlists.icon)
+                    Label("Bewaarde playlists", systemImage: SidebarItem.playlists.icon)
                 }
             }
         }
-        .navigationTitle("Create")
+        .navigationTitle("Maak")
         .navigationBarTitleDisplayMode(.large)
     }
 
     @ViewBuilder
     private var iOSExploreHub: some View {
         List {
-            Section("Discover") {
-                NavigationLink { DiscoveryView().navigationTitle("Discovery").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Discovery", systemImage: SidebarItem.discovery.icon)
+            Section("Ontdekken") {
+                NavigationLink { DiscoveryView().navigationTitle("Ontdek").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Ontdek", systemImage: SidebarItem.discovery.icon)
                 }
-                NavigationLink { TasteProfileView().navigationTitle("Taste Profile").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Taste Profile", systemImage: SidebarItem.taste.icon)
+                NavigationLink { TasteProfileView().navigationTitle("Smaakprofiel").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Smaakprofiel", systemImage: SidebarItem.taste.icon)
                 }
             }
-            Section("Sonic Tools") {
+            Section("Sonic-tools") {
                 NavigationLink { SonicFingerprintView().navigationTitle("Sonic DNA").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Sonic Fingerprint", systemImage: SidebarItem.fingerprint.icon)
+                    Label("Sonic DNA", systemImage: SidebarItem.fingerprint.icon)
                 }
                 NavigationLink { MusicMapView().navigationTitle("Music Map").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Music Map", systemImage: SidebarItem.musicMap.icon)
                 }
             }
         }
-        .navigationTitle("Explore")
+        .navigationTitle("Ontdek")
         .navigationBarTitleDisplayMode(.large)
     }
     #endif
@@ -308,17 +373,17 @@ struct RootView: View {
                 Button {
                     Task { await client.previous(zoneID: zone.id) }
                 } label: { Image(systemName: "backward.fill") }
-                    .accessibilityLabel("Previous track")
+                    .accessibilityLabel("Vorige track")
 
                 Button {
                     Task { await client.playPause(zoneID: zone.id) }
                 } label: { Image(systemName: zone.state == .playing ? "pause.fill" : "play.fill") }
-                    .accessibilityLabel(zone.state == .playing ? "Pause" : "Play")
+                    .accessibilityLabel(zone.state == .playing ? "Pauzeer" : "Speel af")
 
                 Button {
                     Task { await client.next(zoneID: zone.id) }
                 } label: { Image(systemName: "forward.fill") }
-                    .accessibilityLabel("Next track")
+                    .accessibilityLabel("Volgende track")
             }
         }
     }

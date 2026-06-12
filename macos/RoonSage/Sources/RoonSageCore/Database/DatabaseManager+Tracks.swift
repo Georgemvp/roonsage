@@ -63,24 +63,32 @@ extension DatabaseManager {
         }
     }
 
+    /// Build a prefix-matching FTS5 query from raw user text. Each token is
+    /// double-quoted so user input can never inject FTS operators (AND, OR,
+    /// NEAR, '-', column filters). Returns nil when the text holds no
+    /// searchable token (then callers skip the text constraint entirely).
+    static func ftsQuery(_ raw: String) -> String? {
+        let tokens = raw.split { !$0.isLetter && !$0.isNumber }
+        guard !tokens.isEmpty else { return nil }
+        return tokens.map { "\"\($0)\"*" }.joined(separator: " ")
+    }
+
     public func searchTracks(query: String, limit: Int = 200) throws -> [TrackRecord] {
         try pool.read { db in
-            if query.isEmpty {
+            guard let match = Self.ftsQuery(query) else {
                 return try TrackRecord
                     .order(Column("title"))
                     .limit(limit)
                     .fetchAll(db)
             }
-            let pattern = "%\(query)%"
-            return try TrackRecord
-                .filter(
-                    Column("title").like(pattern) ||
-                    Column("artist").like(pattern) ||
-                    Column("album").like(pattern)
-                )
-                .order(Column("title"))
-                .limit(limit)
-                .fetchAll(db)
+            // FTS5 index lookup (ordered by relevance) — replaces the
+            // leading-wildcard LIKE that scanned the whole table.
+            return try TrackRecord.fetchAll(db, sql: """
+                SELECT t.* FROM tracks t
+                JOIN tracks_fts ON tracks_fts.rowid = t.rowid
+                WHERE tracks_fts MATCH ?
+                ORDER BY rank LIMIT ?
+            """, arguments: [match, limit])
         }
     }
 

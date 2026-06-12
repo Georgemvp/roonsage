@@ -16,13 +16,13 @@ public struct SonicFingerprintView: View {
                     profileCard(fp)
                     if !fp.recommendations.isEmpty { recommendationsCard(fp) }
                 } else if isLoading {
-                    ContentUnavailableView("Computing your sonic DNA…", systemImage: "waveform.path.ecg")
+                    ContentUnavailableView("Je sonische DNA berekenen…", systemImage: "waveform.path.ecg")
                         .frame(maxWidth: .infinity, minHeight: 300)
                 } else if loaded {
                     ContentUnavailableView(
-                        "No analyzed tracks yet",
+                        "Nog geen geanalyseerde tracks",
                         systemImage: "waveform.path.ecg",
-                        description: Text("Run the audio analyzer (Library tab) so your musical DNA can be computed.")
+                        description: Text("Draai de audio-analyzer en synchroniseer in Instellingen, dan kan je muzikale DNA berekend worden.")
                     )
                     .frame(maxWidth: .infinity, minHeight: 300)
                 }
@@ -34,7 +34,7 @@ public struct SonicFingerprintView: View {
             Button { Task { await load(force: true) } } label: {
                 Image(systemName: "arrow.clockwise")
             }
-            .help("Recompute")
+            .help("Herbereken")
             .disabled(isLoading)
         }
         .task { await load(force: false) }
@@ -46,35 +46,34 @@ public struct SonicFingerprintView: View {
     private func profileCard(_ fp: RoonClient.Fingerprint) -> some View {
         let p = fp.profile
         VStack(alignment: .leading, spacing: Spacing.md) {
-            Text("Your Musical DNA").font(.headline)
-            Text("Averaged from your \(fp.seedCount) most-played analyzed tracks.")
+            Text("Jouw muzikale DNA").font(.headline)
+            Text("Gemiddeld over je \(fp.seedCount) meest gespeelde geanalyseerde tracks.")
                 .font(.caption).foregroundStyle(.secondary)
 
             HStack(alignment: .center, spacing: Spacing.xl) {
                 RadarChart(axes: [
-                    ("Energy", p.energy),
+                    ("Energie", p.energy),
                     ("Tempo", p.tempo),
-                    ("Major", p.majorAffinity),
-                    ("Variety", p.tempoVariety),
+                    ("Majeur", p.majorAffinity),
+                    ("Variatie", p.tempoVariety),
                     ("Tags", p.tagRichness),
                 ])
                 .frame(width: 220, height: 220)
 
                 VStack(alignment: .leading, spacing: Spacing.sm) {
-                    statRow("Avg tempo", "\(Int(p.avgBPM)) BPM")
-                    statRow("Energy", percent(p.energy))
-                    statRow("Major key affinity", percent(p.majorAffinity))
-                    statRow("Tempo variety", percent(p.tempoVariety))
+                    statRow("Gem. tempo", "\(Int(p.avgBPM)) BPM")
+                    statRow("Energie", percent(p.energy))
+                    statRow("Voorkeur majeur", percent(p.majorAffinity))
+                    statRow("Tempovariatie", percent(p.tempoVariety))
                     if !p.topTags.isEmpty {
-                        Text("Signature tags").font(.caption).foregroundStyle(.secondary).padding(.top, 4)
+                        Text("Kenmerkende tags").font(.caption).foregroundStyle(.secondary).padding(.top, 4)
                         FlowTags(tags: p.topTags.map { $0.tag })
                     }
                 }
                 Spacer()
             }
         }
-        .padding(Spacing.lg)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
+        .cardStyle()
     }
 
     private func statRow(_ label: String, _ value: String) -> some View {
@@ -92,17 +91,17 @@ public struct SonicFingerprintView: View {
     private func recommendationsCard(_ fp: RoonClient.Fingerprint) -> some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             HStack {
-                Text("Recommended for You").font(.headline)
+                Text("Aanbevolen voor jou").font(.headline)
                 Spacer()
                 Button {
                     play { await client.curateTracks(asTracks(fp.recommendations), zoneID: $0) }
                 } label: {
-                    Label("Play all", systemImage: "play.fill")
+                    Label("Speel alles", systemImage: "play.fill")
                 }
                 .buttonStyle(.bordered).controlSize(.small)
                 .disabled(client.selectedZone == nil)
             }
-            Text("Closest to your taste, discovery-friendly.")
+            Text("Het dichtst bij jouw smaak, met ruimte voor ontdekking.")
                 .font(.caption).foregroundStyle(.secondary)
 
             ForEach(fp.recommendations) { scored in
@@ -110,7 +109,7 @@ public struct SonicFingerprintView: View {
                     AlbumArtView(imageKey: scored.track.imageKey, size: 40)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(scored.track.title).font(.callout).lineLimit(1)
-                        Text(scored.track.artist ?? "Unknown")
+                        Text(scored.track.artist ?? "Onbekend")
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer()
@@ -125,12 +124,11 @@ public struct SonicFingerprintView: View {
                     }
                     .buttonStyle(.borderless)
                     .disabled(client.selectedZone == nil)
-                    .help("Play now")
+                    .help("Speel nu")
                 }
             }
         }
-        .padding(Spacing.lg)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
+        .cardStyle()
     }
 
     // MARK: - Helpers

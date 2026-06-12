@@ -16,12 +16,12 @@ public struct MusicMapView: View {
     public var body: some View {
         Group {
             if isLoading {
-                ContentUnavailableView("Mapping your library…", systemImage: "map")
+                ContentUnavailableView("Je bibliotheek in kaart brengen…", systemImage: "map")
             } else if tracks.isEmpty && loaded {
                 ContentUnavailableView(
                     "No analyzed tracks yet",
                     systemImage: "map",
-                    description: Text("Run the audio analyzer (Library tab) to plot your library here.")
+                    description: Text("Draai de audio-analyzer en synchroniseer in Instellingen om je bibliotheek hier te plotten.")
                 )
             } else {
                 mapBody
@@ -30,7 +30,7 @@ public struct MusicMapView: View {
         .navigationTitle("Music Map")
         .toolbar {
             Button { Task { await load(force: true) } } label: { Image(systemName: "arrow.clockwise") }
-                .help("Reload").disabled(isLoading)
+                .help("Ververs").disabled(isLoading)
         }
         .task { await load(force: false) }
     }
@@ -41,7 +41,7 @@ public struct MusicMapView: View {
                 Text("\(tracks.count) analyzed tracks")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Text("Energy ↑   ·   Tempo →")
+                Text("Energie ↑   ·   Tempo →")
                     .font(.caption).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, Spacing.lg)
@@ -149,7 +149,7 @@ public struct MusicMapView: View {
             if d < bestDist { bestDist = d; best = t }
         }
         // Only select if reasonably close (≈14pt).
-        withAnimation(.easeOut(duration: 0.15)) {
+        withAnimation(Motion.quick) {
             selected = bestDist <= 196 ? best : nil
         }
     }

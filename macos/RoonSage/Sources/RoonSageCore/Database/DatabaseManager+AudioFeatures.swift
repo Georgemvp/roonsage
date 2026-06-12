@@ -34,7 +34,7 @@ extension DatabaseManager {
 
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) throws {
         guard !rows.isEmpty else { return }
-        let iso = ISO8601DateFormatter().string(from: Date())
+        let iso = Self.isoFormatter.string(from: Date())
         let chunk = Self.rowsPerChunk(columns: 9)
         try pool.write { db in
             var start = 0

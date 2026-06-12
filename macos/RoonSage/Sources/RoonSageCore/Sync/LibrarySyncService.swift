@@ -40,7 +40,7 @@ actor LibrarySyncService {
         let session = "library_sync_\(Int(Date().timeIntervalSince1970))"
 
         // 1. Root
-        onProgress(Progress(phase: "Navigating root…", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0))
+        onProgress(Progress(phase: "Root openen…", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0))
         let rootItems = try await browse.browseAll(to: nil, sessionKey: session)
 
         guard !isCancelled else { return 0 }
@@ -54,7 +54,7 @@ actor LibrarySyncService {
         }
 
         // 3. Browse into Library
-        onProgress(Progress(phase: "Opening library…", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0))
+        onProgress(Progress(phase: "Bibliotheek openen…", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0))
         let libraryItems = try await browse.browseAll(to: libraryItem.itemKey, sessionKey: session)
 
         guard !isCancelled else { return 0 }
@@ -68,7 +68,7 @@ actor LibrarySyncService {
         }
 
         // 5. Load all albums (paginated)
-        onProgress(Progress(phase: "Loading albums…", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0))
+        onProgress(Progress(phase: "Albums laden…", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0))
         let albumItems = try await browse.browseAll(to: albumsItem.itemKey, sessionKey: session)
         let totalAlbums = albumItems.count
 
@@ -82,12 +82,13 @@ actor LibrarySyncService {
         let run = try database.beginSyncRun()
         if run.resumed {
             onProgress(Progress(
-                phase: "Resuming sync (\(run.completedAlbums.count) albums done)…",
+                phase: "Sync hervatten (\(run.completedAlbums.count) albums klaar)…",
                 albumsCompleted: 0, albumsTotal: totalAlbums, tracksFound: 0))
         }
 
         // 7. Walk each album
         var albumsCompleted = 0
+        var albumsFailed = 0
         var tracksFound = 0
         var seenThisRun = Set<String>()   // duplicate-edition fingerprints append, not replace
 
@@ -117,7 +118,10 @@ actor LibrarySyncService {
             do {
                 trackItems = try await browse.browseAll(to: albumKey, sessionKey: session)
             } catch {
-                // Skip albums that fail to load (e.g. unavailable streaming content)
+                // Skip albums that fail to load (e.g. unavailable streaming
+                // content) — but count them: a walk with failures must not
+                // prune, or a flaky connection would shrink the library.
+                albumsFailed += 1
                 albumsCompleted += 1
                 continue
             }
@@ -162,7 +166,7 @@ actor LibrarySyncService {
             albumsCompleted += 1
 
             onProgress(Progress(
-                phase: "Syncing albums…",
+                phase: "Albums synchroniseren…",
                 albumsCompleted: albumsCompleted,
                 albumsTotal: totalAlbums,
                 tracksFound: tracksFound
@@ -172,8 +176,11 @@ actor LibrarySyncService {
         // 8. Complete walk → now it's safe to drop rows of albums that no
         //    longer exist in Roon and close the generation. On cancel/crash we
         //    skip this, leaving the checkpoints so the next run resumes.
+        //    If any album failed to browse we still close the run but skip
+        //    the destructive prune: failed albums have no checkpoint this
+        //    generation and pruning would delete their still-valid rows.
         if !isCancelled {
-            try database.finishSyncRun(generation: run.generation)
+            try database.finishSyncRun(generation: run.generation, pruneStale: albumsFailed == 0)
             // Includes rows of resume-skipped albums (tracksFound only counts
             // freshly walked ones).
             tracksFound = try database.trackCount()
@@ -185,12 +192,12 @@ actor LibrarySyncService {
             // Immutable copy — the @Sendable progress closure below must not
             // capture the mutable `tracksFound` var (rejected under -c release).
             let finalTrackCount = tracksFound
-            onProgress(Progress(phase: "Syncing genres…", albumsCompleted: totalAlbums, albumsTotal: totalAlbums, tracksFound: finalTrackCount))
+            onProgress(Progress(phase: "Genres synchroniseren…", albumsCompleted: totalAlbums, albumsTotal: totalAlbums, tracksFound: finalTrackCount))
             let genreSession = "genre_sync_\(Int(Date().timeIntervalSince1970))"
             do {
                 let mapping = try await browse.genreMapping(sessionKey: genreSession) { done, total in
                     onProgress(Progress(
-                        phase: "Syncing genres… (\(done)/\(total))",
+                        phase: "Genres synchroniseren… (\(done)/\(total))",
                         albumsCompleted: totalAlbums, albumsTotal: totalAlbums, tracksFound: finalTrackCount
                     ))
                 }
@@ -203,7 +210,7 @@ actor LibrarySyncService {
         }
 
         // 10. Record sync timestamp
-        try database.setSyncState(key: "last_sync", value: ISO8601DateFormatter().string(from: Date()))
+        try database.setSyncState(key: "last_sync", value: DatabaseManager.isoFormatter.string(from: Date()))
 
         return tracksFound
     }
@@ -234,8 +241,8 @@ enum SyncError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .libraryNotFound: "Could not find Library in Roon Browse hierarchy."
-        case .albumsNotFound:  "Could not find Albums section in Roon Library."
+        case .libraryNotFound: "Kon de bibliotheek niet vinden in de Roon Browse-hiërarchie."
+        case .albumsNotFound:  "Kon de albumsectie niet vinden in de Roon-bibliotheek."
         }
     }
 }

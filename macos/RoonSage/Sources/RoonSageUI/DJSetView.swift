@@ -17,19 +17,20 @@ public struct DJSetView: View {
     @State private var saveName = ""
     @State private var status: String?
     @State private var showRebuildConfirm = false
+    // Loaded in .task — a DB read in `body` blocked main on every render.
+    @State private var stats: (total: Int, matched: Int) = (0, 0)
 
     public var body: some View {
-        let stats = client.audioFeaturesStats()
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if stats.matched == 0 {
                     ContentUnavailableView(
-                        "No analyzed tracks yet",
+                        "Nog geen geanalyseerde tracks",
                         systemImage: "waveform.path.ecg",
-                        description: Text("Run roonsage-analyzer on your music host, then sync in Settings → Audio Analyzer.")
+                        description: Text("Draai roonsage-analyzer op je muziek-host en synchroniseer daarna in Instellingen → Audio Analyzer.")
                     )
                 } else {
-                    Text("\(stats.matched) tracks with BPM/key available").font(.caption).foregroundStyle(.secondary)
+                    Text("\(stats.matched) tracks met BPM/toonsoort beschikbaar").font(.caption).foregroundStyle(.secondary)
 
                     HStack(spacing: 20) {
                         Stepper("Tracks: \(count)", value: $count, in: 5...60, step: 5)
@@ -40,19 +41,19 @@ public struct DJSetView: View {
 
                     HStack(spacing: 20) {
                         Stepper("Start: \(Int(startBPM)) BPM", value: $startBPM, in: 60...200, step: 1)
-                        Stepper("End: \(Int(endBPM)) BPM", value: $endBPM, in: 60...200, step: 1)
+                        Stepper("Eind: \(Int(endBPM)) BPM", value: $endBPM, in: 60...200, step: 1)
                     }
 
                     HStack {
                         Text("Tags").foregroundStyle(.secondary)
-                        TextField("optional, comma-separated (e.g. driving, deep house)", text: $tagsText)
+                        TextField("optioneel, kommagescheiden (bijv. driving, deep house)", text: $tagsText)
                             .textFieldStyle(.roundedBorder)
                     }
 
                     HStack {
                         if !client.zones.isEmpty {
                             Picker("Zone", selection: $selectedZoneID) {
-                                Text("Select zone…").tag(Optional<String>.none)
+                                Text("Kies zone…").tag(Optional<String>.none)
                                 ForEach(client.zones) { z in
                                     Label(z.displayName, systemImage: z.state.icon).tag(Optional(z.id))
                                 }
@@ -62,15 +63,15 @@ public struct DJSetView: View {
                         Button {
                             if set.isEmpty { build() } else { showRebuildConfirm = true }
                         } label: {
-                            Label("Build DJ Set", systemImage: "slider.horizontal.3")
+                            Label("Bouw DJ-set", systemImage: "slider.horizontal.3")
                         }
                         .buttonStyle(.borderedProminent)
                         .confirmationDialog(
-                            "Rebuild the set? The current set will be replaced.",
+                            "Set opnieuw bouwen? De huidige set wordt vervangen.",
                             isPresented: $showRebuildConfirm, titleVisibility: .visible
                         ) {
-                            Button("Rebuild", role: .destructive) { build() }
-                            Button("Cancel", role: .cancel) {}
+                            Button("Opnieuw bouwen", role: .destructive) { build() }
+                            Button("Annuleer", role: .cancel) {}
                         }
                     }
 
@@ -83,6 +84,7 @@ public struct DJSetView: View {
         }
         .navigationTitle("DJ Set")
         .onAppear { if selectedZoneID == nil { selectedZoneID = client.selectedZone?.id } }
+        .task { stats = await client.audioFeaturesStats() }
     }
 
     private var setlistText: String {
@@ -97,13 +99,13 @@ public struct DJSetView: View {
     private var resultView: some View {
         Divider()
         HStack {
-            Text("\(set.count)-track set").font(.headline)
+            Text("Set van \(set.count) tracks").font(.headline)
             Spacer()
-            TextField("Playlist name", text: $saveName).textFieldStyle(.roundedBorder).frame(width: 160)
-            Button("Save") {
+            TextField("Naam playlist", text: $saveName).textFieldStyle(.roundedBorder).frame(width: 160)
+            Button("Bewaar") {
                 let n = saveName.trimmingCharacters(in: .whitespaces)
                 guard !n.isEmpty else { return }
-                client.saveDJSet(name: n, set: set); status = "Saved playlist “\(n)”."
+                client.saveDJSet(name: n, set: set); status = "Playlist “\(n)” bewaard."
             }.disabled(saveName.trimmingCharacters(in: .whitespaces).isEmpty)
             ShareLink(item: setlistText) {
                 Label("Exporteer", systemImage: "square.and.arrow.up")
@@ -112,7 +114,7 @@ public struct DJSetView: View {
             Button {
                 guard let z = selectedZoneID else { return }
                 Task { await client.playDJSet(set, zoneID: z) }
-            } label: { Label("Play", systemImage: "play.fill") }
+            } label: { Label("Speel", systemImage: "play.fill") }
             .buttonStyle(.borderedProminent).disabled(selectedZoneID == nil)
         }
 
@@ -167,9 +169,12 @@ public struct DJSetView: View {
 
     private func build() {
         let tags = tagsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        set = client.buildDJSet(count: count, startBPM: startBPM, endBPM: endBPM, curve: curve, tags: tags)
-        status = set.isEmpty ? "No tracks matched — widen the BPM range or drop the tags." : nil
-        if saveName.isEmpty { saveName = "DJ set \(Int(startBPM))–\(Int(endBPM)) BPM" }
+        Task {
+            set = await client.buildDJSet(count: count, startBPM: startBPM, endBPM: endBPM, curve: curve, tags: tags)
+            status = set.isEmpty ? "Geen tracks gevonden — verbreed het BPM-bereik of laat de tags weg." : nil
+            if !set.isEmpty { Haptics.success() }
+            if saveName.isEmpty { saveName = "DJ set \(Int(startBPM))–\(Int(endBPM)) BPM" }
+        }
     }
 }
 

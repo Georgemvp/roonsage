@@ -18,6 +18,10 @@ public enum KeychainStore {
         SecItemDelete(query as CFDictionary)
         var attrs = query
         attrs[kSecValueData] = data
+        // Device-only, post-first-unlock: the Roon token and scrobble keys
+        // must not sync via iCloud Keychain or end up in device backups,
+        // and background tasks (scrobbling) may need them while locked.
+        attrs[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(attrs as CFDictionary, nil)
         return status == errSecSuccess
     }

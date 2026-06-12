@@ -64,11 +64,11 @@ struct MenuBarContent: View {
                             .lineLimit(1)
                     }
                 } else if client.connectionState.isConnected {
-                    Text("Nothing playing")
+                    Text("Er speelt niets")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("Not connected")
+                    Text("Niet verbonden")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

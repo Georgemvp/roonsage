@@ -6,6 +6,7 @@ import SwiftUI
 public struct SkeletonRows: View {
     private let count: Int
     @State private var pulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(count: Int = 10) {
         self.count = count
@@ -31,6 +32,7 @@ public struct SkeletonRows: View {
         }
         .opacity(pulse ? 0.5 : 1)
         .onAppear {
+            guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
         }
         .accessibilityHidden(true)

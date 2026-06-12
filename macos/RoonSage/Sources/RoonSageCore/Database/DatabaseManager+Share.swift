@@ -129,7 +129,7 @@ extension DatabaseManager {
             try db.execute(sql: """
                 INSERT INTO sync_state (key, value) VALUES ('last_sync', ?)
                 ON CONFLICT(key) DO UPDATE SET value=excluded.value
-            """, arguments: [ISO8601DateFormatter().string(from: Date())])
+            """, arguments: [Self.isoFormatter.string(from: Date())])
         }
         return records.count
     }

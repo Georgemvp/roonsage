@@ -42,11 +42,11 @@ public struct ConnectView: View {
                 Text("RoonSage")
                     .font(.largeTitle.bold())
                 #if os(macOS)
-                Text("Native macOS Client")
+                Text("Native macOS-client")
                     .font(.title3)
                     .foregroundStyle(.secondary)
                 #else
-                Text("Native iOS Client")
+                Text("Native iOS-client")
                     .font(.title3)
                     .foregroundStyle(.secondary)
                 #endif
@@ -65,7 +65,7 @@ public struct ConnectView: View {
                     Button {
                         Task { await client.connect(host: saved, port: client.savedPort) }
                     } label: {
-                        Label("Reconnect to \(saved)", systemImage: "arrow.clockwise")
+                        Label("Opnieuw verbinden met \(saved)", systemImage: "arrow.clockwise")
                             .frame(minWidth: 240)
                     }
                     .buttonStyle(.borderedProminent)
@@ -76,14 +76,14 @@ public struct ConnectView: View {
                 // Discover on LAN (SOOD — only works on same network)
                 if client.savedHost == nil {
                     Button { Task { await client.discoverAndConnect() } } label: {
-                        Label("Discover Roon Core", systemImage: "magnifyingglass").frame(minWidth: 240)
+                        Label("Zoek Roon Core", systemImage: "magnifyingglass").frame(minWidth: 240)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .disabled(isWorking)
                 } else {
                     Button { Task { await client.discoverAndConnect() } } label: {
-                        Label("Discover on local network", systemImage: "magnifyingglass").frame(minWidth: 240)
+                        Label("Zoek op lokaal netwerk", systemImage: "magnifyingglass").frame(minWidth: 240)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
@@ -91,7 +91,7 @@ public struct ConnectView: View {
                 }
 
                 // Manual entry toggle
-                Button("Enter IP address manually") {
+                Button("Voer IP-adres handmatig in") {
                     withAnimation { showManual.toggle() }
                 }
                 .buttonStyle(.plain)
@@ -126,9 +126,9 @@ public struct ConnectView: View {
             // Help
             Group {
                 if let saved = client.savedHost {
-                    Text("Remote? Use \u{201C}Reconnect to \(saved)\u{201D} — works over ZeroTier/VPN.\nOn the same network? Use \u{201C}Discover on local network\u{201D} instead.")
+                    Text("Op afstand? Gebruik \u{201C}Opnieuw verbinden met \(saved)\u{201D} — werkt via ZeroTier/VPN.\nOp hetzelfde netwerk? Gebruik dan \u{201C}Zoek op lokaal netwerk\u{201D}.")
                 } else {
-                    Text("Make sure Roon is running on the same network.\nAfter connecting, open Roon → Settings → Extensions and enable RoonSage.")
+                    Text("Zorg dat Roon op hetzelfde netwerk draait.\nOpen na het verbinden Roon → Settings → Extensions en schakel RoonSage in.")
                 }
             }
             .font(.caption)
@@ -169,10 +169,10 @@ public struct ConnectView: View {
             TextField("Roon Core IP", text: $host)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 180)
-            TextField("Port", text: $port)
+            TextField("Poort", text: $port)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 70)
-            Button("Connect") {
+            Button("Verbind") {
                 let h = host.trimmingCharacters(in: .whitespacesAndNewlines)
                 let p = UInt16(port.trimmingCharacters(in: .whitespacesAndNewlines))
                 guard let p, !h.isEmpty else { return }

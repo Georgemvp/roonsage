@@ -36,7 +36,7 @@ extension DatabaseManager {
     /// artist, most-played first. Resolved to current library item_keys.
     public func forgottenFavorites(days: Int = 60, limit: Int = 20) throws -> [TrackRecord] {
         try pool.read { db in
-            let cutoff = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Double(days) * 86_400))
+            let cutoff = Self.isoFormatter.string(from: Date().addingTimeInterval(-Double(days) * 86_400))
             // Single JOIN: history aggregate → current library track (was an
             // N+1 point-lookup per history row). 2-per-artist cap stays in Swift.
             let rows = try TrackRecord.fetchAll(db, sql: """
@@ -105,10 +105,10 @@ extension DatabaseManager {
         try pool.read { db in
             var conditions: [String] = []
             var args: [DatabaseValueConvertible] = []
-            if !query.isEmpty {
-                conditions.append("(LOWER(t.title) LIKE ? OR LOWER(t.artist) LIKE ? OR LOWER(t.album) LIKE ?)")
-                let p = "%\(query.lowercased())%"
-                args.append(contentsOf: [p, p, p])
+            // FTS5 prefix match instead of a leading-wildcard LIKE full scan.
+            if !query.isEmpty, let match = Self.ftsQuery(query) {
+                conditions.append("t.rowid IN (SELECT rowid FROM tracks_fts WHERE tracks_fts MATCH ?)")
+                args.append(match)
             }
             if let tag, !tag.isEmpty {
                 conditions.append("LOWER(f.tags) LIKE ?")

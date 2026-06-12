@@ -5,7 +5,7 @@ import RoonSageUI
 @MainActor
 @main
 struct RoonSageApp: App {
-    @State private var client = RoonClient()
+    @State private var client = RoonClient.shared
     @State private var availableUpdate: UpdateInfo? = nil
     @State private var showUpdateSheet = false
     @State private var isCheckingForUpdates = false
@@ -29,22 +29,22 @@ struct RoonSageApp: App {
         .commands {
             CommandGroup(after: .appInfo) {
                 Divider()
-                Button(isCheckingForUpdates ? "Checking for Updates…" : "Check for Updates…") {
+                Button(isCheckingForUpdates ? "Zoeken naar updates…" : "Zoek naar updates…") {
                     Task { await checkForUpdatesManually() }
                 }
                 .disabled(isCheckingForUpdates)
             }
-            CommandMenu("Controls") {
-                Button("Play / Pause") { transport { z in await client.playPause(zoneID: z) } }
+            CommandMenu("Bediening") {
+                Button("Speel / pauzeer") { transport { z in await client.playPause(zoneID: z) } }
                     .keyboardShortcut("p", modifiers: .command)
-                Button("Next Track") { transport { z in await client.next(zoneID: z) } }
+                Button("Volgende track") { transport { z in await client.next(zoneID: z) } }
                     .keyboardShortcut("]", modifiers: .command)
-                Button("Previous Track") { transport { z in await client.previous(zoneID: z) } }
+                Button("Vorige track") { transport { z in await client.previous(zoneID: z) } }
                     .keyboardShortcut("[", modifiers: .command)
                 Divider()
-                Button("Volume Up") { volume(+4) }
+                Button("Volume omhoog") { volume(+4) }
                     .keyboardShortcut(.upArrow, modifiers: .command)
-                Button("Volume Down") { volume(-4) }
+                Button("Volume omlaag") { volume(-4) }
                     .keyboardShortcut(.downArrow, modifiers: .command)
             }
         }
@@ -105,8 +105,8 @@ struct RoonSageApp: App {
             showUpdateSheet = true
         } else {
             let alert = NSAlert()
-            alert.messageText = "You're up to date"
-            alert.informativeText = "RoonSage \(currentVersion) is the latest version."
+            alert.messageText = "Je bent up-to-date"
+            alert.informativeText = "RoonSage \(currentVersion) is de nieuwste versie."
             alert.alertStyle = .informational
             alert.addButton(withTitle: "OK")
             alert.runModal()

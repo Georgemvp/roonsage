@@ -115,11 +115,13 @@ public struct AskView: View {
 
     private func play(_ tracks: [TrackRecord]) {
         guard let z = client.selectedZone?.id else { return }
+        Haptics.tap()
         Task { await client.curateTracks(tracks, zoneID: z) }
     }
 
     private func queue(_ tracks: [TrackRecord], next: Bool) {
         guard let z = client.selectedZone?.id else { return }
+        Haptics.tap()
         Task { await client.queueTracks(tracks, next: next, zoneID: z) }
     }
 }

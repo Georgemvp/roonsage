@@ -11,6 +11,11 @@ import RoonProtocol
 @Observable
 public final class RoonClient {
 
+    /// Process-wide instance. App Intents (Siri/Shortcuts, Live Activity
+    /// buttons) run in the app process without access to SwiftUI state, so
+    /// they need a reachable client. The apps use this same instance.
+    public static let shared = RoonClient()
+
     // MARK: - Connection state
 
     public enum ConnectionState: Equatable {
@@ -23,12 +28,12 @@ public final class RoonClient {
 
         public var label: String {
             switch self {
-            case .disconnected:              "Disconnected"
-            case .discovering:               "Searching for Roon Core…"
-            case .connecting(let host):      "Connecting to \(host)…"
-            case .awaitingAuthorization:     "Waiting for authorization in Roon…"
-            case .connected(let name):       "Connected to \(name)"
-            case .failed(let msg):           "Error: \(msg)"
+            case .disconnected:              "Niet verbonden"
+            case .discovering:               "Zoeken naar Roon Core…"
+            case .connecting(let host):      "Verbinden met \(host)…"
+            case .awaitingAuthorization:     "Wacht op goedkeuring in Roon…"
+            case .connected(let name):       "Verbonden met \(name)"
+            case .failed(let msg):           "Fout: \(msg)"
             }
         }
 
@@ -62,6 +67,36 @@ public final class RoonClient {
     }
     public internal(set) var queueItems: [QueueItem] = []
     var queueTask: Task<Void, Never>?
+    /// Re-issues the zones subscription when its initial state never arrives.
+    var zonesWatchdog: Task<Void, Never>?
+
+    /// Last failed user action — drives a transient toast in the UI. Each
+    /// failure gets a fresh `id` so repeated identical messages retrigger
+    /// the toast. Transport commands used to swallow errors silently: the
+    /// user tapped Play mid-reconnect and nothing happened, with no feedback.
+    public struct ActionError: Equatable, Sendable {
+        public let id: UUID
+        public let message: String
+        public init(message: String) {
+            self.id = UUID()
+            self.message = message
+        }
+    }
+    public internal(set) var lastActionError: ActionError?
+
+    /// Run a fire-and-forget user action against the transport service,
+    /// surfacing failures (and the not-connected case) via `lastActionError`.
+    func runAction(_ label: String, _ op: (TransportService) async throws -> Void) async {
+        guard let ts = transportService else {
+            lastActionError = ActionError(message: "\(label) mislukt — geen verbinding met Roon.")
+            return
+        }
+        do {
+            try await op(ts)
+        } catch {
+            lastActionError = ActionError(message: "\(label) mislukt: \(error.localizedDescription)")
+        }
+    }
     public internal(set) var isSyncing = false
     public internal(set) var syncProgress = SyncProgress(phase: "", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0)
     public internal(set) var trackCount = 0
@@ -96,6 +131,8 @@ public final class RoonClient {
     /// Cached analyzed library for Sonic features (C4) — invalidated on
     /// feature/library sync.
     let sonicCache = SonicLibraryCache()
+    /// Gated, serialised listen-logging + LB/Last.fm scrobbling.
+    let scrobbler = ScrobbleCoordinator()
     /// HTTP server other devices import the library from (Settings toggle).
     var shareServer: LibraryShareServer?
 
@@ -142,7 +179,7 @@ public final class RoonClient {
         // to crash the transport's force-unwrap. Sanitise and validate first.
         let host = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !host.isEmpty, URL(string: "ws://\(host):\(port)/api") != nil else {
-            connectionState = .failed("Invalid host or port: \(rawHost.debugDescription)")
+            connectionState = .failed("Ongeldige host of poort: \(rawHost.debugDescription)")
             return
         }
         intentionalDisconnect = false
@@ -160,12 +197,27 @@ public final class RoonClient {
         await transport.connect(host: host, port: port)
     }
 
+    /// For background actions (App Intents): make sure we're connected to the
+    /// saved Core, waiting briefly for the handshake. Returns whether a
+    /// connection (and thus a controllable zone list) is available.
+    public func ensureConnected(timeout: TimeInterval = 6) async -> Bool {
+        if connectionState.isConnected { return true }
+        guard let host = savedHost else { return false }
+        await connect(host: host, port: savedPort)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if connectionState.isConnected, !zones.isEmpty { return true }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return connectionState.isConnected
+    }
+
     public func discoverAndConnect() async {
         connectionState = .discovering
         let preferredID = RoonClientAuth.loadCoreID()
         let cores = await SoodDiscovery.discover(coreID: preferredID)
         guard let first = cores.first else {
-            connectionState = .failed("No Roon Core found on the local network.\nMake sure Roon is running.")
+            connectionState = .failed("Geen Roon Core gevonden op het lokale netwerk.\nControleer of Roon draait.")
             return
         }
         await connect(host: first.host, port: first.httpPort)
@@ -222,7 +274,7 @@ public final class RoonClient {
         do {
             let body = try await transport.register(payload: payload)
             guard let reg = RoonClientAuth.parseRegistration(body) else {
-                connectionState = .failed("Unexpected registration response")
+                connectionState = .failed("Onverwacht registratie-antwoord")
                 return
             }
             RoonClientAuth.saveToken(reg.token, coreID: reg.coreID)
@@ -272,13 +324,35 @@ public final class RoonClient {
     }
 
     func subscribeZones() async {
+        // A failed zone subscription used to silently give up, leaving Now
+        // Playing permanently empty until a full reconnect. Two failure
+        // modes, two guards: a throwing send retries after 3s; a subscribe
+        // whose initial state never arrives (dropped COMPLETE on a flaky
+        // link) is detected by a 10s watchdog that re-issues the
+        // subscription. A re-issue uses a fresh subscription_key; should the
+        // old stream come alive after all, applyZoneUpdate is idempotent.
         guard let stream = try? await transport.subscribe(
             service: RoonService.transport,
             endpoint: "zones"
-        ) else { return }
+        ) else {
+            Task {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard connectionState.isConnected else { return }
+                await subscribeZones()
+            }
+            return
+        }
+
+        zonesWatchdog?.cancel()
+        zonesWatchdog = Task {
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard !Task.isCancelled, connectionState.isConnected, zoneMap.isEmpty else { return }
+            await subscribeZones()
+        }
 
         Task {
             for await body in stream {
+                zonesWatchdog?.cancel()
                 await self.applyZoneUpdate(body)
             }
         }
@@ -360,38 +434,20 @@ public final class RoonClient {
         for dict in toUpdate {
             let zone = Zone(from: dict)
 
-            // Log a listen + scrobble when now-playing changes on a playing zone.
-            // Keychain reads (SecItemCopyMatching) and the SQLite write are
-            // blocking IO; with several zones changing track at once they would
-            // otherwise stall the main thread. Do all of it off the MainActor —
-            // only the dedup guard below needs to stay here.
+            // Log a listen + scrobble when now-playing changes on a playing
+            // zone. All IO (Keychain, SQLite, network) runs in the
+            // ScrobbleCoordinator actor, which also applies the minimum-play
+            // gate — only the dedup guard stays on the MainActor.
             if zone.state == .playing, let np = zone.nowPlaying {
                 let key = zone.id
                 if lastNowPlaying[key] != np.title {
                     lastNowPlaying[key] = np.title
+                    let item = ScrobbleCoordinator.Item(
+                        title: np.title, artist: np.artist, album: np.album,
+                        length: np.length.map(Double.init),
+                        zoneID: zone.id, zoneName: zone.displayName)
                     let db = database
-                    let zoneID = zone.id
-                    let zoneName = zone.displayName
-                    Task.detached {
-                        try? db?.logListen(
-                            title: np.title, artist: np.artist, album: np.album,
-                            zoneID: zoneID, zoneName: zoneName
-                        )
-                        if let token = KeychainStore.load(key: "listenbrainz_token"), !token.isEmpty {
-                            await ListenBrainzClient.shared.submit(
-                                title: np.title, artist: np.artist, album: np.album, token: token
-                            )
-                        }
-                        if let apiKey = KeychainStore.load(key: "lastfm_api_key"), !apiKey.isEmpty,
-                           let secret = KeychainStore.load(key: "lastfm_api_secret"), !secret.isEmpty,
-                           let sk = KeychainStore.load(key: "lastfm_session_key"), !sk.isEmpty,
-                           let artist = np.artist, !artist.isEmpty {
-                            let creds = LastfmClient.Credentials(apiKey: apiKey, apiSecret: secret, sessionKey: sk)
-                            let ts = Int(Date().timeIntervalSince1970)
-                            await LastfmClient.shared.updateNowPlaying(artist: artist, track: np.title, album: np.album, creds: creds)
-                            await LastfmClient.shared.scrobble(artist: artist, track: np.title, album: np.album, timestamp: ts, creds: creds)
-                        }
-                    }
+                    Task { await scrobbler.trackChanged(item, database: db) }
                 }
             }
 
@@ -400,12 +456,18 @@ public final class RoonClient {
         for id in toRemove {
             lastNowPlaying.removeValue(forKey: id)
             zoneMap.removeValue(forKey: id)
+            Task { await scrobbler.zoneRemoved(id) }
         }
         zones = Array(zoneMap.values).sorted { $0.displayName < $1.displayName }
     }
 
     func refreshTrackCount() {
-        trackCount = (try? database?.trackCount()) ?? 0
+        guard let db = database else { trackCount = 0; return }
+        // Fire-and-forget so init / import paths never block main on SQLite.
+        Task { [weak self] in
+            let count = await Task.detached { (try? db.trackCount()) ?? 0 }.value
+            self?.trackCount = count
+        }
     }
 }
 

@@ -18,17 +18,17 @@ public struct RecommendView: View {
     @State private var errorMessage: String? = nil
 
     private let ideas = [
-        "Albums for a rainy Sunday afternoon",
-        "Deep, immersive records to listen front-to-back",
-        "Something jazzy and late-night",
-        "Energetic albums to start the day",
+        "Albums voor een regenachtige zondagmiddag",
+        "Diepe, meeslepende platen om van begin tot eind te luisteren",
+        "Iets jazzy voor laat op de avond",
+        "Energieke albums om de dag mee te beginnen",
     ]
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: Spacing.xl) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("What are you in the mood for?").font(.headline)
+                    Text("Waar heb je zin in?").font(.headline)
                     TextEditor(text: $prompt)
                         .font(.body)
                         .frame(height: 70)
@@ -56,7 +56,7 @@ public struct RecommendView: View {
                     Spacer()
                     if !client.zones.isEmpty {
                         Picker("Zone", selection: $selectedZoneID) {
-                            Text("Select zone…").tag(Optional<String>.none)
+                            Text("Kies zone…").tag(Optional<String>.none)
                             ForEach(client.zones) { z in
                                 Label(z.displayName, systemImage: z.state.icon).tag(Optional(z.id))
                             }
@@ -67,7 +67,7 @@ public struct RecommendView: View {
 
                 HStack(spacing: 12) {
                     Button { Task { await recommend() } } label: {
-                        Label(isWorking ? "Thinking…" : "Recommend Albums", systemImage: "sparkles")
+                        Label(isWorking ? "Denken…" : "Beveel albums aan", systemImage: "sparkles")
                             .frame(minWidth: 190)
                     }
                     .buttonStyle(.borderedProminent)
@@ -93,7 +93,7 @@ public struct RecommendView: View {
                             AlbumArtView(imageKey: album.imageKey, size: 44)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(album.album).font(.body).lineLimit(1)
-                                Text("\(album.artist ?? "Unknown")\(album.year.map { " · \($0)" } ?? "")")
+                                Text("\(album.artist ?? "Onbekend")\(album.year.map { " · \($0)" } ?? "")")
                                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer()
@@ -110,9 +110,9 @@ public struct RecommendView: View {
                     }
                 }
             }
-            .padding(24)
+            .padding(Spacing.xl)
         }
-        .navigationTitle("Recommend")
+        .navigationTitle("Aanbevelen")
         .onAppear { if selectedZoneID == nil { selectedZoneID = client.selectedZone?.id } }
     }
 
@@ -122,17 +122,17 @@ public struct RecommendView: View {
 
         let request = prompt.trimmingCharacters(in: .whitespaces)
 
-        phase = "Analysing…"
+        phase = "Analyseren…"
         let filters = await client.analyzeForFilters(request: request)
 
-        phase = "Gathering albums…"
+        phase = "Albums verzamelen…"
         let candidates = await client.candidateAlbums(filters: filters, limit: 60)
         guard !candidates.isEmpty else {
-            errorMessage = "No albums to recommend — sync your library first."
+            errorMessage = "Geen albums om aan te bevelen — synchroniseer eerst je bibliotheek."
             return
         }
 
-        phase = "Choosing…"
+        phase = "Kiezen…"
         let list = candidates.enumerated().map { i, a -> String in
             "\(i + 1). \(a.album) — \(a.artist ?? "Unknown")\(a.year.map { " (\($0))" } ?? "")"
         }.joined(separator: "\n")
@@ -146,12 +146,12 @@ public struct RecommendView: View {
         do {
             let resp = try await LLMClient.shared.complete(system: system, user: user, config: LLMConfigStore.load())
             let numbers = parseNumbers(from: resp, max: candidates.count)
-            guard !numbers.isEmpty else { errorMessage = "Could not parse a recommendation — try again."; return }
+            guard !numbers.isEmpty else { errorMessage = "Kon de aanbeveling niet verwerken — probeer opnieuw."; return }
             albums = numbers.compactMap { n in (n >= 1 && n <= candidates.count) ? candidates[n - 1] : nil }
             var parts: [String] = []
             if !filters.genres.isEmpty  { parts.append(filters.genres.joined(separator: ", ")) }
             if !filters.decades.isEmpty { parts.append(filters.decades.sorted().map { "\($0)s" }.joined(separator: ", ")) }
-            summary = parts.isEmpty ? "From your whole library" : "From \(parts.joined(separator: " · "))"
+            summary = parts.isEmpty ? "Uit je hele bibliotheek" : "Uit \(parts.joined(separator: " · "))"
         } catch {
             errorMessage = error.localizedDescription
         }

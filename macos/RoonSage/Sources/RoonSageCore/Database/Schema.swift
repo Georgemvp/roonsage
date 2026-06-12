@@ -155,6 +155,46 @@ enum Schema {
             try db.execute(sql: "DELETE FROM tracks WHERE title = 'Play Album' OR title = 'Queue Album' OR title = 'Shuffle Album'")
         }
 
+        // Free-text search used leading-wildcard LIKE ('%q%'), which defeats
+        // every index → a full table scan per keystroke on large libraries.
+        // External-content FTS5 over title/artist/album turns that into an
+        // index lookup. Triggers keep it in sync; all tracks writes are plain
+        // INSERT / upsert / DELETE (no INSERT OR REPLACE), so the trigger
+        // trio covers every mutation path.
+        migrator.registerMigration("v12_fts_search") { db in
+            try db.execute(sql: """
+                CREATE VIRTUAL TABLE IF NOT EXISTS tracks_fts USING fts5(
+                    title, artist, album,
+                    content='tracks', content_rowid='rowid',
+                    tokenize="unicode61 remove_diacritics 2"
+                )
+            """)
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS tracks_fts_ai AFTER INSERT ON tracks BEGIN
+                    INSERT INTO tracks_fts(rowid, title, artist, album)
+                    VALUES (new.rowid, new.title, new.artist, new.album);
+                END
+            """)
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS tracks_fts_ad AFTER DELETE ON tracks BEGIN
+                    INSERT INTO tracks_fts(tracks_fts, rowid, title, artist, album)
+                    VALUES ('delete', old.rowid, old.title, old.artist, old.album);
+                END
+            """)
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS tracks_fts_au AFTER UPDATE ON tracks BEGIN
+                    INSERT INTO tracks_fts(tracks_fts, rowid, title, artist, album)
+                    VALUES ('delete', old.rowid, old.title, old.artist, old.album);
+                    INSERT INTO tracks_fts(rowid, title, artist, album)
+                    VALUES (new.rowid, new.title, new.artist, new.album);
+                END
+            """)
+            try db.execute(sql: """
+                INSERT INTO tracks_fts(rowid, title, artist, album)
+                SELECT rowid, title, artist, album FROM tracks
+            """)
+        }
+
         try migrator.migrate(db)
     }
 }

@@ -15,20 +15,25 @@ extension RoonClient {
         return await Task.detached { (try? db.filterTracks(options: options)) ?? [] }.value
     }
 
-    public func libraryStats() -> DatabaseManager.LibraryStats? {
-        try? database?.libraryStats()
+    /// Full-table aggregates (COUNT DISTINCT, GROUP BY) — must not block main.
+    public func libraryStats() async -> DatabaseManager.LibraryStats? {
+        guard let db = database else { return nil }
+        return await Task.detached { try? db.libraryStats() }.value
     }
 
-    public func recentListens(limit: Int = 50) -> [DatabaseManager.ListenEntry] {
-        (try? database?.recentListens(limit: limit)) ?? []
+    public func recentListens(limit: Int = 50) async -> [DatabaseManager.ListenEntry] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.recentListens(limit: limit)) ?? [] }.value
     }
 
-    public func topArtistsListened(limit: Int = 20) -> [(artist: String, count: Int)] {
-        (try? database?.topArtistsListened(limit: limit)) ?? []
+    public func topArtistsListened(limit: Int = 20) async -> [(artist: String, count: Int)] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.topArtistsListened(limit: limit)) ?? [] }.value
     }
 
-    public func totalListens() -> Int {
-        (try? database?.totalListens()) ?? 0
+    public func totalListens() async -> Int {
+        guard let db = database else { return 0 }
+        return await Task.detached { (try? db.totalListens()) ?? 0 }.value
     }
 
     public func imageURL(forKey key: String, size: Int = 200) -> URL? {
@@ -127,7 +132,7 @@ extension RoonClient {
         let service = LibrarySyncService(browse: browse, database: db)
         syncService = service
         isSyncing = true
-        syncProgress = SyncProgress(phase: "Starting…", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0)
+        syncProgress = SyncProgress(phase: "Starten…", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0)
 
         syncTask = Task {
             defer { isSyncing = false }
@@ -143,11 +148,11 @@ extension RoonClient {
                     }
                 }
                 trackCount = count
-                syncProgress = SyncProgress(phase: "Done — \(count) tracks", albumsCompleted: 0, albumsTotal: 0, tracksFound: count)
+                syncProgress = SyncProgress(phase: "Klaar — \(count) tracks", albumsCompleted: 0, albumsTotal: 0, tracksFound: count)
                 // Track rows (incl. match_key) may have changed → sonic cache is stale.
                 await sonicCache.invalidate()
             } catch {
-                syncProgress = SyncProgress(phase: "Error: \(error.localizedDescription)", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0)
+                syncProgress = SyncProgress(phase: "Fout: \(error.localizedDescription)", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0)
             }
         }
     }
@@ -174,8 +179,10 @@ extension RoonClient {
         return await Task.detached { (try? db.browseTracks(query: query, tag: tag, limit: limit)) ?? [] }.value
     }
 
-    public func topTags(limit: Int = 30) -> [(tag: String, count: Int)] {
-        (try? database?.topTags(limit: limit)) ?? []
+    /// Scans + JSON-parses the whole feature table — must not block main.
+    public func topTags(limit: Int = 30) async -> [(tag: String, count: Int)] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.topTags(limit: limit)) ?? [] }.value
     }
 
     /// Play a single library track by id to a zone (first plays now).
@@ -204,7 +211,7 @@ extension RoonClient {
     /// LLM stage 1: map a free-text request to genres (from the library's actual
     /// genres) + decades + keywords. Degrades gracefully to no filter.
     public func analyzeForFilters(request: String) async -> RequestFilters {
-        let available = libraryStats()?.topGenres.map { $0.genre } ?? []
+        let available = (await libraryStats())?.topGenres.map { $0.genre } ?? []
         guard !available.isEmpty else { return RequestFilters(genres: [], decades: [], keywords: "") }
         let genreList = available.prefix(40).joined(separator: ", ")
         let system = """

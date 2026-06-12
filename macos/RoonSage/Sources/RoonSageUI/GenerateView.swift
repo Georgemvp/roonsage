@@ -11,18 +11,18 @@ private struct PlaylistTemplate: Identifiable {
 }
 
 private let templates: [PlaylistTemplate] = [
-    .init(name: "Sunday Morning",  icon: "sun.horizon",            prompt: "Mellow, peaceful tracks for a relaxed Sunday morning"),
+    .init(name: "Zondagochtend",   icon: "sun.horizon",            prompt: "Mellow, peaceful tracks for a relaxed Sunday morning"),
     .init(name: "Workout",         icon: "figure.run",             prompt: "High energy tracks to keep you pumped during a workout"),
     .init(name: "Focus",           icon: "brain",                  prompt: "Calm instrumental tracks ideal for deep focus and concentration"),
-    .init(name: "Late Night",      icon: "moon.stars",             prompt: "Moody, atmospheric tracks perfect for late-night listening"),
+    .init(name: "Late avond",      icon: "moon.stars",             prompt: "Moody, atmospheric tracks perfect for late-night listening"),
     .init(name: "Party",           icon: "party.popper",           prompt: "Upbeat, fun tracks to get the party going"),
-    .init(name: "Road Trip",       icon: "car.fill",               prompt: "Feel-good, energetic tracks perfect for a long road trip"),
-    .init(name: "Dinner Party",    icon: "fork.knife",             prompt: "Sophisticated, tasteful background music for a dinner party"),
+    .init(name: "Roadtrip",        icon: "car.fill",               prompt: "Feel-good, energetic tracks perfect for a long road trip"),
+    .init(name: "Etentje",         icon: "fork.knife",             prompt: "Sophisticated, tasteful background music for a dinner party"),
     .init(name: "Throwback",       icon: "clock.arrow.circlepath", prompt: "Classic nostalgic tracks from past decades"),
     .init(name: "Chill",           icon: "leaf",                   prompt: "Laid-back, downtempo tracks to unwind to"),
-    .init(name: "Rainy Day",       icon: "cloud.rain",             prompt: "Wistful, introspective songs for a grey rainy day"),
-    .init(name: "Summer",          icon: "beach.umbrella",         prompt: "Sunny, breezy feel-good tracks for summer"),
-    .init(name: "Jazz Café",       icon: "music.quarternote.3",    prompt: "Smooth jazz and soul for a relaxed café atmosphere"),
+    .init(name: "Regendag",        icon: "cloud.rain",             prompt: "Wistful, introspective songs for a grey rainy day"),
+    .init(name: "Zomer",           icon: "beach.umbrella",         prompt: "Sunny, breezy feel-good tracks for summer"),
+    .init(name: "Jazzcafé",        icon: "music.quarternote.3",    prompt: "Smooth jazz and soul for a relaxed café atmosphere"),
 ]
 
 // MARK: - View
@@ -31,6 +31,7 @@ private let templates: [PlaylistTemplate] = [
 public struct GenerateView: View {
     public init() {}
     @Environment(RoonClient.self) private var client
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var prompt       = ""
     @State private var targetCount  = 20
@@ -38,6 +39,10 @@ public struct GenerateView: View {
     @State private var isGenerating = false
     @State private var phase        = ""
     @State private var generatedTracks: [TrackRecord] = []
+    /// Rows revealed so far — the curation result "deals out" with a short
+    /// stagger instead of dumping a list (the payoff for the LLM wait).
+    @State private var revealedCount = 0
+    @State private var revealTask: Task<Void, Never>? = nil
     @State private var analysisSummary: String? = nil
     @State private var playlistName = ""
     @State private var justSaved    = false
@@ -49,11 +54,11 @@ public struct GenerateView: View {
             #if os(iOS)
             Color.clear.frame(height: 0)
             #endif
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: Spacing.xl) {
 
                 // ── Prompt ────────────────────────────────────────────────
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("What kind of playlist?")
+                    Text("Wat voor playlist?")
                         .font(.headline)
                     TextEditor(text: $prompt)
                         .font(.body)
@@ -65,7 +70,7 @@ public struct GenerateView: View {
 
                 // ── Templates ─────────────────────────────────────────────
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Quick templates")
+                    Text("Snelle sjablonen")
                         .font(.subheadline.bold())
                         .foregroundStyle(.secondary)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 8) {
@@ -101,7 +106,7 @@ public struct GenerateView: View {
 
                     if !client.zones.isEmpty {
                         Picker("Zone", selection: $selectedZoneID) {
-                            Text("Select zone…").tag(Optional<String>.none)
+                            Text("Kies zone…").tag(Optional<String>.none)
                             ForEach(client.zones) { z in
                                 Label(z.displayName, systemImage: z.state.icon).tag(Optional(z.id))
                             }
@@ -115,7 +120,7 @@ public struct GenerateView: View {
                     Button {
                         Task { await generate() }
                     } label: {
-                        Label(isGenerating ? "Generating…" : "Generate & Play",
+                        Label(isGenerating ? "Genereren…" : "Genereer & speel",
                               systemImage: "wand.and.stars")
                             .frame(minWidth: 180)
                     }
@@ -142,8 +147,11 @@ public struct GenerateView: View {
                     Divider()
 
                     HStack {
+                        Image(systemName: "wand.and.stars")
+                            .foregroundStyle(Color.roonGold)
+                            .symbolEffect(.bounce, value: generatedTracks.count)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Generated — \(generatedTracks.count) tracks")
+                            Text("Gegenereerd — \(generatedTracks.count) tracks")
                                 .font(.headline)
                             if let summary = analysisSummary {
                                 Text(summary).font(.caption).foregroundStyle(.secondary)
@@ -152,26 +160,28 @@ public struct GenerateView: View {
                         Spacer()
                         Button {
                             if let zoneID = selectedZoneID {
+                                Haptics.tap()
                                 Task { await client.curateTracks(generatedTracks, zoneID: zoneID) }
                             }
                         } label: {
-                            Label("Play again", systemImage: "play.fill")
+                            Label("Speel opnieuw", systemImage: "play.fill")
                         }
                         .buttonStyle(.bordered)
                     }
 
                     // Save as local playlist
                     HStack(spacing: 8) {
-                        TextField("Playlist name", text: $playlistName)
+                        TextField("Naam playlist", text: $playlistName)
                             .textFieldStyle(.roundedBorder)
                         Button {
                             let name = playlistName.trimmingCharacters(in: .whitespaces)
                             guard !name.isEmpty else { return }
                             _ = client.savePlaylist(name: name, tracks: generatedTracks)
+                            Haptics.success()
                             justSaved = true
                             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { justSaved = false }
                         } label: {
-                            Label(justSaved ? "Saved!" : "Save playlist", systemImage: "square.and.arrow.down")
+                            Label(justSaved ? "Bewaard!" : "Bewaar playlist", systemImage: "square.and.arrow.down")
                         }
                         .disabled(playlistName.trimmingCharacters(in: .whitespaces).isEmpty)
 
@@ -179,16 +189,16 @@ public struct GenerateView: View {
                             Button {
                                 let name = playlistName.trimmingCharacters(in: .whitespaces)
                                 guard !name.isEmpty else { return }
-                                qobuzStatus = "Saving to Qobuz…"
+                                qobuzStatus = "Bewaren in Qobuz…"
                                 Task {
                                     if let r = await client.saveToQobuz(name: name, tracks: generatedTracks) {
-                                        qobuzStatus = "Saved to Qobuz — \(r.matched)/\(r.total) tracks matched."
+                                        qobuzStatus = "Bewaard in Qobuz — \(r.matched)/\(r.total) tracks gematcht."
                                     } else {
-                                        qobuzStatus = "Qobuz save failed — check your account in Settings."
+                                        qobuzStatus = "Bewaren in Qobuz mislukt — controleer je account in Instellingen."
                                     }
                                 }
                             } label: {
-                                Label("Save to Qobuz", systemImage: "cloud")
+                                Label("Bewaar in Qobuz", systemImage: "cloud")
                             }
                             .disabled(playlistName.trimmingCharacters(in: .whitespaces).isEmpty)
                         }
@@ -197,7 +207,9 @@ public struct GenerateView: View {
                         Text(qobuzStatus).font(.caption).foregroundStyle(.secondary)
                     }
 
-                    ForEach(Array(generatedTracks.enumerated()), id: \.offset) { i, t in
+                    // Rows deal out one by one (30 ms stagger, spring) —
+                    // see revealTracks(). Reduce-motion shows them at once.
+                    ForEach(Array(generatedTracks.prefix(revealedCount).enumerated()), id: \.offset) { i, t in
                         HStack(spacing: 10) {
                             Text("\(i + 1)")
                                 .font(.caption.monospacedDigit())
@@ -218,12 +230,13 @@ public struct GenerateView: View {
                             }
                         }
                         .padding(.vertical, 2)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
             }
-            .padding(24)
+            .padding(Spacing.xl)
         }
-        .navigationTitle("Generate Playlist")
+        .navigationTitle("Playlist genereren")
         #if os(iOS)
         .scrollDismissesKeyboard(.interactively)
         #endif
@@ -238,6 +251,7 @@ public struct GenerateView: View {
         isGenerating = true
         errorMessage = nil
         generatedTracks = []
+        revealedCount = 0
         analysisSummary = nil
         justSaved = false
         defer { isGenerating = false; phase = "" }
@@ -247,23 +261,23 @@ public struct GenerateView: View {
 
         // Stage 1 — analyse the request into genre/decade filters so the LLM
         // sees RELEVANT tracks (not just the first 300 alphabetically).
-        phase = "Analysing…"
+        phase = "Analyseren…"
         let analysis = await analyzeRequest(request, config: config)
 
         // Stage 2 — build a varied candidate pool from the filtered library.
-        phase = "Selecting candidates…"
+        phase = "Kandidaten selecteren…"
         let candidates = await buildCandidates(
             genres: analysis.genres, decades: analysis.decades,
             keywords: analysis.keywords, tags: analysis.tags, target: targetCount
         )
         guard !candidates.isEmpty else {
-            errorMessage = "No matching tracks — sync your library, or try a broader request."
+            errorMessage = "Geen passende tracks — synchroniseer je bibliotheek of probeer een bredere omschrijving."
             return
         }
         analysisSummary = summarise(analysis, poolSize: candidates.count)
 
         // Stage 3 — curate the final selection.
-        phase = "Curating…"
+        phase = "Cureren…"
         let list = candidates.enumerated().map { i, t -> String in
             var s = "\(i + 1). \(t.title)"
             if let a = t.artist { s += " — \(a)" }
@@ -284,20 +298,38 @@ public struct GenerateView: View {
             let response = try await LLMClient.shared.complete(system: system, user: user, config: config)
             let numbers  = parseNumbers(from: response, max: candidates.count)
             guard !numbers.isEmpty else {
-                errorMessage = "Could not parse track numbers from response — try again."
+                errorMessage = "Kon geen tracknummers uit het antwoord halen — probeer opnieuw."
                 return
             }
             let selected = numbers.compactMap { n -> TrackRecord? in
                 guard n >= 1, n <= candidates.count else { return nil }
                 return candidates[n - 1]
             }
-            generatedTracks = selected
+            revealTracks(selected)
             if playlistName.isEmpty { playlistName = suggestedName(request) }
             if let zoneID = selectedZoneID {
                 await client.curateTracks(selected, zoneID: zoneID)
             }
         } catch {
             errorMessage = error.localizedDescription
+            Haptics.error()
+        }
+    }
+
+    /// Deal the curated rows out with a 30 ms stagger — like cards being laid
+    /// on a table. Success haptic fires once when the result lands.
+    private func revealTracks(_ tracks: [TrackRecord]) {
+        revealTask?.cancel()
+        generatedTracks = tracks
+        Haptics.success()
+        guard !reduceMotion else { revealedCount = tracks.count; return }
+        revealedCount = 0
+        revealTask = Task {
+            for i in 1...tracks.count {
+                try? await Task.sleep(nanoseconds: 30_000_000)
+                guard !Task.isCancelled else { return }
+                withAnimation(Motion.spring) { revealedCount = i }
+            }
         }
     }
 
@@ -306,8 +338,8 @@ public struct GenerateView: View {
     /// LLM stage 1: map the request to genres + decades + keywords + mood tags,
     /// each chosen from what the library actually has. Degrades to no filter.
     private func analyzeRequest(_ request: String, config: LLMConfig) async -> Analysis {
-        let available = (client.libraryStats()?.topGenres.map { $0.genre }) ?? []
-        let availableTags = client.topTags(limit: 60).map { $0.tag }
+        let available = ((await client.libraryStats())?.topGenres.map { $0.genre }) ?? []
+        let availableTags = (await client.topTags(limit: 60)).map { $0.tag }
         guard !available.isEmpty || !availableTags.isEmpty else {
             return Analysis(genres: [], decades: [], keywords: "", tags: [])
         }
@@ -373,13 +405,13 @@ public struct GenerateView: View {
         if !a.genres.isEmpty  { parts.append(a.genres.joined(separator: ", ")) }
         if !a.tags.isEmpty    { parts.append(a.tags.joined(separator: ", ")) }
         if !a.decades.isEmpty { parts.append(a.decades.sorted().map { "\($0)s" }.joined(separator: ", ")) }
-        let scope = parts.isEmpty ? "whole library" : parts.joined(separator: " · ")
-        return "From \(scope) (\(poolSize) candidates)"
+        let scope = parts.isEmpty ? "hele bibliotheek" : parts.joined(separator: " · ")
+        return "Uit \(scope) (\(poolSize) kandidaten)"
     }
 
     private func suggestedName(_ request: String) -> String {
         let trimmed = request.prefix(48).trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Generated playlist" : String(trimmed)
+        return trimmed.isEmpty ? "Gegenereerde playlist" : String(trimmed)
     }
 
     private func extractJSON(_ text: String) -> [String: Any]? {
