@@ -126,6 +126,11 @@ actor LibrarySyncService {
             var batch: [TrackRecord] = []
             for item in trackItems {
                 guard let key = item.itemKey else { continue }
+                // Roon navigation rows ("Play Album", "Queue Album", …) have no
+                // subtitle — real track rows always do. Without this filter every
+                // album contributed a phantom "Play Album" track (mirrors the
+                // Python filter in roon_browse.py).
+                guard let sub = item.subtitle, !sub.isEmpty else { continue }
                 let liveHints = ["live", "concert", "unplugged", "acoustic"]
                 let combinedTitle = (item.title + (item.subtitle ?? "")).lowercased()
                 let isLive = liveHints.contains { combinedTitle.contains($0) }

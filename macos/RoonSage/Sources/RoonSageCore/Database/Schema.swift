@@ -146,6 +146,15 @@ enum Schema {
             }
         }
 
+        // The sync stored Roon's navigation rows ("Play Album" — one per album,
+        // 9.5k phantom tracks on a 9.5k-album library) because it only checked
+        // for an item_key. The sync now filters them (no subtitle = navigation);
+        // this cleans libraries that synced before the fix. No match_key reset:
+        // an auto-resync here would block the iPhone's import-from-Mac flow.
+        migrator.registerMigration("v11_drop_navigation_rows") { db in
+            try db.execute(sql: "DELETE FROM tracks WHERE title = 'Play Album' OR title = 'Queue Album' OR title = 'Shuffle Album'")
+        }
+
         try migrator.migrate(db)
     }
 }

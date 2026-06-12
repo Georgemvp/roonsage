@@ -43,11 +43,14 @@ mkdir -p "$APP_PATH/Contents/Resources"
 
 cp "$BINARY" "$APP_PATH/Contents/MacOS/$APP_NAME"
 
-# Patch version into Info.plist
-sed \
-  -e "s|<string>2.0.0</string>|<string>$VERSION</string>|g" \
-  "$PACKAGE_DIR/Sources/RoonSage/Info.plist" \
-  > "$APP_PATH/Contents/Info.plist"
+# Patch version into Info.plist (robust: rewrite the value after the
+# CFBundleShortVersionString/CFBundleVersion keys, whatever it currently is —
+# a magic-placeholder sed silently stamps nothing when the template drifts).
+awk -v ver="$VERSION" '
+  /<key>CFBundleShortVersionString<\/key>/ { print; getline; sub(/<string>[^<]*<\/string>/, "<string>" ver "</string>"); print; next }
+  /<key>CFBundleVersion<\/key>/            { print; getline; sub(/<string>[^<]*<\/string>/, "<string>" ver "</string>"); print; next }
+  { print }
+' "$PACKAGE_DIR/Sources/RoonSage/Info.plist" > "$APP_PATH/Contents/Info.plist"
 
 # App icon (optional — add RoonSage.icns to macos/assets/ to include it)
 ICON="$MACOS_DIR/assets/RoonSage.icns"
