@@ -1,30 +1,6 @@
 import SwiftUI
 import RoonSageCore
 
-// MARK: - Templates
-
-private struct PlaylistTemplate: Identifiable {
-    let id   = UUID()
-    let name: String
-    let icon: String
-    let prompt: String
-}
-
-private let templates: [PlaylistTemplate] = [
-    .init(name: "Zondagochtend",   icon: "sun.horizon",            prompt: "Mellow, peaceful tracks for a relaxed Sunday morning"),
-    .init(name: "Workout",         icon: "figure.run",             prompt: "High energy tracks to keep you pumped during a workout"),
-    .init(name: "Focus",           icon: "brain",                  prompt: "Calm instrumental tracks ideal for deep focus and concentration"),
-    .init(name: "Late avond",      icon: "moon.stars",             prompt: "Moody, atmospheric tracks perfect for late-night listening"),
-    .init(name: "Party",           icon: "party.popper",           prompt: "Upbeat, fun tracks to get the party going"),
-    .init(name: "Roadtrip",        icon: "car.fill",               prompt: "Feel-good, energetic tracks perfect for a long road trip"),
-    .init(name: "Etentje",         icon: "fork.knife",             prompt: "Sophisticated, tasteful background music for a dinner party"),
-    .init(name: "Throwback",       icon: "clock.arrow.circlepath", prompt: "Classic nostalgic tracks from past decades"),
-    .init(name: "Chill",           icon: "leaf",                   prompt: "Laid-back, downtempo tracks to unwind to"),
-    .init(name: "Regendag",        icon: "cloud.rain",             prompt: "Wistful, introspective songs for a grey rainy day"),
-    .init(name: "Zomer",           icon: "beach.umbrella",         prompt: "Sunny, breezy feel-good tracks for summer"),
-    .init(name: "Jazzcafé",        icon: "music.quarternote.3",    prompt: "Smooth jazz and soul for a relaxed café atmosphere"),
-]
-
 // MARK: - View
 
 @MainActor
@@ -48,6 +24,20 @@ public struct GenerateView: View {
     @State private var justSaved    = false
     @State private var qobuzStatus: String? = nil
     @State private var errorMessage: String? = nil
+    @State private var showTemplates = false
+
+    /// One featured template per category for quick access; all 63 live
+    /// behind "Alle sjablonen".
+    private var featured: [PlaylistTemplate] {
+        PlaylistTemplates.categories.compactMap { PlaylistTemplates.inCategory($0).first }
+    }
+
+    private func apply(_ t: PlaylistTemplate) {
+        prompt = t.prompt
+        targetCount = [10, 20, 30, 50].min(by: { abs($0 - t.trackCount) < abs($1 - t.trackCount) }) ?? 20
+        playlistName = t.name
+        Haptics.tap()
+    }
 
     public var body: some View {
         ScrollView {
@@ -70,19 +60,32 @@ public struct GenerateView: View {
 
                 // ── Templates ─────────────────────────────────────────────
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Snelle sjablonen")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.secondary)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 8) {
-                        ForEach(templates) { t in
-                            Button { prompt = t.prompt } label: {
-                                Label(t.name, systemImage: t.icon)
-                                    .font(.callout)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 5)
-                            }
-                            .buttonStyle(.bordered)
+                    HStack {
+                        Text("Snelle sjablonen")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button { showTemplates = true } label: {
+                            Label("Alle sjablonen", systemImage: "square.grid.2x2")
+                                .font(.caption)
                         }
+                        .buttonStyle(.borderless)
+                    }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: Spacing.sm) {
+                            ForEach(featured) { t in
+                                Button { apply(t) } label: {
+                                    HStack(spacing: 4) {
+                                        Text(t.icon)
+                                        Text(t.name).font(.callout)
+                                    }
+                                    .padding(.horizontal, Spacing.md)
+                                    .padding(.vertical, Spacing.sm)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                        .padding(.horizontal, 1)
                     }
                 }
 
@@ -242,6 +245,12 @@ public struct GenerateView: View {
         #endif
         .onAppear {
             if selectedZoneID == nil { selectedZoneID = client.selectedZone?.id }
+        }
+        .sheet(isPresented: $showTemplates) {
+            TemplatePicker { t in
+                apply(t)
+                showTemplates = false
+            }
         }
     }
 
@@ -431,5 +440,83 @@ public struct GenerateView: View {
             .components(separatedBy: .init(charactersIn: ", ;\n\t"))
             .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
             .filter { $0 >= 1 && $0 <= max }
+    }
+}
+
+// MARK: - Template picker sheet
+
+/// Browse all 63 built-in templates by category. Picking one fills the prompt.
+@MainActor
+private struct TemplatePicker: View {
+    let onPick: (PlaylistTemplate) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var category = PlaylistTemplates.categories.first ?? "Sfeer"
+
+    private let columns = [GridItem(.adaptive(minimum: 150), spacing: Spacing.md)]
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Spacing.sm) {
+                        ForEach(PlaylistTemplates.categories, id: \.self) { cat in
+                            let isOn = cat == category
+                            Button {
+                                withAnimation(Motion.quick) { category = cat }
+                            } label: {
+                                Text(cat)
+                                    .font(.callout.weight(isOn ? .semibold : .regular))
+                                    .padding(.horizontal, Spacing.md)
+                                    .padding(.vertical, Spacing.sm)
+                                    .background(isOn ? AnyShapeStyle(Color.roonGold) : AnyShapeStyle(.quaternary),
+                                                in: Capsule())
+                                    .foregroundStyle(isOn ? Color.black : Color.primary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.sm)
+                }
+
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: Spacing.md) {
+                        ForEach(PlaylistTemplates.inCategory(category)) { t in
+                            Button { onPick(t) } label: { card(t) }
+                                .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(Spacing.lg)
+                }
+            }
+            .navigationTitle("Sjablonen")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                Button("Sluit") { dismiss() }
+            }
+        }
+    }
+
+    private func card(_ t: PlaylistTemplate) -> some View {
+        VStack(spacing: Spacing.xs) {
+            Text(t.icon).font(.system(size: 34))
+            Text(t.name)
+                .font(.callout.weight(.medium))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+            Text("\(t.trackCount) tracks")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 110)
+        .padding(Spacing.md)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.lg)
+                .strokeBorder(Color.roonGold.opacity(0.15))
+        )
+        .accessibilityLabel("\(t.name), \(t.trackCount) tracks")
     }
 }
