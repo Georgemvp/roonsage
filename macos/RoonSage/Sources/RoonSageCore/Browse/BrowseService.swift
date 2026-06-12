@@ -195,12 +195,26 @@ actor BrowseService {
                       let genreKey = genreItem.itemKey else { continue }
 
                 let contents = try await browseAll(to: genreKey, sessionKey: sessionKey, hierarchy: "genres")
-                guard let albumsItem = contents.first(where: {
-                    $0.title.lowercased() == "albums" && $0.hint == "list"
-                }), let albumsKey = albumsItem.itemKey else { continue }
 
-                let albums = try await browseAll(to: albumsKey, sessionKey: sessionKey, hierarchy: "genres")
-                for album in albums {
+                // Roon sometimes auto-navigates directly into the Albums list
+                // (when a genre has only one sub-list). Distinguish the two cases:
+                // • Sub-category items ("Albums", "Top Tracks") have no imageKey.
+                // • Real album items have imageKey set (album art).
+                let albumItems: [Item]
+                let looksLikeAlbums = contents.contains { $0.imageKey != nil }
+                if looksLikeAlbums {
+                    // Already at album level (auto-navigated).
+                    albumItems = contents
+                } else if let albumsItem = contents.first(where: {
+                    $0.title.lowercased().contains("album") && $0.hint == "list"
+                }), let albumsKey = albumsItem.itemKey {
+                    // Sub-category view — navigate into "Albums".
+                    albumItems = try await browseAll(to: albumsKey, sessionKey: sessionKey, hierarchy: "genres")
+                } else {
+                    continue
+                }
+
+                for album in albumItems {
                     let key = album.title.trimmingCharacters(in: .whitespaces).lowercased()
                     guard !key.isEmpty else { continue }
                     if mapping[key] == nil { mapping[key] = [] }
