@@ -100,6 +100,8 @@ public final class RoonClient {
     public internal(set) var isSyncing = false
     public internal(set) var syncProgress = SyncProgress(phase: "", albumsCompleted: 0, albumsTotal: 0, tracksFound: 0)
     public internal(set) var trackCount = 0
+    public internal(set) var isGenreSyncing = false
+    public internal(set) var genreCount = 0
     public internal(set) var coreHost: String?
     public internal(set) var corePort: UInt16 = 9330
     public internal(set) var selectedZoneID: String?
@@ -114,6 +116,8 @@ public final class RoonClient {
     let transport = RoonTransport()
     var zoneMap: [String: Zone] = [:]
     var syncTask: Task<Void, Never>?
+    var genreTask: Task<Void, Never>?
+    var genreSyncService: LibrarySyncService?
     var lastNowPlaying: [String: String] = [:]  // zoneID → title (dedup guard)
 
     // Reconnect state
@@ -139,6 +143,7 @@ public final class RoonClient {
     public init() {
         database = try? DatabaseManager(url: Self.databaseURL)
         refreshTrackCount()
+        refreshGenreCount()
         if UserDefaults.standard.bool(forKey: "library_share_enabled") {
             setLibrarySharing(enabled: true)
         }
@@ -467,6 +472,14 @@ public final class RoonClient {
         Task { [weak self] in
             let count = await Task.detached { (try? db.trackCount()) ?? 0 }.value
             self?.trackCount = count
+        }
+    }
+
+    func refreshGenreCount() {
+        guard let db = database else { genreCount = 0; return }
+        Task { [weak self] in
+            let count = await Task.detached { (try? db.genreCount()) ?? 0 }.value
+            self?.genreCount = count
         }
     }
 }

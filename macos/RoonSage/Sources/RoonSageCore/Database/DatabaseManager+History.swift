@@ -104,14 +104,16 @@ extension DatabaseManager {
         public var year: Int?
         public var trackCount: Int
         public var imageKey: String?
+        public var genres: [String]
 
-        public init(albumKey: String, album: String, artist: String?, year: Int?, trackCount: Int, imageKey: String? = nil) {
+        public init(albumKey: String, album: String, artist: String?, year: Int?, trackCount: Int, imageKey: String? = nil, genres: [String] = []) {
             self.albumKey = albumKey
             self.album = album
             self.artist = artist
             self.year = year
             self.trackCount = trackCount
             self.imageKey = imageKey
+            self.genres = genres
         }
     }
 

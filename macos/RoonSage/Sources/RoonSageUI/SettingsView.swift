@@ -94,11 +94,23 @@ public struct SettingsView: View {
             // Library
             Section("Bibliotheek") {
                 LabeledContent("Tracks in database", value: "\(client.trackCount)")
+                LabeledContent("Genres in database", value: client.genreCount == 0 ? "Niet gesynchroniseerd" : "\(client.genreCount)")
                 LabeledContent("Laatste sync", value: lastSync)
                 HStack {
                     Button("Synchroniseer nu") { client.startSync() }
-                        .disabled(!client.connectionState.isConnected || client.isSyncing)
+                        .disabled(!client.connectionState.isConnected || client.isSyncing || client.isGenreSyncing)
                     if client.isSyncing {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(client.syncProgress.phase)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                HStack {
+                    Button("Synchroniseer genres") { client.startGenreSync() }
+                        .disabled(!client.connectionState.isConnected || client.isSyncing || client.isGenreSyncing)
+                    if client.isGenreSyncing {
                         ProgressView()
                             .controlSize(.small)
                         Text(client.syncProgress.phase)

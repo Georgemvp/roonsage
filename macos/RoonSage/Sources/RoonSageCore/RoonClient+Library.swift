@@ -149,6 +149,7 @@ extension RoonClient {
                 }
                 trackCount = count
                 syncProgress = SyncProgress(phase: "Klaar — \(count) tracks", albumsCompleted: 0, albumsTotal: 0, tracksFound: count)
+                refreshGenreCount()
                 // Track rows (incl. match_key) may have changed → sonic cache is stale.
                 await sonicCache.invalidate()
             } catch {
@@ -162,6 +163,27 @@ extension RoonClient {
         let service = syncService
         Task { await service?.cancel() }
         isSyncing = false
+    }
+
+    public func startGenreSync() {
+        guard !isGenreSyncing, !isSyncing, let browse = browseService, let db = database else { return }
+        let service = LibrarySyncService(browse: browse, database: db)
+        genreSyncService = service
+        isGenreSyncing = true
+        genreTask = Task {
+            defer { isGenreSyncing = false }
+            do {
+                try await service.syncGenresOnly { [weak self] phase in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        syncProgress = SyncProgress(phase: phase, albumsCompleted: 0, albumsTotal: 0, tracksFound: trackCount)
+                    }
+                }
+            } catch {
+                syncProgress = SyncProgress(phase: "Genre sync fout: \(error.localizedDescription)", albumsCompleted: 0, albumsTotal: 0, tracksFound: trackCount)
+            }
+            refreshGenreCount()
+        }
     }
 
     public func searchTracks(query: String) async -> [TrackRecord] {
@@ -265,7 +287,20 @@ extension RoonClient {
             ))
         }
         albums.shuffle()
-        return Array(albums.prefix(limit))
+        albums = Array(albums.prefix(limit))
+
+        // Attach genres so the step-3 LLM can match by vibe rather than artist
+        // name alone. No-op when track_genres is empty.
+        if let db = database, !albums.isEmpty {
+            let keys = albums.map(\.albumKey)
+            let genreMap = await Task.detached { (try? db.genresForAlbumKeys(keys)) ?? [:] }.value
+            if !genreMap.isEmpty {
+                for i in albums.indices {
+                    albums[i].genres = genreMap[albums[i].albumKey] ?? []
+                }
+            }
+        }
+        return albums
     }
 
 }

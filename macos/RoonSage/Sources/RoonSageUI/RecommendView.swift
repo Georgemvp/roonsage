@@ -27,6 +27,12 @@ public struct RecommendView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.xl) {
+                if client.genreCount == 0 {
+                    Label("Genres zijn niet gesynchroniseerd. Ga naar Instellingen → \"Synchroniseer genres\" voor betere aanbevelingen.", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Waar heb je zin in?").font(.headline)
                     TextEditor(text: $prompt)
@@ -134,7 +140,9 @@ public struct RecommendView: View {
 
         phase = "Kiezen…"
         let list = candidates.enumerated().map { i, a -> String in
-            "\(i + 1). \(a.album) — \(a.artist ?? "Unknown")\(a.year.map { " (\($0))" } ?? "")"
+            var line = "\(i + 1). \(a.album) — \(a.artist ?? "Unknown")\(a.year.map { " (\($0))" } ?? "")"
+            if !a.genres.isEmpty { line += " [\(a.genres.prefix(3).joined(separator: ", "))]" }
+            return line
         }.joined(separator: "\n")
         let system = """
         You recommend albums for a personal music library. From the numbered album list, \

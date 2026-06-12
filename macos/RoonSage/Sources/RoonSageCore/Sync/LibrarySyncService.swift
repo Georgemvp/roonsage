@@ -1,5 +1,6 @@
 import AudioAnalysis
 import Foundation
+import os.log
 
 /// Walks the Roon Browse hierarchy (Root→Library→Albums→tracks) and
 /// upserts every discovered track into the local GRDB database.
@@ -23,6 +24,7 @@ actor LibrarySyncService {
     private let browse: BrowseService
     private let database: DatabaseManager
     private var isCancelled = false
+    private let logger = Logger(subsystem: "RoonSage", category: "sync")
 
     init(browse: BrowseService, database: DatabaseManager) {
         self.browse = browse
@@ -193,19 +195,12 @@ actor LibrarySyncService {
             // capture the mutable `tracksFound` var (rejected under -c release).
             let finalTrackCount = tracksFound
             onProgress(Progress(phase: "Genres synchroniseren…", albumsCompleted: totalAlbums, albumsTotal: totalAlbums, tracksFound: finalTrackCount))
-            let genreSession = "genre_sync_\(Int(Date().timeIntervalSince1970))"
             do {
-                let mapping = try await browse.genreMapping(sessionKey: genreSession) { done, total in
-                    onProgress(Progress(
-                        phase: "Genres synchroniseren… (\(done)/\(total))",
-                        albumsCompleted: totalAlbums, albumsTotal: totalAlbums, tracksFound: finalTrackCount
-                    ))
-                }
-                if !mapping.isEmpty {
-                    try database.applyGenreMapping(mapping)
+                try await syncGenresOnly { [onProgress, totalAlbums, finalTrackCount] phase in
+                    onProgress(Progress(phase: phase, albumsCompleted: totalAlbums, albumsTotal: totalAlbums, tracksFound: finalTrackCount))
                 }
             } catch {
-                // Genre taxonomy unavailable — tracks are still usable without it.
+                logger.error("Genre sync mislukt: \(error)")
             }
         }
 
@@ -213,6 +208,21 @@ actor LibrarySyncService {
         try database.setSyncState(key: "last_sync", value: DatabaseManager.isoFormatter.string(from: Date()))
 
         return tracksFound
+    }
+
+    // MARK: - Genre-only pass
+
+    /// Walk the Roon `genres` hierarchy and (re)populate `track_genres`. Can be
+    /// run standalone after a full sync when genres are missing. Also called as
+    /// step 9 of `sync()`.
+    func syncGenresOnly(onProgress: (@Sendable (String) -> Void)? = nil) async throws {
+        let session = "genre_sync_\(Int(Date().timeIntervalSince1970))"
+        let mapping = try await browse.genreMapping(sessionKey: session) { [onProgress] done, total in
+            onProgress?("Genres synchroniseren… (\(done)/\(total))")
+        }
+        if !mapping.isEmpty {
+            try database.applyGenreMapping(mapping)
+        }
     }
 
     // MARK: - Helpers

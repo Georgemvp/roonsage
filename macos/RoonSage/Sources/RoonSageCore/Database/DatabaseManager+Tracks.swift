@@ -144,4 +144,23 @@ extension DatabaseManager {
         }
     }
 
+    /// Returns a mapping of albumKey → [genre] for the given album keys.
+    public func genresForAlbumKeys(_ keys: [String]) throws -> [String: [String]] {
+        guard !keys.isEmpty else { return [:] }
+        return try pool.read { db in
+            let ph = keys.map { _ in "?" }.joined(separator: ",")
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT DISTINCT t.album_key, tg.genre
+                FROM track_genres tg JOIN tracks t ON t.id = tg.track_id
+                WHERE t.album_key IN (\(ph))
+            """, arguments: StatementArguments(keys as [DatabaseValueConvertible]))
+            var result: [String: [String]] = [:]
+            for row in rows {
+                guard let k = row["album_key"] as String?, let g = row["genre"] as String? else { continue }
+                result[k, default: []].append(g)
+            }
+            return result
+        }
+    }
+
 }
