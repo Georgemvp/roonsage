@@ -66,6 +66,12 @@ public final class LibraryShareServer: @unchecked Sendable {
             }
             return ("500 Internal Server Error", Data("export failed".utf8), "text/plain")
         }
+        if path.hasPrefix("/settings") {
+            if let body = try? JSONEncoder().encode(SyncableSettings.exportCurrent()) {
+                return ("200 OK", body, "application/json")
+            }
+            return ("500 Internal Server Error", Data("export failed".utf8), "text/plain")
+        }
         if path.hasPrefix("/health") {
             let n = (try? database.trackCount()) ?? 0
             return ("200 OK", Data("{\"status\":\"ok\",\"tracks\":\(n)}".utf8), "application/json")

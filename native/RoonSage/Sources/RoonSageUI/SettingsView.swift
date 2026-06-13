@@ -14,6 +14,10 @@ public struct SettingsView: View {
     @State private var importBusy = false
     @State private var importStatus: String?
 
+    // Settings sync (pull config from a sharing Mac — iOS only)
+    @State private var settingsSyncBusy = false
+    @State private var settingsSyncStatus: String?
+
     public init() {}
 
     // ListenBrainz
@@ -91,6 +95,26 @@ public struct SettingsView: View {
                     .disabled(!client.connectionState.isConnected)
                 }
             }
+
+            #if os(iOS)
+            // Settings sync — the phone works like a remote: pull all config
+            // (Roon host, LLM, analyzer, Last.fm, Qobuz…) from the Mac in one tap
+            // instead of re-entering everything by hand.
+            Section("Synchroniseren met Mac") {
+                Button {
+                    Task { await syncSettingsFromMac() }
+                } label: {
+                    Label(settingsSyncBusy ? "Ophalen…" : "Haal instellingen op van Mac",
+                          systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(settingsSyncBusy)
+                if let s = settingsSyncStatus {
+                    Text(s).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Neemt LLM-, analyzer-, Last.fm-, ListenBrainz- en Qobuz-instellingen plus de Roon-host over van de Mac-app (zet daar 'Deel bibliotheek' aan). De eerste keer moet je deze iPhone nog wel goedkeuren in Roon.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            #endif
 
             // Library
             Section("Bibliotheek") {
@@ -353,26 +377,31 @@ public struct SettingsView: View {
         .frame(width: 440)
         #endif
         .task { afStats = await client.audioFeaturesStats() }
-        .onAppear {
-            refreshLastSync()
-            lbToken = KeychainStore.load(key: "listenbrainz_token") ?? ""
-            lfApiKey    = KeychainStore.load(key: "lastfm_api_key") ?? ""
-            lfApiSecret = KeychainStore.load(key: "lastfm_api_secret") ?? ""
-            lfUsername  = KeychainStore.load(key: "lastfm_username") ?? ""
-            lfConnected = !(KeychainStore.load(key: "lastfm_session_key") ?? "").isEmpty
-            qbEmail    = KeychainStore.load(key: "qobuz_email") ?? ""
-            qbPassword = KeychainStore.load(key: "qobuz_password") ?? ""
-            analyzerURL = client.analyzerURL
-            let cfg = LLMConfigStore.load()
-            llmProvider = cfg.provider
-            llmBaseURL  = cfg.baseURL
-            llmModel    = cfg.model
-            llmApiKey   = cfg.apiKey
-            if cfg.provider == .ollama {
-                Task { await fetchOllamaModels() }
-            }
-        }
+        .onAppear { loadSettingsState() }
         .onChange(of: client.isSyncing) { _, _ in refreshLastSync() }
+    }
+
+    /// Loads every field from UserDefaults + Keychain into local @State. Called
+    /// on first render and again after a settings sync from the Mac, so the UI
+    /// immediately reflects the imported values.
+    private func loadSettingsState() {
+        refreshLastSync()
+        lbToken = KeychainStore.load(key: "listenbrainz_token") ?? ""
+        lfApiKey    = KeychainStore.load(key: "lastfm_api_key") ?? ""
+        lfApiSecret = KeychainStore.load(key: "lastfm_api_secret") ?? ""
+        lfUsername  = KeychainStore.load(key: "lastfm_username") ?? ""
+        lfConnected = !(KeychainStore.load(key: "lastfm_session_key") ?? "").isEmpty
+        qbEmail    = KeychainStore.load(key: "qobuz_email") ?? ""
+        qbPassword = KeychainStore.load(key: "qobuz_password") ?? ""
+        analyzerURL = client.analyzerURL
+        let cfg = LLMConfigStore.load()
+        llmProvider = cfg.provider
+        llmBaseURL  = cfg.baseURL
+        llmModel    = cfg.model
+        llmApiKey   = cfg.apiKey
+        if cfg.provider == .ollama {
+            Task { await fetchOllamaModels() }
+        }
     }
 
     private var appVersion: String {
@@ -407,6 +436,17 @@ public struct SettingsView: View {
             refreshLastSync()
         } else {
             importStatus = "Geen delende Mac gevonden — zet 'Deel bibliotheek' aan in de Mac-app (Settings → Library)."
+        }
+    }
+
+    private func syncSettingsFromMac() async {
+        settingsSyncBusy = true; defer { settingsSyncBusy = false }
+        settingsSyncStatus = "Mac zoeken op poort 5767…"
+        if let source = await client.autoImportSettings() {
+            loadSettingsState()
+            settingsSyncStatus = "Instellingen overgenomen van \(source) ✓"
+        } else {
+            settingsSyncStatus = "Geen delende Mac gevonden — zet 'Deel bibliotheek' aan in de Mac-app (Settings → Bibliotheek)."
         }
     }
 
