@@ -21,9 +21,9 @@ struct RoonSageiOSApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environment(client)
                 .tint(.roonGold)
                 .withHandoff()
+                .environment(client)
                 .onAppear {
                     nowPlayingCenter.configure(client: client)
                     // Prime the scheduler so the first refresh fires ~15 min later.
@@ -84,9 +84,9 @@ struct RoonSageiOSApp: App {
         // before any scene connects when declared here (not in .onAppear).
         // BGTaskSchedulerPermittedIdentifiers must also list this ID in Info.plist.
         .backgroundTask(.appRefresh("com.roonsage.ios.refresh")) {
-            scheduleNextBackgroundRefresh()
+            await MainActor.run { scheduleNextBackgroundRefresh() }
             _ = await client.ensureConnected(timeout: 8)
-            syncSystemSurfaces()
+            await MainActor.run { syncSystemSurfaces() }
         }
     }
 
