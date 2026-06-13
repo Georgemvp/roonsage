@@ -1,0 +1,37 @@
+name: Native Tests (macOS/iOS)
+
+# PRIMARY CI for the native Swift apps under native/. Runs the SPM test suites
+# for the shared packages and a release-build sanity check (CI is stricter than
+# a local debug build). Path-filtered so legacy-docker/** changes don't trigger
+# it — those run the deprecated Python suite in test.yml instead.
+
+on:
+  push:
+    paths:
+      - 'native/**'
+      - '.github/workflows/native-tests.yml'
+  pull_request:
+    paths:
+      - 'native/**'
+      - '.github/workflows/native-tests.yml'
+
+jobs:
+  test:
+    name: swift test + release build
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: RoonProtocol — swift test
+        run: cd native/RoonProtocol && swift test
+
+      - name: RoonSage — swift test
+        run: cd native/RoonSage && swift test
+
+      # Mirrors the release pipeline: debug `swift test` passes but the release
+      # configuration is stricter and has caught build-only failures before.
+      - name: RoonSage — release build sanity (shared targets)
+        run: cd native/RoonSage && swift build -c release --product RoonSage

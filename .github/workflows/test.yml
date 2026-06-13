@@ -1,10 +1,27 @@
-name: Tests
+name: Legacy Docker/Python Tests
 
-on: [push, pull_request]
+# DEPRECATED STACK — the Docker/FastAPI web app lives under legacy-docker/ and
+# is no longer the primary product (the native macOS/iOS apps are; see
+# native-tests.yml). This job only runs when something under legacy-docker/
+# actually changes, so native-only commits don't trigger the Python suite.
+
+on:
+  push:
+    paths:
+      - 'legacy-docker/**'
+      - '.github/workflows/test.yml'
+  pull_request:
+    paths:
+      - 'legacy-docker/**'
+      - '.github/workflows/test.yml'
 
 jobs:
   test:
+    name: Legacy pytest + ruff (Python)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: legacy-docker
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
