@@ -11,6 +11,10 @@ extension RoonClient {
     public static func useServerIdentity() {
         RoonClientAuth.extensionIDOverride = "com.roonsage.server"
         RoonClientAuth.displayNameOverride = "RoonSage Server"
+        // Own keychain namespace: never read items created by the client apps
+        // (cross-app reads pop a blocking ACL prompt that freezes the main
+        // thread during connect). The server owns its own Roon token + creds.
+        KeychainStore.serviceOverride = "com.roonsage.server"
     }
 
     // MARK: - Settings import (from a sharing Mac)

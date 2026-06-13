@@ -2,7 +2,14 @@ import Foundation
 import Security
 
 public enum KeychainStore {
-    private static let service = "com.roonsage.native"
+    /// Per-process keychain service namespace. The always-on server build sets
+    /// this to its own value so it never reads credential items created by a
+    /// differently-signed sibling app (the Mac/iOS clients) — a cross-app read
+    /// triggers a blocking SecurityAgent ACL prompt, which on the main thread
+    /// freezes the app (it froze `RoonClient.handleOpen` reading the Roon token).
+    /// Clients keep the default namespace, so their existing items stay readable.
+    public static var serviceOverride: String?
+    private static var service: String { serviceOverride ?? "com.roonsage.native" }
 
     /// Stores `value` under `key`. Returns false if the Keychain write failed
     /// (e.g. permission/disk error) so callers can surface lost-credential state
