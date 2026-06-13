@@ -2,6 +2,17 @@ import Foundation
 
 @MainActor
 extension RoonClient {
+    // MARK: - Server identity
+
+    /// Register this process as the always-on "RoonSage Server" extension — a
+    /// distinct Roon identity so it doesn't clash with the Mac/iOS client apps
+    /// (which keep their default per-platform IDs). Call once at launch, before
+    /// `connect()`. Used by the analyzer/server build.
+    public static func useServerIdentity() {
+        RoonClientAuth.extensionIDOverride = "com.roonsage.server"
+        RoonClientAuth.displayNameOverride = "RoonSage Server"
+    }
+
     // MARK: - Settings import (from a sharing Mac)
 
     /// One-tap settings sync: find the sharing Mac (known hosts on port 5767,
@@ -27,13 +38,17 @@ extension RoonClient {
               var settings = try? JSONDecoder().decode(SyncableSettings.self, from: data)
         else { return false }
 
-        // The Mac reports its Roon host as it sees it. When the Core runs on the
-        // Mac itself it reports a loopback address (127.0.0.1) — useless to the
-        // phone, where that means the phone. Substitute the share server's host:
-        // we just reached the Mac there, and the Core lives on that same machine.
-        if let host = settings.roonHost, Self.isLoopback(host),
-           let shareHost = URL(string: trimmed)?.host {
+        // The server reports hosts as it sees them. When the Core / analyzer run
+        // on the server itself it reports loopback (127.0.0.1) — useless to the
+        // client, where that means the client. Substitute the share server's
+        // host (we just reached it there; Core + analyzer live on that machine)
+        // for both the Roon host and the analyzer URL.
+        let shareHost = URL(string: trimmed)?.host
+        if let host = settings.roonHost, Self.isLoopback(host), let shareHost {
             settings.roonHost = shareHost   // apply() persists it below
+        }
+        if let aURL = settings.analyzerURL, let shareHost {
+            settings.analyzerURL = Self.rewriteLoopbackHost(in: aURL, to: shareHost)
         }
 
         settings.apply()
@@ -48,5 +63,46 @@ extension RoonClient {
 
     private static func isLoopback(_ host: String) -> Bool {
         host == "localhost" || host == "::1" || host.hasPrefix("127.")
+    }
+
+    /// Rewrites the host of a URL string to `newHost` when it points at loopback,
+    /// preserving scheme + port (e.g. http://127.0.0.1:5766 → http://<mac>:5766).
+    private static func rewriteLoopbackHost(in urlString: String, to newHost: String) -> String {
+        guard var comps = URLComponents(string: urlString), let host = comps.host,
+              isLoopback(host) else { return urlString }
+        comps.host = newHost
+        return comps.string ?? urlString
+    }
+
+    // MARK: - Full server sync (settings + library + analyses)
+
+    public struct ServerSyncResult: Sendable {
+        public let source: String
+        public let tracks: Int
+        public let features: Int
+    }
+
+    /// Client-side "pull everything": settings → library → audio features, in one
+    /// go from the central server. `importSettings` runs first so the analyzer
+    /// URL (with loopback rewritten) is set before we pull features. Returns nil
+    /// if settings or library couldn't be fetched.
+    public func syncEverythingFromServer(baseURL: String) async -> ServerSyncResult? {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
+        UserDefaults.standard.set(trimmed, forKey: "library_import_url")
+        guard await importSettings(fromMac: trimmed) else { return nil }
+        guard let tracks = await importLibrary(fromMac: trimmed) else { return nil }
+
+        var features = 0
+        let aURL = analyzerURL
+        if !aURL.isEmpty, let diag = await syncAudioFeatures(from: aURL) {
+            features = diag.featureRows
+        }
+        return ServerSyncResult(source: trimmed, tracks: tracks, features: features)
+    }
+
+    /// Auto-discover the server (known hosts on port 5767) and pull everything.
+    public func autoSyncEverythingFromServer() async -> ServerSyncResult? {
+        guard let base = await discoverShareServer() else { return nil }
+        return await syncEverythingFromServer(baseURL: base)
     }
 }

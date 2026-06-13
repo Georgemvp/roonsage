@@ -193,6 +193,16 @@ struct RootView: View {
                 client.selectZone(lastZoneID)
             }
         }
+        .task { await autoPullFromServerIfEmpty() }
+    }
+
+    /// First-run convenience: when the local library is still empty, pull
+    /// everything (settings + library + analyses) from the central server once,
+    /// so a fresh client configures itself without manual steps. Existing data
+    /// is left untouched — refreshing later is manual via Settings → Server.
+    private func autoPullFromServerIfEmpty() async {
+        guard client.trackCount == 0, !client.isSyncing else { return }
+        _ = await client.autoSyncEverythingFromServer()
     }
 
     // MARK: Tabs (iPhone) — iOS only
@@ -246,6 +256,7 @@ struct RootView: View {
                 client.selectZone(lastZoneID)
             }
         }
+        .task { await autoPullFromServerIfEmpty() }
     }
 
     private var iOSTabSelection: Binding<SidebarItem> {

@@ -62,7 +62,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "RoonSageAnalyzerApp",
-            dependencies: ["AnalyzerCore", "AudioAnalysis"],
+            dependencies: ["AnalyzerCore", "AudioAnalysis", "RoonSageCore", "RoonSageUI"],
             path: "Sources/RoonSageAnalyzerApp",
             exclude: ["Info.plist"]
         ),

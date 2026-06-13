@@ -1,24 +1,34 @@
 import SwiftUI
 import RoonSageCore
 
+/// Where this Settings screen runs.
+/// - `.server`: the always-on analyzer/server app — everything editable; this is
+///   the single place to configure LLM, Last.fm, Qobuz, analyzer, etc.
+/// - `.client`: the Mac/iOS remote apps — almost everything is gone. They only
+///   pick a server address, pull config + library + features from it, and keep
+///   the per-device Roon authorization + local appearance.
+public enum SettingsRole: Sendable {
+    case server
+    case client
+}
+
 @MainActor
 public struct SettingsView: View {
+    private let role: SettingsRole
     @Environment(RoonClient.self) private var client
     @Environment(\.openURL) private var openURL
     @AppStorage("themeMode") private var themeMode: ThemeMode = .system
     @AppStorage("accentChoice") private var accent: AccentChoice = .gold
     @State private var lastSync: String = "—"
 
-    // Library import (from a sharing Mac)
-    @State private var importURL: String = UserDefaults.standard.string(forKey: "library_import_url") ?? ""
-    @State private var importBusy = false
-    @State private var importStatus: String?
-
-    // Settings sync (pull config from a sharing Mac — iOS only)
+    // Server sync (client role: pull settings + library + features from the server)
+    @State private var serverURL: String = UserDefaults.standard.string(forKey: "library_import_url") ?? ""
     @State private var settingsSyncBusy = false
     @State private var settingsSyncStatus: String?
 
-    public init() {}
+    public init(role: SettingsRole = .client) {
+        self.role = role
+    }
 
     // ListenBrainz
     @State private var lbToken: String = ""
@@ -96,91 +106,77 @@ public struct SettingsView: View {
                 }
             }
 
-            #if os(iOS)
-            // Settings sync — the phone works like a remote: pull all config
-            // (Roon host, LLM, analyzer, Last.fm, Qobuz…) from the Mac in one tap
-            // instead of re-entering everything by hand.
-            Section("Synchroniseren met Mac") {
-                Button {
-                    Task { await syncSettingsFromMac() }
-                } label: {
-                    Label(settingsSyncBusy ? "Ophalen…" : "Haal instellingen op van Mac",
-                          systemImage: "arrow.triangle.2.circlepath")
-                }
-                .disabled(settingsSyncBusy)
-                if let s = settingsSyncStatus {
-                    Text(s).font(.caption).foregroundStyle(.secondary)
-                }
-                Text("Neemt LLM-, analyzer-, Last.fm-, ListenBrainz- en Qobuz-instellingen plus de Roon-host over van de Mac-app (zet daar 'Deel bibliotheek' aan). De eerste keer moet je deze iPhone nog wel goedkeuren in Roon.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            #endif
+            if role == .client {
+                // The remote apps work like a remote: pick the server (the
+                // always-on analyzer/server) and pull settings + library +
+                // analyses from it in one tap. No credentials are entered here.
+                Section("Server") {
+                    Button {
+                        Task { await syncFromServer() }
+                    } label: {
+                        Label(settingsSyncBusy ? "Synchroniseren…" : "Synchroniseer met server",
+                              systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .disabled(settingsSyncBusy || client.isSyncing)
 
-            // Library
+                    // Manual fallback for a server the app can't auto-discover.
+                    HStack {
+                        TextField("http://10.94.184.22:5767", text: $serverURL)
+                            .textFieldStyle(.roundedBorder)
+                        Button("Synchroniseer") {
+                            Task { await syncFromServer(explicit: serverURL) }
+                        }
+                        .disabled(settingsSyncBusy || client.isSyncing
+                                  || serverURL.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                    if let s = settingsSyncStatus {
+                        Text(s).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("Haalt instellingen, de muziekbibliotheek en de analyses op van de RoonSage-server (de analyzer op je always-on Mac). De eerste keer moet je dit apparaat nog wel goedkeuren in Roon.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            // Library — counts always; sync/share controls only on the server.
             Section("Bibliotheek") {
                 LabeledContent("Tracks in database", value: "\(client.trackCount)")
                 LabeledContent("Genres in database", value: client.genreCount == 0 ? "Niet gesynchroniseerd" : "\(client.genreCount)")
                 LabeledContent("Laatste sync", value: lastSync)
-                HStack {
-                    Button("Synchroniseer nu") { client.startSync() }
-                        .disabled(!client.connectionState.isConnected || client.isSyncing || client.isGenreSyncing)
-                    if client.isSyncing {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(client.syncProgress.phase)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                HStack {
-                    Button("Synchroniseer genres") { client.startGenreSync() }
-                        .disabled(!client.connectionState.isConnected || client.isSyncing || client.isGenreSyncing)
-                    if client.isGenreSyncing {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(client.syncProgress.phase)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
 
-                #if os(macOS)
-                Toggle("Deel bibliotheek voor import (poort 5767)", isOn: Binding(
-                    get: { client.isLibrarySharing },
-                    set: { client.setLibrarySharing(enabled: $0) }
-                ))
-                Text("Andere apparaten (je iPhone) kunnen de gesyncte bibliotheek hiervandaan importeren in plaats van zelf urenlang te syncen.")
-                    .font(.caption).foregroundStyle(.secondary)
-                #endif
-
-                // Import from a Mac that has sharing enabled — the fast path
-                // for first setup on iPhone (no hours-long Browse walk).
-                // One tap: probes the hosts the app already knows (Roon Core,
-                // analyzer, LLM server) on port 5767 and imports from the
-                // first that answers.
-                Button {
-                    Task { await autoImportFromMac() }
-                } label: {
-                    Label(importBusy ? "Importeren…" : "Importeer automatisch van Mac",
-                          systemImage: "antenna.radiowaves.left.and.right")
-                }
-                .disabled(importBusy || client.isSyncing)
-
-                // Manual fallback for a host the app can't guess.
-                HStack {
-                    TextField("http://10.94.184.22:5767", text: $importURL)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Importeer") {
-                        Task { await importFromMac() }
+                if role == .server {
+                    HStack {
+                        Button("Synchroniseer nu") { client.startSync() }
+                            .disabled(!client.connectionState.isConnected || client.isSyncing || client.isGenreSyncing)
+                        if client.isSyncing {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(client.syncProgress.phase)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .disabled(importBusy || client.isSyncing
-                              || importURL.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-                if let s = importStatus {
-                    Text(s).font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Synchroniseer genres") { client.startGenreSync() }
+                            .disabled(!client.connectionState.isConnected || client.isSyncing || client.isGenreSyncing)
+                        if client.isGenreSyncing {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(client.syncProgress.phase)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Toggle("Deel bibliotheek voor import (poort 5767)", isOn: Binding(
+                        get: { client.isLibrarySharing },
+                        set: { client.setLibrarySharing(enabled: $0) }
+                    ))
+                    Text("Client-apps (Mac/iPhone) halen de bibliotheek hiervandaan op in plaats van zelf urenlang te syncen.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
 
+            if role == .server {
             // LLM
             Section("LLM / Playlist AI") {
                 Picker("Provider", selection: $llmProvider) {
@@ -354,6 +350,7 @@ public struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            } // end role == .server
 
             // About
             Section("Over") {
@@ -414,39 +411,28 @@ public struct SettingsView: View {
         lastSync = (try? client.database?.syncStateValue(forKey: "last_sync")) ?? "Nooit"
     }
 
-    private func importFromMac() async {
-        importBusy = true; defer { importBusy = false }
-        let url = importURL.trimmingCharacters(in: .whitespaces)
-        UserDefaults.standard.set(url, forKey: "library_import_url")
-        importStatus = "Bibliotheek ophalen…"
-        if let count = await client.importLibrary(fromMac: url) {
-            importStatus = "\(count) tracks geïmporteerd ✓"
-            refreshLastSync()
-        } else {
-            importStatus = "Import mislukt — draait de Mac-app met 'Deel bibliotheek' aan op \(url)?"
-        }
-    }
-
-    private func autoImportFromMac() async {
-        importBusy = true; defer { importBusy = false }
-        importStatus = "Mac zoeken op poort 5767…"
-        if let result = await client.autoImportLibrary() {
-            importURL = result.source
-            importStatus = "\(result.count) tracks geïmporteerd van \(result.source) ✓"
-            refreshLastSync()
-        } else {
-            importStatus = "Geen delende Mac gevonden — zet 'Deel bibliotheek' aan in de Mac-app (Settings → Library)."
-        }
-    }
-
-    private func syncSettingsFromMac() async {
+    /// Client role: pull settings + library + analyses from the server. With an
+    /// explicit URL, sync that host; otherwise auto-discover the server.
+    private func syncFromServer(explicit: String? = nil) async {
         settingsSyncBusy = true; defer { settingsSyncBusy = false }
-        settingsSyncStatus = "Mac zoeken op poort 5767…"
-        if let source = await client.autoImportSettings() {
-            loadSettingsState()
-            settingsSyncStatus = "Instellingen overgenomen van \(source) ✓"
+        let trimmed = explicit?.trimmingCharacters(in: .whitespaces)
+        if let trimmed, !trimmed.isEmpty {
+            settingsSyncStatus = "Synchroniseren met \(trimmed)…"
+            if let r = await client.syncEverythingFromServer(baseURL: trimmed) {
+                loadSettingsState()
+                settingsSyncStatus = "Klaar — \(r.tracks) tracks, \(r.features) kenmerken ✓"
+            } else {
+                settingsSyncStatus = "Mislukt — draait de RoonSage-server (analyzer) op \(trimmed)?"
+            }
         } else {
-            settingsSyncStatus = "Geen delende Mac gevonden — zet 'Deel bibliotheek' aan in de Mac-app (Settings → Bibliotheek)."
+            settingsSyncStatus = "Server zoeken op poort 5767…"
+            if let r = await client.autoSyncEverythingFromServer() {
+                serverURL = r.source
+                loadSettingsState()
+                settingsSyncStatus = "Klaar — \(r.tracks) tracks, \(r.features) kenmerken van \(r.source) ✓"
+            } else {
+                settingsSyncStatus = "Geen server gevonden — start de RoonSage-server (analyzer) op je always-on Mac."
+            }
         }
     }
 

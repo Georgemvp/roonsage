@@ -82,6 +82,12 @@ final class AnalyzerModel {
 
     func cancelTag() { tagger?.cancel() }
 
+    /// Start the feature server on launch if it isn't already running — this app
+    /// is the always-on server, so /features (5766) should be up without a click.
+    func startServingIfNeeded() {
+        if !isServing { toggleServe() }
+    }
+
     func toggleServe() {
         if isServing {
             server?.stop(); server = nil; isServing = false; status = "Stopped serving."
