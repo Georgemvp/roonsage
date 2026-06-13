@@ -1,6 +1,6 @@
 # RoonSage Native (macOS + iOS) — Volledige Code-, Performance-, Design- & Feature-audit
 
-> Datum: 2026-06-12 · Scope: `macos/RoonSage`, `macos/RoonProtocol`, `macos/iosapp` (~108 Swift-bestanden, ~14k regels)
+> Datum: 2026-06-12 · Scope: `native/RoonSage`, `native/RoonProtocol`, `native/iosapp` (~108 Swift-bestanden, ~14k regels)
 > Methode: 5 parallelle diepte-audits (architectuur, UI/UX, performance, iOS-platform, feature-parity).
 
 ## ✅ Voortgang (2026-06-12, zelfde dag)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build "RoonSage Analyzer.app" + DMG (ad-hoc signed unless SIGN_IDENTITY set).
-#   cd macos && ./scripts/build-analyzer-release.sh [version]
+#   cd native && ./scripts/build-analyzer-release.sh [version]
 set -euo pipefail
 
 VERSION="${1:-$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")}"

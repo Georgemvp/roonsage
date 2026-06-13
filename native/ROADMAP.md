@@ -46,8 +46,8 @@
   - [ ] Define an `UpdateService` protocol with a macOS impl + iOS no-op (optional).
 - [x] **A3. Adaptive navigation.** `RootView` in `RoonSageUI`: `NavigationSplitView` on regular width (macOS/iPad), `TabView` on compact (iPhone). Shared destination switch + zone/transport toolbar. `ContentView`/`SidebarItem` moved to `RoonSageUI` and made public.
 - [x] **A4. Audit `RoonClient` for Mac assumptions** — compiles clean for iOS; no AppKit leaked into the shared path (the only `Process`/AppKit use was the now-guarded updater).
-- [x] **A5. iOS app target.** `macos/iosapp/` — `RoonSageiOSApp.swift` (@main → shared `ContentView`) + `project.yml` (xcodegen) referencing the local `RoonSage` package (RoonSageUI + RoonSageCore), synthesized Info.plist with `NSLocalNetworkUsageDescription`, iPhone+iPad, iOS 17. `xcodegen generate` succeeds; package graph + `RoonSageiOS` scheme resolve.
-- [x] **A6. Verify (Simulator).** iOS 26.5 Simulator runtime installed; `RoonSage.app` **builds, installs, launches and renders** on iPhone 17 Pro sim (ConnectView with gold accent). Build: `cd macos/iosapp && xcodebuild -scheme RoonSageiOS -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`. **Still TODO for device/TestFlight:** a real Apple Developer Team for signing, app icon, and a live connect test over ZeroTier.
+- [x] **A5. iOS app target.** `native/iosapp/` — `RoonSageiOSApp.swift` (@main → shared `ContentView`) + `project.yml` (xcodegen) referencing the local `RoonSage` package (RoonSageUI + RoonSageCore), synthesized Info.plist with `NSLocalNetworkUsageDescription`, iPhone+iPad, iOS 17. `xcodegen generate` succeeds; package graph + `RoonSageiOS` scheme resolve.
+- [x] **A6. Verify (Simulator).** iOS 26.5 Simulator runtime installed; `RoonSage.app` **builds, installs, launches and renders** on iPhone 17 Pro sim (ConnectView with gold accent). Build: `cd native/iosapp && xcodebuild -scheme RoonSageiOS -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`. **Still TODO for device/TestFlight:** a real Apple Developer Team for signing, app icon, and a live connect test over ZeroTier.
 
 **Acceptance:** Mac app unchanged; iOS app connects over ZeroTier, browses library, plays, curates, builds a DJ set from synced features.
 
@@ -62,7 +62,7 @@
 - [x] **B2. Appearance settings** — done (see Track B header note).
 - [x] **B3. Album-art-driven dynamic color** — Now Playing cards get a gradient backdrop tinted by the art's dominant colour (CIAreaAverage, cached), animated on track change.
 - [x] **B4. Per-screen polish pass.** SkeletonRows on Library/Ask/LiveDJ/Discovery; every list view has a proper empty state; refresh toolbar button consistent across Library/MusicMap/SonicFingerprint/Discovery/Playlists/TasteProfile.
-- [~] **B5. Proper signing & notarization (Mac).** Infra DONE: `build-release.sh` already signs+notarizes when env set; the release workflow now imports a Developer ID cert + passes notarization creds **when secrets exist** (ad-hoc fallback otherwise). `macos/SIGNING.md` documents the cert + GitHub secrets + iOS TestFlight path. **Needs Casper:** Apple Developer membership, the 6 macOS secrets, and his Team ID for iOS.
+- [~] **B5. Proper signing & notarization (Mac).** Infra DONE: `build-release.sh` already signs+notarizes when env set; the release workflow now imports a Developer ID cert + passes notarization creds **when secrets exist** (ad-hoc fallback otherwise). `native/SIGNING.md` documents the cert + GitHub secrets + iOS TestFlight path. **Needs Casper:** Apple Developer membership, the 6 macOS secrets, and his Team ID for iOS.
 - [x] **B6. App icon** — gold `music.note.house` glyph on a dark gradient; `make-icon.swift` + `RoonSage.icns` (macOS) + `AppIcon.appiconset` (iOS), wired into both apps. (Analyzer app icon = future.)
 
 **Acceptance:** user can switch theme + accent; Now Playing adapts to art; notarized DMG installs without quarantine workarounds.

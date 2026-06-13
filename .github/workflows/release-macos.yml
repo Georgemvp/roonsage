@@ -44,7 +44,7 @@ jobs:
       # Imports the Developer ID cert into a temporary keychain and auto-detects
       # the signing identity — only runs when the APPLE_CERTIFICATE secret is
       # present; otherwise the build falls back to ad-hoc signing (no
-      # notarization). See macos/SIGNING.md.
+      # notarization). See native/SIGNING.md.
       - name: Import signing certificate
         if: env.APPLE_CERTIFICATE != ''
         env:
@@ -70,7 +70,7 @@ jobs:
             | grep "Developer ID Application" | head -1 | sed -E 's/^[^"]*"(.*)"$/\1/')
           if [[ -z "$IDENTITY" ]]; then
             echo "::error::No 'Developer ID Application' identity found. The dump above shows what's in APPLE_CERTIFICATE."
-            echo "::error::You need a *Developer ID Application* cert exported as .p12 WITH its private key. See macos/SIGNING.md."
+            echo "::error::You need a *Developer ID Application* cert exported as .p12 WITH its private key. See native/SIGNING.md."
             exit 1
           fi
           echo "Using signing identity: $IDENTITY"
@@ -84,13 +84,13 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          cd macos
+          cd native
           mkdir -p build
           ./scripts/build-release.sh "${{ steps.version.outputs.version }}"
 
       - name: Verify app bundle
         run: |
-          DMG="macos/build/RoonSage-${{ steps.version.outputs.version }}.dmg"
+          DMG="native/build/RoonSage-${{ steps.version.outputs.version }}.dmg"
           hdiutil attach "$DMG" -mountpoint /tmp/roonsage-verify -quiet
           codesign --verify --deep --verbose /tmp/roonsage-verify/RoonSage.app
           # If notarized, confirm the staple too (non-fatal when ad-hoc).
@@ -104,7 +104,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          DMG="macos/build/RoonSage-${VERSION}.dmg"
+          DMG="native/build/RoonSage-${VERSION}.dmg"
 
           cat > /tmp/release-notes.md << 'NOTES'
           Native macOS client for Roon — browse, control playback and sync your library locally.
@@ -130,5 +130,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: RoonSage-${{ steps.version.outputs.version }}-dmg
-          path: macos/build/RoonSage-${{ steps.version.outputs.version }}.dmg
+          path: native/build/RoonSage-${{ steps.version.outputs.version }}.dmg
           retention-days: 7

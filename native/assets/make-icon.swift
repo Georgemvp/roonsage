@@ -1,5 +1,5 @@
 // Generates the RoonSage app icon: a gold `music.note.house` glyph on a dark
-// radial gradient. Run from macos/assets:  swift make-icon.swift
+// radial gradient. Run from native/assets:  swift make-icon.swift
 // Produces icon-1024.png (used to build the macOS .icns and the iOS appiconset).
 import AppKit
 

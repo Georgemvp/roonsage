@@ -1,5 +1,5 @@
 # xcodegen spec for the RoonSage iOS app.
-# Regenerate the .xcodeproj after editing:  cd macos/iosapp && xcodegen generate
+# Regenerate the .xcodeproj after editing:  cd native/iosapp && xcodegen generate
 # The app target reuses the shared SPM package at ../RoonSage (RoonSageUI +
 # RoonSageCore); no app source is duplicated.
 name: RoonSageiOS

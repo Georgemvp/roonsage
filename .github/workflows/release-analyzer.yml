@@ -39,13 +39,13 @@ jobs:
 
       - name: Build analyzer app DMG (ad-hoc signed)
         run: |
-          cd macos
+          cd native
           chmod +x scripts/build-analyzer-release.sh
           ./scripts/build-analyzer-release.sh "${{ steps.version.outputs.version }}"
 
       - name: Build CLI binary
         run: |
-          cd macos/RoonSage
+          cd native/RoonSage
           swift build -c release --product roonsage-analyzer
           cp .build/release/roonsage-analyzer ../build/roonsage-analyzer
           (cd ../build && zip "roonsage-analyzer-cli-${{ steps.version.outputs.version }}.zip" roonsage-analyzer)
@@ -72,5 +72,5 @@ jobs:
           gh release create "analyzer-v${VERSION}" \
             --title "RoonSage Analyzer v${VERSION}" \
             --notes-file /tmp/notes.md \
-            "macos/build/RoonSage-Analyzer-${VERSION}.dmg" \
-            "macos/build/roonsage-analyzer-cli-${VERSION}.zip"
+            "native/build/RoonSage-Analyzer-${VERSION}.dmg" \
+            "native/build/roonsage-analyzer-cli-${VERSION}.zip"

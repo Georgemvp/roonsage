@@ -2,7 +2,7 @@
 # Build a signed, notarized RoonSage.app + DMG.
 #
 # Usage (local):
-#   cd macos
+#   cd native
 #   SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
 #   APPLE_ID="you@example.com" \
 #   APPLE_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx" \
@@ -52,7 +52,7 @@ awk -v ver="$VERSION" '
   { print }
 ' "$PACKAGE_DIR/Sources/RoonSage/Info.plist" > "$APP_PATH/Contents/Info.plist"
 
-# App icon (optional — add RoonSage.icns to macos/assets/ to include it)
+# App icon (optional — add RoonSage.icns to native/assets/ to include it)
 ICON="$MACOS_DIR/assets/RoonSage.icns"
 if [[ -f "$ICON" ]]; then
     cp "$ICON" "$APP_PATH/Contents/Resources/AppIcon.icns"

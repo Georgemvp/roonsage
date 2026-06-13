@@ -38,7 +38,7 @@ Without these secrets the workflow still builds an ad-hoc DMG (current behaviour
 
 ### Build a signed DMG locally
 ```bash
-cd macos
+cd native
 SIGN_IDENTITY="Developer ID Application: <Name> (TEAMID)" \
 APPLE_ID="you@example.com" \
 APPLE_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx" \
@@ -53,13 +53,13 @@ APPLE_TEAM_ID="ABCDE12345" \
 iOS apps must be signed with an Apple Developer Team (no ad-hoc App Store path).
 
 ### In Xcode (simplest)
-1. `cd macos/iosapp && xcodegen generate && open RoonSageiOS.xcodeproj`
+1. `cd native/iosapp && xcodegen generate && open RoonSageiOS.xcodeproj`
 2. Select the **RoonSageiOS** target → **Signing & Capabilities** → tick **Automatically manage signing** → choose your **Team**.
 3. Pick a real device (or "Any iOS Device") → **Product → Archive** → **Distribute App → TestFlight & App Store**.
 
 ### Or from the command line
 ```bash
-cd macos/iosapp && xcodegen generate
+cd native/iosapp && xcodegen generate
 xcodebuild -scheme RoonSageiOS -destination 'generic/platform=iOS' \
   -archivePath build/RoonSage.xcarchive \
   DEVELOPMENT_TEAM=ABCDE12345 archive
