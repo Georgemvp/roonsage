@@ -215,6 +215,7 @@ extension RoonClient {
     /// Add tracks to the queue without interrupting playback. `next: true` uses
     /// Roon's "Add Next" instead of "Queue" (end of queue).
     public func queueTracks(_ tracks: [TrackRecord], next: Bool = false, zoneID: String) async {
+        if isRemote { var c = RemoteCommand("queue"); c.zoneID = zoneID; c.tracks = tracks; c.next = next; await remote(c); return }
         guard let browse = browseService else {
             lastActionError = ActionError(message: "Wachtrij mislukt — geen verbinding met Roon.")
             return

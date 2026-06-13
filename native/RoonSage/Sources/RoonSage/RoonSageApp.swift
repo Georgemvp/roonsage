@@ -5,11 +5,18 @@ import RoonSageUI
 @MainActor
 @main
 struct RoonSageApp: App {
-    @State private var client = RoonClient.shared
+    @State private var client: RoonClient
     @State private var availableUpdate: UpdateInfo? = nil
     @State private var showUpdateSheet = false
     @State private var isCheckingForUpdates = false
     @State private var installer = UpdateInstaller()
+
+    init() {
+        // This is a client: control Roon through the RoonSage server over HTTP,
+        // never register a Roon extension on this Mac. Must run before connect.
+        RoonClient.useServerMode()
+        _client = State(initialValue: RoonClient.shared)
+    }
 
     var body: some Scene {
         WindowGroup {

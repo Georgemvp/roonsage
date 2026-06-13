@@ -62,7 +62,7 @@ public final class RoonClient {
     public internal(set) var lastfmImportInProgress = false
     public internal(set) var lastfmImportStatus = ""
 
-    public struct QueueItem: Sendable, Identifiable {
+    public struct QueueItem: Sendable, Identifiable, Codable {
         public var id: Int
         public var title: String
         public var subtitle: String?
@@ -71,6 +71,18 @@ public final class RoonClient {
     }
     public internal(set) var queueItems: [QueueItem] = []
     var queueTask: Task<Void, Never>?
+    /// Zone the queue is currently subscribed to (idempotent re-subscribe).
+    var queueZoneID: String?
+
+    // MARK: - Control mode (playback proxy)
+    /// `.direct` = talk to Roon over the WebSocket (the server build).
+    /// `.server` = talk to the RoonSage server over HTTP (the client apps);
+    /// no Roon extension is registered. Set once at launch via `useServerMode()`.
+    public internal(set) var controlMode: RoonControlMode = .direct
+    var isRemote: Bool { controlMode == .server }
+    /// Resolved server base URL (e.g. http://10.94.184.22:5767) in server mode.
+    var remoteBaseURL: String?
+    var remotePollTask: Task<Void, Never>?
     /// Re-issues the zones subscription when its initial state never arrives.
     var zonesWatchdog: Task<Void, Never>?
 
@@ -190,6 +202,13 @@ public final class RoonClient {
     // MARK: - Connection
 
     public func connect(host rawHost: String, port: UInt16 = 9330) async {
+        // Server mode: no Roon socket. Treat the host (saved/typed) as the
+        // RoonSage server address on the share port; empty host → auto-discover.
+        if isRemote {
+            let h = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !h.isEmpty { remoteBaseURL = "http://\(h):\(LibraryShareServer.defaultPort)" }
+            await startServerMode(); return
+        }
         // Text-field input often carries stray whitespace from copy/paste — a
         // space inside the authority makes URL(string:) return nil, which used
         // to crash the transport's force-unwrap. Sanitise and validate first.
@@ -218,8 +237,11 @@ public final class RoonClient {
     /// connection (and thus a controllable zone list) is available.
     public func ensureConnected(timeout: TimeInterval = 6) async -> Bool {
         if connectionState.isConnected { return true }
-        guard let host = savedHost else { return false }
-        await connect(host: host, port: savedPort)
+        if isRemote { await startServerMode() }
+        else {
+            guard let host = savedHost else { return false }
+            await connect(host: host, port: savedPort)
+        }
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if connectionState.isConnected, !zones.isEmpty { return true }
@@ -235,6 +257,7 @@ public final class RoonClient {
     /// foregrounding isn't a silent no-op against a dead socket. No-op when
     /// already connected/connecting or the user disconnected on purpose.
     public func reconnectOnForeground() {
+        if isRemote { Task { await startServerMode() }; return }
         guard !intentionalDisconnect, let host = savedHost else { return }
         switch connectionState {
         case .disconnected, .failed:
@@ -246,6 +269,7 @@ public final class RoonClient {
     }
 
     public func discoverAndConnect() async {
+        if isRemote { await startServerMode(); return }
         connectionState = .discovering
         let preferredID = RoonClientAuth.loadCoreID()
         let cores = await SoodDiscovery.discover(coreID: preferredID)
@@ -406,6 +430,7 @@ public final class RoonClient {
     public func startQueue(zoneID: String) {
         queueTask?.cancel()
         queueItems = []
+        queueZoneID = zoneID
         queueTask = Task {
             guard let stream = try? await transport.subscribe(
                 service: RoonService.transport, endpoint: "queue",
@@ -424,6 +449,7 @@ public final class RoonClient {
     }
 
     public func playFromHere(zoneID: String, queueItemID: Int) async {
+        if isRemote { var c = RemoteCommand("playFromHere"); c.zoneID = zoneID; c.queueItemID = queueItemID; await remote(c); return }
         try? await transportService?.playFromHere(zoneID: zoneID, queueItemID: queueItemID)
     }
 

@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Zone
 
-public struct Zone: Identifiable, Equatable, Sendable {
+public struct Zone: Identifiable, Equatable, Sendable, Codable {
     public let id: String
     public var displayName: String
     public var state: PlaybackState
@@ -26,7 +26,7 @@ public struct Zone: Identifiable, Equatable, Sendable {
     }
 }
 
-public enum PlaybackState: String, Sendable {
+public enum PlaybackState: String, Sendable, Codable {
     case playing, paused, loading, stopped
     public var icon: String {
         switch self {
@@ -40,7 +40,7 @@ public enum PlaybackState: String, Sendable {
 
 // MARK: - Output
 
-public struct Output: Identifiable, Equatable, Sendable {
+public struct Output: Identifiable, Equatable, Sendable, Codable {
     public let id: String
     public let zoneID: String
     public var displayName: String
@@ -58,7 +58,7 @@ public struct Output: Identifiable, Equatable, Sendable {
 
 // MARK: - VolumeInfo
 
-public struct VolumeInfo: Equatable, Sendable {
+public struct VolumeInfo: Equatable, Sendable, Codable {
     public var value: Int
     public var min: Int
     public var max: Int
@@ -76,7 +76,7 @@ public struct VolumeInfo: Equatable, Sendable {
 
 // MARK: - NowPlaying
 
-public struct NowPlaying: Equatable, Sendable {
+public struct NowPlaying: Equatable, Sendable, Codable {
     public var title: String
     public var artist: String?
     public var album: String?

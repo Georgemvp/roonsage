@@ -12,11 +12,18 @@ import RoonSageUI
 @main
 @MainActor
 struct RoonSageiOSApp: App {
-    @State private var client = RoonClient.shared
+    @State private var client: RoonClient
     @State private var bgTaskID: UIBackgroundTaskIdentifier = .invalid
     @Environment(\.scenePhase) private var scenePhase
     private let liveActivity = NowPlayingActivityController()
     private let nowPlayingCenter = NowPlayingCenter()
+
+    init() {
+        // This is a client: control Roon through the RoonSage server over HTTP,
+        // never register a Roon extension on this device. Must run before connect.
+        RoonClient.useServerMode()
+        _client = State(initialValue: RoonClient.shared)
+    }
 
     var body: some Scene {
         WindowGroup {

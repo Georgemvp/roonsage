@@ -49,6 +49,7 @@ extension RoonClient {
     }
 
     public func transferZone(fromZoneID: String, toZoneID: String) async {
+        if isRemote { var c = RemoteCommand("transferZone"); c.fromZoneID = fromZoneID; c.toZoneID = toZoneID; await remote(c); return }
         await runAction("Zone-overdracht") { _ = try await $0.transferZone(fromZoneID: fromZoneID, toZoneID: toZoneID) }
     }
 

@@ -30,6 +30,11 @@ public struct ConnectView: View {
         return false
     }
 
+    /// In server mode the app talks to the RoonSage server (not Roon directly),
+    /// so the connect copy targets the server.
+    var isServerMode: Bool { client.controlMode == .server }
+    var discoverLabel: String { isServerMode ? "Zoek RoonSage-server" : "Zoek Roon Core" }
+
     public var body: some View {
         VStack(spacing: 28) {
             Spacer()
@@ -76,14 +81,14 @@ public struct ConnectView: View {
                 // Discover on LAN (SOOD — only works on same network)
                 if client.savedHost == nil {
                     Button { Task { await client.discoverAndConnect() } } label: {
-                        Label("Zoek Roon Core", systemImage: "magnifyingglass").frame(minWidth: 240)
+                        Label(discoverLabel, systemImage: "magnifyingglass").frame(minWidth: 240)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .disabled(isWorking)
                 } else {
                     Button { Task { await client.discoverAndConnect() } } label: {
-                        Label("Zoek op lokaal netwerk", systemImage: "magnifyingglass").frame(minWidth: 240)
+                        Label(isServerMode ? discoverLabel : "Zoek op lokaal netwerk", systemImage: "magnifyingglass").frame(minWidth: 240)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
@@ -125,7 +130,9 @@ public struct ConnectView: View {
 
             // Help
             Group {
-                if let saved = client.savedHost {
+                if isServerMode {
+                    Text("Deze app bedient Roon via de RoonSage-server (de analyzer op je always-on Mac). Zorg dat die draait; afspelen en bediening lopen erdoorheen.")
+                } else if let saved = client.savedHost {
                     Text("Op afstand? Gebruik \u{201C}Opnieuw verbinden met \(saved)\u{201D} — werkt via ZeroTier/VPN.\nOp hetzelfde netwerk? Gebruik dan \u{201C}Zoek op lokaal netwerk\u{201D}.")
                 } else {
                     Text("Zorg dat Roon op hetzelfde netwerk draait.\nOpen na het verbinden Roon → Settings → Extensions en schakel RoonSage in.")
@@ -166,7 +173,7 @@ public struct ConnectView: View {
 
     var manualEntry: some View {
         HStack(spacing: 8) {
-            TextField("Roon Core IP", text: $host)
+            TextField(isServerMode ? "Server-IP" : "Roon Core IP", text: $host)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 180)
             TextField("Poort", text: $port)
