@@ -17,6 +17,7 @@ APP_NAME="RoonSage Analyzer"
 EXEC_NAME="RoonSageAnalyzerApp"
 APP_PATH="$OUTPUT_DIR/$APP_NAME.app"
 DMG_PATH="$OUTPUT_DIR/RoonSage-Analyzer-${VERSION}.dmg"
+ENTITLEMENTS="$MACOS_DIR/AnalyzerEntitlements.plist"
 
 echo "▶ Building $APP_NAME $VERSION"
 
@@ -37,9 +38,16 @@ ICON="$MACOS_DIR/assets/RoonSageAnalyzer.icns"
 echo "── Step 3: codesign"
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
 if [[ -z "$SIGN_IDENTITY" ]]; then
+  # Ad-hoc: no entitlements (the shared keychain group needs a real identity;
+  # KeychainStore falls back to a group-less query on unsigned builds).
   codesign --deep --force --sign - "$APP_PATH"
 else
-  codesign --deep --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$APP_PATH"
+  codesign --deep --force \
+    --sign "$SIGN_IDENTITY" \
+    --options runtime \
+    --entitlements "$ENTITLEMENTS" \
+    --timestamp \
+    "$APP_PATH"
 fi
 
 echo "── Step 4: create DMG"

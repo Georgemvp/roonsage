@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Hardened runtime required for notarization -->
+    <!-- Network client: Roon WebSocket + outbound HTTP (Ollama/LLM/services) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- Network server: SOOD multicast + the share/feature HTTP servers (5767/5766) -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <!-- Keychain group that scopes the server's credential queries so it can own
+         and read the credentials it serves without a cross-app ACL prompt for
+         items created by a differently-signed sibling app on the same machine. -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>5W3QDZ94FH.com.roonsage.shared</string>
+    </array>
+</dict>
+</plist>

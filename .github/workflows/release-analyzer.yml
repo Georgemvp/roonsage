@@ -19,6 +19,10 @@ jobs:
     name: Build Analyzer DMG
     runs-on: macos-14
     timeout-minutes: 30
+    env:
+      # Exposed at job level so the "Import signing certificate" step's `if:`
+      # can detect whether signing secrets are configured.
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
 
     steps:
       - name: Checkout
@@ -37,7 +41,34 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
 
-      - name: Build analyzer app DMG (ad-hoc signed)
+      # Developer ID signing — required so the shared keychain-access-group
+      # entitlement applies and the server can read the credentials it serves
+      # without a blocking ACL prompt. Falls back to ad-hoc when no secret.
+      - name: Import signing certificate
+        if: env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain >/dev/null
+          security list-keychains -d user -s build.keychain login.keychain-db
+          rm /tmp/cert.p12
+
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain \
+            | grep "Developer ID Application" | head -1 | sed -E 's/^[^"]*"(.*)"$/\1/')
+          if [[ -z "$IDENTITY" ]]; then
+            echo "::error::No 'Developer ID Application' identity found in APPLE_CERTIFICATE. See native/SIGNING.md."
+            exit 1
+          fi
+          echo "Using signing identity: $IDENTITY"
+          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Build analyzer app DMG
         run: |
           cd native
           chmod +x scripts/build-analyzer-release.sh
