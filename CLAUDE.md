@@ -2,6 +2,30 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Repository structure (READ FIRST)
+
+The repository now has two tracks:
+
+- **`native/`** — the **primary product**: native macOS & iOS apps (Swift/SwiftUI).
+  Shared SPM package (`native/RoonSage` — RoonSageCore/UI/MCP/AudioAnalysis/Analyzer),
+  the protocol package (`native/RoonProtocol`), the iOS app (`native/iosapp`, xcodegen),
+  the analyzer, build scripts (`native/scripts/`) and docs (`native/ROADMAP.md`,
+  `native/SIGNING.md`). These apps use their own **GRDB** database and do **not**
+  need the Python backend. CI: `.github/workflows/native-tests.yml` (primary) +
+  the `release-macos`/`release-ios`/`release-analyzer` tag-triggered workflows.
+- **`legacy-docker/`** — the **deprecated** Docker/FastAPI web app + MCP server,
+  being decommissioned and kept for reference only. CI: `.github/workflows/test.yml`
+  (path-filtered to `legacy-docker/**`).
+
+> ⚠️ The "Project Overview", "Commands", "Architecture", and convention sections
+> **below describe the legacy Docker/Python stack**, whose source now lives under
+> `legacy-docker/`. Every relative path mentioned below (`backend/`, `frontend/`,
+> `mcp_server.py`, `tests/`, `requirements*.txt`, `pyproject.toml`,
+> `system_prompt.md`, `scripts/`, `config.example.yaml`, the `Dockerfile` and
+> `docker-compose*.yml`) is now under `legacy-docker/`. Runtime `data/` stays at
+> the repo root. Prefer working in `native/` unless a legacy reference fix is
+> explicitly requested.
+
 ## Project Overview
 
 RoonSage is a self-hosted FastAPI web app + MCP server that connects to a Roon Core as an Extension, mirrors the library into a local SQLite cache, and exposes ~69 tools so Claude Desktop can curate playlists, discover music, monitor releases, automate workflows, analyse audio features, build DJ sets, and control Roon through natural language. The constitution principle is **library-first**: every suggested track must exist either in the user's Roon library or on Qobuz — nothing is hallucinated.

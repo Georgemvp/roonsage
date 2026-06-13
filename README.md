@@ -11,12 +11,54 @@
 [![ListenBrainz](https://img.shields.io/badge/ListenBrainz-integrated-eb743b.svg)](https://listenbrainz.org)
 [![Last.fm](https://img.shields.io/badge/Last.fm-integrated-d51007.svg)](https://www.last.fm)
 
-_Curate playlists from your library, discover hidden gems, monitor artist releases on Qobuz,_
-_automate your listening, and let Claude Desktop control every aspect of Roon — all in natural language._
-
-[Features](#features) · [Claude Desktop](#claude-desktop-integration) · [Discovery](#discovery-engine) · [Automation](#automation-engine) · [ListenBrainz](#listenbrainz-integration) · [Last.fm](#lastfm-integration) · [Setup](#deployment) · [API](#api-reference) · [Changelog](#changelog)
+_Native macOS & iOS apps that connect directly to your Roon Core — browse, control playback, and sync your library locally._
 
 </div>
+
+---
+
+## RoonSage is now a native app
+
+**The native macOS and iOS apps in [`native/`](native/) are the primary product.**
+They talk to your Roon Core directly and keep their library in a local GRDB
+database — no server, no Docker, no Python backend required.
+
+| Platform | Where | Releases |
+|----------|-------|----------|
+| **macOS** | [`native/RoonSage`](native/RoonSage) (SwiftUI app) | DMG via the `v*` tag → `Release macOS DMG` workflow |
+| **iOS / iPadOS** | [`native/iosapp`](native/iosapp) (xcodegen) | TestFlight via the `ios-v*` tag → `Release iOS TestFlight` workflow |
+| **Analyzer** | [`native/RoonSage`](native/RoonSage) (`RoonSageAnalyzerApp`) | DMG via the `analyzer-v*` tag → `Release Analyzer App` workflow |
+
+### Build & run (native)
+
+```bash
+# macOS app + DMG (signs/notarizes when signing env is set; see native/SIGNING.md)
+cd native && ./scripts/build-release.sh 1.0.0
+
+# iOS app → Xcode project, then build/run in Xcode
+cd native/iosapp && xcodegen generate && open RoonSageiOS.xcodeproj
+
+# Run the Swift test suites
+cd native/RoonProtocol && swift test
+cd native/RoonSage && swift test
+```
+
+Build/signing details: [`native/SIGNING.md`](native/SIGNING.md). Roadmap:
+[`native/ROADMAP.md`](native/ROADMAP.md). Architecture audit:
+[`docs/NATIVE_APP_AUDIT.md`](docs/NATIVE_APP_AUDIT.md).
+
+---
+
+## Legacy Docker web-app (deprecated)
+
+> ⚠️ The original self-hosted **FastAPI web app + MCP server** below is
+> **deprecated and being decommissioned**. Its full source now lives under
+> [`legacy-docker/`](legacy-docker/) and is kept for reference only — it is no
+> longer the primary product and is not actively maintained. See
+> [`legacy-docker/README.md`](legacy-docker/README.md). Everything in the rest
+> of this README describes that legacy stack.
+
+[Features](#features) · [Claude Desktop](#claude-desktop-integration) · [Discovery](#discovery-engine) · [Automation](#automation-engine) · [ListenBrainz](#listenbrainz-integration) · [Last.fm](#lastfm-integration) · [Setup](#deployment) · [API](#api-reference) · [Changelog](#changelog)
 
 ---
 

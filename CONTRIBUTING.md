@@ -1,64 +1,60 @@
 # Contributing to RoonSage
 
-Thanks for considering a contribution. RoonSage is a self-hosted app and the bar for a good contribution is: **does it work reliably on someone else's machine?**
+Thanks for considering a contribution. RoonSage is now a **native macOS/iOS
+app** (Swift/SwiftUI). The bar for a good contribution is: **does it work
+reliably on someone else's machine?**
 
-## Before you start
+## Repository layout
 
-- Open an issue first for non-trivial changes so we can align on approach.
-- Check existing issues/PRs to avoid duplicate work.
+| Path | What |
+|------|------|
+| [`native/`](native/) | **Primary** — native macOS & iOS apps (Swift Package + xcodegen iOS app + analyzer) |
+| [`legacy-docker/`](legacy-docker/) | **Deprecated** — original FastAPI web app + MCP server, kept for reference only |
+| `docs/` | Architecture audit, setup guides |
+| `data/` | Runtime data + a few tracked templates (used by the legacy backend) |
 
-## Setup
+## Native app (primary)
 
 ```bash
 git clone https://github.com/Georgemvp/roon-mediasage.git
-cd roon-mediasage
-pip install -r requirements.txt -r requirements-dev.txt
-cp .env.example .env   # then fill in ROON_HOST + an LLM key
+cd roon-mediasage/native
+
+# Run the Swift test suites
+(cd RoonProtocol && swift test)
+(cd RoonSage && swift test)
+
+# Release build (CI is stricter than a debug build — run this before tagging)
+(cd RoonSage && swift build -c release --product RoonSage)
+
+# Build the macOS DMG (see native/SIGNING.md for signing/notarization env)
+./scripts/build-release.sh 1.0.0
+
+# Generate + open the iOS Xcode project
+cd iosapp && xcodegen generate && open RoonSageiOS.xcodeproj
 ```
 
-Run the dev server:
-```bash
-uvicorn backend.main:app --reload --port 5765 --workers 1
-```
+CI for native code runs in `.github/workflows/native-tests.yml` (the primary
+CI) and the `release-macos`/`release-ios`/`release-analyzer` workflows, which
+trigger on the `v*`, `ios-v*`, and `analyzer-v*` tag namespaces respectively.
 
-## Tests and lint
+### Code style (Swift)
 
-CI will reject PRs that fail either gate:
+- SwiftUI views; shared logic in `RoonSageCore`/`RoonSageUI`. GRDB for storage.
+- Comments explain *why* (hidden constraints, workarounds), not *what*.
+- **UI text is Dutch; code and commit messages are English** (repo convention).
 
-```bash
-# Lint (must be clean)
-python3 -m ruff check .
+## Legacy Docker web-app
 
-# Tests with coverage
-pytest --cov=backend --cov-report=term-missing --cov-fail-under=40
-```
-
-Add tests for new backend logic in `tests/`. The test suite runs against an in-memory SQLite DB — no Roon Core needed.
-
-## Code style
-
-- **Python**: PEP 8, type hints on all functions, Pydantic models for every API contract. Line length 100, `ruff` config in `pyproject.toml`.
-- **JavaScript**: ES6+, no framework, module pattern. One file per view in `frontend/modules/`.
-- **No comments that explain what the code does** — only comments that explain *why* (hidden constraints, workarounds, non-obvious invariants).
-
-## Architecture rules
-
-- **New backend endpoint** → add to the correct `routes/*.py`, add Pydantic models to `models.py`, expose in `mcp_server.py` if relevant to Claude Desktop, update `system_prompt.md` if it changes a flow.
-- **DB schema change** → edit `backend/db.py` (`init_schema` handles incremental `ALTER TABLE` migrations).
-- **Roon Browse code** → always respect `_browse_lock`. Read `CLAUDE.md` for the full list of Roon API constraints before touching this.
-- **Do not add** error handling, fallbacks, or feature flags for scenarios that can't happen in practice.
+The Python/FastAPI stack lives under [`legacy-docker/`](legacy-docker/) and is
+**deprecated** — only touch it for reference fixes. Its setup, tests, and
+architecture rules are documented in
+[`legacy-docker/README.md`](legacy-docker/README.md). Its tests run via
+`.github/workflows/test.yml` (path-filtered to `legacy-docker/**`).
 
 ## Pull requests
 
 - Keep PRs focused — one feature or fix per PR.
-- Include a short description of *why* the change is needed, not just what it does.
+- Include a short description of *why* the change is needed, not just what.
 - Screenshots for UI changes.
-- If you're adding a new external service integration, make it fully optional (env vars, no hard dependency at import time).
-
-## Roon API gotchas
-
-The Roon Extension API has several hard constraints that look like bugs but aren't — read `CLAUDE.md` before working on anything Roon-adjacent. The short version:
-
-- No user ratings, no play counts via Roon, no playlist creation via Extension API.
-- Browse hierarchy calls must be serialized via `_browse_lock`.
-- `hierarchy: "search"` returns ephemeral keys — don't store them.
+- Read [`CLAUDE.md`](CLAUDE.md) for the repository structure and Roon API
+  constraints before working on anything Roon-adjacent.
