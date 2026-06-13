@@ -79,8 +79,11 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case liveDJ      = "Live DJ"
     case fingerprint = "Sonic DNA"
     case musicMap    = "Music Map"
+    case songPaths   = "Song Paths"
+    case alchemy     = "Song Alchemy"
     case discovery   = "Discovery"
     case taste        = "Taste Profile"
+    case yearInReview = "Year in Review"
     case settings    = "Settings"
 
     public var id: String { rawValue }
@@ -100,8 +103,11 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .liveDJ:      "Live DJ"
         case .fingerprint: "Sonic DNA"
         case .musicMap:    "Music Map"
+        case .songPaths:   "Song Paths"
+        case .alchemy:     "Song Alchemy"
         case .discovery:   "Ontdek"
         case .taste:       "Smaakprofiel"
+        case .yearInReview: "Jaaroverzicht"
         case .settings:    "Instellingen"
         }
     }
@@ -119,8 +125,11 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .liveDJ:      "slider.horizontal.2.gobackward"
         case .fingerprint: "waveform.path.ecg"
         case .musicMap:    "map"
+        case .songPaths:   "point.topleft.down.curvedto.point.bottomright.up"
+        case .alchemy:     "wand.and.sparkles"
         case .discovery:   "sparkles"
         case .taste:       "chart.radar"
+        case .yearInReview: "calendar.badge.clock"
         case .settings:    "gearshape"
         }
     }
@@ -241,7 +250,7 @@ struct RootView: View {
 
     private var iOSTabSelection: Binding<SidebarItem> {
         let createItems: Set<SidebarItem> = [.generate, .ask, .recommend, .djSet, .liveDJ, .queue, .playlists]
-        let exploreItems: Set<SidebarItem> = [.discovery, .fingerprint, .musicMap, .taste]
+        let exploreItems: Set<SidebarItem> = [.discovery, .fingerprint, .musicMap, .songPaths, .alchemy, .taste, .yearInReview]
         return Binding(
             get: {
                 if createItems.contains(selection) { return .generate }
@@ -305,6 +314,15 @@ struct RootView: View {
                 NavigationLink { MusicMapView().navigationTitle("Music Map").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Music Map", systemImage: SidebarItem.musicMap.icon)
                 }
+                NavigationLink { SongPathsView().navigationTitle("Song Paths").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Song Paths", systemImage: SidebarItem.songPaths.icon)
+                }
+                NavigationLink { SongAlchemyView().navigationTitle("Song Alchemy").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Song Alchemy", systemImage: SidebarItem.alchemy.icon)
+                }
+                NavigationLink { YearInReviewView().navigationTitle("Jaaroverzicht").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Jaaroverzicht", systemImage: SidebarItem.yearInReview.icon)
+                }
             }
         }
         .navigationTitle("Ontdek")
@@ -328,8 +346,11 @@ struct RootView: View {
         case .liveDJ:      LiveDJView()
         case .fingerprint: SonicFingerprintView()
         case .musicMap:    MusicMapView()
+        case .songPaths:   SongPathsView()
+        case .alchemy:     SongAlchemyView()
         case .discovery:   DiscoveryView()
         case .taste:       TasteProfileView()
+        case .yearInReview: YearInReviewView()
         case .settings:    SettingsView()
         }
     }

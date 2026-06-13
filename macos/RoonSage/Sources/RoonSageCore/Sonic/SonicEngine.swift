@@ -29,10 +29,12 @@ public enum SonicEngine {
         limit: Int = 30,
         weights: SonicSimilarity.Weights = .default
     ) -> [Scored] {
-        let seedFeature = feature(seed)
-        return library
+        let seedPrepared = SonicSimilarity.Prepared(feature(seed))
+        let libraryPrepared = library
             .filter { !sameTrack($0, seed) }
-            .map { Scored(track: $0, similarity: SonicSimilarity.similarity(seedFeature, feature($0), weights: weights)) }
+            .map { (track: $0, prep: SonicSimilarity.Prepared(feature($0))) }
+        return libraryPrepared
+            .map { Scored(track: $0.track, similarity: SonicSimilarity.similarity(seedPrepared, $0.prep, weights: weights)) }
             .sorted { $0.similarity > $1.similarity }
             .prefix(limit)
             .map { $0 }
@@ -47,17 +49,17 @@ public enum SonicEngine {
         weights: SonicSimilarity.Weights = .default
     ) -> [Scored] {
         guard !seeds.isEmpty else { return [] }
-        let seedFeatures = seeds.map(feature)
+        let seedPreps = seeds.map { SonicSimilarity.Prepared(feature($0)) }
         let seedKeys = Set(seeds.map { "\($0.title.lowercased())|\(($0.artist ?? "").lowercased())" })
         var scored: [Scored] = []
         scored.reserveCapacity(library.count)
         for t in library {
             let key = "\(t.title.lowercased())|\((t.artist ?? "").lowercased())"
             if seedKeys.contains(key) { continue }
-            let f = feature(t)
+            let f = SonicSimilarity.Prepared(feature(t))
             var sum = 0.0
-            for sf in seedFeatures { sum += SonicSimilarity.similarity(sf, f, weights: weights) }
-            scored.append(Scored(track: t, similarity: sum / Double(seedFeatures.count)))
+            for sf in seedPreps { sum += SonicSimilarity.similarity(sf, f, weights: weights) }
+            scored.append(Scored(track: t, similarity: sum / Double(seedPreps.count)))
         }
         return scored.sorted { $0.similarity > $1.similarity }.prefix(limit).map { $0 }
     }
@@ -111,5 +113,65 @@ public enum SonicEngine {
             topTags: topTags,
             sampleCount: tracks.count
         )
+    }
+
+    // MARK: - Song Alchemy
+
+    /// Vector mixing: find tracks matching mean(add) − 0.5 × mean(subtract).
+    /// Centroid is a weighted average of the feature components; Jaccard tags
+    /// are merged proportionally.
+    public static func alchemy(
+        add: [DatabaseManager.SonicTrack],
+        subtract: [DatabaseManager.SonicTrack],
+        in library: [DatabaseManager.SonicTrack],
+        limit: Int = 30,
+        weights: SonicSimilarity.Weights = .default
+    ) -> [Scored] {
+        guard !add.isEmpty else { return [] }
+
+        func avg<T: BinaryFloatingPoint>(_ vals: [T?]) -> T? {
+            let v = vals.compactMap { $0 }
+            return v.isEmpty ? nil : v.reduce(0, +) / T(v.count)
+        }
+
+        // Add centroid
+        let addBPM    = avg(add.map { $0.bpm })
+        let addEnergy = avg(add.map { $0.energy })
+        let addCamelot = add.first(where: { !$0.camelot.isEmpty })?.camelot ?? ""
+        var addTagCounts: [String: Int] = [:]
+        for t in add { for tag in t.tags { addTagCounts[tag, default: 0] += 1 } }
+        let addTags = addTagCounts.filter { $0.value >= max(1, add.count / 2) }.map { $0.key }
+
+        // Subtract influence (dampen BPM/energy; for tags: remove overlapping ones)
+        let subBPM    = avg(subtract.map { $0.bpm })
+        let subEnergy = avg(subtract.map { $0.energy })
+        var subTagSet = Set<String>()
+        for t in subtract { for tag in t.tags { subTagSet.insert(tag) } }
+
+        let mixBPM: Double?
+        if let a = addBPM, let s = subBPM {
+            mixBPM = max(40, min(200, a - 0.5 * (s - a)))   // push away from subtract direction
+        } else { mixBPM = addBPM }
+
+        let mixEnergy: Double?
+        if let a = addEnergy, let s = subEnergy {
+            mixEnergy = max(0, min(1, a - 0.5 * (s - a)))
+        } else { mixEnergy = addEnergy }
+
+        let mixTags = addTags.filter { !subTagSet.contains($0) }
+
+        let mixFeature = SonicSimilarity.Feature(
+            bpm: mixBPM, camelot: addCamelot, energy: mixEnergy, tags: mixTags)
+        let mixPrep = SonicSimilarity.Prepared(mixFeature)
+
+        let excludeIDs = Set(add.map(\.id) + subtract.map(\.id))
+        var scored: [Scored] = []
+        for t in library {
+            if excludeIDs.contains(t.id) { continue }
+            let prep = SonicSimilarity.Prepared(SonicSimilarity.Feature(
+                bpm: t.bpm, camelot: t.camelot, energy: t.energy, tags: t.tags))
+            scored.append(Scored(track: t, similarity: SonicSimilarity.similarity(mixPrep, prep, weights: weights)))
+        }
+        return scored.sorted { $0.similarity > $1.similarity }.prefix(limit).map { $0 }
     }
 }

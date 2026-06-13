@@ -93,6 +93,7 @@ actor LibrarySyncService {
         var albumsFailed = 0
         var tracksFound = 0
         var seenThisRun = Set<String>()   // duplicate-edition fingerprints append, not replace
+        var pendingBatch: [DatabaseManager.AlbumBatchItem] = []
 
         for album in albumItems {
             guard !isCancelled else { break }
@@ -157,12 +158,16 @@ actor LibrarySyncService {
                 ))
             }
 
-            try database.replaceAlbumTracks(
-                batch,
+            pendingBatch.append(DatabaseManager.AlbumBatchItem(
+                records: batch,
                 albumTitle: album.title,
                 fingerprint: fingerprint,
                 generation: run.generation,
-                append: seenThisRun.contains(fingerprint))
+                append: seenThisRun.contains(fingerprint)))
+            if pendingBatch.count >= 25 {
+                try database.replaceAlbumBatch(pendingBatch)
+                pendingBatch.removeAll(keepingCapacity: true)
+            }
             seenThisRun.insert(fingerprint)
             tracksFound += batch.count
             albumsCompleted += 1
@@ -173,6 +178,11 @@ actor LibrarySyncService {
                 albumsTotal: totalAlbums,
                 tracksFound: tracksFound
             ))
+        }
+
+        if !pendingBatch.isEmpty {
+            try database.replaceAlbumBatch(pendingBatch)
+            pendingBatch.removeAll()
         }
 
         // 8. Complete walk → now it's safe to drop rows of albums that no

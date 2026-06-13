@@ -1,3 +1,4 @@
+import Accelerate
 import Foundation
 
 /// Tempo (BPM) estimation: spectral-flux onset envelope → autocorrelation peak.
@@ -25,11 +26,13 @@ public struct TempoAnalyzer {
         while i + frameSize <= samples.count {
             for j in 0..<frameSize { frame[j] = samples[i + j] * window[j] }
             fft.magnitudes(frame, into: &mag)
+            // half-wave rectified spectral flux via vDSP (replaces scalar loop)
+            var diff = [Float](repeating: 0, count: half)
+            vDSP_vsub(prev, 1, mag, 1, &diff, 1, vDSP_Length(half))
+            var zero: Float = 0
+            vDSP_vthres(diff, 1, &zero, &diff, 1, vDSP_Length(half))
             var flux: Float = 0
-            for j in 0..<half {
-                let d = mag[j] - prev[j]
-                if d > 0 { flux += d }
-            }
+            vDSP_sve(diff, 1, &flux, vDSP_Length(half))
             onset.append(flux)
             swap(&prev, &mag)   // O(1) buffer swap instead of copying the spectrum
             i += hop
@@ -53,19 +56,22 @@ public struct TempoAnalyzer {
             return exp(-0.5 * z * z)
         }
 
+        // vDSP dot-product autocorrelation — SIMD-vectorised, ~4-8× faster than scalar
         var bestScore = -Double.infinity
         var bestVal: Float = 0
         var bestLag = minLag
         var total: Float = 0
-        for lag in minLag...maxLag {
-            var sum: Float = 0
-            var k = 0
-            let limit = env.count - lag
-            while k < limit { sum += env[k] * env[k + lag]; k += 1 }
-            total += sum
-            let bpm = 60.0 * onsetSR / Double(lag)
-            let score = Double(sum) * prior(bpm)
-            if score > bestScore { bestScore = score; bestVal = sum; bestLag = lag }
+        env.withUnsafeBufferPointer { ptr in
+            guard let base = ptr.baseAddress else { return }
+            for lag in minLag...maxLag {
+                let limit = env.count - lag
+                var sum: Float = 0
+                vDSP_dotpr(base, 1, base + lag, 1, &sum, vDSP_Length(limit))
+                total += sum
+                let bpm = 60.0 * onsetSR / Double(lag)
+                let score = Double(sum) * prior(bpm)
+                if score > bestScore { bestScore = score; bestVal = sum; bestLag = lag }
+            }
         }
 
         // Parabolic interpolation around the winning lag for sub-frame BPM

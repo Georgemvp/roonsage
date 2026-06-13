@@ -164,6 +164,127 @@ extension DatabaseManager {
         }
     }
 
+    // MARK: - Year-in-Review
+
+    public struct YearStats: Sendable {
+        public var year: Int
+        public var totalPlays: Int
+        public var uniqueArtists: Int
+        public var uniqueTracks: Int
+        public var topArtists: [(artist: String, count: Int)]
+        public var topTracks: [(title: String, artist: String?, count: Int)]
+        public var playsByHour: [Int]      // index 0-23, count per hour
+        public var firstListen: ListenEntry?
+        public var longestStreak: Int       // consecutive days with at least 1 listen
+    }
+
+    public func yearInReview(year: Int) throws -> YearStats {
+        try pool.read { db in
+            let yearStr = "\(year)"
+            let nextStr = "\(year + 1)"
+
+            let totalPlays = try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM listening_history
+                WHERE played_at >= ? AND played_at < ?
+            """, arguments: ["\(yearStr)-01-01", "\(nextStr)-01-01"]) ?? 0
+
+            let uniqueArtists = try Int.fetchOne(db, sql: """
+                SELECT COUNT(DISTINCT artist) FROM listening_history
+                WHERE played_at >= ? AND played_at < ? AND artist IS NOT NULL
+            """, arguments: ["\(yearStr)-01-01", "\(nextStr)-01-01"]) ?? 0
+
+            let uniqueTracks = try Int.fetchOne(db, sql: """
+                SELECT COUNT(DISTINCT title) FROM listening_history
+                WHERE played_at >= ? AND played_at < ?
+            """, arguments: ["\(yearStr)-01-01", "\(nextStr)-01-01"]) ?? 0
+
+            let artistRows = try Row.fetchAll(db, sql: """
+                SELECT artist, COUNT(*) as cnt FROM listening_history
+                WHERE played_at >= ? AND played_at < ? AND artist IS NOT NULL
+                GROUP BY artist ORDER BY cnt DESC LIMIT 8
+            """, arguments: ["\(yearStr)-01-01", "\(nextStr)-01-01"])
+            let topArtists = artistRows.map { (artist: $0["artist"] as String? ?? "", count: $0["cnt"] as Int? ?? 0) }
+
+            let trackRows = try Row.fetchAll(db, sql: """
+                SELECT title, artist, COUNT(*) as cnt FROM listening_history
+                WHERE played_at >= ? AND played_at < ?
+                GROUP BY title, artist ORDER BY cnt DESC LIMIT 8
+            """, arguments: ["\(yearStr)-01-01", "\(nextStr)-01-01"])
+            let topTracks = trackRows.map { (
+                title: $0["title"] as String? ?? "",
+                artist: $0["artist"] as String?,
+                count: $0["cnt"] as Int? ?? 0
+            )}
+
+            // Plays per hour of day (0-23)
+            var playsByHour = [Int](repeating: 0, count: 24)
+            let hourRows = try Row.fetchAll(db, sql: """
+                SELECT CAST(SUBSTR(played_at, 12, 2) AS INTEGER) as hr, COUNT(*) as cnt
+                FROM listening_history
+                WHERE played_at >= ? AND played_at < ?
+                GROUP BY hr
+            """, arguments: ["\(yearStr)-01-01", "\(nextStr)-01-01"])
+            for row in hourRows {
+                let hr = row["hr"] as Int? ?? 0
+                if hr >= 0 && hr < 24 { playsByHour[hr] = row["cnt"] as Int? ?? 0 }
+            }
+
+            let firstRow = try Row.fetchOne(db, sql: """
+                SELECT title, artist, album, zone_name, played_at
+                FROM listening_history
+                WHERE played_at >= ? AND played_at < ?
+                ORDER BY played_at ASC LIMIT 1
+            """, arguments: ["\(yearStr)-01-01", "\(nextStr)-01-01"])
+            let firstListen = firstRow.map {
+                ListenEntry(title: $0["title"] as String? ?? "",
+                           artist: $0["artist"],
+                           album: $0["album"],
+                           zoneName: $0["zone_name"],
+                           playedAt: $0["played_at"] as String? ?? "")
+            }
+
+            // Longest streak: count consecutive days with ≥1 listen
+            let dayRows = try Row.fetchAll(db, sql: """
+                SELECT DISTINCT SUBSTR(played_at, 1, 10) as day
+                FROM listening_history
+                WHERE played_at >= ? AND played_at < ?
+                ORDER BY day
+            """, arguments: ["\(yearStr)-01-01", "\(nextStr)-01-01"])
+            let days = dayRows.compactMap { $0["day"] as String? }
+            var maxStreak = 0, currentStreak = days.isEmpty ? 0 : 1
+            for i in 1..<days.count {
+                if isNextDay(days[i - 1], days[i]) {
+                    currentStreak += 1
+                } else {
+                    maxStreak = max(maxStreak, currentStreak)
+                    currentStreak = 1
+                }
+            }
+            let streak = max(maxStreak, currentStreak)
+
+            return YearStats(
+                year: year,
+                totalPlays: totalPlays,
+                uniqueArtists: uniqueArtists,
+                uniqueTracks: uniqueTracks,
+                topArtists: topArtists,
+                topTracks: topTracks,
+                playsByHour: playsByHour,
+                firstListen: firstListen,
+                longestStreak: streak
+            )
+        }
+    }
+
+    private func isNextDay(_ a: String, _ b: String) -> Bool {
+        guard a.count == 10, b.count == 10 else { return false }
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        guard let da = fmt.date(from: a), let db2 = fmt.date(from: b) else { return false }
+        let diff = Calendar.current.dateComponents([.day], from: da, to: db2).day ?? 0
+        return diff == 1
+    }
+
     // MARK: - Album search
 
     public struct AlbumResult: Sendable {

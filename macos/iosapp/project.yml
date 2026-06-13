@@ -58,6 +58,11 @@ targets:
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         # Standard HTTPS-only encryption → exempt from US export compliance review.
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        # Background refresh for widget/zone state updates.
+        INFOPLIST_KEY_UIBackgroundModes: "fetch"
+        # BGTaskScheduler task identifiers.
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.roonsage.ios.refresh
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations~ipad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
 

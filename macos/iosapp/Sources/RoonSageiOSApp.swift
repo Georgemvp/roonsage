@@ -1,3 +1,4 @@
+import BackgroundTasks
 import SwiftUI
 import UIKit
 import WidgetKit
@@ -22,7 +23,16 @@ struct RoonSageiOSApp: App {
             ContentView()
                 .environment(client)
                 .tint(.roonGold)
-                .onAppear { nowPlayingCenter.configure(client: client) }
+                .withHandoff()
+                .onAppear {
+                    nowPlayingCenter.configure(client: client)
+                    BGTaskScheduler.shared.register(
+                        forTaskWithIdentifier: "com.roonsage.ios.refresh",
+                        using: nil
+                    ) { task in
+                        self.handleBackgroundRefresh(task: task as! BGAppRefreshTask)
+                    }
+                }
                 // Mirror the selected zone's now-playing onto the lock screen /
                 // Dynamic Island + MPNowPlayingInfoCenter (Control Center,
                 // AirPods, CarPlay). Keyed on (nowPlaying, state) — not the
@@ -75,6 +85,32 @@ struct RoonSageiOSApp: App {
                 }
         }
     }
+
+    // MARK: - Background refresh (BGTaskScheduler)
+
+    /// Refresh zone state + widget data in the background (~15 min interval).
+    /// iOS calls this when the app is suspended; we reconnect briefly, sync
+    /// surfaces, then schedule the next execution.
+    private func handleBackgroundRefresh(task: BGAppRefreshTask) {
+        scheduleNextBackgroundRefresh()
+        let workTask = Task {
+            _ = await client.ensureConnected(timeout: 8)
+            await MainActor.run { syncSystemSurfaces() }
+            task.setTaskCompleted(success: true)
+        }
+        task.expirationHandler = {
+            workTask.cancel()
+            task.setTaskCompleted(success: false)
+        }
+    }
+
+    private func scheduleNextBackgroundRefresh() {
+        let request = BGAppRefreshTaskRequest(identifier: "com.roonsage.ios.refresh")
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+        try? BGTaskScheduler.shared.submit(request)
+    }
+
+    // MARK: - System surfaces
 
     /// Eén plek die alle systeem-oppervlakken bijwerkt: de Live Activity,
     /// MPNowPlayingInfoCenter (Lock Screen/Control Center) en de App Group-

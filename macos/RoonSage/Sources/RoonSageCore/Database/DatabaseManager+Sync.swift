@@ -122,6 +122,64 @@ extension DatabaseManager {
         }
     }
 
+    /// Insert/replace up to 25 albums in a single WAL transaction. Same semantics
+    /// as `replaceAlbumTracks` but amortises fsync cost over the whole batch.
+    public struct AlbumBatchItem: Sendable {
+        public var records: [TrackRecord]
+        public var albumTitle: String
+        public var fingerprint: String
+        public var generation: Int
+        public var append: Bool
+        public init(records: [TrackRecord], albumTitle: String, fingerprint: String, generation: Int, append: Bool) {
+            self.records = records; self.albumTitle = albumTitle
+            self.fingerprint = fingerprint; self.generation = generation; self.append = append
+        }
+    }
+
+    public func replaceAlbumBatch(_ items: [AlbumBatchItem]) throws {
+        guard !items.isEmpty else { return }
+        try pool.write { db in
+            let chunk = Self.rowsPerChunk(columns: 10)
+            for item in items {
+                if !item.append {
+                    try db.execute(
+                        sql: "DELETE FROM tracks WHERE album_fp = ? OR (album_fp IS NULL AND album = ?)",
+                        arguments: [item.fingerprint, item.albumTitle])
+                }
+                var start = 0
+                while start < item.records.count {
+                    let slice = item.records[start..<min(start + chunk, item.records.count)]
+                    let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                    let sql = """
+                        INSERT INTO tracks
+                          (id, title, artist, album, album_key, year, is_live, match_key, image_key, album_fp)
+                        VALUES \(placeholders)
+                        ON CONFLICT(id) DO UPDATE SET
+                          title=excluded.title, artist=excluded.artist, album=excluded.album,
+                          album_key=excluded.album_key, year=excluded.year, is_live=excluded.is_live,
+                          match_key=excluded.match_key, image_key=excluded.image_key,
+                          album_fp=excluded.album_fp
+                    """
+                    var args: [DatabaseValueConvertible?] = []
+                    args.reserveCapacity(slice.count * 10)
+                    for r in slice {
+                        args.append(contentsOf: [r.id, r.title, r.artist, r.album, r.albumKey,
+                                                 r.year, r.isLive, r.matchKey, r.imageKey,
+                                                 item.fingerprint] as [DatabaseValueConvertible?])
+                    }
+                    try db.execute(sql: sql, arguments: StatementArguments(args))
+                    start += chunk
+                }
+                try db.execute(
+                    sql: """
+                        INSERT INTO sync_album_checkpoints (fingerprint, generation) VALUES (?,?)
+                        ON CONFLICT(fingerprint) DO UPDATE SET generation=excluded.generation
+                    """,
+                    arguments: [item.fingerprint, item.generation])
+            }
+        }
+    }
+
     private static func setState(_ db: Database, _ key: String, _ value: String) throws {
         try db.execute(
             sql: "INSERT INTO sync_state (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
