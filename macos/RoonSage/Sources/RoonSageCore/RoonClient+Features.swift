@@ -253,6 +253,13 @@ extension RoonClient {
         return await sonicCache.tracks(from: db)
     }
 
+    /// Case-insensitive search over the cached sonic library (title + artist).
+    /// Returns up to 20 matches. Used by Song Paths and Song Alchemy pickers.
+    public func sonicSearch(_ query: String) async -> [DatabaseManager.SonicTrack] {
+        guard let db = database else { return [] }
+        return await sonicCache.search(query, from: db)
+    }
+
     /// Drop the cached sonic library so the next read hits SQLite. For the
     /// explicit "Reload" actions in Music Map / Sonic DNA.
     public func invalidateSonicCache() async {
