@@ -1,0 +1,52 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project
+# NOTE: the build context is the repo root (see docker-compose.yml
+# `context: ..`), so project paths are written relative to the repo root.
+# This stack is deprecated — see legacy-docker/README.md.
+*.log
+logs/
+.env
+.env.local
+config.yaml
+legacy-docker/tests/
+specs/
+initial-spec.md
+README.md
+CLAUDE.md
+.specify/
+macos/
+native/
+docs/
+legacy-docker/frontend/preview-*.html
+
+# Docker
+legacy-docker/Dockerfile*
+legacy-docker/docker-compose*.yml
+legacy-docker/.dockerignore

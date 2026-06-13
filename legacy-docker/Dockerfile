@@ -5,9 +5,9 @@
 # SPA dynamically imports the bundle on first React-view navigation.
 FROM node:20-alpine AS reactbuilder
 WORKDIR /react
-COPY frontend/react/package.json frontend/react/package-lock.json* ./
+COPY legacy-docker/frontend/react/package.json legacy-docker/frontend/react/package-lock.json* ./
 RUN npm install --no-audit --no-fund --loglevel=error || npm install --no-audit --no-fund --loglevel=error
-COPY frontend/react/ ./
+COPY legacy-docker/frontend/react/ ./
 RUN npm run build
 
 
@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-COPY requirements.in requirements-ml.txt ./
+COPY legacy-docker/requirements.in legacy-docker/requirements-ml.txt ./
 
 # 1. Compile + install core deps (fast, no C extensions except scikit-learn)
 RUN uv pip compile requirements.in -o requirements-core.txt --python-version=3.11 \
@@ -81,17 +81,19 @@ COPY --from=builder /install/bin/ /usr/local/bin/
 RUN sed -i 's/torch\.load(checkpoint_path, map_location=map_location)/torch.load(checkpoint_path, map_location=map_location, weights_only=False)/' \
     /usr/local/lib/python3.11/site-packages/laion_clap/clap_module/factory.py
 
-# Copy application source
-COPY --chown=roonsage:roonsage backend/ ./backend/
-COPY --chown=roonsage:roonsage frontend/ ./frontend/
-COPY --chown=roonsage:roonsage scripts/ ./scripts/
+# Copy application source. Build context is the REPO ROOT (see
+# docker-compose.yml `context: ..`) so the code lives under legacy-docker/,
+# while runtime data templates (data/) stay at the repo root.
+COPY --chown=roonsage:roonsage legacy-docker/backend/ ./backend/
+COPY --chown=roonsage:roonsage legacy-docker/frontend/ ./frontend/
+COPY --chown=roonsage:roonsage legacy-docker/scripts/ ./scripts/
 
 # Copy the pre-built React microfrontend bundle to a location OUTSIDE the
 # /app/frontend bind mount. docker-compose.yml mounts the host frontend/ over
 # /app/frontend, which would shadow any bundle we placed inside it. FastAPI
 # serves this directory under /static/react via a dedicated mount in main.py.
 COPY --from=reactbuilder --chown=roonsage:roonsage /react/dist/ /app/react-dist/
-COPY --chown=roonsage:roonsage config.example.yaml ./
+COPY --chown=roonsage:roonsage legacy-docker/config.example.yaml ./
 COPY --chown=roonsage:roonsage data/mood_centroids.json ./data/mood_centroids.json
 
 # Pre-bundle CSS so production serves one stylesheet instead of 22 @imports.
