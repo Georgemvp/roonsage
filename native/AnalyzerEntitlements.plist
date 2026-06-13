@@ -9,12 +9,11 @@
     <!-- Network server: SOOD multicast + the share/feature HTTP servers (5767/5766) -->
     <key>com.apple.security.network.server</key>
     <true/>
-    <!-- Keychain group that scopes the server's credential queries so it can own
-         and read the credentials it serves without a cross-app ACL prompt for
-         items created by a differently-signed sibling app on the same machine. -->
-    <key>keychain-access-groups</key>
-    <array>
-        <string>5W3QDZ94FH.com.roonsage.shared</string>
-    </array>
+    <!-- NB: no keychain-access-groups. That entitlement is "restricted" on macOS
+         and requires an embedded provisioning profile (Apple Developer portal),
+         which a Developer ID build doesn't have — adding it makes the kernel
+         SIGKILL the app at launch. Credential sharing with sibling apps is
+         instead handled by the stable Developer ID signature (a one-time Keychain
+         "Always Allow" persists across updates). -->
 </dict>
 </plist>
