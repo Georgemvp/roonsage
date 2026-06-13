@@ -148,9 +148,16 @@ public final class RoonClient {
         database = try? DatabaseManager(url: Self.databaseURL)
         refreshTrackCount()
         refreshGenreCount()
-        if UserDefaults.standard.bool(forKey: "library_share_enabled") {
+        #if os(macOS)
+        // Sharing defaults to on so the iPhone can pull library + settings
+        // without the user flipping a toggle first; an explicit opt-out (key
+        // set to false) is still honoured. Gated to macOS — RoonClient.shared
+        // also exists on iOS, which must not start a share server.
+        let shareEnabled = UserDefaults.standard.object(forKey: "library_share_enabled") as? Bool ?? true
+        if shareEnabled {
             setLibrarySharing(enabled: true)
         }
+        #endif
     }
 
     /// Start/stop the library-share HTTP server (persisted; auto-starts at
