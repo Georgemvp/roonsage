@@ -41,6 +41,33 @@ final class DatabaseManagerTests: XCTestCase {
         XCTAssertEqual(hit.first?.id, "t0")
     }
 
+    func testImportedListensAreIdempotentAndScoped() throws {
+        // Eigen Roon-listen (bron 'roon') op een bekend tijdstip.
+        try db.logListen(title: "Live Track", artist: "A", album: nil, zoneID: "z", zoneName: "Salon")
+        let roonEarliest = try XCTUnwrap(db.earliestListen(excludingSource: "lastfm"))
+        XCTAssertFalse(roonEarliest.isEmpty)
+
+        let entries = [
+            DatabaseManager.ImportedListen(title: "Old 1", artist: "B", album: "Album", playedAt: "2024-03-01T10:00:00Z"),
+            DatabaseManager.ImportedListen(title: "Old 2", artist: "C", album: nil, playedAt: "2025-07-15T20:00:00Z"),
+        ]
+        try db.replaceImportedListens(entries, source: "lastfm", zoneName: "Last.fm")
+        XCTAssertEqual(try db.importedListenCount(source: "lastfm"), 2)
+        XCTAssertEqual(try db.totalListens(), 3)  // 1 roon + 2 lastfm
+
+        // Her-import bouwt opnieuw op zonder te dupliceren.
+        try db.replaceImportedListens(entries, source: "lastfm", zoneName: "Last.fm")
+        XCTAssertEqual(try db.importedListenCount(source: "lastfm"), 2)
+        XCTAssertEqual(try db.totalListens(), 3)
+
+        // De geïmporteerde historie voedt het jaaroverzicht van een eerder jaar.
+        XCTAssertEqual(try db.yearInReview(year: 2025).totalPlays, 1)
+        XCTAssertEqual(try db.yearInReview(year: 2024).totalPlays, 1)
+
+        // earliestListen negeert de Last.fm-bron: blijft de Roon-listen.
+        XCTAssertEqual(try db.earliestListen(excludingSource: "lastfm"), roonEarliest)
+    }
+
     func testGenreMappingBatched() throws {
         try db.upsertTracks([
             track("a", "Song A", "X", album: "Blue"),

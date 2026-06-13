@@ -35,13 +35,13 @@ public struct YearInReviewView: View {
 
                 if loading {
                     ProgressView().frame(maxWidth: .infinity, minHeight: 200)
-                } else if let s = stats {
+                } else if let s = stats, s.totalPlays > 0 {
                     content(s)
                 } else {
                     ContentUnavailableView(
-                        "Geen luistergeschiedenis",
+                        "Geen luistergeschiedenis voor \(selectedYear)",
                         systemImage: "calendar.badge.exclamationmark",
-                        description: Text("Luister naar muziek om je jaaroverzicht te zien."))
+                        description: Text("Importeer je Last.fm-historie in Instellingen om eerdere jaren te vullen."))
                 }
             }
             .padding()

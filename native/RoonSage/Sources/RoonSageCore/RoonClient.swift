@@ -58,6 +58,10 @@ public final class RoonClient {
     public internal(set) var connectionState: ConnectionState = .disconnected
     public internal(set) var zones: [Zone] = []
 
+    /// Last.fm historie-import voortgang (zie `RoonClient+Lastfm`).
+    public internal(set) var lastfmImportInProgress = false
+    public internal(set) var lastfmImportStatus = ""
+
     public struct QueueItem: Sendable, Identifiable {
         public var id: Int
         public var title: String

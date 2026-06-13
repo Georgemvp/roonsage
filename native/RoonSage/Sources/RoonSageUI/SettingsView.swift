@@ -28,6 +28,7 @@ public struct SettingsView: View {
     @State private var lfPendingToken: String? = nil
     @State private var lfBusy = false
     @State private var lfStatus: String = ""
+    @AppStorage("lastfm_scrobble_enabled") private var lfScrobbleFromApp = false
 
     // Qobuz
     @State private var qbEmail: String = ""
@@ -235,6 +236,24 @@ public struct SettingsView: View {
             Section("Last.fm") {
                 if lfConnected {
                     LabeledContent("Verbonden als", value: lfUsername.isEmpty ? "✓" : lfUsername)
+                    Toggle("Scrobble vanuit de app", isOn: $lfScrobbleFromApp)
+                    Text("Laat uit als Roon zelf al naar Last.fm scrobbelt — anders krijg je dubbele scrobbles. Het importeren en de top-lijsten hieronder werken los hiervan.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button {
+                        Task { await client.importLastfmHistory() }
+                    } label: {
+                        Label(client.lastfmImportInProgress ? "Bezig met importeren…" : "Importeer volledige Last.fm-historie",
+                              systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(client.lastfmImportInProgress)
+                    if client.lastfmImportInProgress {
+                        ProgressView()
+                    }
+                    if !client.lastfmImportStatus.isEmpty {
+                        Text(client.lastfmImportStatus).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("Eenmalig je hele scrobble-historie binnenhalen — vult jaaroverzicht, smaakprofiel en aanbevelingen. Kan bij een grote historie even duren.")
+                        .font(.caption).foregroundStyle(.secondary)
                     Button("Ontkoppel Last.fm", role: .destructive) {
                         KeychainStore.delete(key: "lastfm_session_key")
                         KeychainStore.delete(key: "lastfm_username")
@@ -321,6 +340,11 @@ public struct SettingsView: View {
                 #else
                 LabeledContent("Platform", value: "iOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
                 #endif
+                NavigationLink {
+                    LogConsoleView()
+                } label: {
+                    Label("Logboek bekijken / delen", systemImage: "doc.text.magnifyingglass")
+                }
             }
         }
         .formStyle(.grouped)

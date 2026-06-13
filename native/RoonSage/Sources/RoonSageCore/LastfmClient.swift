@@ -116,4 +116,137 @@ public actor LastfmClient {
     private nonisolated func canScrobble(_ creds: Credentials) -> Bool {
         !creds.apiKey.isEmpty && !creds.apiSecret.isEmpty && !(creds.sessionKey ?? "").isEmpty
     }
+
+    // MARK: - Read transport (GET, geen signing)
+
+    /// Lees-methodes (user.getRecentTracks/getTop*) vereisen alleen een api_key,
+    /// geen handtekening of sessie. Daarom een aparte, ongesigneerde GET.
+    private func get(_ params: [String: String]) async -> [String: Any]? {
+        guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return nil }
+        comps.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
+        guard let url = comps.url,
+              let (data, resp) = try? await URLSession.shared.data(from: url),
+              ((resp as? HTTPURLResponse)?.statusCode ?? 500) < 500,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        if json["error"] != nil { return nil }
+        return json
+    }
+
+    // MARK: - Recent tracks (voor historie-import)
+
+    public struct Scrobble: Sendable {
+        public let artist: String
+        public let track: String
+        public let album: String?
+        public let uts: Int          // unix-timestamp van de scrobble
+    }
+
+    public struct RecentPage: Sendable {
+        public let scrobbles: [Scrobble]
+        public let page: Int
+        public let totalPages: Int
+        public let total: Int        // totaal aantal scrobbles in het bereik
+    }
+
+    /// Eén pagina recente scrobbles. `to` begrenst het bereik (unix-seconden),
+    /// zodat we alleen de historie vóór de lokale logging hoeven op te halen.
+    /// Het "now playing"-item (zonder datum) wordt overgeslagen.
+    public func getRecentTracks(user: String, apiKey: String, page: Int,
+                                limit: Int = 200, to: Int? = nil) async -> RecentPage? {
+        var params = [
+            "method": "user.getrecenttracks", "user": user, "api_key": apiKey,
+            "format": "json", "limit": String(limit), "page": String(page),
+        ]
+        if let to { params["to"] = String(to) }
+        guard let json = await get(params),
+              let rt = json["recenttracks"] as? [String: Any] else { return nil }
+
+        let attr = rt["@attr"] as? [String: Any]
+        let totalPages = Int(attr?["totalPages"] as? String ?? "") ?? 0
+        let total = Int(attr?["total"] as? String ?? "") ?? 0
+
+        // "track" is een array, maar bij precies één resultaat een los object.
+        let raw: [[String: Any]]
+        if let arr = rt["track"] as? [[String: Any]] { raw = arr }
+        else if let one = rt["track"] as? [String: Any] { raw = [one] }
+        else { raw = [] }
+
+        let scrobbles: [Scrobble] = raw.compactMap { t in
+            guard let dateObj = t["date"] as? [String: Any],
+                  let utsStr = dateObj["uts"] as? String, let uts = Int(utsStr) else { return nil }
+            let artist = (t["artist"] as? [String: Any])?["#text"] as? String
+                ?? (t["artist"] as? String) ?? ""
+            let name = t["name"] as? String ?? ""
+            guard !artist.isEmpty, !name.isEmpty else { return nil }
+            let albumRaw = (t["album"] as? [String: Any])?["#text"] as? String
+            let album = (albumRaw?.isEmpty == false) ? albumRaw : nil
+            return Scrobble(artist: artist, track: name, album: album, uts: uts)
+        }
+        return RecentPage(scrobbles: scrobbles, page: page, totalPages: totalPages, total: total)
+    }
+
+    // MARK: - Top artists / tracks / albums (live panels)
+
+    public enum Period: String, Sendable, CaseIterable {
+        case week = "7day", month = "1month", quarter = "3month",
+             half = "6month", year = "12month", overall
+
+        public var label: String {
+            switch self {
+            case .week:    return "Week"
+            case .month:   return "Maand"
+            case .quarter: return "3 mnd"
+            case .half:    return "6 mnd"
+            case .year:    return "Jaar"
+            case .overall: return "Aller tijden"
+            }
+        }
+    }
+
+    public struct TopItem: Sendable, Identifiable {
+        public let name: String
+        public let artist: String?     // nil voor artiesten zelf
+        public let playcount: Int
+        public let imageURL: URL?
+        public var id: String { (artist ?? "") + "|" + name }
+    }
+
+    public func getTopArtists(user: String, apiKey: String, period: Period, limit: Int = 50) async -> [TopItem] {
+        await getTop(method: "user.gettopartists", container: "topartists", list: "artist",
+                     user: user, apiKey: apiKey, period: period, limit: limit)
+    }
+
+    public func getTopTracks(user: String, apiKey: String, period: Period, limit: Int = 50) async -> [TopItem] {
+        await getTop(method: "user.gettoptracks", container: "toptracks", list: "track",
+                     user: user, apiKey: apiKey, period: period, limit: limit)
+    }
+
+    public func getTopAlbums(user: String, apiKey: String, period: Period, limit: Int = 50) async -> [TopItem] {
+        await getTop(method: "user.gettopalbums", container: "topalbums", list: "album",
+                     user: user, apiKey: apiKey, period: period, limit: limit)
+    }
+
+    private func getTop(method: String, container: String, list: String,
+                        user: String, apiKey: String, period: Period, limit: Int) async -> [TopItem] {
+        let params = [
+            "method": method, "user": user, "api_key": apiKey, "format": "json",
+            "period": period.rawValue, "limit": String(limit),
+        ]
+        guard let json = await get(params),
+              let top = json[container] as? [String: Any],
+              let arr = top[list] as? [[String: Any]] else { return [] }
+        return arr.map(Self.parseTopItem)
+    }
+
+    private nonisolated static func parseTopItem(_ d: [String: Any]) -> TopItem {
+        let name = d["name"] as? String ?? ""
+        let playcount = Int(d["playcount"] as? String ?? "") ?? 0
+        let artist = (d["artist"] as? [String: Any])?["name"] as? String   // tracks/albums
+        let images = d["image"] as? [[String: Any]] ?? []
+        let urlStr = (images.first { ($0["size"] as? String) == "extralarge" }?["#text"] as? String)
+            ?? (images.last?["#text"] as? String)
+        let imageURL = (urlStr?.isEmpty == false) ? URL(string: urlStr!) : nil
+        return TopItem(name: name, artist: artist, playcount: playcount, imageURL: imageURL)
+    }
 }

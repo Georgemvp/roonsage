@@ -46,6 +46,49 @@ extension DatabaseManager {
         }
     }
 
+    // MARK: - Last.fm history import
+
+    public struct ImportedListen: Sendable {
+        public var title: String
+        public var artist: String
+        public var album: String?
+        public var playedAt: String     // ISO-8601, zelfde formaat als logListen
+        public init(title: String, artist: String, album: String?, playedAt: String) {
+            self.title = title; self.artist = artist; self.album = album; self.playedAt = playedAt
+        }
+    }
+
+    /// Vroegste `played_at` van listens die NIET uit de opgegeven bron komen.
+    /// Wordt als bovengrens gebruikt zodat de import de gaten vóór de lokale
+    /// logging vult zonder de eigen Roon-listens te dupliceren.
+    public func earliestListen(excludingSource source: String) throws -> String? {
+        try pool.read { db in
+            try String.fetchOne(db, sql: """
+                SELECT MIN(played_at) FROM listening_history WHERE source <> ?
+            """, arguments: [source])
+        }
+    }
+
+    public func importedListenCount(source: String) throws -> Int {
+        try pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM listening_history WHERE source = ?", arguments: [source]) ?? 0
+        }
+    }
+
+    /// Vervangt alle listens van één bron in één transactie (idempotent: een
+    /// her-import bouwt simpelweg opnieuw op). `zone_name` wordt de bronnaam.
+    public func replaceImportedListens(_ entries: [ImportedListen], source: String, zoneName: String) throws {
+        try pool.write { db in
+            try db.execute(sql: "DELETE FROM listening_history WHERE source = ?", arguments: [source])
+            for e in entries {
+                try db.execute(sql: """
+                    INSERT INTO listening_history (title, artist, album, zone_id, zone_name, played_at, source)
+                    VALUES (?, ?, ?, NULL, ?, ?, ?)
+                """, arguments: [e.title, e.artist, e.album, zoneName, e.playedAt, source])
+            }
+        }
+    }
+
     public func topArtistsListened(limit: Int = 20) throws -> [(artist: String, count: Int)] {
         try pool.read { db in
             let rows = try Row.fetchAll(db, sql: """

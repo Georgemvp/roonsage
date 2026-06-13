@@ -52,7 +52,10 @@ actor ScrobbleCoordinator {
     // MARK: - Submission
 
     private static func updateNowPlaying(_ item: Item) async {
-        guard let creds = lastfmCreds(), let artist = item.artist, !artist.isEmpty else { return }
+        // Roon scrobbelt zelf al naar Last.fm; app-side scrobbelen staat default
+        // uit om dubbele scrobbles / now-playing-conflicten te voorkomen.
+        guard lastfmScrobbleEnabled(),
+              let creds = lastfmCreds(), let artist = item.artist, !artist.isEmpty else { return }
         await LastfmClient.shared.updateNowPlaying(
             artist: artist, track: item.title, album: item.album, creds: creds)
     }
@@ -68,11 +71,18 @@ actor ScrobbleCoordinator {
                 title: item.title, artist: item.artist, album: item.album, token: token)
         }
 
-        if let creds = lastfmCreds(), let artist = item.artist, !artist.isEmpty {
+        if lastfmScrobbleEnabled(), let creds = lastfmCreds(), let artist = item.artist, !artist.isEmpty {
             await LastfmClient.shared.scrobble(
                 artist: artist, track: item.title, album: item.album,
                 timestamp: startedAt, creds: creds)
         }
+    }
+
+    /// App-side Last.fm-scrobbelen. Default `false`: Roon's eigen Last.fm-
+    /// integratie scrobbelt al, dus de app doet het niet om dubbele scrobbles
+    /// te vermijden. Last.fm-data lezen (import/top-lijsten) werkt los hiervan.
+    static func lastfmScrobbleEnabled() -> Bool {
+        UserDefaults.standard.bool(forKey: "lastfm_scrobble_enabled")
     }
 
     private static func lastfmCreds() -> LastfmClient.Credentials? {

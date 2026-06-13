@@ -215,6 +215,13 @@ enum Schema {
             }
         }
 
+        migrator.registerMigration("v14_listen_source") { db in
+            // Onderscheid lokaal gelogde Roon-listens van geïmporteerde Last.fm-
+            // scrobbles, zodat we de import idempotent kunnen herbouwen.
+            try db.execute(sql: "ALTER TABLE listening_history ADD COLUMN source TEXT NOT NULL DEFAULT 'roon'")
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_listen_source ON listening_history(source)")
+        }
+
         try migrator.migrate(db)
     }
 }

@@ -11,9 +11,22 @@ public struct TasteProfileView: View {
     @State private var isLoaded = false
     @State private var selectedTab: Tab = .topArtists
 
+    // Last.fm live top-lijsten
+    @State private var lfPeriod: LastfmClient.Period = .overall
+    @State private var lfKind: LfKind = .artists
+    @State private var lfItems: [LastfmClient.TopItem] = []
+    @State private var lfLoading = false
+
     enum Tab: String, CaseIterable {
         case topArtists = "Topartiesten"
         case recent     = "Recent gespeeld"
+        case lastfm     = "Last.fm top"
+    }
+
+    enum LfKind: String, CaseIterable {
+        case artists = "Artiesten"
+        case tracks  = "Nummers"
+        case albums  = "Albums"
     }
 
     public var body: some View {
@@ -81,7 +94,57 @@ public struct TasteProfileView: View {
         switch selectedTab {
         case .topArtists: artistsList
         case .recent:     recentList
+        case .lastfm:     lastfmTop
         }
+    }
+
+    // MARK: - Last.fm live top-lijsten
+
+    @ViewBuilder
+    var lastfmTop: some View {
+        VStack(spacing: 0) {
+            Picker("Periode", selection: $lfPeriod) {
+                ForEach(LastfmClient.Period.allCases, id: \.self) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16).padding(.top, 8)
+
+            Picker("Soort", selection: $lfKind) {
+                ForEach(LfKind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16).padding(.vertical, 8)
+
+            Divider()
+
+            if !client.lastfmConfigured {
+                ContentUnavailableView(
+                    "Last.fm niet gekoppeld",
+                    systemImage: "link",
+                    description: Text("Koppel Last.fm in Instellingen om je top-artiesten, -nummers en -albums te zien."))
+            } else if lfLoading {
+                ProgressView().frame(maxWidth: .infinity, minHeight: 120)
+            } else if lfItems.isEmpty {
+                ContentUnavailableView("Geen gegevens", systemImage: "chart.bar")
+            } else {
+                List(lfItems) { item in
+                    HStack(spacing: 12) {
+                        Text(item.name).font(.body).lineLimit(1)
+                        if let a = item.artist {
+                            Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer()
+                        Text("\(item.playcount)×")
+                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    .padding(.vertical, 2)
+                }
+                .listStyle(.plain)
+            }
+        }
+        .onChange(of: lfPeriod) { _, _ in loadLastfm() }
+        .onChange(of: lfKind) { _, _ in loadLastfm() }
+        .task { loadLastfm() }
     }
 
     var artistsList: some View {
@@ -171,6 +234,25 @@ public struct TasteProfileView: View {
             topArtists     = await client.topArtistsListened(limit: 50)
             recentListens  = await client.recentListens(limit: 100)
             isLoaded = true
+        }
+    }
+
+    private func loadLastfm() {
+        guard client.lastfmConfigured else { lfItems = []; return }
+        let period = lfPeriod
+        let kind = lfKind
+        lfLoading = true
+        Task {
+            let items: [LastfmClient.TopItem]
+            switch kind {
+            case .artists: items = await client.lastfmTopArtists(period: period, limit: 50)
+            case .tracks:  items = await client.lastfmTopTracks(period: period, limit: 50)
+            case .albums:  items = await client.lastfmTopAlbums(period: period, limit: 50)
+            }
+            // Negeer als de selectie tijdens het laden veranderde.
+            guard period == lfPeriod, kind == lfKind else { return }
+            lfItems = items
+            lfLoading = false
         }
     }
 
