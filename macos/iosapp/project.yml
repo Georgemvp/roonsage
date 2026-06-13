@@ -29,6 +29,8 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleDisplayName: RoonSage
         # iOS requires a local-network usage string to reach the Roon Core
         # (direct TCP to the saved host, incl. over ZeroTier).
