@@ -26,6 +26,30 @@ targets:
       properties:
         # App Group: deelt de now-playing snapshot met de widget-extensie.
         com.apple.security.application-groups: [group.com.roonsage.ios]
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: RoonSage
+        # iOS requires a local-network usage string to reach the Roon Core
+        # (direct TCP to the saved host, incl. over ZeroTier).
+        NSLocalNetworkUsageDescription: "RoonSage verbindt met je Roon Core op het lokale netwerk om je muziek te bedienen."
+        UIApplicationSupportsIndirectInputEvents: YES
+        # Live Activity (lock screen / Dynamic Island now-playing).
+        NSSupportsLiveActivities: YES
+        # Standard HTTPS-only encryption → exempt from US export compliance review.
+        ITSAppUsesNonExemptEncryption: NO
+        UILaunchScreen: {}
+        # Background refresh for widget/zone state updates.
+        UIBackgroundModes:
+          - fetch
+        # BGTaskScheduler task identifiers — must be here (Info.plist), not a build setting.
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.roonsage.ios.refresh
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     dependencies:
       - package: RoonSage
         product: RoonSageUI
@@ -43,28 +67,9 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1,2"          # iPhone + iPad
-        GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 5W3QDZ94FH          # Casper's Apple Developer Team (not secret)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        # --- Synthesized Info.plist keys ---
-        INFOPLIST_KEY_CFBundleDisplayName: RoonSage
-        # iOS requires a local-network usage string to reach the Roon Core
-        # (direct TCP to the saved host, incl. over ZeroTier).
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "RoonSage verbindt met je Roon Core op het lokale netwerk om je muziek te bedienen."
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
-        # Live Activity (lock screen / Dynamic Island now-playing).
-        INFOPLIST_KEY_NSSupportsLiveActivities: YES
-        # Standard HTTPS-only encryption → exempt from US export compliance review.
-        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
-        # Background refresh for widget/zone state updates.
-        INFOPLIST_KEY_UIBackgroundModes: "fetch"
-        # BGTaskScheduler task identifiers.
-        BGTaskSchedulerPermittedIdentifiers:
-          - com.roonsage.ios.refresh
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_UISupportedInterfaceOrientations~ipad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
 
   # Live Activity widget extension (lock screen / Dynamic Island now-playing).
   # Dependency-free: only the shared ActivityAttributes file + WidgetKit/SwiftUI.

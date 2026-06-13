@@ -26,12 +26,8 @@ struct RoonSageiOSApp: App {
                 .withHandoff()
                 .onAppear {
                     nowPlayingCenter.configure(client: client)
-                    BGTaskScheduler.shared.register(
-                        forTaskWithIdentifier: "com.roonsage.ios.refresh",
-                        using: nil
-                    ) { task in
-                        self.handleBackgroundRefresh(task: task as! BGAppRefreshTask)
-                    }
+                    // Prime the scheduler so the first refresh fires ~15 min later.
+                    scheduleNextBackgroundRefresh()
                 }
                 // Mirror the selected zone's now-playing onto the lock screen /
                 // Dynamic Island + MPNowPlayingInfoCenter (Control Center,
@@ -84,25 +80,17 @@ struct RoonSageiOSApp: App {
                     }
                 }
         }
+        // Lifecycle-safe background refresh: BGTaskScheduler registration happens
+        // before any scene connects when declared here (not in .onAppear).
+        // BGTaskSchedulerPermittedIdentifiers must also list this ID in Info.plist.
+        .backgroundTask(.appRefresh("com.roonsage.ios.refresh")) {
+            scheduleNextBackgroundRefresh()
+            _ = await client.ensureConnected(timeout: 8)
+            syncSystemSurfaces()
+        }
     }
 
     // MARK: - Background refresh (BGTaskScheduler)
-
-    /// Refresh zone state + widget data in the background (~15 min interval).
-    /// iOS calls this when the app is suspended; we reconnect briefly, sync
-    /// surfaces, then schedule the next execution.
-    private func handleBackgroundRefresh(task: BGAppRefreshTask) {
-        scheduleNextBackgroundRefresh()
-        let workTask = Task {
-            _ = await client.ensureConnected(timeout: 8)
-            await MainActor.run { syncSystemSurfaces() }
-            task.setTaskCompleted(success: true)
-        }
-        task.expirationHandler = {
-            workTask.cancel()
-            task.setTaskCompleted(success: false)
-        }
-    }
 
     private func scheduleNextBackgroundRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: "com.roonsage.ios.refresh")
