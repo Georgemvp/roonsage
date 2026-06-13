@@ -24,8 +24,17 @@ extension RoonClient {
         req.timeoutInterval = 8
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
-              let settings = try? JSONDecoder().decode(SyncableSettings.self, from: data)
+              var settings = try? JSONDecoder().decode(SyncableSettings.self, from: data)
         else { return false }
+
+        // The Mac reports its Roon host as it sees it. When the Core runs on the
+        // Mac itself it reports a loopback address (127.0.0.1) — useless to the
+        // phone, where that means the phone. Substitute the share server's host:
+        // we just reached the Mac there, and the Core lives on that same machine.
+        if let host = settings.roonHost, Self.isLoopback(host),
+           let shareHost = URL(string: trimmed)?.host {
+            settings.roonHost = shareHost   // apply() persists it below
+        }
 
         settings.apply()
 
@@ -35,5 +44,9 @@ extension RoonClient {
             await connect(host: host, port: port)
         }
         return true
+    }
+
+    private static func isLoopback(_ host: String) -> Bool {
+        host == "localhost" || host == "::1" || host.hasPrefix("127.")
     }
 }
