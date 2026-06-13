@@ -65,12 +65,22 @@ extension DatabaseManager {
             let id = Self.importKeyPrefix
                 + Self.encodeKeyPart(artist ?? "") + "::"
                 + Self.encodeKeyPart(title) + "::\(i)"
+            let album = o["al"] as? String
+            // The Mac's Roon item_key album_key is session-scoped and useless on
+            // the phone, so it isn't exported. But album grouping (library stats,
+            // undiscovered albums, playAlbum's local WHERE album_key=? filter)
+            // needs a stable per-album id. Reuse the exported album fingerprint
+            // ("fp"); without it COUNT(DISTINCT album_key) is 0 and every album
+            // collapses into one GROUP BY bucket. Fall back to album|artist for
+            // older exports that predate the fingerprint.
+            let albumKey = (o["fp"] as? String)
+                ?? album.map { $0 + "|" + (artist ?? "") }
             records.append(TrackRecord(
                 id: id,
                 title: title,
                 artist: artist,
-                album: o["al"] as? String,
-                albumKey: nil,
+                album: album,
+                albumKey: albumKey,
                 year: o["y"] as? Int,
                 isLive: (o["l"] as? Int ?? 0) == 1,
                 matchKey: o["mk"] as? String,
