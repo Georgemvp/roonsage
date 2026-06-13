@@ -221,6 +221,23 @@ public final class RoonClient {
         return connectionState.isConnected
     }
 
+    /// Foreground fast-path. iOS tears down the websocket on suspension;
+    /// `handleClose` then schedules a reconnect with exponential backoff (up to
+    /// 30 s). When the user reopens the app we don't want to sit out that
+    /// backoff — cancel it and reconnect now, so a play tap right after
+    /// foregrounding isn't a silent no-op against a dead socket. No-op when
+    /// already connected/connecting or the user disconnected on purpose.
+    public func reconnectOnForeground() {
+        guard !intentionalDisconnect, let host = savedHost else { return }
+        switch connectionState {
+        case .disconnected, .failed:
+            reconnectAttempt = 0
+            Task { await connect(host: host, port: savedPort) }
+        default:
+            break   // connected / connecting / discovering / awaitingAuthorization
+        }
+    }
+
     public func discoverAndConnect() async {
         connectionState = .discovering
         let preferredID = RoonClientAuth.loadCoreID()
@@ -286,11 +303,19 @@ public final class RoonClient {
                 connectionState = .failed("Onverwacht registratie-antwoord")
                 return
             }
+            let previousCoreID = RoonClientAuth.loadCoreID()
             RoonClientAuth.saveToken(reg.token, coreID: reg.coreID)
             persistHost(host, port: corePort)
             connectionState = .connected(coreName: reg.coreName)
             await subscribeZones()
-            let needsResync = trackCount == 0 || (try? database?.hasNullMatchKeys()) == true
+            // A different Core (reinstall / another machine) means the cached
+            // library — including every item_key — belongs to a foreign session
+            // and won't resolve, so resync from scratch. A *same*-Core restart
+            // keeps the cache; stale keys there are handled at play time by the
+            // search fallback in BrowseService.playByBrowse (cheaper than a full
+            // re-walk on every reconnect).
+            let coreChanged = previousCoreID != nil && previousCoreID != reg.coreID
+            let needsResync = trackCount == 0 || coreChanged || (try? database?.hasNullMatchKeys()) == true
             if needsResync { startSync() }
         } catch {
             connectionState = .failed(error.localizedDescription)
@@ -402,7 +427,10 @@ public final class RoonClient {
             var current = queueItems
             for change in changes {
                 let op = change["operation"] as? String
-                let index = change["index"] as? Int ?? 0
+                // A missing index used to default to 0, which would remove or
+                // insert at the head of the queue — corrupting the view on a
+                // malformed change. Skip changes Roon didn't position.
+                guard let index = change["index"] as? Int else { continue }
                 if op == "remove" {
                     let count = change["count"] as? Int ?? 0
                     if index < current.count {

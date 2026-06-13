@@ -30,6 +30,9 @@ actor BrowseService {
     enum BrowseError: Error {
         case noList
         case transport(Error)
+        /// The item_key didn't resolve and no artist/title search fallback
+        /// succeeded — playback genuinely failed (surfaced to the user).
+        case playbackFailed
     }
 
     init(transport: RoonTransport) {
@@ -105,27 +108,59 @@ actor BrowseService {
     }
 
     /// Play a library item by its browse item_key.
+    ///
+    /// `title`/`artist` enable a search fallback when the stored item_key is
+    /// stale. Roon Browse item_keys are session-ephemeral — they expire on a
+    /// Core restart, a reconnect, or a resync that re-walked the album — so the
+    /// cached `tracks.id` regularly no longer resolves. When the direct browse
+    /// yields an empty list we re-resolve by artist+title, exactly like the
+    /// synthetic-key path and the Python `roon_playback.play_tracks` ("direct
+    /// key first, then search"). Without this, a stale key silently played
+    /// nothing.
+    ///
     /// action: "play_now" | "queue" | "add_next"
-    func playByBrowse(itemKey: String, zoneID: String, action: String = "play_now") async throws {
-        // Synthetic keys carry artist::title and are resolved by a fresh search
-        // at play time:
+    func playByBrowse(itemKey: String, title: String? = nil, artist: String? = nil,
+                      zoneID: String, action: String = "play_now") async throws {
+        // Synthetic keys carry artist::title and are always resolved by a fresh
+        // search at play time:
         //  - `qobuz_search::` — global-search item_keys are ephemeral (mirrors
         //    the Python handling in roon_playback.play_tracks).
         //  - `import::` — library rows imported from another device; the source
         //    Mac's item_keys are session-scoped and meaningless here.
         if itemKey.hasPrefix(Self.qobuzSearchPrefix) || itemKey.hasPrefix(Self.importPrefix) {
             let parts = itemKey.components(separatedBy: "::")
-            let artist = parts.count > 1 ? (parts[1].removingPercentEncoding ?? parts[1]) : ""
-            let title  = parts.count > 2 ? (parts[2].removingPercentEncoding ?? parts[2]) : ""
-            _ = try? await playViaSearch(artist: artist, title: title, zoneID: zoneID, action: action)
+            let sArtist = parts.count > 1 ? (parts[1].removingPercentEncoding ?? parts[1]) : ""
+            let sTitle  = parts.count > 2 ? (parts[2].removingPercentEncoding ?? parts[2]) : ""
+            if try await playViaSearch(artist: sArtist, title: sTitle, zoneID: zoneID, action: action) { return }
+            throw BrowseError.playbackFailed
+        }
+
+        // Try the stored library key first. Transport errors propagate (real
+        // connection failure → surfaced); a stale key returns a valid response
+        // with an empty list, so `executePlayAction` reports `false` and we
+        // fall back to a fresh search instead of silently doing nothing.
+        let sessionKey = "curate_\(zoneID)"
+        let resp = try await browseForPlayback(itemKey: itemKey, zoneID: zoneID, sessionKey: sessionKey)
+        if try await executePlayAction(resp: resp, sessionKey: sessionKey, zoneID: zoneID, action: action) {
             return
         }
 
-        let sessionKey = "curate_\(zoneID)"
-        let resp = try await browseForPlayback(itemKey: itemKey, zoneID: zoneID, sessionKey: sessionKey)
+        if let title, !title.isEmpty,
+           try await playViaSearch(artist: artist ?? "", title: title, zoneID: zoneID, action: action) {
+            return
+        }
+        throw BrowseError.playbackFailed
+    }
 
+    /// Given a browse response that should hold a track's action menu, find the
+    /// Play Now / Queue / Add Next item and execute it. Returns `false` when the
+    /// list is empty or carries no action (a stale key) so the caller can fall
+    /// back to a search; transport errors throw.
+    private func executePlayAction(
+        resp: [String: Any], sessionKey: String, zoneID: String, action: String
+    ) async throws -> Bool {
         guard let list = resp["list"] as? [String: Any],
-              let count = list["count"] as? Int, count > 0 else { return }
+              let count = list["count"] as? Int, count > 0 else { return false }
 
         let items = try await load(hierarchy: "browse", sessionKey: sessionKey, offset: 0, count: min(count, 20))
 
@@ -140,8 +175,9 @@ actor BrowseService {
             $0.hint == "action" && $0.title.localizedCaseInsensitiveContains(targetTitle)
         }) ?? items.first(where: { $0.hint == "action" })
 
-        guard let key = actionItem?.itemKey else { return }
-        _ = try? await browseForPlayback(itemKey: key, zoneID: zoneID, sessionKey: sessionKey)
+        guard let key = actionItem?.itemKey else { return false }
+        _ = try await browseForPlayback(itemKey: key, zoneID: zoneID, sessionKey: sessionKey)
+        return true
     }
 
     /// Browse into `itemKey` and load ALL items, auto-paginating.

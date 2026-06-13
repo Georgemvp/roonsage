@@ -21,7 +21,10 @@ struct PlayPauseIntent: LiveActivityIntent {
     func perform() async throws -> some IntentResult {
         #if !WIDGET_EXTENSION
         let client = RoonClient.shared
-        guard await client.ensureConnected(), let zone = client.selectedZone else { return .result() }
+        // Cold-reconnecting over ZeroTier from a suspended app can take a few
+        // seconds; intents have a ~30s budget, so wait longer than the 6s
+        // default rather than no-op against a not-yet-live socket.
+        guard await client.ensureConnected(timeout: 12), let zone = client.selectedZone else { return .result() }
         await client.playPause(zoneID: zone.id)
         #endif
         return .result()
@@ -38,7 +41,10 @@ struct NextTrackIntent: LiveActivityIntent {
     func perform() async throws -> some IntentResult {
         #if !WIDGET_EXTENSION
         let client = RoonClient.shared
-        guard await client.ensureConnected(), let zone = client.selectedZone else { return .result() }
+        // Cold-reconnecting over ZeroTier from a suspended app can take a few
+        // seconds; intents have a ~30s budget, so wait longer than the 6s
+        // default rather than no-op against a not-yet-live socket.
+        guard await client.ensureConnected(timeout: 12), let zone = client.selectedZone else { return .result() }
         await client.next(zoneID: zone.id)
         #endif
         return .result()
@@ -55,7 +61,10 @@ struct PreviousTrackIntent: LiveActivityIntent {
     func perform() async throws -> some IntentResult {
         #if !WIDGET_EXTENSION
         let client = RoonClient.shared
-        guard await client.ensureConnected(), let zone = client.selectedZone else { return .result() }
+        // Cold-reconnecting over ZeroTier from a suspended app can take a few
+        // seconds; intents have a ~30s budget, so wait longer than the 6s
+        // default rather than no-op against a not-yet-live socket.
+        guard await client.ensureConnected(timeout: 12), let zone = client.selectedZone else { return .result() }
         await client.previous(zoneID: zone.id)
         #endif
         return .result()

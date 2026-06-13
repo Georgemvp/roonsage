@@ -58,7 +58,9 @@ extension RoonClient {
         var failed = 0
         for track in tracks {
             do {
-                try await browse.playByBrowse(itemKey: track.id, zoneID: zoneID, action: isFirst ? "play_now" : "queue")
+                try await browse.playByBrowse(
+                    itemKey: track.id, title: track.title, artist: track.artist,
+                    zoneID: zoneID, action: isFirst ? "play_now" : "queue")
             } catch {
                 failed += 1
             }

@@ -215,10 +215,26 @@ extension RoonClient {
     /// Add tracks to the queue without interrupting playback. `next: true` uses
     /// Roon's "Add Next" instead of "Queue" (end of queue).
     public func queueTracks(_ tracks: [TrackRecord], next: Bool = false, zoneID: String) async {
-        guard let browse = browseService else { return }
+        guard let browse = browseService else {
+            lastActionError = ActionError(message: "Wachtrij mislukt — geen verbinding met Roon.")
+            return
+        }
         let action = next ? "add_next" : "queue"
+        var failed = 0
         for track in tracks {
-            try? await browse.playByBrowse(itemKey: track.id, zoneID: zoneID, action: action)
+            do {
+                try await browse.playByBrowse(
+                    itemKey: track.id, title: track.title, artist: track.artist,
+                    zoneID: zoneID, action: action)
+            } catch {
+                failed += 1
+            }
+        }
+        if failed > 0 {
+            lastActionError = ActionError(
+                message: failed == tracks.count
+                    ? "Wachtrij mislukt — geen van de \(tracks.count) tracks kon worden toegevoegd."
+                    : "\(failed) van de \(tracks.count) tracks konden niet in de wachtrij.")
         }
     }
 

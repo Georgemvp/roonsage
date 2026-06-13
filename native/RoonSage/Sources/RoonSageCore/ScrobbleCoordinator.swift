@@ -68,7 +68,8 @@ actor ScrobbleCoordinator {
 
         if let token = KeychainStore.load(key: "listenbrainz_token"), !token.isEmpty {
             await ListenBrainzClient.shared.submit(
-                title: item.title, artist: item.artist, album: item.album, token: token)
+                title: item.title, artist: item.artist, album: item.album,
+                listenedAt: startedAt, token: token)
         }
 
         if lastfmScrobbleEnabled(), let creds = lastfmCreds(), let artist = item.artist, !artist.isEmpty {

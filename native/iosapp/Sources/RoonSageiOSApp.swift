@@ -46,8 +46,13 @@ struct RoonSageiOSApp: App {
                 // (album checkpoints — it skips what's already done) once the app
                 // is active and the Core connection is back.
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active, client.hasInterruptedSync,
-                       client.connectionState.isConnected {
+                    guard phase == .active else { return }
+                    // Reconnect immediately rather than waiting out the
+                    // exponential backoff scheduled when iOS suspended us, so a
+                    // play tap right after reopening hits a live socket instead
+                    // of silently no-opping.
+                    client.reconnectOnForeground()
+                    if client.hasInterruptedSync, client.connectionState.isConnected {
                         client.startSync()
                     }
                 }
