@@ -3,6 +3,20 @@
 > Datum: 2026-06-12 · Scope: `native/RoonSage`, `native/RoonProtocol`, `native/iosapp` (~108 Swift-bestanden, ~14k regels)
 > Methode: 5 parallelle diepte-audits (architectuur, UI/UX, performance, iOS-platform, feature-parity).
 
+## ✅ Voortgang (2026-06-13) — afspeel-bug opgelost
+
+Nieuwe audit naar aanleiding van "niet alles speelt af bij de play-knopjes". **Geverifieerde hoofdoorzaak:** library-tracks worden afgespeeld via hun opgeslagen Roon `item_key`, maar die zijn sessie-vluchtig (verlopen bij Core-herstart / reconnect / album-rewalk). `BrowseService.playByBrowse` browsede direct naar de sleutel en deed bij een verlopen sleutel **stil niets** (geen throw → `curateTracks` telde 0 fouten → geen toast). De Python-zoek-fallback (`playViaSearch`) bestond al maar was alleen op synthetische Qobuz/import-sleutels aangesloten. Alle play-methodes (`playTrack`/`playAlbum`/`playShuffledMix`/`playSonicRadio`/`playDJSet`/`playPlaylist`/`queueTracks`) lopen via deze ene trechter.
+
+**Geleverd (commit `3c71ad9`, 58 tests groen, macOS release + iOS sim-build groen):**
+- `playByBrowse` krijgt title/artist; bij lege lijst → fallback naar `playViaSearch`, anders `BrowseError.playbackFailed` (i.p.v. stille `return`). `curateTracks`/`queueTracks` geven title/artist door en surfacen falen als `ActionError`-toast.
+- `handleOpen`: resync forceren bij Core-wissel (vreemde coreID = stale keys); same-Core restart leunt op de goedkopere play-time zoek-fallback.
+- iOS: `reconnectOnForeground()` bij `scenePhase → .active` (geen backoff afwachten); intent-timeout 6s→12s voor cold-reconnect over ZeroTier.
+- Fase B: ListenBrainz `submit(listenedAt:)` = starttijd (consistent met Last.fm); queue-remove slaat index-loze changes over.
+
+**Geverifieerde false positives uit de brede sweep (NIET aanpassen):** seek-positie-nil (`now_playing.seek_position` is correct), scrobble-gate bij lengte 0 (30s-vloer aanwezig), zonesWatchdog-flicker (her-subscribet alleen bij lege zoneMap na 10s).
+
+**Nog open:** iOS multicast-discovery (SOOD vereist Apple's multicast-entitlement; iOS gebruikt nu ZeroTier+saved host — caveat, geen bug); Control Center vanuit suspend (architectuur: geen lokale audiosessie). Versies bij start van deze ronde: macOS v1.5.48 · iOS ios-v1.6.18.
+
 ## ✅ Voortgang (2026-06-12, zelfde dag)
 
 **Fase 0 volledig geïmplementeerd + quick wins + eerste Fase 1-hero (alle 57 tests groen):**
