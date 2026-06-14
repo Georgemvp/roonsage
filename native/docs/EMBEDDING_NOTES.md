@@ -64,11 +64,16 @@ Per-track PyTorch↔Core ML parity: 0.94 / 0.99 / 0.93 / 0.96 / 0.93 (worst 0.93
    has no MIL op; option: pre-resize the mel front-end to the target frame count
    so the in-model interpolation is a near-identity).
 
-## Shipping the model (OPEN QUESTION — decide before merge)
+## Shipping the model (RESOLVED — build-time fetch)
 
-The `.mlpackage` files are large model weights. They are currently git-ignored.
-Options: Git LFS, a build-time download script, or commit (not recommended).
-Resolve before wiring SPM resources in Step 1/4.
+The `.mlpackage` weights + tokenizer + mel resources stay git-ignored. The
+analyzer host obtains them at setup time via `scripts/setup_clap_models.sh`,
+which downloads the base CLAP model from Hugging Face and converts it into
+`~/Library/Application Support/RoonSageAnalyzer/CLAP` — exactly where
+`CLAPModel.resourceDir()` looks (after `$ROONSAGE_CLAP_DIR`, before the dev
+path). Idempotent; run once per host/release. Keeps the repo small and needs no
+self-hosted artifact. (A future optimization could publish a prebuilt tarball as
+a GitHub Release asset and have the script download that instead of converting.)
 
 ## Reproduce
 

@@ -23,20 +23,26 @@ public final class CLAPModel: @unchecked Sendable {
 
     // MARK: - Loading
 
-    /// Resolve the directory holding the `.mlpackage` files + `.f32` resources.
-    /// Order: `ROONSAGE_CLAP_DIR` env → dev path next to this source file.
-    /// (SPM `Bundle.module` wiring is deferred until the model-shipping
-    /// decision in EMBEDDING_NOTES.md is made.)
+    /// Resolve the directory holding the `.mlpackage` files + resources.
+    /// Order: `ROONSAGE_CLAP_DIR` env → the installed location populated by
+    /// `scripts/setup_clap_models.sh` (Application Support) → dev path next to
+    /// this source file. A model marker (`clap_mel.json`) must be present.
     static func resourceDir() -> URL? {
         let fm = FileManager.default
+        func valid(_ u: URL) -> Bool { fm.fileExists(atPath: u.appendingPathComponent("clap_mel.json").path) }
+
         if let env = ProcessInfo.processInfo.environment["ROONSAGE_CLAP_DIR"], !env.isEmpty {
             let u = URL(fileURLWithPath: env)
-            if fm.fileExists(atPath: u.path) { return u }
+            if valid(u) { return u }
+        }
+        if let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let u = support.appendingPathComponent("RoonSageAnalyzer/CLAP", isDirectory: true)
+            if valid(u) { return u }
         }
         let dev = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .appendingPathComponent("Resources/CLAP", isDirectory: true)
-        return fm.fileExists(atPath: dev.path) ? dev : nil
+        return valid(dev) ? dev : nil
     }
 
     public static func load() -> CLAPModel? {
