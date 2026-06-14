@@ -12,6 +12,20 @@ extension RoonClient {
         set { UserDefaults.standard.set(newValue, forKey: "analyzer_url") }
     }
 
+    /// A/B flag (Track E5): when off, Similar / Fingerprint / Path / Alchemy /
+    /// Map fall back to the rule-based BPM/Camelot/tag engine even if CLAP
+    /// embeddings exist — keeps the scalar baseline comparable before retiring
+    /// it. Default on.
+    public var useSonicEmbeddings: Bool {
+        get { (UserDefaults.standard.object(forKey: "sonic_use_embeddings") as? Bool) ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "sonic_use_embeddings") }
+    }
+
+    /// The vector index when embeddings are enabled, else nil (→ rule-based).
+    private func activeIndex(_ db: DatabaseManager) async -> VectorIndex? {
+        useSonicEmbeddings ? await sonicCache.vectorIndex(from: db) : nil
+    }
+
     public func audioFeaturesStats() async -> (total: Int, matched: Int) {
         guard let db = database else { return (0, 0) }
         return await Task.detached { (try? db.audioFeaturesStats()) ?? (0, 0) }.value
@@ -230,7 +244,7 @@ extension RoonClient {
     public func similarTracks(toMatchKey matchKey: String, limit: Int = 30) async -> [SonicEngine.Scored] {
         guard let db = database, !matchKey.isEmpty else { return [] }
         let lib = await sonicCache.tracks(from: db)
-        let index = await sonicCache.vectorIndex(from: db)
+        let index = await activeIndex(db)
         return await Task.detached {
             guard let seed = lib.first(where: { $0.matchKey == matchKey }) else { return [] }
             return SonicEngine.similar(to: seed, in: lib, limit: limit, index: index)
@@ -238,10 +252,11 @@ extension RoonClient {
     }
 
     /// The CLAP k-NN index over the analyzed library (nil when too few
-    /// embeddings exist). For UI features that drive the engine directly.
+    /// embeddings exist or the A/B flag is off). For UI features that drive the
+    /// engine directly.
     public func sonicVectorIndex() async -> VectorIndex? {
         guard let db = database else { return nil }
-        return await sonicCache.vectorIndex(from: db)
+        return await activeIndex(db)
     }
 
     /// Free-text → audio search: the analyzer embeds the query text (CLAP shared
@@ -290,7 +305,7 @@ extension RoonClient {
     public func sonicFingerprint(seedLimit: Int = 40, recommendCount: Int = 60) async -> Fingerprint? {
         guard let db = database else { return nil }
         let lib = await sonicCache.tracks(from: db)
-        let index = await sonicCache.vectorIndex(from: db)
+        let index = await activeIndex(db)
         return await Task.detached {
             guard !lib.isEmpty else { return nil }
             let top = (try? db.topTracks(limit: seedLimit)) ?? []
@@ -315,7 +330,7 @@ extension RoonClient {
     /// Returns the number of tracks projected (0 when too few embeddings exist).
     @discardableResult
     public func computeMusicMap() async -> Int {
-        guard let db = database else { return 0 }
+        guard let db = database, useSonicEmbeddings else { return 0 }
         let lib = await sonicCache.tracks(from: db)
         let coords: [(matchKey: String, x: Double, y: Double)] = await Task.detached {
             let withEmb = lib.filter { ($0.embedding?.count ?? 0) > 0 }

@@ -346,6 +346,11 @@ public struct SettingsView: View {
                 if !afStatus.isEmpty {
                     Text(afStatus).font(.caption).foregroundStyle(.secondary)
                 }
+                Toggle("Sonische embeddings (CLAP)", isOn: Binding(
+                    get: { client.useSonicEmbeddings },
+                    set: { client.useSonicEmbeddings = $0 }))
+                Text("Aan: Vergelijkbaar / Sonic DNA / Song Paths / Alchemy / Music Map draaien op de geleerde CLAP-vectoren. Uit: terug naar de BPM/toonsoort/tag-regels (om te vergelijken).")
+                    .font(.caption).foregroundStyle(.secondary)
                 Text("Haalt BPM, Camelot-toonsoort, energie en LLM-tags op van de analyzer op je muziek-host. Gebruikt voor DJ-sets en tag-curatie.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

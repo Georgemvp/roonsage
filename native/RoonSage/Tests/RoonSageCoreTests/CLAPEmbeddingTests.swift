@@ -82,6 +82,26 @@ final class CLAPEmbeddingTests: XCTestCase {
         XCTAssertGreaterThan(cos, 0.999, "Swift embedding diverges from PyTorch path")
     }
 
+    /// Sanity: identical input → cosine ≈ 1; a very different signal scores
+    /// strictly lower. Guards against a degenerate/constant embedding.
+    func testEmbeddingDiscriminates() throws {
+        _ = try requireDir()
+        guard let model = CLAPModel.load() else { throw XCTSkip("CLAP model not loadable") }
+
+        let a = try model.embed(samples: goldenWaveform())
+        let b = try model.embed(samples: goldenWaveform())
+        // A pure 8 kHz tone — spectrally unlike the multi-sine golden signal.
+        let sr = Double(CLAPMel.sampleRate)
+        let tone = (0..<CLAPMel.clipSamples).map { Float(0.5 * sin(2.0 * .pi * 8000.0 * Double($0) / sr)) }
+        let c = try model.embed(samples: tone)
+
+        func cos(_ x: [Float], _ y: [Float]) -> Float { zip(x, y).reduce(0) { $0 + $1.0 * $1.1 } }
+        let same = cos(a, b), diff = cos(a, c)
+        print("[CLAP test] cos(same)=\(same)  cos(diff)=\(diff)")
+        XCTAssertEqual(same, 1.0, accuracy: 1e-3, "identical input must embed identically")
+        XCTAssertLessThan(diff, same - 0.05, "a different signal must score clearly lower")
+    }
+
     /// Moods return a finite cosine score for every label.
     func testMoodsProduceScores() throws {
         _ = try requireDir()
