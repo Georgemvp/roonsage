@@ -196,12 +196,19 @@ public final class RoonClient {
 
     // MARK: - Database URL
 
+    /// Database filename. Defaults to `library.db` (used by the server build and
+    /// the MCP tool). Client apps set this to a separate file via
+    /// `useServerMode()` so a client running on the *same machine* as the server
+    /// can't clobber the server's authoritative DB (they share the same
+    /// Application Support/RoonSage directory — the path isn't bundle-scoped).
+    public static var databaseFileOverride: String?
+
     static var databaseURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         let dir = appSupport.appendingPathComponent("RoonSage", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("library.db")
+        return dir.appendingPathComponent(databaseFileOverride ?? "library.db")
     }
 
     // MARK: - Connection

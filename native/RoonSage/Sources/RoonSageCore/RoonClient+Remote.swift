@@ -114,6 +114,10 @@ extension RoonClient {
     /// Switch this process to server (proxy) mode. Call once at launch before
     /// connecting. The client never registers a Roon extension.
     public static func useServerMode() {
+        // Set the DB filename BEFORE the `shared` access below (which triggers
+        // its lazy init and opens the database) so the client uses its own file
+        // and never shares the server's library.db on the same machine.
+        databaseFileOverride = "client-library.db"
         shared.controlMode = .server
     }
 
