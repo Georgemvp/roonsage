@@ -29,8 +29,23 @@ extension RoonClient {
             // DJ/Sonic joins pick them up; apply on a real sync.
             return try? db?.reconcileFeatureMatches(payload.identities, apply: true)
         }.value
+        // Pull the 512-dim embeddings (binary bundle) after match_keys are
+        // reconciled, so they attach to the right rows.
+        await pullEmbeddings(from: baseURL)
         await sonicCache.invalidate()
         return diag
+    }
+
+    /// Fetch the analyzer's binary `/embeddings` bundle and attach the vectors
+    /// to the feature rows by match_key. Best-effort: older analyzers without
+    /// the endpoint simply yield no embeddings.
+    private func pullEmbeddings(from baseURL: String) async {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
+        guard let url = URL(string: "\(trimmed)/embeddings"),
+              let (data, resp) = try? await URLSession.shared.data(from: url),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
+        let db = database
+        _ = await Task.detached { try? db?.applyEmbeddingsBlob(data) }.value
     }
 
     /// Read-only: fetch features and report the match breakdown WITHOUT mutating
@@ -66,7 +81,7 @@ extension RoonClient {
                     bpm: o["bpm"] as? Double, camelot: o["camelot"] as? String,
                     keyRoot: o["key_root"] as? String, keyMode: o["key_mode"] as? String,
                     energy: o["energy"] as? Double, duration: o["duration"] as? Double,
-                    tags: o["tags"] as? String
+                    tags: o["tags"] as? String, moods: o["moods"] as? String
                 ))
                 identities.append(DatabaseManager.FeatureIdentity(
                     matchKey: mk, artist: o["artist"] as? String, title: o["title"] as? String))

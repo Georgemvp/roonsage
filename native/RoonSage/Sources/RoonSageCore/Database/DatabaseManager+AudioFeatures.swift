@@ -14,11 +14,19 @@ extension DatabaseManager {
         public var energy: Double?
         public var duration: Double?
         public var tags: String?
+        public var moods: String?     // JSON {"happy":0.4,…}, from the analyzer
         public init(matchKey: String, bpm: Double?, camelot: String?, keyRoot: String?,
-                    keyMode: String?, energy: Double?, duration: Double?, tags: String?) {
+                    keyMode: String?, energy: Double?, duration: Double?, tags: String?,
+                    moods: String? = nil) {
             self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot; self.keyRoot = keyRoot
             self.keyMode = keyMode; self.energy = energy; self.duration = duration; self.tags = tags
+            self.moods = moods
         }
+    }
+
+    /// Decode a packed little-endian Float32 BLOB (CLAP embedding) to [Float].
+    static func floatsFromBlob(_ d: Data) -> [Float] {
+        d.withUnsafeBytes { raw in Array(raw.bindMemory(to: Float.self)) }
     }
 
     /// Audio features for one track by its content match key (for Now Playing).
@@ -35,30 +43,70 @@ extension DatabaseManager {
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) throws {
         guard !rows.isEmpty else { return }
         let iso = Self.isoFormatter.string(from: Date())
-        let chunk = Self.rowsPerChunk(columns: 9)
+        let chunk = Self.rowsPerChunk(columns: 10)
         try pool.write { db in
             var start = 0
             while start < rows.count {
                 let slice = rows[start..<min(start + chunk, rows.count)]
-                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
                 var args: [DatabaseValueConvertible?] = []
-                args.reserveCapacity(slice.count * 9)
+                args.reserveCapacity(slice.count * 10)
                 for r in slice {
                     args.append(contentsOf: [r.matchKey, r.bpm, r.camelot, r.keyRoot,
-                                             r.keyMode, r.energy, r.duration, r.tags, iso] as [DatabaseValueConvertible?])
+                                             r.keyMode, r.energy, r.duration, r.tags, r.moods, iso] as [DatabaseValueConvertible?])
                 }
                 try db.execute(sql: """
                     INSERT INTO track_audio_features
-                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, synced_at)
+                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, synced_at)
                     VALUES \(placeholders)
                     ON CONFLICT(match_key) DO UPDATE SET
                       bpm=excluded.bpm, camelot=excluded.camelot, key_root=excluded.key_root,
                       key_mode=excluded.key_mode, energy=excluded.energy, duration=excluded.duration,
-                      tags=excluded.tags, synced_at=excluded.synced_at
+                      tags=excluded.tags, moods=excluded.moods, synced_at=excluded.synced_at
                 """, arguments: StatementArguments(args))
                 start += chunk
             }
         }
+    }
+
+    /// Apply the analyzer's binary `/embeddings` bundle (RSEB format):
+    ///   "RSEB" | ver:UInt8=1 | dim:UInt32LE | count:UInt32LE
+    ///   then count × ( keyLen:UInt16LE | key:UTF8 | dim×Float32LE )
+    /// Updates `embedding` on existing feature rows by match_key. Returns the
+    /// number of rows updated.
+    @discardableResult
+    public func applyEmbeddingsBlob(_ data: Data) throws -> Int {
+        let bytes = [UInt8](data)
+        guard bytes.count >= 13, bytes[0] == 0x52, bytes[1] == 0x53, bytes[2] == 0x45, bytes[3] == 0x42,
+              bytes[4] == 1 else { return 0 }   // "RSEB" v1
+        func u16(_ o: Int) -> Int { Int(bytes[o]) | (Int(bytes[o + 1]) << 8) }
+        func u32(_ o: Int) -> Int { Int(bytes[o]) | (Int(bytes[o + 1]) << 8) | (Int(bytes[o + 2]) << 16) | (Int(bytes[o + 3]) << 24) }
+        let dim = u32(5)
+        let count = u32(9)
+        guard dim > 0, dim < 65536 else { return 0 }
+        let vecBytes = dim * 4
+
+        var pairs: [(key: String, blob: Data)] = []
+        pairs.reserveCapacity(count)
+        var o = 13
+        for _ in 0..<count {
+            guard o + 2 <= bytes.count else { break }
+            let kl = u16(o); o += 2
+            guard o + kl + vecBytes <= bytes.count else { break }
+            let key = String(decoding: bytes[o..<o + kl], as: UTF8.self); o += kl
+            let blob = data.subdata(in: o..<o + vecBytes); o += vecBytes
+            pairs.append((key, blob))
+        }
+
+        var updated = 0
+        try pool.write { db in
+            for p in pairs {
+                try db.execute(sql: "UPDATE track_audio_features SET embedding = ? WHERE match_key = ?",
+                               arguments: [p.blob, p.key])
+                updated += db.changesCount
+            }
+        }
+        return updated
     }
 
     // MARK: - Feature-match reconciliation (exact + fuzzy fallback / diagnostics)
@@ -216,6 +264,16 @@ extension DatabaseManager {
         public var camelot: String
         public var energy: Double?
         public var tags: [String]
+        public var embedding: [Float]?       // 512-dim CLAP vector (Track E5)
+        public var moods: [String: Float]    // mood → cosine, for Map colouring
+
+        public init(id: String, title: String, artist: String?, album: String?, imageKey: String?,
+                    matchKey: String, bpm: Double?, camelot: String, energy: Double?, tags: [String],
+                    embedding: [Float]? = nil, moods: [String: Float] = [:]) {
+            self.id = id; self.title = title; self.artist = artist; self.album = album
+            self.imageKey = imageKey; self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot
+            self.energy = energy; self.tags = tags; self.embedding = embedding; self.moods = moods
+        }
     }
 
     /// Every library track that has analyzed audio features, deduped by
@@ -224,7 +282,7 @@ extension DatabaseManager {
         try pool.read { db in
             var sql = """
                 SELECT t.id, t.title, t.artist, t.album, t.image_key, t.match_key,
-                       f.bpm, f.camelot, f.energy, f.tags
+                       f.bpm, f.camelot, f.energy, f.tags, f.embedding, f.moods
                 FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
                 WHERE f.match_key IS NOT NULL
             """
@@ -244,10 +302,16 @@ extension DatabaseManager {
                    let arr = try? JSONSerialization.jsonObject(with: d) as? [Any] {
                     tags = arr.compactMap { ($0 as? String)?.lowercased() }
                 }
+                let embedding = (r["embedding"] as Data?).map(Self.floatsFromBlob)
+                var moods: [String: Float] = [:]
+                if let m = r["moods"] as String?, let d = m.data(using: .utf8) {
+                    moods = (try? JSONDecoder().decode([String: Float].self, from: d)) ?? [:]
+                }
                 out.append(SonicTrack(
                     id: r["id"] ?? "", title: title, artist: artist, album: r["album"],
                     imageKey: r["image_key"], matchKey: r["match_key"] ?? "",
-                    bpm: r["bpm"], camelot: r["camelot"] ?? "", energy: r["energy"], tags: tags
+                    bpm: r["bpm"], camelot: r["camelot"] ?? "", energy: r["energy"], tags: tags,
+                    embedding: embedding, moods: moods
                 ))
             }
             return out

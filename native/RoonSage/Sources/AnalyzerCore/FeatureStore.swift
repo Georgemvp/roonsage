@@ -2,6 +2,14 @@ import AudioAnalysis
 import Foundation
 import GRDB
 
+extension Data {
+    /// Append a fixed-width unsigned integer in little-endian byte order.
+    mutating func appendLE<T: FixedWidthInteger & UnsignedInteger>(_ value: T) {
+        var le = value.littleEndian
+        Swift.withUnsafeBytes(of: &le) { append(contentsOf: $0) }
+    }
+}
+
 /// Persistent store for analyzed track features on the analysis host.
 public struct TrackFeatureRow: Sendable {
     public var matchKey: String
@@ -181,10 +189,15 @@ public final class FeatureStore {
         }
     }
 
-    public func exportJSON() -> Data {
+    /// `includeEmbedding` adds the 512-dim vector as base64 (Float32 LE) per
+    /// track — large, so off by default; the binary `/embeddings` endpoint is
+    /// the preferred bulk path. `moods` + `embedding_model` are always included
+    /// (small) and backward-compatible (older clients ignore unknown keys).
+    public func exportJSON(includeEmbedding: Bool = false) -> Data {
         let rows = (try? dbQueue.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT match_key, artist, title, album, bpm, camelot, key_root, key_mode, energy, duration, tags
+                SELECT match_key, artist, title, album, bpm, camelot, key_root, key_mode, energy, duration,
+                       tags, moods, embedding_model\(includeEmbedding ? ", embedding" : "")
                 FROM track_features WHERE bpm IS NOT NULL
             """)
         }) ?? []
@@ -209,9 +222,48 @@ public final class FeatureStore {
                 "duration": r["duration"] as Double? ?? 0,
             ]
             if let tags = r["tags"] as String? { obj["tags"] = tags }
+            if let moods = r["moods"] as String? { obj["moods"] = moods }
+            if let model = r["embedding_model"] as String? { obj["embedding_model"] = model }
+            if includeEmbedding, let blob = r["embedding"] as Data? {
+                obj["embedding"] = blob.base64EncodedString()
+            }
             arr.append(obj)
         }
         return (try? JSONSerialization.data(withJSONObject: arr)) ?? Data("[]".utf8)
+    }
+
+    /// All (match_key, embedding) pairs that have an embedding. match_key is
+    /// recomputed fresh from artist/title to match the current scheme.
+    public func allEmbeddings() -> [(matchKey: String, embedding: [Float])] {
+        let rows = (try? dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT artist, album, title, embedding FROM track_features WHERE embedding IS NOT NULL
+            """)
+        }) ?? []
+        return rows.compactMap { r in
+            guard let blob = r["embedding"] as Data? else { return nil }
+            let key = TrackIdentity.matchKey(artist: r["artist"], album: r["album"], title: r["title"])
+            return (key, Self.floats(blob))
+        }
+    }
+
+    /// Compact binary embedding bundle for the `/embeddings` endpoint:
+    ///   "RSEB" | ver:UInt8=1 | dim:UInt32LE | count:UInt32LE
+    ///   then count × ( keyLen:UInt16LE | key:UTF8 | dim×Float32LE )
+    public func embeddingsBlob() -> Data {
+        let all = allEmbeddings()
+        let dim = UInt32(all.first?.embedding.count ?? CLAPModel.embeddingDim)
+        var out = Data("RSEB".utf8)
+        out.append(1)
+        out.appendLE(dim)
+        out.appendLE(UInt32(all.count))
+        for (key, vec) in all where vec.count == Int(dim) {
+            let kb = Array(key.utf8)
+            out.appendLE(UInt16(kb.count))
+            out.append(contentsOf: kb)
+            vec.withUnsafeBytes { out.append(contentsOf: $0) }
+        }
+        return out
     }
 
     private static func row(_ r: Row) -> TrackFeatureRow {

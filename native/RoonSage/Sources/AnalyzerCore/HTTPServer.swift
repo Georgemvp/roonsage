@@ -57,7 +57,13 @@ public final class HTTPServer {
     }
 
     private func route(_ path: String) -> (String, Data, String) {
-        if path.hasPrefix("/features") { return ("200 OK", store.exportJSON(), "application/json") }
+        if path.hasPrefix("/embeddings") {
+            return ("200 OK", store.embeddingsBlob(), "application/octet-stream")
+        }
+        if path.hasPrefix("/features") {
+            let withEmbedding = path.contains("embed=1")
+            return ("200 OK", store.exportJSON(includeEmbedding: withEmbedding), "application/json")
+        }
         if path.hasPrefix("/health") { return ("200 OK", Data("{\"status\":\"ok\",\"tracks\":\(store.count())}".utf8), "application/json") }
         return ("404 Not Found", Data("not found".utf8), "text/plain")
     }
