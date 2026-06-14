@@ -49,6 +49,40 @@ final class RealFFT {
         magnitudes(frame, into: &out)
         return out
     }
+
+    /// Power spectrum (length n/2 + 1) of an already-windowed real frame,
+    /// matching numpy's `np.abs(np.fft.rfft(x))**2`. Unlike `magnitudes` this
+    /// keeps DC (bin 0) and Nyquist (bin n/2) as *separate* bins and undoes the
+    /// ×2 scaling vDSP's packed real FFT applies — required for an exact match
+    /// against the CLAP mel front-end. `out` is resized to n/2 + 1 if needed.
+    func powerSpectrum(_ frame: [Float], into out: inout [Float]) {
+        let half = n / 2
+        if out.count != half + 1 { out = [Float](repeating: 0, count: half + 1) }
+        realp.withUnsafeMutableBufferPointer { rp in
+            imagp.withUnsafeMutableBufferPointer { ip in
+                var split = DSPSplitComplex(realp: rp.baseAddress!, imagp: ip.baseAddress!)
+                frame.withUnsafeBufferPointer { fp in
+                    fp.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: half) { cp in
+                        vDSP_ctoz(cp, 2, &split, 1, vDSP_Length(half))
+                    }
+                }
+                vDSP_fft_zrip(setup, &split, 1, log2n, FFTDirection(FFT_FORWARD))
+                // Packed format: realp[0] = 2·DC, imagp[0] = 2·Nyquist; bins
+                // 1..half-1 are the usual complex pairs scaled by 2.
+                out.withUnsafeMutableBufferPointer { op in
+                    let dc = rp[0] * 0.5
+                    let nyq = ip[0] * 0.5
+                    op[0] = dc * dc
+                    op[half] = nyq * nyq
+                    for k in 1..<half {
+                        let re = rp[k] * 0.5
+                        let im = ip[k] * 0.5
+                        op[k] = re * re + im * im
+                    }
+                }
+            }
+        }
+    }
 }
 
 func hannWindow(_ n: Int) -> [Float] {

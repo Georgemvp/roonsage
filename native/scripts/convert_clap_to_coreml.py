@@ -144,10 +144,17 @@ def _dummy_text_input(processor, max_len=64):
     return feats["input_ids"], feats["attention_mask"]
 
 
+def _save_f32(path: Path, arr, np):
+    """Write a contiguous little-endian float32 blob (no header) for Swift."""
+    np.ascontiguousarray(arr, dtype="<f4").tofile(str(path))
+
+
 def _dump_mel_config(processor, out_dir: Path, np):
     """Persist everything Swift needs to reproduce the mel front-end exactly."""
     fe = processor.feature_extractor
-    mel_filters = np.asarray(fe.mel_filters, dtype=np.float32)
+    # NON-fusion CLAP (rand_trunc / repeatpad) uses the librosa-style *slaney*
+    # filter bank, NOT `mel_filters` (that one is torchaudio, fusion-only).
+    mel_filters = np.asarray(fe.mel_filters_slaney, dtype=np.float32)
     cfg = {
         "model": DEFAULT_MODEL,
         "projection_dim": int(getattr(processor, "projection_dim", 512) or 512),
@@ -166,8 +173,10 @@ def _dump_mel_config(processor, out_dir: Path, np):
         "mood_labels": MOOD_LABELS,
     }
     (out_dir / "clap_mel.json").write_text(json.dumps(cfg, indent=2))
-    # The filter-bank matrix itself — large, kept as a flat float32 .npy.
+    # The filter-bank matrix itself ([513, 64]) — both .npy (reference) and a
+    # raw row-major float32 blob Swift loads directly (no .npy parser needed).
     np.save(out_dir / "clap_mel_filters.npy", mel_filters)
+    _save_f32(out_dir / "clap_mel_filters.f32", mel_filters, np)
     return cfg
 
 
@@ -223,18 +232,26 @@ def cmd_convert(args):
     ml_text.save(str(out_dir / "CLAPText.mlpackage"))
     print("[convert] saved CLAPText.mlpackage", flush=True)
 
-    # ---- precompute mood label text embeddings (PyTorch, authoritative) ---
-    with torch.no_grad():
+    # ---- precompute mood label embeddings via the CORE ML text encoder ------
+    # Use Core ML (not PyTorch) so mood labels live in the same approximated
+    # space as the Core ML audio embeddings (the bilinear-resize shift only
+    # affects the audio side; see EMBEDDING_NOTES.md). No Swift tokenizer needed.
+    ct_text = ct.models.MLModel(str(out_dir / "CLAPText.mlpackage"))
+    mood_embeds = np.zeros((len(MOOD_LABELS), cfg["projection_dim"]), dtype=np.float32)
+    for i, label in enumerate(MOOD_LABELS):
         feats = processor(
-            text=MOOD_LABELS, return_tensors="pt",
+            text=[label], return_tensors="np",
             padding="max_length", max_length=args.text_len, truncation=True,
         )
-        mood_embeds = model.get_text_features(
-            input_ids=feats["input_ids"], attention_mask=feats["attention_mask"]
-        )
-        mood_embeds = torch.nn.functional.normalize(mood_embeds, dim=-1).cpu().numpy()
-    np.save(out_dir / "clap_mood_embeds.npy", mood_embeds.astype(np.float32))
-    print(f"[convert] saved {len(MOOD_LABELS)} mood label embeddings", flush=True)
+        out = ct_text.predict({
+            "input_ids": feats["input_ids"].astype(np.int32),
+            "attention_mask": feats["attention_mask"].astype(np.int32),
+        })
+        e = np.asarray(out["embedding"]).reshape(-1)
+        mood_embeds[i] = e / (np.linalg.norm(e) + 1e-9)
+    np.save(out_dir / "clap_mood_embeds.npy", mood_embeds)
+    _save_f32(out_dir / "clap_mood_embeds.f32", mood_embeds, np)
+    print(f"[convert] saved {len(MOOD_LABELS)} mood label embeddings (Core ML)", flush=True)
     print("[convert] DONE", flush=True)
 
 
@@ -303,6 +320,53 @@ def cmd_validate(args):
           f"({'PASS' if worst > 0.99 else 'CHECK'})")
 
 
+# Deterministic synthetic waveform — Swift regenerates this EXACTLY (same
+# closed form) so the golden test needs no audio file and no large input blob.
+GOLDEN_SINES = [(110.0, 0.5), (440.0, 0.25), (1760.0, 0.15), (6000.0, 0.1)]
+
+
+def _golden_waveform(np, sr=48000, n=480000):
+    t = np.arange(n, dtype=np.float64) / sr
+    wav = np.zeros(n, dtype=np.float64)
+    for freq, amp in GOLDEN_SINES:
+        wav += amp * np.sin(2.0 * np.pi * freq * t)
+    return wav.astype(np.float32)
+
+
+def cmd_golden(args):
+    np, torch, ClapModel, ClapProcessor = _lazy_imports()
+    import coremltools as ct
+
+    out_dir = Path(args.out)
+    processor = ClapProcessor.from_pretrained(DEFAULT_MODEL)
+    wav = _golden_waveform(np)
+
+    feats = processor(audios=wav, sampling_rate=48000, return_tensors="np")
+    mel = np.asarray(feats["input_features"], dtype=np.float32)  # (1,1,1001,64)
+    mel2d = mel.reshape(mel.shape[-2], mel.shape[-1])            # (1001,64)
+
+    ml_audio = ct.models.MLModel(str(out_dir / "CLAPAudio.mlpackage"))
+    out = ml_audio.predict({"input_features": mel.astype(np.float32)})
+    emb = np.asarray(out["embedding"]).reshape(-1)
+    emb = emb / (np.linalg.norm(emb) + 1e-9)
+
+    _save_f32(out_dir / "golden_mel.f32", mel2d, np)
+    _save_f32(out_dir / "golden_embedding.f32", emb, np)
+    meta = {
+        "sample_rate": 48000,
+        "n_samples": int(wav.shape[0]),
+        "sines": [{"freq": f, "amp": a} for f, a in GOLDEN_SINES],
+        "mel_shape": list(mel2d.shape),
+        "mel_mean": float(mel2d.mean()),
+        "mel_std": float(mel2d.std()),
+        "mel_first_frame": mel2d[0].tolist(),
+        "embedding_dim": int(emb.shape[0]),
+    }
+    (out_dir / "golden.json").write_text(json.dumps(meta, indent=2))
+    print(f"[golden] mel {mel2d.shape} mean={meta['mel_mean']:.4f} "
+          f"std={meta['mel_std']:.4f}; embedding dim={emb.shape[0]} saved", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -317,6 +381,10 @@ def main():
     v.add_argument("--n", type=int, default=5, help="number of tracks to embed")
     v.add_argument("tracks", nargs="+", help="audio file paths or globs")
     v.set_defaults(func=cmd_validate)
+
+    g = sub.add_parser("golden", help="dump deterministic golden vectors for Swift tests")
+    g.add_argument("--out", required=True, help="dir containing the .mlpackage files")
+    g.set_defaults(func=cmd_golden)
 
     args = ap.parse_args()
     args.func(args)
