@@ -131,7 +131,9 @@ actor BrowseService {
             let parts = itemKey.components(separatedBy: "::")
             let sArtist = parts.count > 1 ? (parts[1].removingPercentEncoding ?? parts[1]) : ""
             let sTitle  = parts.count > 2 ? (parts[2].removingPercentEncoding ?? parts[2]) : ""
+            Log.debug("playByBrowse via search: artist='\(sArtist)' title='\(sTitle)' action=\(action)", category: .roon)
             if try await playViaSearch(artist: sArtist, title: sTitle, zoneID: zoneID, action: action) { return }
+            Log.warning("playViaSearch found no playable result for '\(sArtist) - \(sTitle)'", category: .roon)
             throw BrowseError.playbackFailed
         }
 
@@ -347,31 +349,63 @@ actor BrowseService {
 
         _ = try await searchStep(input: query, zoneID: zoneID, sessionKey: session)
         var items = try await searchLoad(sessionKey: session, count: 30)
+        Log.debug("search '\(query)' → \(items.count) top items: \(items.prefix(8).map { "[\($0.hint ?? "?"):\($0.title)]" }.joined(separator: " "))", category: .roon)
 
         if let section = items.first(where: { isTrackSection($0.title) && $0.hint == "list" && $0.itemKey != nil }),
            let key = section.itemKey {
             _ = try await searchStep(itemKey: key, zoneID: zoneID, sessionKey: session)
             items = try await searchLoad(sessionKey: session, count: 20)
+            Log.debug("drilled into track section → \(items.count) items: \(items.prefix(6).map { "[hint=\($0.hint ?? "nil") key=\($0.itemKey ?? "nil") '\($0.title)']" }.joined(separator: " "))", category: .roon)
+        } else {
+            Log.warning("no track section in search results (hints: \(items.prefix(10).map { $0.hint ?? "?" }.joined(separator: ",")))", category: .roon)
         }
 
         guard let track = items.first(where: {
             ($0.hint == "action" || $0.hint == "action_list") && $0.itemKey != nil
-        }), let trackKey = track.itemKey else { return false }
-
-        // Open the track's action menu and pick Play Now / Queue.
-        let resp = try await searchStep(itemKey: trackKey, zoneID: zoneID, sessionKey: session)
-        guard let list = resp["list"] as? [String: Any],
-              let count = list["count"] as? Int, count > 0 else {
-            // Some track rows execute directly on browse — treat as success.
-            return true
+        }), let trackKey = track.itemKey else {
+            Log.warning("playViaSearch: no track item with key in \(items.count) results", category: .roon)
+            return false
         }
-        let actions = try await searchLoad(sessionKey: session, count: min(count, 20))
+        Log.debug("playViaSearch: selected '\(track.title)' key=\(trackKey)", category: .roon)
+
+        // Walk down to the real action menu. Roon search results nest a track
+        // one or two `action_list` levels deep (track → action_list → the
+        // Play Now/Queue actions, hint == "action") before the actions appear.
+        // Descend through `action_list` levels until we reach actions.
+        var currentKey = trackKey
+        var actions: [Item] = []
+        for _ in 0..<4 {
+            let resp = try await searchStep(itemKey: currentKey, zoneID: zoneID, sessionKey: session)
+            guard let list = resp["list"] as? [String: Any],
+                  let count = list["count"] as? Int, count > 0 else {
+                // Executed directly on browse — treat as success.
+                Log.debug("playViaSearch: executed directly (no menu) → success", category: .roon)
+                return true
+            }
+            let level = try await searchLoad(sessionKey: session, count: min(count, 20))
+            Log.debug("playViaSearch: menu level (\(level.count)): \(level.prefix(8).map { "[hint=\($0.hint ?? "nil") '\($0.title)']" }.joined(separator: " "))", category: .roon)
+            if level.contains(where: { $0.hint == "action" }) {
+                actions = level
+                break
+            }
+            // Not the action level yet — descend through the next action_list.
+            guard let next = level.first(where: { $0.hint == "action_list" && $0.itemKey != nil }),
+                  let nextKey = next.itemKey else {
+                Log.warning("playViaSearch: menu has no action nor deeper action_list", category: .roon)
+                return false
+            }
+            currentKey = nextKey
+        }
         let targetTitle = action == "queue" ? "Queue" : (action == "add_next" ? "Add Next" : "Play Now")
         let actionItem = actions.first(where: {
             $0.hint == "action" && $0.title.localizedCaseInsensitiveContains(targetTitle)
         }) ?? actions.first(where: { $0.hint == "action" })
 
-        guard let actionKey = actionItem?.itemKey else { return false }
+        guard let actionKey = actionItem?.itemKey else {
+            Log.warning("playViaSearch: no '\(targetTitle)' action in menu", category: .roon)
+            return false
+        }
+        Log.debug("playViaSearch: executing '\(actionItem?.title ?? "?")' key=\(actionKey)", category: .roon)
         _ = try await searchStep(itemKey: actionKey, zoneID: zoneID, sessionKey: session)
         return true
     }

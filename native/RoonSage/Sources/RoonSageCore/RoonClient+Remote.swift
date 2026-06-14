@@ -96,6 +96,7 @@ extension RoonClient {
 
     /// Execute a proxied command on the real Roon connection (server side).
     public func applyRemoteCommand(_ c: RemoteCommand) async {
+        Log.info("remote-command '\(c.action)' zone=\(c.zoneID ?? "-") tracks=\(c.tracks?.count ?? 0) (mode=\(controlMode), transport=\(transportService != nil), browse=\(browseService != nil))", category: .network)
         switch c.action {
         case "playPause":     if let z = c.zoneID { await playPause(zoneID: z) }
         case "next":          if let z = c.zoneID { await next(zoneID: z) }

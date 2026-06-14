@@ -64,6 +64,7 @@ extension RoonClient {
             lastActionError = ActionError(message: "Afspelen mislukt — geen verbinding met Roon.")
             return
         }
+        Log.info("curateTracks: \(tracks.count) tracks → zone \(zoneID)", category: .roon)
         var isFirst = true
         var failed = 0
         for track in tracks {
@@ -71,11 +72,14 @@ extension RoonClient {
                 try await browse.playByBrowse(
                     itemKey: track.id, title: track.title, artist: track.artist,
                     zoneID: zoneID, action: isFirst ? "play_now" : "queue")
+                Log.debug("curate ok: '\(track.title)' (\(isFirst ? "play_now" : "queue"))", category: .roon)
             } catch {
                 failed += 1
+                Log.warning("curate FAILED: '\(track.title)' key=\(track.id.prefix(40)) — \(error)", category: .roon)
             }
             isFirst = false
         }
+        Log.info("curateTracks done: \(tracks.count - failed)/\(tracks.count) ok", category: .roon)
         if failed > 0 {
             lastActionError = ActionError(
                 message: failed == tracks.count

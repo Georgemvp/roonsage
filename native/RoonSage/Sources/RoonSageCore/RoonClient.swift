@@ -114,7 +114,9 @@ public final class RoonClient {
         }
         do {
             try await op(ts)
+            Log.debug("transport-actie '\(label)' verzonden", category: .roon)
         } catch {
+            Log.warning("transport-actie '\(label)' mislukt: \(error)", category: .roon)
             lastActionError = ActionError(message: "\(label) mislukt: \(error.localizedDescription)")
         }
     }
