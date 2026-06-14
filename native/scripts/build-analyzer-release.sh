@@ -29,8 +29,14 @@ echo "── Step 2: assemble .app bundle"
 rm -rf "$APP_PATH"
 mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources"
 cp "$BINARY" "$APP_PATH/Contents/MacOS/$EXEC_NAME"
-sed -e "s|<string>1.0.0</string>|<string>$VERSION</string>|g" \
-  "$PACKAGE_DIR/Sources/RoonSageAnalyzerApp/Info.plist" \
+# Stamp the version into both keys by name (robust: works whatever the
+# template currently holds — a magic-placeholder sed silently stamps nothing
+# once the template drifts, which is how it stuck at 1.0.6).
+awk -v ver="$VERSION" '
+  /<key>CFBundleShortVersionString<\/key>/ { print; getline; sub(/<string>[^<]*<\/string>/, "<string>" ver "</string>"); print; next }
+  /<key>CFBundleVersion<\/key>/            { print; getline; sub(/<string>[^<]*<\/string>/, "<string>" ver "</string>"); print; next }
+  { print }
+' "$PACKAGE_DIR/Sources/RoonSageAnalyzerApp/Info.plist" \
   > "$APP_PATH/Contents/Info.plist"
 ICON="$MACOS_DIR/assets/RoonSageAnalyzer.icns"
 [[ -f "$ICON" ]] && cp "$ICON" "$APP_PATH/Contents/Resources/AppIcon.icns"
