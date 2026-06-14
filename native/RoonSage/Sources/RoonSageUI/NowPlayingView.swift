@@ -30,7 +30,9 @@ public struct NowPlayingView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .navigationTitle("Nu speelt")
+            // Meaningful bar title: the playing track (or the zone when idle) —
+            // not the redundant "Nu speelt" (the tab bar already labels this).
+            .navigationTitle(zone.nowPlaying?.title ?? zone.displayName)
         }
     }
 }

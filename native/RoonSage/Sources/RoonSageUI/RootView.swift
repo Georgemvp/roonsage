@@ -427,17 +427,31 @@ struct RootView: View {
         }
     }
 
+    /// Zone selector: a Menu that clearly shows the active zone (speaker symbol +
+    /// name + chevron) instead of an unlabeled control, and lets you switch.
     private var zonePicker: some View {
-        Picker("Zone", selection: Binding(
-            get: { client.selectedZone?.id ?? "" },
-            set: { id in client.selectZone(id); lastZoneID = id }
-        )) {
+        let active = client.selectedZone
+        return Menu {
             ForEach(client.zones) { zone in
-                Label(zone.displayName, systemImage: "hifi.speaker")
-                    .tag(zone.id)
+                Button {
+                    client.selectZone(zone.id); lastZoneID = zone.id
+                } label: {
+                    Label(zone.displayName,
+                          systemImage: zone.id == active?.id ? "checkmark"
+                              : (zone.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker"))
+                }
             }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: active?.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker")
+                Text(active?.displayName ?? "Kies zone")
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .opacity(0.7)
+            }
+            .font(.subheadline.weight(.semibold))
         }
-        .pickerStyle(.menu)
-        .frame(maxWidth: 200)
+        .accessibilityLabel("Zone: \(active?.displayName ?? "geen")")
     }
 }
