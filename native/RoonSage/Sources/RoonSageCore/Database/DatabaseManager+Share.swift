@@ -36,7 +36,16 @@ extension DatabaseManager {
                 if (r["is_live"] as Bool? ?? false) { o["l"] = 1 }
                 if let v = r["match_key"] as String? { o["mk"] = v }
                 if let v = r["image_key"] as String? { o["ik"] = v }
-                if let v = r["album_fp"] as String? { o["fp"] = v }
+                // Album fingerprint groups tracks into albums on the importing
+                // device (COUNT(DISTINCT album_key), undiscovered albums…).
+                // Older libraries synced before album_fp existed have it NULL —
+                // fall back to album|artist so the importer still gets a stable,
+                // non-null album key (otherwise "0 albums").
+                if let v = r["album_fp"] as String?, !v.isEmpty {
+                    o["fp"] = v
+                } else if let al = r["album"] as String?, !al.isEmpty {
+                    o["fp"] = al + "|" + (r["artist"] as String? ?? "")
+                }
                 if let id = r["id"] as String?, let g = genresByTrack[id], !g.isEmpty { o["g"] = g }
                 tracks.append(o)
             }
