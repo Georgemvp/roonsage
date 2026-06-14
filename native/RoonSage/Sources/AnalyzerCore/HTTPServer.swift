@@ -11,13 +11,24 @@ import Network
 public final class HTTPServer {
     private let port: UInt16
     private let store: FeatureStore
-    private let clap: CLAPModel?
+    private let clapLock = NSLock()
+    private var _clap: CLAPModel?
+    private var clap: CLAPModel? {
+        clapLock.lock(); defer { clapLock.unlock() }; return _clap
+    }
     private var listener: NWListener?
 
     public init(port: UInt16, store: FeatureStore, clap: CLAPModel? = nil) {
         self.port = port
         self.store = store
-        self.clap = clap
+        self._clap = clap
+    }
+
+    /// Attach (or replace) the CLAP model on a running server without rebinding
+    /// the port — lets the server come up instantly for /features + /embeddings
+    /// and enable /text-embed once the model finishes loading off-main.
+    public func attachCLAP(_ model: CLAPModel?) {
+        clapLock.lock(); _clap = model; clapLock.unlock()
     }
 
     public func start() throws {

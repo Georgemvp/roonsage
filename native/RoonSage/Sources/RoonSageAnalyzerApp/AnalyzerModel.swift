@@ -1,4 +1,5 @@
 import AnalyzerCore
+import AudioAnalysis
 import Foundation
 import Observation
 
@@ -24,6 +25,7 @@ final class AnalyzerModel {
     private var walker: LibraryWalker?
     private var tagger: Tagger?
     private var server: HTTPServer?
+    private var clap: CLAPModel?   // loaded off-main once; enables /text-embed
 
     init() {
         store = try? FeatureStore(path: FeatureStore.defaultPath())
@@ -94,14 +96,36 @@ final class AnalyzerModel {
             return
         }
         guard let store, let p = UInt16(port) else { status = "Invalid port."; return }
-        let s = HTTPServer(port: p, store: store)
+        // Start the server IMMEDIATELY (clap nil) so /features + /embeddings are
+        // up without waiting on the slow CoreML load. The CLAP model loads
+        // off-main and is attached to the running server (no rebind) to enable
+        // /text-embed. A status file records the load outcome for diagnostics.
+        let s = HTTPServer(port: p, store: store, clap: clap)
         do {
             try s.start()
             server = s
             isServing = true
-            status = "Serving on port \(p)."
+            status = clap == nil ? "Serving on \(p) — loading text model…" : "Serving on \(p)."
         } catch {
             status = "Serve failed: \(error.localizedDescription)"
+            return
+        }
+        if clap == nil {
+            // Load on the main actor: CoreML models must be created and used
+            // consistently — loading off-main led to prediction failures on the
+            // server queue. The NWListener serves /features + /embeddings on its
+            // own queue while this loads, so only the (headless) UI pauses.
+            Task { @MainActor in
+                let loaded = CLAPModel.load()
+                let note = "loaded=\(loaded != nil) canEmbedText=\(loaded?.canEmbedText ?? false) at=\(Date())"
+                if let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                    try? note.write(to: dir.appendingPathComponent("RoonSageAnalyzer/clap_status.txt"),
+                                    atomically: true, encoding: .utf8)
+                }
+                self.clap = loaded
+                self.server?.attachCLAP(loaded)
+                self.status = "Serving on \(p)" + (loaded?.canEmbedText == true ? " — text search ready." : " (text model unavailable).")
+            }
         }
     }
 }
