@@ -109,6 +109,17 @@ extension DatabaseManager {
         return updated
     }
 
+    /// Persist the PCA-2D Music Map coordinates (Track E5d) by match_key.
+    public func updateMapCoords(_ coords: [(matchKey: String, x: Double, y: Double)]) throws {
+        guard !coords.isEmpty else { return }
+        try pool.write { db in
+            for c in coords {
+                try db.execute(sql: "UPDATE track_audio_features SET map_x = ?, map_y = ? WHERE match_key = ?",
+                               arguments: [c.x, c.y, c.matchKey])
+            }
+        }
+    }
+
     // MARK: - Feature-match reconciliation (exact + fuzzy fallback / diagnostics)
 
     /// Identity (match_key + raw artist/title) of one analyzer feature row, as
@@ -266,13 +277,17 @@ extension DatabaseManager {
         public var tags: [String]
         public var embedding: [Float]?       // 512-dim CLAP vector (Track E5)
         public var moods: [String: Float]    // mood → cosine, for Map colouring
+        public var mapX: Double?             // PCA-2D projection (Music Map)
+        public var mapY: Double?
 
         public init(id: String, title: String, artist: String?, album: String?, imageKey: String?,
                     matchKey: String, bpm: Double?, camelot: String, energy: Double?, tags: [String],
-                    embedding: [Float]? = nil, moods: [String: Float] = [:]) {
+                    embedding: [Float]? = nil, moods: [String: Float] = [:],
+                    mapX: Double? = nil, mapY: Double? = nil) {
             self.id = id; self.title = title; self.artist = artist; self.album = album
             self.imageKey = imageKey; self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot
             self.energy = energy; self.tags = tags; self.embedding = embedding; self.moods = moods
+            self.mapX = mapX; self.mapY = mapY
         }
     }
 
@@ -282,7 +297,7 @@ extension DatabaseManager {
         try pool.read { db in
             var sql = """
                 SELECT t.id, t.title, t.artist, t.album, t.image_key, t.match_key,
-                       f.bpm, f.camelot, f.energy, f.tags, f.embedding, f.moods
+                       f.bpm, f.camelot, f.energy, f.tags, f.embedding, f.moods, f.map_x, f.map_y
                 FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
                 WHERE f.match_key IS NOT NULL
             """
@@ -311,7 +326,7 @@ extension DatabaseManager {
                     id: r["id"] ?? "", title: title, artist: artist, album: r["album"],
                     imageKey: r["image_key"], matchKey: r["match_key"] ?? "",
                     bpm: r["bpm"], camelot: r["camelot"] ?? "", energy: r["energy"], tags: tags,
-                    embedding: embedding, moods: moods
+                    embedding: embedding, moods: moods, mapX: r["map_x"], mapY: r["map_y"]
                 ))
             }
             return out

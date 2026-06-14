@@ -41,7 +41,7 @@ public struct MusicMapView: View {
                 Text("\(tracks.count) analyzed tracks")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Text("Energie ↑   ·   Tempo →")
+                Text(usingMap ? "Sonische gelijkenis (CLAP · PCA)" : "Energie ↑   ·   Tempo →")
                     .font(.caption).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, Spacing.lg)
@@ -122,8 +122,18 @@ public struct MusicMapView: View {
     // MARK: - Geometry
 
     private struct Bounds {
+        var usingMap = false
+        var xMin = 0.0, xMax = 1.0, yMin = 0.0, yMax = 1.0   // PCA ranges
         var bpmMin = 60.0, bpmMax = 180.0, eMin = 0.0, eMax = 1.0
         init(_ tracks: [DatabaseManager.SonicTrack]) {
+            let mapped = tracks.filter { $0.mapX != nil && $0.mapY != nil }
+            // Use the learned PCA map once a clear majority of tracks have coords.
+            if mapped.count >= max(3, tracks.count / 2) {
+                usingMap = true
+                let xs = mapped.compactMap { $0.mapX }, ys = mapped.compactMap { $0.mapY }
+                if let lo = xs.min(), let hi = xs.max(), hi > lo { xMin = lo; xMax = hi }
+                if let lo = ys.min(), let hi = ys.max(), hi > lo { yMin = lo; yMax = hi }
+            }
             let bpms = tracks.compactMap { $0.bpm }.filter { $0 > 0 }
             let es = tracks.compactMap { $0.energy }
             if let lo = bpms.min(), let hi = bpms.max(), hi > lo { bpmMin = lo; bpmMax = hi }
@@ -132,13 +142,21 @@ public struct MusicMapView: View {
     }
 
     private func position(_ t: DatabaseManager.SonicTrack, in plot: CGRect, bounds: Bounds) -> CGPoint {
-        let bx = ((t.bpm ?? bounds.bpmMin) - bounds.bpmMin) / max(0.001, bounds.bpmMax - bounds.bpmMin)
-        let ey = ((t.energy ?? bounds.eMin) - bounds.eMin) / max(0.001, bounds.eMax - bounds.eMin)
+        let bx: Double, ey: Double
+        if bounds.usingMap, let mx = t.mapX, let my = t.mapY {
+            bx = (mx - bounds.xMin) / max(0.001, bounds.xMax - bounds.xMin)
+            ey = (my - bounds.yMin) / max(0.001, bounds.yMax - bounds.yMin)
+        } else {
+            bx = ((t.bpm ?? bounds.bpmMin) - bounds.bpmMin) / max(0.001, bounds.bpmMax - bounds.bpmMin)
+            ey = ((t.energy ?? bounds.eMin) - bounds.eMin) / max(0.001, bounds.eMax - bounds.eMin)
+        }
         return CGPoint(
             x: plot.minX + CGFloat(min(1, max(0, bx))) * plot.width,
-            y: plot.maxY - CGFloat(min(1, max(0, ey))) * plot.height   // energy up
+            y: plot.maxY - CGFloat(min(1, max(0, ey))) * plot.height
         )
     }
+
+    private var usingMap: Bool { Bounds(tracks).usingMap }
 
     private func selectNearest(to loc: CGPoint, in plot: CGRect, bounds: Bounds) {
         var best: DatabaseManager.SonicTrack?
@@ -168,7 +186,16 @@ public struct MusicMapView: View {
         if !tracks.isEmpty && !force { return }
         isLoading = true
         if force { await client.invalidateSonicCache() }
-        tracks = await client.sonicLibrary()
+        var lib = await client.sonicLibrary()
+        // Compute the PCA projection once when embeddings exist but coords don't
+        // (or on an explicit refresh), then reload with the stored map_x/map_y.
+        let hasEmbeddings = lib.contains { ($0.embedding?.count ?? 0) > 0 }
+        let hasCoords = lib.contains { $0.mapX != nil }
+        if hasEmbeddings && (!hasCoords || force) {
+            _ = await client.computeMusicMap()
+            lib = await client.sonicLibrary()
+        }
+        tracks = lib
         isLoading = false
         loaded = true
     }

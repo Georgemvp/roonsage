@@ -287,6 +287,29 @@ extension RoonClient {
         return await sonicCache.tracks(from: db)
     }
 
+    /// Compute the PCA-2D Music Map projection over the CLAP embeddings, persist
+    /// map_x/map_y, and invalidate the cache so the next load carries coords.
+    /// Returns the number of tracks projected (0 when too few embeddings exist).
+    @discardableResult
+    public func computeMusicMap() async -> Int {
+        guard let db = database else { return 0 }
+        let lib = await sonicCache.tracks(from: db)
+        let coords: [(matchKey: String, x: Double, y: Double)] = await Task.detached {
+            let withEmb = lib.filter { ($0.embedding?.count ?? 0) > 0 }
+            guard withEmb.count >= 3, let dim = withEmb.first?.embedding?.count else { return [] }
+            var flat = [Float](); flat.reserveCapacity(withEmb.count * dim)
+            for t in withEmb { flat.append(contentsOf: t.embedding!) }
+            let pts = PCAProjector.project(flat: flat, n: withEmb.count, dim: dim)
+            guard pts.count == withEmb.count else { return [] }
+            return zip(withEmb, pts).map { (matchKey: $0.matchKey, x: Double($1.x), y: Double($1.y)) }
+        }.value
+        guard !coords.isEmpty else { return 0 }
+        let database = db
+        _ = await Task.detached { try? database.updateMapCoords(coords) }.value
+        await sonicCache.invalidate()
+        return coords.count
+    }
+
     /// Case-insensitive search over the cached sonic library (title + artist).
     /// Returns up to 20 matches. Used by Song Paths and Song Alchemy pickers.
     public func sonicSearch(_ query: String) async -> [DatabaseManager.SonicTrack] {
