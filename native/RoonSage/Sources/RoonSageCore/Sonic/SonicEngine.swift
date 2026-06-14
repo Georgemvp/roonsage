@@ -27,8 +27,14 @@ public enum SonicEngine {
         to seed: DatabaseManager.SonicTrack,
         in library: [DatabaseManager.SonicTrack],
         limit: Int = 30,
-        weights: SonicSimilarity.Weights = .default
+        weights: SonicSimilarity.Weights = .default,
+        index: VectorIndex? = nil
     ) -> [Scored] {
+        // Embedding path: learned cosine k-NN when the seed has a vector.
+        if let index, index.embedding(forId: seed.id) != nil {
+            return index.nearest(toId: seed.id, k: limit)
+                .map { Scored(track: $0.track, similarity: Double(max(0, $0.score))) }
+        }
         let seedPrepared = SonicSimilarity.Prepared(feature(seed))
         let libraryPrepared = library
             .filter { !sameTrack($0, seed) }
@@ -46,9 +52,19 @@ public enum SonicEngine {
         toSeeds seeds: [DatabaseManager.SonicTrack],
         in library: [DatabaseManager.SonicTrack],
         limit: Int = 50,
-        weights: SonicSimilarity.Weights = .default
+        weights: SonicSimilarity.Weights = .default,
+        index: VectorIndex? = nil,
+        seedWeights: [Float]? = nil
     ) -> [Scored] {
         guard !seeds.isEmpty else { return [] }
+        // Embedding path: (recency-weighted) centroid → cosine k-NN.
+        if let index {
+            let seedIds = seeds.map(\.id).filter { index.embedding(forId: $0) != nil }
+            if !seedIds.isEmpty, let centroid = index.centroid(ofIds: seedIds, weights: seedWeights) {
+                return index.nearest(to: centroid, k: limit, excludingIds: Set(seedIds))
+                    .map { Scored(track: $0.track, similarity: Double(max(0, $0.score))) }
+            }
+        }
         let seedPreps = seeds.map { SonicSimilarity.Prepared(feature($0)) }
         let seedKeys = Set(seeds.map { "\($0.title.lowercased())|\(($0.artist ?? "").lowercased())" })
         var scored: [Scored] = []
@@ -125,9 +141,22 @@ public enum SonicEngine {
         subtract: [DatabaseManager.SonicTrack],
         in library: [DatabaseManager.SonicTrack],
         limit: Int = 30,
-        weights: SonicSimilarity.Weights = .default
+        weights: SonicSimilarity.Weights = .default,
+        index: VectorIndex? = nil
     ) -> [Scored] {
         guard !add.isEmpty else { return [] }
+
+        // Embedding path: combined = mean(add) − 0.5·mean(subtract) in vector space.
+        if let index, add.contains(where: { index.embedding(forId: $0.id) != nil }),
+           let addC = index.centroid(ofIds: add.map(\.id)) {
+            var combined = addC
+            if !subtract.isEmpty, let subC = index.centroid(ofIds: subtract.map(\.id)) {
+                for i in 0..<min(combined.count, subC.count) { combined[i] -= 0.5 * subC[i] }
+            }
+            let exclude = Set(add.map(\.id) + subtract.map(\.id))
+            return index.nearest(to: combined, k: limit, excludingIds: exclude)
+                .map { Scored(track: $0.track, similarity: Double(max(0, $0.score))) }
+        }
 
         func avg<T: BinaryFloatingPoint>(_ vals: [T?]) -> T? {
             let v = vals.compactMap { $0 }

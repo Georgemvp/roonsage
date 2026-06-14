@@ -248,8 +248,9 @@ public struct SongPathsView: View {
         defer { loading = false }
         let steps = Int(stepCount)
         let lib = await client.sonicLibrary()
+        let index = await client.sonicVectorIndex()
         let result = await Task.detached {
-            SongPaths.find(from: from, to: to, library: lib, maxSteps: steps)
+            SongPaths.find(from: from, to: to, library: lib, maxSteps: steps, index: index)
         }.value
         path = result
     }

@@ -238,8 +238,9 @@ public struct SongAlchemyView: View {
         let adds = addTracks
         let subtracts = subtractTracks
         let lib = await client.sonicLibrary()
+        let index = await client.sonicVectorIndex()
         let r = await Task.detached {
-            SonicEngine.alchemy(add: adds, subtract: subtracts, in: lib, limit: 30)
+            SonicEngine.alchemy(add: adds, subtract: subtracts, in: lib, limit: 30, index: index)
         }.value
         withAnimation(Motion.standard) { results = r }
     }

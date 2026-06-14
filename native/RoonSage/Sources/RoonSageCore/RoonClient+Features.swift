@@ -230,10 +230,18 @@ extension RoonClient {
     public func similarTracks(toMatchKey matchKey: String, limit: Int = 30) async -> [SonicEngine.Scored] {
         guard let db = database, !matchKey.isEmpty else { return [] }
         let lib = await sonicCache.tracks(from: db)
+        let index = await sonicCache.vectorIndex(from: db)
         return await Task.detached {
             guard let seed = lib.first(where: { $0.matchKey == matchKey }) else { return [] }
-            return SonicEngine.similar(to: seed, in: lib, limit: limit)
+            return SonicEngine.similar(to: seed, in: lib, limit: limit, index: index)
         }.value
+    }
+
+    /// The CLAP k-NN index over the analyzed library (nil when too few
+    /// embeddings exist). For UI features that drive the engine directly.
+    public func sonicVectorIndex() async -> VectorIndex? {
+        guard let db = database else { return nil }
+        return await sonicCache.vectorIndex(from: db)
     }
 
     public func similarTracks(title: String, artist: String?, album: String?, limit: Int = 30) async -> [SonicEngine.Scored] {
@@ -259,6 +267,7 @@ extension RoonClient {
     public func sonicFingerprint(seedLimit: Int = 40, recommendCount: Int = 60) async -> Fingerprint? {
         guard let db = database else { return nil }
         let lib = await sonicCache.tracks(from: db)
+        let index = await sonicCache.vectorIndex(from: db)
         return await Task.detached {
             guard !lib.isEmpty else { return nil }
             let top = (try? db.topTracks(limit: seedLimit)) ?? []
@@ -267,7 +276,7 @@ extension RoonClient {
             // Fall back to the loudest/most-typical slice if there's no play history yet.
             let effectiveSeeds = seeds.isEmpty ? Array(lib.prefix(min(40, lib.count))) : seeds
             let profile = SonicEngine.profile(of: effectiveSeeds)
-            let recs = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount)
+            let recs = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount, index: index)
             return Fingerprint(profile: profile, recommendations: recs, seedCount: effectiveSeeds.count)
         }.value
     }
