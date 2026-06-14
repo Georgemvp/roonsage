@@ -272,6 +272,27 @@ extension RoonClient {
         }.value
     }
 
+    /// Ask the LLM for a short ENGLISH "how it should sound" phrase (genre, mood,
+    /// instrumentation, energy) for any — including Dutch — request, so the CLAP
+    /// text embedding (English-trained) is sharp. nil on failure → caller falls
+    /// back to the raw request.
+    private func sonicPhrase(for request: String) async -> String? {
+        let q = request.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return nil }
+        let system = """
+        Translate a music request into a short ENGLISH phrase (3-8 words) describing how the \
+        music should SOUND: genre, mood, instrumentation, energy/tempo. No artist or song names. \
+        Respond with ONLY the phrase — no quotes, no prose.
+        """
+        guard let resp = try? await LLMClient.shared.complete(
+            system: system, user: "Request: \(q)", config: LLMConfigStore.load()) else { return nil }
+        let phrase = resp
+            .replacingOccurrences(of: #"<think>[\s\S]*?</think>"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\"", with: "")
+        return phrase.isEmpty ? nil : String(phrase.prefix(120))
+    }
+
     /// Embed a free-text query into CLAP space via the analyzer's /text-embed.
     /// nil when the query is empty or the analyzer/text model is unavailable.
     private func requestTextVector(_ query: String) async -> [Float]? {
@@ -296,7 +317,10 @@ extension RoonClient {
     public func sonicRerank(_ request: String, _ tracks: [TrackRecord],
                             limit: Int, maxPerArtist: Int = 3) async -> [TrackRecord]? {
         guard useSonicEmbeddings, let db = database, !tracks.isEmpty else { return nil }
-        guard let vec = await requestTextVector(request),
+        // CLAP is English-trained; translate the (possibly Dutch) request into a
+        // short English "how it should sound" phrase before embedding.
+        let phrase = await sonicPhrase(for: request) ?? request
+        guard let vec = await requestTextVector(phrase),
               let index = await sonicCache.vectorIndex(from: db) else { return nil }
         return await Task.detached {
             // match candidates to their (normalized) embedding by content key
