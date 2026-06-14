@@ -275,14 +275,18 @@ public struct GenerateView: View {
 
         // Stage 2 — build a varied candidate pool from the filtered library.
         phase = "Kandidaten selecteren…"
-        let candidates = await buildCandidates(
+        let pool = await buildCandidates(
             genres: analysis.genres, decades: analysis.decades,
             keywords: analysis.keywords, tags: analysis.tags, target: targetCount
         )
-        guard !candidates.isEmpty else {
+        guard !pool.isEmpty else {
             errorMessage = "Geen passende tracks — synchroniseer je bibliotheek of probeer een bredere omschrijving."
             return
         }
+        // Hybrid AI: reorder the pool by sonic closeness to the request so the
+        // LLM curates from the most relevant candidates first (falls back to the
+        // pool order when embeddings/analyzer text model aren't available).
+        let candidates = await client.sonicRerank(request, pool, limit: pool.count, maxPerArtist: 50) ?? pool
         analysisSummary = summarise(analysis, poolSize: candidates.count)
 
         // Stage 3 — curate the final selection.

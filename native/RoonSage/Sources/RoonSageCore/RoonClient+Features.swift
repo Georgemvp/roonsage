@@ -263,23 +263,78 @@ extension RoonClient {
     /// space) via /text-embed, then we cosine-rank the local embedding index.
     /// Returns [] when the analyzer/text model or embeddings are unavailable.
     public func sonicTextSearch(_ query: String, limit: Int = 40) async -> [SonicEngine.Scored] {
-        let q = query.trimmingCharacters(in: .whitespaces)
-        guard let db = database, !q.isEmpty else { return [] }
-        let base = analyzerURL.trimmingCharacters(in: .whitespaces)
-        guard !base.isEmpty, var comp = URLComponents(string: "\(base)/text-embed") else { return [] }
-        comp.queryItems = [URLQueryItem(name: "q", value: q)]
-        guard let url = comp.url,
-              let (data, resp) = try? await URLSession.shared.data(from: url),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let arr = obj["embedding"] as? [Double], !arr.isEmpty else { return [] }
-        let vec = arr.map { Float($0) }
+        guard let db = database, let vec = await requestTextVector(query) else { return [] }
         guard let index = await sonicCache.vectorIndex(from: db) else { return [] }
         return await Task.detached {
             index.nearest(to: vec, k: limit).map {
                 SonicEngine.Scored(track: $0.track, similarity: Double(max(0, $0.score)))
             }
         }.value
+    }
+
+    /// Embed a free-text query into CLAP space via the analyzer's /text-embed.
+    /// nil when the query is empty or the analyzer/text model is unavailable.
+    private func requestTextVector(_ query: String) async -> [Float]? {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return nil }
+        let base = analyzerURL.trimmingCharacters(in: .whitespaces)
+        guard !base.isEmpty, var comp = URLComponents(string: "\(base)/text-embed") else { return nil }
+        comp.queryItems = [URLQueryItem(name: "q", value: q)]
+        guard let url = comp.url,
+              let (data, resp) = try? await URLSession.shared.data(from: url),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let arr = obj["embedding"] as? [Double], !arr.isEmpty else { return nil }
+        return arr.map { Float($0) }
+    }
+
+    /// Hybrid AI retrieval (Track E6): reorder LLM-filtered candidates by how
+    /// sonically close each is to the free-text request (CLAP text embedding),
+    /// with a light per-artist cap for variety. Returns nil when reranking isn't
+    /// possible (A/B flag off, analyzer text model unavailable, or no
+    /// embeddings) so callers fall back to their existing behaviour.
+    public func sonicRerank(_ request: String, _ tracks: [TrackRecord],
+                            limit: Int, maxPerArtist: Int = 3) async -> [TrackRecord]? {
+        guard useSonicEmbeddings, let db = database, !tracks.isEmpty else { return nil }
+        guard let vec = await requestTextVector(request),
+              let index = await sonicCache.vectorIndex(from: db) else { return nil }
+        return await Task.detached {
+            // match candidates to their (normalized) embedding by content key
+            var embByKey = [String: [Float]](minimumCapacity: index.tracks.count)
+            for t in index.tracks where !t.matchKey.isEmpty {
+                if let e = index.embedding(forId: t.id) { embByKey[t.matchKey] = e }
+            }
+            guard !embByKey.isEmpty else { return nil }
+            let out = Self.rankCandidates(tracks, queryVec: vec, embByKey: embByKey,
+                                          limit: limit, maxPerArtist: maxPerArtist)
+            return out.isEmpty ? nil : out
+        }.value
+    }
+
+    /// Pure reranking core: cosine(query, candidate-embedding) descending, with a
+    /// per-artist cap for variety. Candidates without an embedding are dropped.
+    /// Embeddings are assumed L2-normalized (as stored); the query is normalized
+    /// here. Static + side-effect-free so it's directly unit-testable.
+    nonisolated static func rankCandidates(_ tracks: [TrackRecord], queryVec: [Float],
+                                           embByKey: [String: [Float]], limit: Int, maxPerArtist: Int) -> [TrackRecord] {
+        let qv = VectorIndex.normalized(queryVec)
+        let scored = tracks.compactMap { t -> (TrackRecord, Float)? in
+            guard let mk = t.matchKey, let e = embByKey[mk] else { return nil }
+            var dot: Float = 0
+            let n = min(qv.count, e.count)
+            for i in 0..<n { dot += qv[i] * e[i] }
+            return (t, dot)
+        }.sorted { $0.1 > $1.1 }
+        var perArtist = [String: Int]()
+        var out: [TrackRecord] = []
+        for (t, _) in scored {
+            let a = (t.artist ?? "").lowercased()
+            if perArtist[a, default: 0] >= maxPerArtist { continue }
+            perArtist[a, default: 0] += 1
+            out.append(t)
+            if out.count >= limit { break }
+        }
+        return out
     }
 
     public func similarTracks(title: String, artist: String?, album: String?, limit: Int = 30) async -> [SonicEngine.Scored] {

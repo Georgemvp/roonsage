@@ -97,10 +97,19 @@ public struct AskView: View {
         opts.keywords = filters.keywords
         opts.excludeLive = true
         opts.limit = 600
-        var tracks = await client.filterTracks(options: opts)
-        tracks.shuffle()
-        results = Array(tracks.prefix(40))
-        summary = summarise(filters, count: results.count)
+        let pool = await client.filterTracks(options: opts)
+        // Hybrid AI: rank the LLM-filtered pool by sonic closeness to the
+        // request (CLAP). Falls back to a random pick when embeddings/analyzer
+        // text model aren't available.
+        if let ranked = await client.sonicRerank(request, pool, limit: 40) {
+            results = ranked
+            summary = summarise(filters, count: results.count) + " · sonisch gerangschikt"
+        } else {
+            var tracks = pool
+            tracks.shuffle()
+            results = Array(tracks.prefix(40))
+            summary = summarise(filters, count: results.count)
+        }
     }
 
     private func summarise(_ f: RoonClient.RequestFilters, count: Int) -> String {
