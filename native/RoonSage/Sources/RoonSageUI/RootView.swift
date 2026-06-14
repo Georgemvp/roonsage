@@ -81,6 +81,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case musicMap    = "Music Map"
     case songPaths   = "Song Paths"
     case alchemy     = "Song Alchemy"
+    case sonicSearch = "Sonic Search"
     case discovery   = "Discovery"
     case taste        = "Taste Profile"
     case yearInReview = "Year in Review"
@@ -105,6 +106,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .musicMap:    "Music Map"
         case .songPaths:   "Song Paths"
         case .alchemy:     "Song Alchemy"
+        case .sonicSearch: "Sonisch zoeken"
         case .discovery:   "Ontdek"
         case .taste:       "Smaakprofiel"
         case .yearInReview: "Jaaroverzicht"
@@ -127,6 +129,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .musicMap:    "map"
         case .songPaths:   "point.topleft.down.curvedto.point.bottomright.up"
         case .alchemy:     "wand.and.sparkles"
+        case .sonicSearch: "sparkle.magnifyingglass"
         case .discovery:   "sparkles"
         case .taste:       "chart.radar"
         case .yearInReview: "calendar.badge.clock"
@@ -261,7 +264,7 @@ struct RootView: View {
 
     private var iOSTabSelection: Binding<SidebarItem> {
         let createItems: Set<SidebarItem> = [.generate, .ask, .recommend, .djSet, .liveDJ, .queue, .playlists]
-        let exploreItems: Set<SidebarItem> = [.discovery, .fingerprint, .musicMap, .songPaths, .alchemy, .taste, .yearInReview]
+        let exploreItems: Set<SidebarItem> = [.discovery, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
         return Binding(
             get: {
                 if createItems.contains(selection) { return .generate }
@@ -331,6 +334,9 @@ struct RootView: View {
                 NavigationLink { SongAlchemyView().navigationTitle("Song Alchemy").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Song Alchemy", systemImage: SidebarItem.alchemy.icon)
                 }
+                NavigationLink { SonicSearchView().navigationTitle("Sonisch zoeken").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Sonisch zoeken", systemImage: SidebarItem.sonicSearch.icon)
+                }
                 NavigationLink { YearInReviewView().navigationTitle("Jaaroverzicht").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Jaaroverzicht", systemImage: SidebarItem.yearInReview.icon)
                 }
@@ -359,6 +365,7 @@ struct RootView: View {
         case .musicMap:    MusicMapView()
         case .songPaths:   SongPathsView()
         case .alchemy:     SongAlchemyView()
+        case .sonicSearch: SonicSearchView()
         case .discovery:   DiscoveryView()
         case .taste:       TasteProfileView()
         case .yearInReview: YearInReviewView()

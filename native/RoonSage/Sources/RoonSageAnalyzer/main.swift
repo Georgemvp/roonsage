@@ -43,9 +43,11 @@ case "tag":
 case "serve":
     let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
     let port = UInt16(option("--port") ?? "5766") ?? 5766
-    let server = HTTPServer(port: port, store: store)
+    let clap = args.contains("--no-clap") ? nil : CLAPModel.load()
+    let server = HTTPServer(port: port, store: store, clap: clap)
     try server.start()
     print("Serving \(store.count()) tracks on http://0.0.0.0:\(port)/features  (Ctrl-C to stop)")
+    print(clap?.canEmbedText == true ? "  text search: /text-embed enabled" : "  text search: disabled (no CLAP)")
     while true { try await Task.sleep(nanoseconds: 3_600_000_000_000) }
 
 case "stats":

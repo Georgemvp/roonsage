@@ -193,8 +193,11 @@ def cmd_convert(args):
     processor = ClapProcessor.from_pretrained(DEFAULT_MODEL)
 
     cfg = _dump_mel_config(processor, out_dir, np)
+    # Ship the RoBERTa BPE tokenizer files so the analyzer can tokenize text
+    # queries natively for /text-embed (Step 8).
+    processor.tokenizer.save_vocabulary(str(out_dir))
     print(f"[convert] mel config: {cfg['n_mels']} mels @ {cfg['sampling_rate']} Hz, "
-          f"input_features dump written", flush=True)
+          f"input_features + tokenizer dump written", flush=True)
 
     audio_enc, text_enc = _build_wrappers(model)
 
@@ -339,6 +342,18 @@ def cmd_golden(args):
 
     out_dir = Path(args.out)
     processor = ClapProcessor.from_pretrained(DEFAULT_MODEL)
+
+    # Golden tokenization for the Swift RoBERTa-BPE tokenizer test (Step 8).
+    golden_text = "a dreamy ambient piano piece"
+    tk = processor(text=[golden_text], return_tensors="np",
+                   padding="max_length", max_length=64, truncation=True)
+    text_golden = {
+        "phrase": golden_text,
+        "max_length": 64,
+        "ids": [int(x) for x in tk["input_ids"][0].tolist()],
+        "mask": [int(x) for x in tk["attention_mask"][0].tolist()],
+    }
+
     wav = _golden_waveform(np)
 
     feats = processor(audios=wav, sampling_rate=48000, return_tensors="np")
@@ -361,6 +376,7 @@ def cmd_golden(args):
         "mel_std": float(mel2d.std()),
         "mel_first_frame": mel2d[0].tolist(),
         "embedding_dim": int(emb.shape[0]),
+        "text": text_golden,
     }
     (out_dir / "golden.json").write_text(json.dumps(meta, indent=2))
     print(f"[golden] mel {mel2d.shape} mean={meta['mel_mean']:.4f} "

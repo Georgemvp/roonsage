@@ -244,6 +244,29 @@ extension RoonClient {
         return await sonicCache.vectorIndex(from: db)
     }
 
+    /// Free-text → audio search: the analyzer embeds the query text (CLAP shared
+    /// space) via /text-embed, then we cosine-rank the local embedding index.
+    /// Returns [] when the analyzer/text model or embeddings are unavailable.
+    public func sonicTextSearch(_ query: String, limit: Int = 40) async -> [SonicEngine.Scored] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard let db = database, !q.isEmpty else { return [] }
+        let base = analyzerURL.trimmingCharacters(in: .whitespaces)
+        guard !base.isEmpty, var comp = URLComponents(string: "\(base)/text-embed") else { return [] }
+        comp.queryItems = [URLQueryItem(name: "q", value: q)]
+        guard let url = comp.url,
+              let (data, resp) = try? await URLSession.shared.data(from: url),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let arr = obj["embedding"] as? [Double], !arr.isEmpty else { return [] }
+        let vec = arr.map { Float($0) }
+        guard let index = await sonicCache.vectorIndex(from: db) else { return [] }
+        return await Task.detached {
+            index.nearest(to: vec, k: limit).map {
+                SonicEngine.Scored(track: $0.track, similarity: Double(max(0, $0.score)))
+            }
+        }.value
+    }
+
     public func similarTracks(title: String, artist: String?, album: String?, limit: Int = 30) async -> [SonicEngine.Scored] {
         await similarTracks(toMatchKey: TrackIdentity.matchKey(artist: artist, album: album, title: title), limit: limit)
     }

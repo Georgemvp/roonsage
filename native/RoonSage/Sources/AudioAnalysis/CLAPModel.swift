@@ -18,6 +18,8 @@ public final class CLAPModel: @unchecked Sendable {
     private let mel: CLAPMel
     private let moodLabels: [String]
     private let moodEmbeds: [[Float]]   // [label][512], L2-normalized
+    private let tokenizer: RobertaBPETokenizer?
+    public static let textTokenLength = 64   // must match the converted text model
 
     // MARK: - Loading
 
@@ -62,6 +64,7 @@ public final class CLAPModel: @unchecked Sendable {
         self.audioModel = try MLModel(contentsOf: MLModel.compileModel(at: audioURL), configuration: cfgML)
         self.textModel = try MLModel(contentsOf: MLModel.compileModel(at: textURL), configuration: cfgML)
 
+        self.tokenizer = RobertaBPETokenizer(dir: dir)   // best-effort (text search)
         self.moodLabels = cfg.moodLabels
         let moodFlat = try Self.loadF32(dir.appendingPathComponent("clap_mood_embeds.f32"))
         let d = Self.embeddingDim
@@ -111,7 +114,17 @@ public final class CLAPModel: @unchecked Sendable {
         return result
     }
 
-    // MARK: - Text (low-level; String tokenization arrives in Step 8)
+    // MARK: - Text
+
+    public var canEmbedText: Bool { tokenizer != nil }
+
+    /// 512-dim L2-normalized embedding of free text (CLAP shared space), for
+    /// text→audio search. Throws when the tokenizer isn't available.
+    public func textEmbedding(_ text: String) throws -> [Float] {
+        guard let tokenizer else { throw CLAPError.noTokenizer }
+        let (ids, mask) = tokenizer.encode(text, maxLength: Self.textTokenLength)
+        return try textEmbedding(tokenIds: ids, attentionMask: mask)
+    }
 
     /// 512-dim L2-normalized text embedding from pre-tokenized ids + mask.
     public func textEmbedding(tokenIds: [Int32], attentionMask: [Int32]) throws -> [Float] {
@@ -135,7 +148,7 @@ public final class CLAPModel: @unchecked Sendable {
 
     // MARK: - Helpers
 
-    enum CLAPError: Error { case missingOutput }
+    enum CLAPError: Error { case missingOutput, noTokenizer }
 
     private static func loadF32(_ url: URL) throws -> [Float] {
         let data = try Data(contentsOf: url)
