@@ -16,14 +16,24 @@ public final class LibraryWalker {
 
     private let store: FeatureStore
     private let concurrency: Int
+    private let clap: CLAPModel?
     private var cancelled = false
 
     /// Default concurrency is low (3): the library typically lives on a slow
     /// external HDD where many parallel reads thrash the disk (seek contention)
     /// and *reduce* throughput. Raise it only for fast (SSD/local) storage.
-    public init(store: FeatureStore, concurrency: Int = 3) {
+    /// Pass a loaded `clap` to compute sonic embeddings during the walk.
+    public init(store: FeatureStore, concurrency: Int = 3, clap: CLAPModel? = nil) {
         self.store = store
         self.concurrency = max(1, concurrency)
+        self.clap = clap
+    }
+
+    private enum Mode: Sendable { case full, embeddingOnly }
+    private enum WalkResult: Sendable {
+        case full(TrackFeatureRow)
+        case embeddingOnly(path: String, mtime: Double, embedding: [Float]?, model: String, moods: String?)
+        case failed
     }
 
     public func cancel() { cancelled = true }
@@ -43,12 +53,18 @@ public final class LibraryWalker {
             includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]
         ) else { return (0, 0) }
 
-        await withTaskGroup(of: TrackFeatureRow?.self) { group in
+        let currentModel = clap?.modelVersion
+        await withTaskGroup(of: WalkResult.self) { group in
             var inFlight = 0
             func drainOne() async {
                 guard let result = await group.next() else { return }
                 inFlight -= 1
-                if let row = result { try? store.upsert(row); done += 1 } else { failed += 1 }
+                switch result {
+                case .full(let row): try? store.upsert(row); done += 1
+                case .embeddingOnly(let p, let m, let e, let mv, let mo):
+                    try? store.setEmbedding(path: p, mtime: m, embedding: e, model: mv, moods: mo); done += 1
+                case .failed: failed += 1
+                }
                 let processed = done + failed
                 let rate = Double(processed) / max(0.001, Date().timeIntervalSince(t0))
                 onProgress(AnalyzeProgress(
@@ -60,9 +76,20 @@ public final class LibraryWalker {
             for case let url as URL in en {
                 if cancelled { break }
                 guard Self.audioExtensions.contains(url.pathExtension.lowercased()) else { continue }
-                if let mtime = Self.mtime(url), store.isAnalyzed(path: url.path, mtime: mtime) { continue }
+                guard let mtime = Self.mtime(url) else { continue }
+
+                let mode: Mode
+                if let currentModel {
+                    let st = store.rowState(path: url.path, mtime: mtime)
+                    if st.exists && st.model == currentModel { continue }   // fully analyzed
+                    mode = st.exists ? .embeddingOnly : .full               // keep scalars if present
+                } else {
+                    if store.isAnalyzed(path: url.path, mtime: mtime) { continue }
+                    mode = .full
+                }
                 discovered += 1
-                group.addTask { Self.analyzeFile(url, isoFormatter: iso) }
+                let clap = self.clap
+                group.addTask { Self.process(url, mtime: mtime, mode: mode, clap: clap, isoFormatter: iso) }
                 inFlight += 1
                 while inFlight >= concurrency { await drainOne() }
             }
@@ -72,19 +99,44 @@ public final class LibraryWalker {
         return (done, failed)
     }
 
-    private static func analyzeFile(_ url: URL, isoFormatter: ISO8601DateFormatter) -> TrackFeatureRow? {
-        guard let mtime = mtime(url) else { return nil }
-        let meta = MetadataReader.read(url: url)
-        guard let f = try? AudioAnalyzer.analyze(url: url) else { return nil }
-        let key = TrackIdentity.matchKey(artist: meta.artist, album: meta.album, title: meta.title)
-        guard !key.replacingOccurrences(of: "\u{1f}", with: "").isEmpty else { return nil }
-        return TrackFeatureRow(
-            matchKey: key, artist: meta.artist, title: meta.title, album: meta.album, year: meta.year,
-            filePath: url.path, fileMtime: mtime,
-            bpm: f.bpm, bpmConfidence: f.bpmConfidence, keyRoot: f.keyRoot, keyMode: f.keyMode,
-            camelot: f.camelot, energy: f.energy, duration: f.durationSec,
-            tags: nil, analyzedAt: isoFormatter.string(from: Date())
-        )
+    private static func process(_ url: URL, mtime: Double, mode: Mode,
+                                clap: CLAPModel?, isoFormatter: ISO8601DateFormatter) -> WalkResult {
+        switch mode {
+        case .embeddingOnly:
+            // Scalars already stored — only (re)compute the embedding. We mark
+            // the row with the current model version even on failure so a
+            // permanently-unembeddable file isn't retried every run.
+            guard let clap else { return .failed }
+            if let emb = try? clap.embed(url: url) {
+                return .embeddingOnly(path: url.path, mtime: mtime, embedding: emb,
+                                      model: clap.modelVersion, moods: encodeMoods(clap.moods(forEmbedding: emb)))
+            }
+            return .embeddingOnly(path: url.path, mtime: mtime, embedding: nil,
+                                  model: clap.modelVersion, moods: nil)
+        case .full:
+            let meta = MetadataReader.read(url: url)
+            guard let f = try? AudioAnalyzer.analyze(url: url, clap: clap) else { return .failed }
+            let key = TrackIdentity.matchKey(artist: meta.artist, album: meta.album, title: meta.title)
+            guard !key.replacingOccurrences(of: "\u{1f}", with: "").isEmpty else { return .failed }
+            return .full(TrackFeatureRow(
+                matchKey: key, artist: meta.artist, title: meta.title, album: meta.album, year: meta.year,
+                filePath: url.path, fileMtime: mtime,
+                bpm: f.bpm, bpmConfidence: f.bpmConfidence, keyRoot: f.keyRoot, keyMode: f.keyMode,
+                camelot: f.camelot, energy: f.energy, duration: f.durationSec,
+                tags: nil, analyzedAt: isoFormatter.string(from: Date()),
+                embedding: f.embedding.isEmpty ? nil : f.embedding,
+                // Stamp the current model version whenever CLAP ran (even on a
+                // failed embed) so the file isn't re-tried every walk; nil when
+                // CLAP is disabled so enabling it later triggers an embed pass.
+                embeddingModel: clap.map { $0.modelVersion },
+                moods: f.moods.isEmpty ? nil : encodeMoods(f.moods)
+            ))
+        }
+    }
+
+    private static func encodeMoods(_ moods: [String: Float]) -> String? {
+        guard !moods.isEmpty, let data = try? JSONEncoder().encode(moods) else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
 
     public static func mtime(_ url: URL) -> Double? {

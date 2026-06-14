@@ -20,8 +20,10 @@ case "analyze":
     }
     let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
     let workers = option("--workers").flatMap { Int($0) } ?? max(2, ProcessInfo.processInfo.activeProcessorCount - 1)
+    let clap = args.contains("--no-clap") ? nil : CLAPModel.load()
     print("Analyzing \(args[2]) with \(workers) workers (resumable)…")
-    let (ok, failed) = await LibraryWalker(store: store, concurrency: workers).run(musicDir: args[2]) { p in
+    print(clap == nil ? "  CLAP embeddings: off (scalar-only)" : "  CLAP embeddings: on (\(clap!.modelVersion))")
+    let (ok, failed) = await LibraryWalker(store: store, concurrency: workers, clap: clap).run(musicDir: args[2]) { p in
         if (p.done + p.failed) % 50 == 0 {
             print(String(format: "  %d/%d (%.1f/s, ETA %.0fs, %d failed)", p.done + p.failed, p.total, p.rate, p.etaSeconds, p.failed))
         }
@@ -89,7 +91,7 @@ case "validate":
 case "":
     print("""
     usage: roonsage-analyzer <command>
-      analyze <musicdir> [--db path] [--workers N]    walk + analyze + store
+      analyze <musicdir> [--db path] [--workers N] [--no-clap]   walk + analyze + store
       tag [--db path] [--ollama url] [--model name]    LLM-tag stored tracks
       serve [--db path] [--port 5766]                  serve features over HTTP
       stats [--db path]                                show counts

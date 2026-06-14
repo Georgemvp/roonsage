@@ -20,16 +20,23 @@ public struct TrackFeatureRow: Sendable {
     public var duration: Double
     public var tags: String?
     public var analyzedAt: String
+    // Track E5 — sonic embedding. `embedding` nil when CLAP unavailable/failed;
+    // `embeddingModel` records the version it was processed at (gates re-analysis).
+    public var embedding: [Float]?
+    public var embeddingModel: String?
+    public var moods: String?        // JSON: {"happy":0.4,…}
 
     public init(matchKey: String, artist: String?, title: String?, album: String?, year: Int?,
                 filePath: String, fileMtime: Double, bpm: Double, bpmConfidence: Double,
                 keyRoot: String, keyMode: String, camelot: String, energy: Double, duration: Double,
-                tags: String?, analyzedAt: String) {
+                tags: String?, analyzedAt: String,
+                embedding: [Float]? = nil, embeddingModel: String? = nil, moods: String? = nil) {
         self.matchKey = matchKey; self.artist = artist; self.title = title; self.album = album
         self.year = year; self.filePath = filePath; self.fileMtime = fileMtime; self.bpm = bpm
         self.bpmConfidence = bpmConfidence; self.keyRoot = keyRoot; self.keyMode = keyMode
         self.camelot = camelot; self.energy = energy; self.duration = duration; self.tags = tags
         self.analyzedAt = analyzedAt
+        self.embedding = embedding; self.embeddingModel = embeddingModel; self.moods = moods
     }
 }
 
@@ -64,7 +71,30 @@ public final class FeatureStore {
                 )
             """)
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_tf_path ON track_features(file_path, file_mtime)")
+
+            // Incremental, idempotent column adds (Track E5). No versioned
+            // migration table exists here — guard each ADD by inspecting the
+            // current columns so re-running migrate() is safe.
+            let cols = Set(try Row.fetchAll(db, sql: "PRAGMA table_info(track_features)")
+                .compactMap { $0["name"] as String? })
+            func addColumn(_ name: String, _ decl: String) throws {
+                if !cols.contains(name) {
+                    try db.execute(sql: "ALTER TABLE track_features ADD COLUMN \(name) \(decl)")
+                }
+            }
+            try addColumn("embedding", "BLOB")
+            try addColumn("embedding_model", "TEXT")
+            try addColumn("moods", "TEXT")
+            try addColumn("map_x", "REAL")
+            try addColumn("map_y", "REAL")
         }
+    }
+
+    // MARK: - [Float] <-> BLOB
+
+    static func blob(_ v: [Float]) -> Data { v.withUnsafeBytes { Data($0) } }
+    static func floats(_ d: Data) -> [Float] {
+        d.withUnsafeBytes { raw in Array(raw.bindMemory(to: Float.self)) }
     }
 
     public func isAnalyzed(path: String, mtime: Double) -> Bool {
@@ -74,23 +104,59 @@ public final class FeatureStore {
         }) ?? false
     }
 
+    /// Whether a (path, mtime) row exists and the embedding model it carries.
+    /// Lets the walker re-process for embeddings *without* recomputing scalars:
+    /// `exists && model == currentVersion` ⇒ fully done; otherwise process.
+    public func rowState(path: String, mtime: Double) -> (exists: Bool, model: String?) {
+        let r = try? dbQueue.read { db in
+            try Row.fetchOne(db, sql: "SELECT embedding_model FROM track_features WHERE file_path = ? AND file_mtime = ?",
+                             arguments: [path, mtime])
+        }
+        guard let row = r ?? nil else { return (false, nil) }
+        return (true, row["embedding_model"] as String?)
+    }
+
+    /// Update only the embedding columns for an existing row — used when scalars
+    /// are already present and just the embedding needs (re)computing.
+    public func setEmbedding(path: String, mtime: Double,
+                             embedding: [Float]?, model: String, moods: String?) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE track_features SET embedding = ?, embedding_model = ?, moods = ?
+                WHERE file_path = ? AND file_mtime = ?
+                """, arguments: [embedding.map(Self.blob), model, moods, path, mtime])
+        }
+    }
+
     public func upsert(_ r: TrackFeatureRow) throws {
         try dbQueue.write { db in
             try db.execute(sql: """
                 INSERT INTO track_features
                   (match_key, artist, title, album, year, file_path, file_mtime,
-                   bpm, bpm_confidence, key_root, key_mode, camelot, energy, duration, tags, analyzed_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   bpm, bpm_confidence, key_root, key_mode, camelot, energy, duration, tags, analyzed_at,
+                   embedding, embedding_model, moods)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(match_key) DO UPDATE SET
                   artist=excluded.artist, title=excluded.title, album=excluded.album, year=excluded.year,
                   file_path=excluded.file_path, file_mtime=excluded.file_mtime,
                   bpm=excluded.bpm, bpm_confidence=excluded.bpm_confidence,
                   key_root=excluded.key_root, key_mode=excluded.key_mode, camelot=excluded.camelot,
-                  energy=excluded.energy, duration=excluded.duration, analyzed_at=excluded.analyzed_at
+                  energy=excluded.energy, duration=excluded.duration, analyzed_at=excluded.analyzed_at,
+                  embedding=excluded.embedding, embedding_model=excluded.embedding_model, moods=excluded.moods
             """, arguments: [
                 r.matchKey, r.artist, r.title, r.album, r.year, r.filePath, r.fileMtime,
                 r.bpm, r.bpmConfidence, r.keyRoot, r.keyMode, r.camelot, r.energy, r.duration, r.tags, r.analyzedAt,
+                r.embedding.map(Self.blob), r.embeddingModel, r.moods,
             ])
+        }
+    }
+
+    /// Full row for a (path, mtime), including the embedding BLOB. Used by tests
+    /// and the `/embeddings` export.
+    public func featureRow(path: String, mtime: Double) -> TrackFeatureRow? {
+        try? dbQueue.read { db in
+            try Row.fetchOne(db, sql: "SELECT * FROM track_features WHERE file_path = ? AND file_mtime = ?",
+                             arguments: [path, mtime]).map(Self.row)
         }
     }
 
@@ -154,7 +220,9 @@ public final class FeatureStore {
             filePath: r["file_path"] ?? "", fileMtime: r["file_mtime"] ?? 0,
             bpm: r["bpm"] ?? 0, bpmConfidence: r["bpm_confidence"] ?? 0,
             keyRoot: r["key_root"] ?? "", keyMode: r["key_mode"] ?? "", camelot: r["camelot"] ?? "",
-            energy: r["energy"] ?? 0, duration: r["duration"] ?? 0, tags: r["tags"], analyzedAt: r["analyzed_at"] ?? ""
+            energy: r["energy"] ?? 0, duration: r["duration"] ?? 0, tags: r["tags"], analyzedAt: r["analyzed_at"] ?? "",
+            embedding: (r["embedding"] as Data?).map(FeatureStore.floats),
+            embeddingModel: r["embedding_model"], moods: r["moods"]
         )
     }
 }
