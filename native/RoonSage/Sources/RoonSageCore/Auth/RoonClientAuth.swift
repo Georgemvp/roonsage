@@ -37,7 +37,13 @@ struct RoonClientAuth {
     static func registerPayload(existingToken: String?) -> [String: Any] {
         var info = extensionInfo
         info["required_services"] = [RoonService.transport, RoonService.browse]
-        info["provided_services"] = [RoonService.volumeControl]
+        // Provide the ping service so the Core keep-alive-pings us every ~10s
+        // (mirrors pyroon / node-roon-api). Without it the Core stays silent on
+        // an idle connection and our 20s receive-watchdog tears the socket down
+        // every ~27s — a constant reconnect flap that interrupts multi-step
+        // browse/search (Sonic Radio & other curation played nothing). We
+        // already answer incoming pings (MOOFrame.isPing); this completes it.
+        info["provided_services"] = [RoonService.ping, RoonService.volumeControl]
         if let token = existingToken {
             info["token"] = token
         }
