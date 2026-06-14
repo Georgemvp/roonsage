@@ -312,7 +312,12 @@ actor RoonTransport {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard !Task.isCancelled, isConnected else { return }
-                if Date().timeIntervalSince(lastReceivedAt) > 20 {
+                // While a registration is pending the extension is awaiting human
+                // approval in Roon; the Core stays silent until then, so the idle
+                // check would wrongly tear down a healthy socket before the user
+                // can authorize. Skip it until registration resolves.
+                if registrationContinuation == nil,
+                   Date().timeIntervalSince(lastReceivedAt) > 20 {
                     await handleClose()
                     return
                 }
