@@ -108,8 +108,12 @@ extension RoonClient {
         case "setRepeat":     if let z = c.zoneID, let m = c.mode { await setRepeat(zoneID: z, mode: m) }
         case "transferZone":  if let f = c.fromZoneID, let t = c.toZoneID { await transferZone(fromZoneID: f, toZoneID: t) }
         case "playFromHere":  if let z = c.zoneID, let q = c.queueItemID { await playFromHere(zoneID: z, queueItemID: q) }
-        case "curate":        if let z = c.zoneID, let t = c.tracks { await curateTracks(t, zoneID: z) }
-        case "queue":         if let z = c.zoneID, let t = c.tracks { await queueTracks(t, next: c.next ?? false, zoneID: z) }
+        // Loading a multi-track queue via Roon Browse takes far longer than the
+        // client's command timeout — ack the HTTP request immediately and load
+        // in the background; the client sees the result on its next /playback
+        // poll. (Per-track failures stay server-side, as they did before.)
+        case "curate":        if let z = c.zoneID, let t = c.tracks { Task { await self.curateTracks(t, zoneID: z) } }
+        case "queue":         if let z = c.zoneID, let t = c.tracks { Task { await self.queueTracks(t, next: c.next ?? false, zoneID: z) } }
         default: break
         }
     }
@@ -270,7 +274,10 @@ extension RoonClient {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONEncoder().encode(command)
-        req.timeoutInterval = 8
+        // Queue-loading commands can take far longer server-side than the rest
+        // (an old server that still blocks the response would otherwise time out
+        // mid-load); a truly-down server still fails fast via connection refusal.
+        req.timeoutInterval = (command.action == "curate" || command.action == "queue") ? 180 : 8
         if let (_, resp) = try? await URLSession.shared.data(for: req),
            (resp as? HTTPURLResponse)?.statusCode == 200 {
             await pollPlaybackOnce()
