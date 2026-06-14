@@ -54,6 +54,12 @@ extension RoonClient {
         if let aURL = settings.analyzerURL, let shareHost {
             settings.analyzerURL = Self.rewriteLoopbackHost(in: aURL, to: shareHost)
         }
+        // Same for the Ollama URL: the server runs Ollama locally and reports it
+        // as 127.0.0.1, which on the client means the client (no Ollama there) —
+        // playlist generation then failed with "could not connect to the server".
+        if let lURL = settings.llmBaseURL, let shareHost {
+            settings.llmBaseURL = Self.rewriteLoopbackHost(in: lURL, to: shareHost)
+        }
 
         settings.apply()
 
