@@ -88,6 +88,8 @@ public struct LibraryView: View {
             }
         }
         .animation(Motion.quick, value: selection.isEmpty)
+        .navigationDestination(for: DatabaseManager.AlbumResult.self) { AlbumDetailView(album: $0) }
+        .navigationDestination(for: DatabaseManager.ArtistResult.self) { ArtistDetailView(artist: $0) }
         .navigationTitle("Bibliotheek (\(client.trackCount) tracks)")
         .searchable(text: $searchText, prompt: searchPrompt)
         .toolbar {
@@ -193,14 +195,13 @@ public struct LibraryView: View {
         } else {
             ScrollView {
                 LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
-                    ForEach(albums, id: \.albumKey) { album in
-                        AlbumGridCell(album: album, canPlay: client.selectedZone != nil) {
-                            playAlbum(album)
-                        }
-                        .contextMenu {
-                            Button("Speel album") { playAlbum(album) }
-                                .disabled(client.selectedZone == nil)
-                        }
+                    ForEach(albums) { album in
+                        NavigationLink(value: album) { AlbumGridCell(album: album) }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Speel album") { playAlbum(album) }
+                                    .disabled(client.selectedZone == nil)
+                            }
                     }
                 }
                 .padding(Spacing.lg)
@@ -216,13 +217,12 @@ public struct LibraryView: View {
             ScrollView {
                 LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
                     ForEach(artists) { artist in
-                        ArtistGridCell(artist: artist, canPlay: client.selectedZone != nil) {
-                            playArtist(artist)
-                        }
-                        .contextMenu {
-                            Button("Speel artiest") { playArtist(artist) }
-                                .disabled(client.selectedZone == nil)
-                        }
+                        NavigationLink(value: artist) { ArtistGridCell(artist: artist) }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Speel artiest") { playArtist(artist) }
+                                    .disabled(client.selectedZone == nil)
+                            }
                     }
                 }
                 .padding(Spacing.lg)
@@ -475,29 +475,14 @@ struct LibraryTrackRow: View {
 
 struct AlbumGridCell: View {
     let album: DatabaseManager.AlbumResult
-    let canPlay: Bool
-    let onPlay: () -> Void
 
     var body: some View {
-        Button(action: onPlay) {
-            VStack(alignment: .leading, spacing: 6) {
-                ZStack(alignment: .bottomTrailing) {
-                    AlbumArtView(imageKey: album.imageKey, size: 150, cornerRadius: 8)
-                    if canPlay {
-                        Image(systemName: "play.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.white, Color.roonGold)
-                            .padding(6)
-                            .shadow(radius: 2)
-                    }
-                }
-                Text(album.album).font(.callout).lineLimit(1)
-                Text(albumSubtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            AlbumArtView(imageKey: album.imageKey, size: 150, cornerRadius: 8)
+            Text(album.album).font(.callout).lineLimit(1)
+            Text(albumSubtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
-        .buttonStyle(.plain)
-        .disabled(!canPlay)
-        .help(canPlay ? "Speel album" : "Kies eerst een zone")
+        .contentShape(Rectangle())
     }
 
     private var albumSubtitle: String {
@@ -512,21 +497,15 @@ struct AlbumGridCell: View {
 
 struct ArtistGridCell: View {
     let artist: DatabaseManager.ArtistResult
-    let canPlay: Bool
-    let onPlay: () -> Void
 
     var body: some View {
-        Button(action: onPlay) {
-            VStack(spacing: 6) {
-                AlbumArtView(imageKey: artist.imageKey, size: 150, cornerRadius: 75)
-                Text(artist.name).font(.callout).lineLimit(1)
-                Text("\(artist.albumCount) album\(artist.albumCount == 1 ? "" : "s") · \(artist.trackCount) tracks")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
+        VStack(spacing: 6) {
+            AlbumArtView(imageKey: artist.imageKey, size: 150, cornerRadius: 75)
+            Text(artist.name).font(.callout).lineLimit(1)
+            Text("\(artist.albumCount) album\(artist.albumCount == 1 ? "" : "s") · \(artist.trackCount) tracks")
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
-        .buttonStyle(.plain)
-        .disabled(!canPlay)
-        .help(canPlay ? "Speel artiest" : "Kies eerst een zone")
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
     }
 }

@@ -99,6 +99,34 @@ extension DatabaseManager {
         public var tags: [String]
     }
 
+    /// All tracks of one album (by album_key), in sync/browse order, joined with
+    /// audio features. Used by the album detail drill-down.
+    public func tracksForAlbum(_ albumKey: String) throws -> [LibraryTrackRow] {
+        try pool.read { db in
+            let sql = """
+                SELECT t.id, t.title, t.artist, t.album, t.year, t.is_live, t.image_key, f.bpm, f.camelot, f.tags
+                FROM tracks t LEFT JOIN track_audio_features f ON t.match_key = f.match_key
+                WHERE t.album_key = ?
+                ORDER BY t.rowid
+            """
+            let rows = try Row.fetchAll(db, sql: sql,
+                arguments: StatementArguments([albumKey] as [DatabaseValueConvertible]))
+            return rows.map { r in
+                var tags: [String] = []
+                if let t = r["tags"] as String?, let data = t.data(using: .utf8),
+                   let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] {
+                    tags = arr.compactMap { $0 as? String }
+                }
+                return LibraryTrackRow(
+                    id: r["id"] ?? "", title: r["title"] ?? "", artist: r["artist"], album: r["album"],
+                    year: r["year"], isLive: (r["is_live"] as Bool?) ?? false,
+                    imageKey: r["image_key"],
+                    bpm: r["bpm"], camelot: r["camelot"], tags: tags
+                )
+            }
+        }
+    }
+
     /// Tracks (left-joined with audio features) filtered by free-text query and
     /// an optional tag. Returns title/artist/album + bpm/camelot/tags when known.
     public func browseTracks(query: String, tag: String?, limit: Int = 300) throws -> [LibraryTrackRow] {

@@ -330,7 +330,8 @@ extension DatabaseManager {
 
     // MARK: - Album search
 
-    public struct AlbumResult: Sendable {
+    public struct AlbumResult: Sendable, Hashable, Identifiable {
+        public var id: String { albumKey }
         public var albumKey: String
         public var album: String
         public var artist: String?
@@ -386,9 +387,34 @@ extension DatabaseManager {
         }
     }
 
+    /// Every album by one exact artist, newest releases first.
+    public func albumsByArtist(_ name: String, limit: Int = 200) throws -> [AlbumResult] {
+        try pool.read { db in
+            let sql = """
+                SELECT album_key, album, artist, year, COUNT(*) as track_count, MAX(image_key) as image_key
+                FROM tracks
+                WHERE artist = ?
+                GROUP BY album_key
+                ORDER BY year DESC, album LIMIT ?
+            """
+            let rows = try Row.fetchAll(db, sql: sql,
+                arguments: StatementArguments([name, limit] as [DatabaseValueConvertible]))
+            return rows.map {
+                AlbumResult(
+                    albumKey:   $0["album_key"]   as String? ?? "",
+                    album:      $0["album"]        as String? ?? "",
+                    artist:     $0["artist"],
+                    year:       $0["year"],
+                    trackCount: $0["track_count"]  as Int? ?? 0,
+                    imageKey:   $0["image_key"]
+                )
+            }
+        }
+    }
+
     // MARK: - Artist search
 
-    public struct ArtistResult: Sendable, Identifiable {
+    public struct ArtistResult: Sendable, Hashable, Identifiable {
         public var name: String
         public var trackCount: Int
         public var albumCount: Int
