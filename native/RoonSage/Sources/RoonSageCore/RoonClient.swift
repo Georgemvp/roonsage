@@ -160,6 +160,10 @@ public final class RoonClient {
     let scrobbler = ScrobbleCoordinator()
     /// HTTP server other devices import the library from (Settings toggle).
     var shareServer: LibraryShareServer?
+    /// Cached signature of the analyzer's feature/embedding state (set by the
+    /// analyzer app when it starts serving). Folded into `libraryRevision` so
+    /// remotes auto-re-pull when analyses change — WITHOUT a per-poll DB read.
+    public var featuresRevision: String = ""
 
     public init() {
         database = try? DatabaseManager(url: Self.databaseURL)
@@ -336,7 +340,11 @@ public final class RoonClient {
         transportService = ts
         browseService = bs
 
-        let token = RoonClientAuth.loadToken()
+        // Load the token OFF the MainActor: KeychainStore.load is a synchronous
+        // SecItemCopyMatching that can block (e.g. an access prompt under a
+        // changed code signature), which would freeze the MainActor — and with
+        // it the share server's /playback. Keep the main thread free.
+        let token = await Task.detached { RoonClientAuth.loadToken() }.value
         let payload = RoonClientAuth.registerPayload(existingToken: token)
         let extID = (payload["extension_id"] as? String) ?? "?"
         Log.info("ws open op \(host); registreren als \(extID) (token: \(token == nil ? "geen" : "aanwezig"))", category: .roon)

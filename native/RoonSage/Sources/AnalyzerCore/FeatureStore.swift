@@ -172,6 +172,14 @@ public final class FeatureStore {
         (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_features") ?? 0 }) ?? 0
     }
 
+    /// Number of tracks that carry a CLAP embedding — used to build the
+    /// analyzer's feature-revision signature.
+    public func embeddedCount() -> Int {
+        (try? dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_features WHERE embedding IS NOT NULL") ?? 0
+        }) ?? 0
+    }
+
     public func taggedCount() -> Int {
         (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_features WHERE tags IS NOT NULL") ?? 0 }) ?? 0
     }

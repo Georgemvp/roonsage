@@ -2,6 +2,7 @@ import AnalyzerCore
 import AudioAnalysis
 import Foundation
 import Observation
+import RoonSageCore
 
 @MainActor
 @Observable
@@ -106,6 +107,9 @@ final class AnalyzerModel {
             server = s
             isServing = true
             status = clap == nil ? "Serving on \(p) — loading text model…" : "Serving on \(p)."
+            // Publish a cached feature/embedding signature (one-time COUNTs, not
+            // per-poll) so remotes auto-re-pull when analyses change.
+            RoonClient.shared.featuresRevision = "\(store.count())/\(store.embeddedCount())"
         } catch {
             status = "Serve failed: \(error.localizedDescription)"
             return

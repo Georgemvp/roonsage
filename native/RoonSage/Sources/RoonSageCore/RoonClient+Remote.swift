@@ -63,10 +63,11 @@ extension RoonClient {
         var coreName: String?
         if case let .connected(name) = connectionState { coreName = name }
         let lastSync = (try? database?.syncStateValue(forKey: "last_sync")) ?? nil
-        // NOTE: do NOT add a per-poll DB query here — playbackSnapshot runs on
-        // the MainActor on every remote poll and a synchronous read stalled the
-        // share server (/playback hung). Auto-propagating feature/embedding
-        // changes must use a cached in-memory signature, not a query.
+        // featuresRevision is a CACHED in-memory string (set by the analyzer app
+        // when it starts serving) — NOT a per-poll DB query, which previously
+        // stalled this MainActor path. It changes when analyses change, so
+        // remotes auto-re-pull features/embeddings even if the Roon library
+        // itself didn't change.
         return PlaybackSnapshot(
             zones: zones,
             queueItems: queueItems,
@@ -75,7 +76,7 @@ extension RoonClient {
             coreHost: coreHost,
             corePort: Int(corePort),
             trackCount: trackCount,
-            libraryRevision: "\(trackCount)|\(lastSync ?? "")"
+            libraryRevision: "\(trackCount)|\(lastSync ?? "")|\(featuresRevision)"
         )
     }
 
