@@ -63,6 +63,10 @@ extension RoonClient {
         var coreName: String?
         if case let .connected(name) = connectionState { coreName = name }
         let lastSync = (try? database?.syncStateValue(forKey: "last_sync")) ?? nil
+        // Fold the feature/embedding signature into the revision so remotes
+        // auto-re-pull when analyses (e.g. new CLAP embeddings) change, not only
+        // when the Roon library does.
+        let featSig = database?.audioFeaturesSignature() ?? ""
         return PlaybackSnapshot(
             zones: zones,
             queueItems: queueItems,
@@ -71,7 +75,7 @@ extension RoonClient {
             coreHost: coreHost,
             corePort: Int(corePort),
             trackCount: trackCount,
-            libraryRevision: "\(trackCount)|\(lastSync ?? "")"
+            libraryRevision: "\(trackCount)|\(lastSync ?? "")|\(featSig)"
         )
     }
 

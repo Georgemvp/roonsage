@@ -333,6 +333,18 @@ extension DatabaseManager {
         }
     }
 
+    /// Cheap signature of the audio-feature / embedding state — folded into the
+    /// library revision so remotes auto-re-pull when features or embeddings
+    /// change (not only when the Roon library itself changes).
+    public func audioFeaturesSignature() -> String {
+        (try? pool.read { db -> String in
+            let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_audio_features") ?? 0
+            let emb = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_audio_features WHERE embedding IS NOT NULL") ?? 0
+            let last = try String.fetchOne(db, sql: "SELECT MAX(synced_at) FROM track_audio_features") ?? ""
+            return "\(total)/\(emb)/\(last)"
+        }) ?? ""
+    }
+
     /// (features stored, tracks in the library that have a matching feature).
     public func audioFeaturesStats() throws -> (total: Int, matched: Int) {
         try pool.read { db in
