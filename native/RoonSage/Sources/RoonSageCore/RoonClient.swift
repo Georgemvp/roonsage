@@ -83,6 +83,9 @@ public final class RoonClient {
     /// Resolved server base URL (e.g. http://10.94.184.22:5767) in server mode.
     var remoteBaseURL: String?
     var remotePollTask: Task<Void, Never>?
+    /// Consecutive failed/degraded polls; the UI only drops the connection after
+    /// a few in a row so a single blip doesn't bounce to the connect screen.
+    var remotePollFailures = 0
     /// Re-issues the zones subscription when its initial state never arrives.
     var zonesWatchdog: Task<Void, Never>?
 

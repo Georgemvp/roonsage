@@ -152,22 +152,40 @@ extension RoonClient {
         guard let url = comps?.url else { return }
         var req = URLRequest(url: url)
         req.timeoutInterval = 5
+        let serverHost = URL(string: base)?.host
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let snap = try? JSONDecoder().decode(PlaybackSnapshot.self, from: data) else {
-            // Keep last-known zones; reflect that the server is unreachable.
-            if zones.isEmpty { connectionState = .disconnected }
+            // Transient blip — keep last-known zones and only fall back to the
+            // connect screen after several misses in a row.
+            remotePollFailures += 1
+            if remotePollFailures >= 3 { connectionState = .disconnected }
             return
         }
+
         zones = snap.zones
         zoneMap = Dictionary(uniqueKeysWithValues: snap.zones.map { ($0.id, $0) })
         queueItems = snap.queueItems
-        if let host = snap.coreHost { coreHost = host }
+        // The server reports the Core host as it sees it; when the Core runs on
+        // the server itself that's loopback, useless to a remote client. Use the
+        // server's address so album art (Core /api/image) loads.
+        if let host = snap.coreHost {
+            coreHost = (Self.isLoopback(host) ? serverHost : host) ?? host
+        }
         corePort = UInt16(snap.corePort)
         trackCount = snap.trackCount
-        connectionState = snap.roonConnected
-            ? .connected(coreName: snap.coreName ?? "RoonSage Server")
-            : .connecting(host: URL(string: base)?.host ?? "server")
+
+        if snap.roonConnected {
+            remotePollFailures = 0
+            connectionState = .connected(coreName: snap.coreName ?? "RoonSage Server")
+        } else {
+            // Server reachable but its Roon link is momentarily down — tolerate a
+            // few before showing "connecting" so the UI doesn't flicker.
+            remotePollFailures += 1
+            if remotePollFailures >= 3 {
+                connectionState = .connecting(host: serverHost ?? "server")
+            }
+        }
     }
 
     /// Send a proxied command to the server, then immediately re-poll so the UI

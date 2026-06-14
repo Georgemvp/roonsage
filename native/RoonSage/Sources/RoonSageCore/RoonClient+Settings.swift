@@ -65,7 +65,7 @@ extension RoonClient {
         return true
     }
 
-    private static func isLoopback(_ host: String) -> Bool {
+    static func isLoopback(_ host: String) -> Bool {
         host == "localhost" || host == "::1" || host.hasPrefix("127.")
     }
 
