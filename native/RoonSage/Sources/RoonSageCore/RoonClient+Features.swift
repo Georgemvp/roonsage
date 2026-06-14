@@ -245,9 +245,31 @@ extension RoonClient {
         guard let db = database, !matchKey.isEmpty else { return [] }
         let lib = await sonicCache.tracks(from: db)
         let index = await activeIndex(db)
+        // Prefer the seed as it appears in the analyzed library (it carries a
+        // real track id, so the engine's id-based embedding k-NN can fire).
+        // Fall back to a seed synthesized straight from track_audio_features
+        // when the now-playing track isn't in the joined library — a
+        // streaming/Qobuz track, an is_live row, or one whose library
+        // match_key diverges from the analyzer's. Without this, Radio seeded
+        // from such a track silently returned [] (spinner, then nothing).
+        let inLib = lib.first(where: { $0.matchKey == matchKey })
+        guard let seed = inLib ?? db.sonicSeed(matchKey: matchKey) else { return [] }
+        let seedInLib = inLib != nil
         return await Task.detached {
-            guard let seed = lib.first(where: { $0.matchKey == matchKey }) else { return [] }
-            return SonicEngine.similar(to: seed, in: lib, limit: limit, index: index)
+            let raw: [SonicEngine.Scored]
+            if seedInLib {
+                raw = SonicEngine.similar(to: seed, in: lib, limit: limit + 1, index: index)
+            } else if let index, let emb = seed.embedding, !emb.isEmpty {
+                // Synthesized seed has no id in the index — drive the embedding
+                // k-NN off its vector directly.
+                raw = index.nearest(to: emb, k: limit + 1)
+                    .map { SonicEngine.Scored(track: $0.track, similarity: Double(max(0, $0.score))) }
+            } else {
+                // No embedding (or A/B off): rule-based scoring on bpm/key/energy/tags.
+                raw = SonicEngine.similar(to: seed, in: lib, limit: limit + 1, index: nil)
+            }
+            // Never let the seed itself lead its own station.
+            return Array(raw.filter { $0.track.matchKey != seed.matchKey }.prefix(limit))
         }.value
     }
 
@@ -369,7 +391,11 @@ extension RoonClient {
     public func playSonicRadio(title: String, artist: String?, album: String?, count: Int = 30, zoneID: String) async {
         let scored = await similarTracks(title: title, artist: artist, album: album, limit: count)
         let tracks = scored.map { TrackRecord(id: $0.track.id, title: $0.track.title, artist: $0.track.artist, album: $0.track.album) }
-        guard !tracks.isEmpty else { return }
+        guard !tracks.isEmpty else {
+            lastActionError = ActionError(
+                message: "Sonic Radio kon geen vergelijkbare tracks vinden — deze track is nog niet geanalyseerd.")
+            return
+        }
         await curateTracks(tracks, zoneID: zoneID)
     }
 

@@ -40,6 +40,38 @@ extension DatabaseManager {
         }) ?? nil
     }
 
+    /// A similarity *seed* built straight from one audio-feature row — no join
+    /// to `tracks`. Lets Sonic Radio seed from a now-playing track that the
+    /// joined `sonicTracks()` library can't see: a streaming/Qobuz track that
+    /// isn't in the library, an `is_live` row, or one whose library `match_key`
+    /// diverges from the analyzer's. The synthesized track has no real id/title
+    /// (id = match_key); callers must drive the engine off its features /
+    /// embedding rather than its identity. nil when no feature row carries this
+    /// match key.
+    public func sonicSeed(matchKey: String) -> SonicTrack? {
+        guard !matchKey.isEmpty else { return nil }
+        return (try? pool.read { db -> SonicTrack? in
+            guard let r = try Row.fetchOne(db, sql: """
+                SELECT bpm, camelot, energy, tags, embedding, moods
+                FROM track_audio_features WHERE match_key = ?
+                """, arguments: [matchKey]) else { return nil }
+            var tags: [String] = []
+            if let t = r["tags"] as String?, let d = t.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: d) as? [Any] {
+                tags = arr.compactMap { ($0 as? String)?.lowercased() }
+            }
+            let embedding = (r["embedding"] as Data?).map(Self.floatsFromBlob)
+            var moods: [String: Float] = [:]
+            if let m = r["moods"] as String?, let d = m.data(using: .utf8) {
+                moods = (try? JSONDecoder().decode([String: Float].self, from: d)) ?? [:]
+            }
+            return SonicTrack(
+                id: matchKey, title: "", artist: nil, album: nil, imageKey: nil,
+                matchKey: matchKey, bpm: r["bpm"], camelot: r["camelot"] ?? "",
+                energy: r["energy"], tags: tags, embedding: embedding, moods: moods)
+        }) ?? nil
+    }
+
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) throws {
         guard !rows.isEmpty else { return }
         let iso = Self.isoFormatter.string(from: Date())
