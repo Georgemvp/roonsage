@@ -41,11 +41,30 @@ struct RoonSageAnalyzerApp: App {
         .windowResizability(.contentSize)
     }
 
+    /// The server must stay connected to Roon. Keep (re)trying from a not-
+    /// connected state: saved host → localhost (the server usually runs on the
+    /// Core machine) → SOOD discovery. A handshake that drops before
+    /// authorization leaves RoonClient `.disconnected` without auto-reconnect,
+    /// so we drive the retry here.
     private func connectRoon() async {
-        if let host = client.savedHost {
-            await client.connect(host: host, port: client.savedPort)
-        } else {
-            await client.discoverAndConnect()
+        var triedDiscovery = false
+        while !Task.isCancelled {
+            switch client.connectionState {
+            case .connected, .connecting, .awaitingAuthorization, .discovering:
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                continue
+            default:
+                break   // .disconnected / .failed → (re)try
+            }
+            if let host = client.savedHost {
+                await client.connect(host: host, port: client.savedPort)
+            } else if !triedDiscovery {
+                triedDiscovery = true
+                await client.discoverAndConnect()
+            } else {
+                await client.connect(host: "127.0.0.1", port: 9330)
+            }
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
         }
     }
 }

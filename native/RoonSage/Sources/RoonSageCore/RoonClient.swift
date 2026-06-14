@@ -225,6 +225,7 @@ public final class RoonClient {
         coreHost = host
         corePort = port
         connectionState = .connecting(host: host)
+        Log.info("connect → ws://\(host):\(port)/api", category: .roon)
         await transport.configure(
             onOpen: { [weak self] in await self?.handleOpen(host: host) },
             onClose: { [weak self] in await self?.handleClose() }
@@ -325,15 +326,19 @@ public final class RoonClient {
 
         let token = RoonClientAuth.loadToken()
         let payload = RoonClientAuth.registerPayload(existingToken: token)
+        let extID = (payload["extension_id"] as? String) ?? "?"
+        Log.info("ws open op \(host); registreren als \(extID) (token: \(token == nil ? "geen" : "aanwezig"))", category: .roon)
 
         if token == nil { connectionState = .awaitingAuthorization }
 
         do {
             let body = try await transport.register(payload: payload)
             guard let reg = RoonClientAuth.parseRegistration(body) else {
+                Log.error("registratie-antwoord onbruikbaar: \(body)", category: .roon)
                 connectionState = .failed("Onverwacht registratie-antwoord")
                 return
             }
+            Log.info("geregistreerd bij \(reg.coreName) (core \(reg.coreID))", category: .roon)
             let previousCoreID = RoonClientAuth.loadCoreID()
             RoonClientAuth.saveToken(reg.token, coreID: reg.coreID)
             persistHost(host, port: corePort)
@@ -349,6 +354,7 @@ public final class RoonClient {
             let needsResync = trackCount == 0 || coreChanged || (try? database?.hasNullMatchKeys()) == true
             if needsResync { startSync() }
         } catch {
+            Log.error("registratie mislukt: \(error.localizedDescription)", category: .roon)
             connectionState = .failed(error.localizedDescription)
         }
     }
@@ -365,6 +371,7 @@ public final class RoonClient {
         }
         let host = attemptHost
         let port = attemptPort
+        Log.info("ws gesloten (state \(connectionState.label)); reconnect=\(shouldReconnect)", category: .roon)
 
         transportService = nil
         browseService = nil
