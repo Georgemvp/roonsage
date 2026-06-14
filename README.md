@@ -14,7 +14,7 @@
 
 _Connects directly to your Roon Core. No server, no Docker, no Python backend required._
 
-[Overview](#what-is-roonsage) · [Platforms](#platforms) · [Features](#features) · [Architecture](#architecture) · [Build & run](#build--run) · [Claude Desktop](#claude-desktop-mcp) · [Analyzer](#audio-analyzer) · [Legacy](#legacy-docker-web-app-deprecated)
+[Nederlands](README.nl.md) · [Overview](#what-is-roonsage) · [Platforms](#platforms) · [Features](#features) · [Architecture](#architecture) · [Build & run](#build--run) · [Claude Desktop](#claude-desktop-mcp) · [Analyzer](#audio-analyzer) · [Legacy](#legacy-docker-web-app-deprecated)
 
 </div>
 

@@ -1,512 +1,204 @@
-# RoonSage
+<div align="center">
+
+# 🎵 RoonSage
+
+**Native macOS- & iOS-apps voor Roon — blader door je bibliotheek, bedien afspelen, stel playlists samen met AI, en verken het sonische DNA van je muziek.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Swift 5.9+](https://img.shields.io/badge/Swift-5.9+-F05138.svg)](https://swift.org)
+[![Platforms](https://img.shields.io/badge/Platforms-macOS%2014%20%C2%B7%20iOS%2017-007AFF.svg)](#platforms)
+[![macOS](https://img.shields.io/badge/macOS-v1.5.55-e5a00d.svg)](#platforms)
+[![iOS](https://img.shields.io/badge/iOS-v1.6.26-e5a00d.svg)](#platforms)
+[![ListenBrainz](https://img.shields.io/badge/ListenBrainz-integrated-eb743b.svg)](https://listenbrainz.org)
+[![Last.fm](https://img.shields.io/badge/Last.fm-integrated-d51007.svg)](https://www.last.fm)
 
-AI-powered playlist curation and album recommendations for Roon — using music you own, music on Qobuz, or both.
+_Verbindt rechtstreeks met je Roon Core. Geen server, geen Docker, geen Python-backend nodig._
 
-![RoonSage playlist view](docs/images/screenshot-playlist.png)
+[Engelse README](README.md) · [Overzicht](#wat-is-roonsage) · [Platforms](#platforms) · [Functies](#functies) · [Architectuur](#architectuur) · [Bouwen & draaien](#bouwen--draaien) · [Claude Desktop](#claude-desktop-mcp) · [Analyzer](#audio-analyzer) · [Legacy](#legacy-docker-webapp-gedeprecieerd)
 
-RoonSage is a self-hosted web app that connects to your Roon Core as an Extension. It syncs your library to a local SQLite cache and exposes a full MCP server so Claude Desktop can search your library, curate playlists, recommend albums, and control every aspect of Roon playback — all through natural conversation.
-
----
-
-## Claude Desktop Integration
-
-This is the primary way to use RoonSage. A full MCP server gives Claude Desktop **26 tools** to interact with your library and Roon — and Claude does all the curation work itself, using its own musical judgment. No separate API key, no per-token costs — just your existing Claude Pro subscription.
-
-```
-"Maak een playlist voor een late vrijdagavond, iets melancholisch maar niet depressief."
-"Meer zoals wat er nu speelt, maar wat energieker."
-"Zoek een jazzalbum dat ik nog niet ken en speel het af."
-"Geef me alles van Nick Cave dat ik bezit."
-"Zet shuffle aan en volume op 40%."
-"Groepeer woonkamer en keuken."
-```
-
-### Hoe Claude curates
-
-Claude handelt **alle** playlist-, seed- en aanbevelingsflows zelf af. De backend levert data en Roon-connectiviteit; Claude doet het denkwerk.
-
-**Drie flows:**
-
-| Flow | Wat de gebruiker zegt | Hoe Claude het aanpakt |
-|------|-----------------------|------------------------|
-| **Prompt-playlist** | "Maak een playlist van mellow 90s electronic" | `get_library_stats` → `filter_tracks(compact)` → curate zelf → `curate_and_play` |
-| **Seed-playlist** | "Meer zoals Portishead – Glory Box" | `search_library` → analyse → `filter_tracks(compact)` → curate → `curate_and_play` |
-| **Albumaanbeveling** | "Aanbeveel me een album voor zondagochtend" | `filter_tracks` of `get_artist_albums` → kies album → editorial pitch → `play_album` |
-
-**Drie bronmodi — Claude detecteert of vraagt:**
-
-| Bron | Wanneer | Aanpak |
-|------|---------|--------|
-| **Bibliotheek** | "uit mijn collectie", "wat ik heb" | `filter_tracks(compact)` → curate → `curate_and_play` |
-| **Hybrid** | "mix van eigen + nieuw", "aangevuld met ontdekkingen" | `filter_tracks(compact)` + `search_qobuz` → meng → `play_tracks` |
-| **Qobuz** | "iets nieuws", "verrass me", "ken ik nog niet" | meerdere `search_qobuz` calls → curate → `play_tracks` |
-
-Bij twijfel vraagt Claude welke bron je wilt.
-
-### Setup
-
-De MCP server draait lokaal op je Mac/PC — niet in Docker. RoonSage zelf (Docker of bare metal) moet al draaien voordat Claude Desktop er verbinding mee maakt.
-
-```bash
-# 1. Installeer de MCP dependency (eenmalig per machine)
-pip3 install "mcp[cli]"
-
-# 2. Configureer Claude Desktop automatisch
-python3 scripts/install_mcp.py
-
-# 3. Herstart Claude Desktop
-```
-
-Als RoonSage op een ander adres draait, stel dan `ROONSAGE_URL` in vóór het starten van Claude Desktop (standaard: `http://localhost:5765`).
-
-**Handmatige configuratie** — voeg toe aan `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) of `~/.config/claude/claude_desktop_config.json` (Linux):
-
-```json
-{
-  "mcpServers": {
-    "roonsage": {
-      "command": "python",
-      "args": ["/volledig/pad/naar/roonsage/mcp_server.py"]
-    }
-  }
-}
-```
-
-### Welk Claude-model kiezen?
-
-| Model | Geschikt voor |
-|-------|--------------|
-| **Claude Sonnet 4.6** | Dagelijks gebruik — snel, nauwkeurig |
-| **Claude Opus 4.6** | Abstracte prompts, deep discovery, multi-turn verfijning |
-| **Claude Haiku 4.5** | Snelle, eenvoudige verzoeken |
-
-Begin met Sonnet. Schakel over naar Opus voor prompts als "iets dat aanvoelt als rijden in de regen 's nachts."
-
-### Beschikbare tools (26)
-
-**Library**
-
-| Tool | Wat het doet |
-|------|-------------|
-| `get_library_stats` | Genre-, decade- en totaaloverzicht uit de cache |
-| `get_library_status` | Cache-versheid; `needs_resync` vlag |
-| `search_library` | Zoek op track-, artiest- of albumnaam |
-| `search_qobuz` | Zoek in de Qobuz-catalogus via Roon; resultaten zijn direct afspeelbaar |
-| `filter_tracks` | Filter op genre, decade, live-uitsluiting. `output_format="compact"` geeft een genummerde lijst + `session_id`. `"ultra"` geeft alleen artiest — titel per regel. `"json"` geeft volledige metadata. Ondersteunt `artist_limit` en `exclude_keywords`. |
-| `get_artist_albums` | Alle albums van een artiest uit de SQLite cache |
-| `sync_library` | Start een achtergrond-library sync vanuit Roon |
-
-**Playlist curatie & generatie**
-
-| Tool | Wat het doet |
-|------|-------------|
-| `curate_and_play` | Speelt een selectie af die Claude koos uit `filter_tracks` compact output — vertaalt tracknummers via `session_id` naar Roon item_keys en start afspelen |
-| `validate_playlist` | Controleer een track-selectie op duplicaten, clustering en overrepresentatie vóór afspelen |
-| `generate_playlist` | Natuurlijke taal → playlist via de backend pipeline (library/hybrid/qobuz). Fallback wanneer de context te groot is of op expliciet verzoek. |
-| `seed_track_playlist` | "Meer zoals dit" — playlist op basis van een seed-track via backend pipeline (fallback) |
-| `analyze_prompt` | Preview hoe een prompt vertaald wordt naar genre/decade-filters |
-| `recommend_album` | Snelle AI-albumaanbeveling (library of discovery mode) — fallback |
-| `recommend_album_interactive` | 2-staps Q&A voor gepersonaliseerde picks — fallback |
-
-**Afspelen**
-
-| Tool | Wat het doet |
-|------|-------------|
-| `play_album` | Zoek en speel een album in één stap |
-| `play_radio` | Speel een internetradiostation op naam |
-| `browse_playlists` | Toon of speel alle Roon-afspeellijsten |
-| `list_zones` | Lijst van actieve Roon-zones |
-| `get_now_playing` | Huidige afspeelstatus per zone |
-| `play_tracks` | Stuur tracks naar een zone (vervangt wachtrij) |
-| `queue_tracks` | Voeg tracks toe aan de wachtrij |
-
-**Transport & zone-beheer**
-
-| Tool | Wat het doet |
-|------|-------------|
-| `transport_control` | Play, pause, stop, volgende, vorige, shuffle, repeat, seek |
-| `volume_control` | Volume instellen, aanpassen, dempen of opvragen per zone |
-| `transfer_zone` | Verplaats afspelen van de ene naar de andere zone |
-| `zone_grouping` | Zones groeperen of loskoppelen voor gesynchroniseerd afspelen |
-| `get_result_history` | Eerder gegenereerde playlists en aanbevelingen |
+</div>
 
 ---
 
-## Quick Start
+## Wat is RoonSage?
 
-```bash
-docker run -d \
-  --name roonsage \
-  -p 5765:5765 \
-  -v roonsage-data:/app/data \
-  --restart unless-stopped \
-  -e ROON_HOST=192.168.1.x \
-  -e GEMINI_API_KEY=your-key \
-  ghcr.io/Georgemvp/roonsage:latest
-```
+RoonSage bestaat uit twee **native Swift/SwiftUI-apps** — één voor **macOS**, één voor **iOS/iPadOS** — die met je Roon Core praten en die omtoveren tot een slim, AI-ondersteund muzieksysteem. Ze spiegelen je bibliotheek naar een lokale **GRDB**-database (SQLite) en bouwen daarbovenop AI-playlistsamenstelling, smaakanalyse, audio-featureanalyse en harmonische DJ-tools — allemaal op basis van je eigen bibliotheek en Qobuz.
 
-Open **http://localhost:5765** — een setup-wizard begeleidt je bij het verbinden met Roon, het kiezen van een AI-provider en het synchroniseren van je bibliotheek.
+Ontwerpprincipes:
 
-**Autoriseer in Roon:** Settings → Extensions → vind **RoonSage** → Enable.
-
-> **Gratis optie:** Google Gemini heeft een gratis API-tier die voldoet voor persoonlijk gebruik. Geen creditcard nodig. Zie [`docs/gemini-free-credit-guide.md`](docs/gemini-free-credit-guide.md).
+- **Bibliotheek-eerst** — elke voorgestelde track bestaat in je Roon-bibliotheek of op Qobuz; er wordt niets gehallucineerd.
+- **Eén codebase, twee platforms** — macOS en iOS delen `RoonSageCore` + `RoonSageUI`; de iOS-app is een UI-/packaginglaag, geen fork.
+- **Lokaal-eerst** — de bibliotheek, luistergeschiedenis en audio-features staan in een lokale database; query's raken Roon niet opnieuw.
+- **AI helpt, jij beslist** — de LLM stelt voor; afspelen gaat altijd via je echte Roon-zones.
+- **UI in het Nederlands, code in het Engels** — gebruikerslabels zijn Nederlands; protocol-/businesslogica en API's zijn Engels (repo-conventie).
 
 ---
 
-## Web UI
+## Platforms
 
-De web-interface werkt zonder Claude Desktop en biedt dezelfde playlist- en aanbevelingsfuncties via een standaard browserformulier.
+| Platform | Bron | Hoe het uitkomt |
+|----------|------|-----------------|
+| **macOS** (14 Sonoma+) | [`native/RoonSage`](native/RoonSage) — `RoonSage`-apptarget | Ondertekend/genotariseerd **DMG** via de `v*`-tag → workflow `Release macOS DMG` (de in-app updater pikt 'm op) |
+| **iOS / iPadOS** (17+) | [`native/iosapp`](native/iosapp) — xcodegen-project | **TestFlight** via de `ios-v*`-tag → workflow `Release iOS TestFlight` |
+| **Audio Analyzer** | [`native/RoonSage`](native/RoonSage) — `RoonSageAnalyzerApp` / CLI `roonsage-analyzer` | DMG via de `analyzer-v*`-tag → workflow `Release Analyzer App` |
 
-![Home screen](docs/images/screenshot-home.png)
-
-**Playlist van prompt** — beschrijf een sfeer in natuurlijke taal. RoonSage analyseert je prompt, vertaalt het naar genre/decade-filters, stuurt de gefilterde tracks naar de LLM en geeft een afspeelbare playlist terug. Werkt met bibliotheken van 50.000+ tracks.
-
-**Playlist van seed** — kies een nummer, selecteer muzikale dimensies (sfeer, tijdperk, instrumentatie, productiestijl) en krijg een playlist die die kwaliteiten verkent.
-
-**Verfijnen & itereren** — gebruik de Refine-knop op elk resultaat om bij te sturen zonder opnieuw te beginnen. "Donkerder", "meer jaren 80", "minder jazz" — de LLM ziet de originele prompt plus je notities.
-
-**Albumaanbevelingen** — beschrijf een moment of stemming, beantwoord twee snelle vragen en krijg één albumaanbeveling met een editorial pitch. Library mode beveelt albums aan die je bezit; Discovery mode vindt albums die je nog niet hebt (gezocht op Qobuz).
-
-**Qobuz-integratie** — drie bronmodi: Alleen mijn bibliotheek, Mix (bibliotheek + Qobuz-ontdekkingen), en Qobuz Discovery (alleen nieuwe muziek). Automatisch gedetecteerd als Qobuz geconfigureerd is in Roon.
-
-**Slim filteren** — filter op genre, decade en live-uitsluiting vóór de LLM iets ziet. Realtime trackaantallen tonen precies hoe je keuzes de pool verkleinen. Geschatte tokenkosten worden getoond vóór je genereert.
-
-**Tijdsbewuste context** — de huidige dag en het uur worden als subtiele stemmingshints meegestuurd in generatieprompts. Vrijdagavond-picks verschillen van dinsdagochtend.
-
-![Album recommendation](docs/images/screenshot-album.png)
+> De drie tag-schema's zijn **gescheiden** en delen nooit een namespace: Mac-app `vX.Y.Z`, analyzer `analyzer-vX.Y.Z`, iOS/TestFlight `ios-vX.Y.Z`. Een tag pushen triggert de bijbehorende release-workflow.
 
 ---
 
-## Hoe het werkt
+## Functies
 
-RoonSage gebruikt een filter-first architectuur voor grote bibliotheken. De LLM ziet nooit je hele bibliotheek — alleen een gefilterd, behapbaar deel.
+### Bibliotheek & afspelen
+- **Bladeren** door je volledige bibliotheek als tracklijst, **albums-grid** of **artiesten-grid**, met drill-down van album/artiest naar tracks. FTS5 full-text-zoeken; sorteren en filteren op genre, decennium, artiest en trefwoorden.
+- **Immersive Now Playing** — full-bleed vervaagde albumhoes-achtergrond getint door de dominante kleur van de hoes, grote transportknoppen, scrubber en een zone-wisselaar.
+- **Wachtrij**-weergave, transport, volume, shuffle/herhalen, **zone-overdracht** en groeperen — allemaal aangestuurd via je echte Roon-outputs.
+- **Lock Screen / Bedieningspaneel / CarPlay / AirPods**-bediening op iOS (`MPNowPlayingInfoCenter` + remote command center), plus **Live Activities** (lockscreen + Dynamic Island) en **Siri Shortcuts**.
 
-Er zijn twee paden, afhankelijk van hoe je RoonSage gebruikt:
+### AI-samenstelling & zoeken
+- **Generate** — beschrijf een sfeer/genre/tijdperk; de LLM vertaalt dat naar filters, kiest tracks uit je bibliotheek en speelt of bewaart het resultaat.
+- **Ask** — een lichte vibe-prompt → één LLM-call → direct afspeelbare resultaten (nu afspelen / als volgende in wachtrij / alles afspelen).
+- **Recommend** — albumaanbevelingen geworteld in je bibliotheek.
+- **Opslaan naar Qobuz** — push een samengestelde set naar een echte Qobuz-playlist.
+- LLM-providers: **Anthropic**, **OpenAI** en **Ollama** (lokaal).
 
-### Pad A — Claude Desktop (native curatie, snel)
+### Sonische intelligentie (uit audio-features)
+- **Sonic Fingerprint** — je muzikale DNA als radardiagram, berekend uit je meest gespeelde tracks, om vergelijkbare (en nog onontdekte) bibliotheektracks naar boven te halen.
+- **Music Map** — een native, ML-vrije 2D-scatter van elke geanalyseerde track (X = tempo, Y = energie, kleur = Camelot-toonsoort); tik op een punt om af te spelen.
+- **Song Paths** — de soepelste sonische brug tussen twee tracks (nearest-neighbour-wandeling / graafzoektocht).
+- **Song Alchemy** — optellen/aftrekken met vectorrekenen over de feature-ruimte om een selectie te mengen of te sturen.
+- **Taste Profile** — top-artiesten, -genres, -tags en luisterstatistieken die lokale historie combineren met ListenBrainz/Last.fm.
+- **Year in Review** — een terugblik op je luistergedrag.
 
-Claude curates de playlist zelf op basis van eigen muzikale kennis. Geen backend LLM-call.
+### DJ-tools
+- **DJ Set** — beatgematchte, Camelot-compatibele sets met een BPM-curve, een energie-boog op vaste schaal en een harmonische-overgangenstrip (harmonisch / zelfde toonsoort / alleen tempo), plus een "X/Y harmonische overgangen"-samenvatting.
+- **Live DJ** — voor de nu spelende track suggereert het harmonisch-compatibele volgende tracks (Camelot + BPM) met één tik afspelen/in wachtrij.
+- **Exporteren** van een set als leesbare tracklijst of **M3U** (met BPM/Camelot) via een deelvenster.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  1. ANALYSEER (Claude)                                           │
-│     Claude interpreteert je prompt — mood, genre, era, tempo     │
-│     Detecteert ook gewenste bron: library / hybrid / qobuz       │
-├─────────────────────────────────────────────────────────────────┤
-│  2. STATS (optioneel, bij library/hybrid)                        │
-│     get_library_stats → Claude ziet welke genres/decades bestaan │
-├─────────────────────────────────────────────────────────────────┤
-│  3. FILTER & ZOEK                                                │
-│     Library/hybrid: filter_tracks(compact) → genummerde lijst    │
-│     + key_map met maximaal 500 tracks                            │
-│     Hybrid/qobuz: search_qobuz voor Qobuz-tracks                │
-├─────────────────────────────────────────────────────────────────┤
-│  4. CUREER (Claude)                                              │
-│     Claude kiest de beste 15–50 tracks op basis van muzikale     │
-│     kennis: diversiteit, flow, geen clustering, juiste sfeer     │
-│     Bij hybrid: library- en Qobuz-tracks gemengd door de lijst   │
-├─────────────────────────────────────────────────────────────────┤
-│  5. SPEEL AF                                                     │
-│     curate_and_play of play_tracks → item_keys naar Roon-zone    │
-│     Directe afspeling in elke Roon-client                        │
-└─────────────────────────────────────────────────────────────────┘
-```
+### Scrobbelen & historie
+- Per-zone luistermonitor met een gegate scrobble-coördinator → **ListenBrainz** + **Last.fm** (now-playing + listen-inzending), lokale `listening_history` en een backfill-pad.
 
-### Pad B — Web UI en fallback (backend pipeline)
-
-Gebruikt door de web-interface en door Claude Desktop als de gefilterde pool te groot is of de gebruiker expliciet "automatisch" vraagt.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  1. ANALYSEER                                                    │
-│     LLM interpreteert prompt → stelt genre/decade-filters voor   │
-├─────────────────────────────────────────────────────────────────┤
-│  2. FILTER                                                       │
-│     Bibliotheek ingeperkt via SQLite                             │
-│     "90s Alternative" → 2.000 tracks                             │
-├─────────────────────────────────────────────────────────────────┤
-│  3. STEEKPROEF (alleen bij grote bibliotheken)                   │
-│     Te groot voor contextvenster → willekeurige steekproef       │
-├─────────────────────────────────────────────────────────────────┤
-│  4. GENEREER                                                     │
-│     Gefilterde lijst + prompt naar LLM                           │
-│     LLM selecteert beste tracks op tracknummer                   │
-├─────────────────────────────────────────────────────────────────┤
-│  5. MATCH                                                        │
-│     Tracknummer → O(1) opzoeken in SQLite-cache                  │
-│     Fallback naar fuzzy matching (rapidfuzz) indien nodig        │
-├─────────────────────────────────────────────────────────────────┤
-│  6. SPEEL AF                                                     │
-│     Tracks naar Roon-zone via Browse API                         │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-Library-data wordt eenmalig gesynchroniseerd naar SQLite via de Roon Browse API (`browse_browse` / `browse_load`). Alle vervolgqueries lezen uit de lokale cache — geen Roon API-calls nodig tijdens generatie.
+### Ontwerp
+- Systeem-/licht-/donkerthema's, een accentkiezer (Roon-goud als standaard), albumhoes-gedreven dynamische kleur, skeleton-loaders, lege toestanden en haptics op iOS.
 
 ---
 
-## Installatie
+## Architectuur
 
-### Docker Compose
-
-```bash
-mkdir roonsage && cd roonsage
-curl -O https://raw.githubusercontent.com/Georgemvp/roonsage/main/docker-compose.yml
-# bewerk docker-compose.yml: stel ROON_HOST en een API-sleutel in
-docker compose up -d
+```
+native/
+├── RoonProtocol/                 # Roon-discovery + transport, pure Swift
+│   └── Sources/RoonProtocol/     #   SOOD (UDP-discovery), MOO-framecodec, RoonServices
+├── RoonSage/                     # het gedeelde SPM-pakket (één Package.swift, macOS + iOS)
+│   └── Sources/
+│       ├── RoonSageCore/         #   RoonClient, GRDB-database, sync, browse, afspelen,
+│       │                         #   LLM/Qobuz/ListenBrainz/Last.fm-clients, share-/proxyserver
+│       ├── RoonSageUI/           #   alle SwiftUI-views (gedeeld door Mac + iOS), Theme, Appearance
+│       ├── AudioAnalysis/        #   BPM, toonsoort→Camelot, FFT, metadata, fuzzy track-matching
+│       ├── AnalyzerCore/         #   analyzer library-walk, feature store, HTTP /features-server
+│       ├── RoonSageAnalyzer/     #   CLI roonsage-analyzer (analyze / validate)
+│       ├── RoonSageAnalyzerApp/  #   de losse Analyzer macOS-app
+│       ├── RoonSageMCP/          #   roonsage-mcp — MCP-server voor Claude Desktop (stdio)
+│       └── RoonSage/             #   de macOS-app-shell (App/MenuBar/Settings/Update)
+└── iosapp/                       # iOS-apptarget (xcodegen) → hergebruikt RoonSageUI + RoonSageCore
+    ├── Sources/                  #   @main + NowPlayingCenter (MPNowPlayingInfoCenter)
+    ├── Widgets/                  #   RoonSageWidgets (Live Activity, Dynamic Island)
+    └── Shared/                   #   App Intents (play/pause/next/prev) gedeeld met de widget
 ```
 
-### NAS-platforms
+`RoonSageCore`, `RoonSageUI`, `AudioAnalysis`, `AnalyzerCore` en `RoonProtocol` zijn **platform-schoon** (geen AppKit) — dat is wat de iOS-app in staat stelt ze te hergebruiken. macOS-specifieke chrome (DMG-updater, menubalk-extra, `NSAlert`) staat geïsoleerd achter `#if os(macOS)`.
 
-<details>
-<summary><strong>Synology (Container Manager)</strong></summary>
+### Server/client-splitsing
 
-**GUI:** Container Manager → Registry → zoek `ghcr.io/Georgemvp/roonsage` → Download `latest` → Container aanmaken → Poort 5765:5765 → voeg `ROON_HOST` en API-sleutel toe.
+Slechts één apparaat registreert een Roon-extensie. RoonClient draait in één van twee modi (`RoonControlMode`):
 
-**Docker Compose:**
-```bash
-mkdir -p /volume1/docker/roonsage && cd /volume1/docker/roonsage
-curl -O https://raw.githubusercontent.com/Georgemvp/roonsage/main/docker-compose.yml
-nano docker-compose.yml  # stel ROON_HOST en API-sleutel in
-```
-Daarna Container Manager → Project → Create, wijs naar `/volume1/docker/roonsage`.
+- **`direct`** — de **altijd-aan-serverbuild** (meestal de Mac mini naast je Roon Core): registreert de Roon-extensie, synchroniseert de bibliotheek, draait de analyzer en biedt een kleine HTTP-server (`LibraryShareServer`, poort `5767`):
+  - `GET /library` — de gesynchroniseerde bibliotheek (zodat een iPhone die importeert i.p.v. een urenlange Browse-walk)
+  - `GET /settings` — gesynchroniseerde instellingen
+  - `GET /playback?zone=…` — live zones / now-playing / wachtrij
+  - `POST /command` — play / pause / volume / curate / … (de **playback-proxy**)
+  - `GET /health`
+- **`server`** — de **Mac-/iOS-client-apps**: geen Roon-extensie op het apparaat; ze halen de bibliotheek en instellingen op, tonen live afspelen en proxyen elk transport-/curatiecommando via de server. Afspelen gebeurt nog steeds op de per-apparaat-gerichte Roon-zones.
 
-ARM-gebaseerde Synology-units zonder Docker: gebruik [Bare Metal](#bare-metal) hieronder.
-</details>
-
-<details>
-<summary><strong>Unraid</strong></summary>
-
-Docker → Add Container → Repository: `ghcr.io/Georgemvp/roonsage:latest` → Poort 5765:5765 → voeg `ROON_HOST` en API-sleutel toe.
-</details>
-
-<details>
-<summary><strong>TrueNAS SCALE</strong></summary>
-
-Apps → Discover Apps → Custom App → Image `ghcr.io/Georgemvp/roonsage`, tag `latest` → Poort 5765 → voeg omgevingsvariabelen toe.
-</details>
-
-<details>
-<summary><strong>Portainer</strong></summary>
-
-Stacks → Add Stack:
-```yaml
-services:
-  roonsage:
-    image: ghcr.io/Georgemvp/roonsage:latest
-    ports:
-      - "5765:5765"
-    environment:
-      - ROON_HOST=192.168.1.x
-      - ROON_PORT=9330
-      - GEMINI_API_KEY=your-key
-    volumes:
-      - ./data:/app/data
-    restart: unless-stopped
-```
-</details>
-
-### Bare Metal
-
-```bash
-git clone https://github.com/Georgemvp/roonsage.git
-cd roonsage
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-export ROON_HOST=192.168.1.x ROON_PORT=9330 GEMINI_API_KEY=your-key
-uvicorn backend.main:app --host 0.0.0.0 --port 5765
-```
-
-<details>
-<summary><strong>systemd service</strong></summary>
-
-```ini
-# /etc/systemd/system/roonsage.service
-[Unit]
-Description=RoonSage
-After=network.target
-
-[Service]
-Type=simple
-User=your-user
-WorkingDirectory=/path/to/roonsage
-EnvironmentFile=/path/to/roonsage/.env
-ExecStart=/path/to/roonsage/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 5765
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl enable roonsage && sudo systemctl start roonsage
-```
-</details>
+De analyzer is de **server of record** voor sync, instellingen en audio-analyses; de Mac- en iOS-apps zijn thin clients die alles ophalen. (Discovery op iOS gebruikt ZeroTier + een opgeslagen host, omdat SOOD-multicast Apple's multicast-entitlement vereist.)
 
 ---
 
-## Configuratie
+## Bouwen & draaien
 
-### Omgevingsvariabelen
-
-| Variabele | Verplicht | Standaard | Beschrijving |
-|-----------|-----------|-----------|-------------|
-| `ROON_HOST` | Ja | — | IP of hostnaam van je Roon Core |
-| `ROON_PORT` | Nee | `9330` | Roon Core-poort |
-| `ROON_CORE_ID` | Nee | auto | Opgeslagen na eerste autorisatie |
-| `ROON_TOKEN` | Nee | auto | Opgeslagen na eerste autorisatie |
-| `GEMINI_API_KEY` | Een van drie | — | Google Gemini (heeft gratis tier) |
-| `ANTHROPIC_API_KEY` | Een van drie | — | Anthropic Claude |
-| `OPENAI_API_KEY` | Een van drie | — | OpenAI GPT |
-| `LLM_PROVIDER` | Nee | auto-detect | Forceer: `gemini`, `anthropic`, `openai`, `ollama`, `custom` |
-| `OLLAMA_URL` | Nee | `http://localhost:11434` | Ollama server URL |
-| `CUSTOM_LLM_URL` | Nee | — | OpenAI-compatibele API base URL |
-| `CUSTOM_CONTEXT_WINDOW` | Nee | `32768` | Contextvenster voor custom provider |
-| `ROONSAGE_PASSWORD` | Nee | — | Schakel HTTP Basic Auth in op alle endpoints |
-| `ROONSAGE_URL` | Nee | `http://localhost:5765` | Adres waarop de MCP server RoonSage bereikt |
-
-Instellingen kunnen ook via de web-UI worden aangepast (Instellingen-pagina). UI-opgeslagen instellingen gaan naar `data/config.user.yaml`. Omgevingsvariabelen hebben altijd voorrang.
-
-### config.yaml
-
-```yaml
-roon:
-  host: "192.168.1.x"
-  port: 9330
-
-llm:
-  provider: "gemini"
-  model_analysis: "gemini-2.5-flash"
-  model_generation: "gemini-2.5-flash"
-  smart_generation: false  # true = analysemodel ook voor generatie (hogere kwaliteit, ~3–5× kosten)
-
-defaults:
-  track_count: 25
-```
-
-### Modelkeuze voor de Web UI
-
-De Web UI gebruikt een twee-model strategie: een slimmer model voor prompt-analyse, een goedkoper model voor track-selectie.
-
-| Rol | Anthropic | OpenAI | Gemini |
-|-----|-----------|--------|--------|
-| Analyse | `claude-sonnet-4-5` | `gpt-4.1` | `gemini-2.5-flash` |
-| Generatie | `claude-haiku-4-5` | `gpt-4.1-mini` | `gemini-2.5-flash` |
-| Max tracks naar AI | ~3.500 | ~2.300 | **~18.000** |
-
-Gemini's contextvenster van 1M tokens maakt het mogelijk om veel meer tracks naar het model te sturen, wat de variëteit verbetert bij grote bibliotheken.
-
-### Lokale LLM (experimenteel)
-
-<details>
-<summary><strong>Ollama</strong></summary>
+Vereist Xcode 15+ (macOS 14-SDK / iOS 17-SDK) en Swift 5.9+.
 
 ```bash
-ollama pull llama3:8b
+# macOS-app + DMG (ondertekent/notariseert als de signing-env is gezet — zie native/SIGNING.md)
+cd native && ./scripts/build-release.sh 1.0.0
+
+# Analyzer-app-DMG
+cd native && ./scripts/build-analyzer-release.sh 1.0.0
+
+# iOS-app → genereer het Xcode-project, bouw/draai daarna in Xcode
+cd native/iosapp && xcodegen generate && open RoonSageiOS.xcodeproj
+
+# Draai de Swift-testsuites
+cd native/RoonProtocol && swift test
+cd native/RoonSage     && swift test
+
+# Bouw altijd release vóór het taggen (release strict-concurrency vangt meer dan debug)
+cd native/RoonSage && swift build -c release
 ```
 
-```bash
-LLM_PROVIDER=ollama
-OLLAMA_URL=http://localhost:11434
-```
-
-Selecteer je model in de Instellingen — het contextvenster wordt automatisch gedetecteerd. Modellen met 8K+ context werken het best (`llama3:8b`, `qwen3:8b`, `mistral`).
-</details>
-
-<details>
-<summary><strong>Custom OpenAI-compatibele API</strong></summary>
-
-Voor LM Studio, text-generation-webui, vLLM of vergelijkbaar:
-
-```bash
-LLM_PROVIDER=custom
-CUSTOM_LLM_URL=http://localhost:5000/v1
-CUSTOM_CONTEXT_WINDOW=32768
-```
-
-Stel modelnaam en API-sleutel (indien vereist) in via de Instellingen.
-</details>
+Build-/signing-details en de GitHub-release-secrets: [`native/SIGNING.md`](native/SIGNING.md).
+Roadmap: [`native/ROADMAP.md`](native/ROADMAP.md).
+Architectuur-audit: [`docs/NATIVE_APP_AUDIT.md`](docs/NATIVE_APP_AUDIT.md).
 
 ---
 
-## Beveiliging
+## Claude Desktop (MCP)
 
-RoonSage is ontworpen voor thuisnetwerk-gebruik. Zonder `ROONSAGE_PASSWORD` heeft iedereen op je netwerk toegang tot de web-UI.
+Het `roonsage-mcp`-executable is een kleine **MCP-server** (stdio JSON-RPC) waarmee Claude Desktop RoonSage kan bedienen. Het praat met de RoonSage-serverbuild en biedt tools zoals:
 
-`ROONSAGE_PASSWORD` schakelt HTTP Basic Auth in op alle endpoints. Health check (`/api/health`) en de art-proxy zijn hiervan vrijgesteld, zodat Docker-health checks en albumafbeeldingen blijven werken zonder credentials.
+`roon_zones` · `roon_play_pause` · `roon_next` / `roon_previous` · `roon_set_volume` · `roon_adjust_volume` · `roon_mute` · `roon_set_shuffle` · `roon_set_repeat` · `roon_transfer_zone` · `roon_search_library` · `get_library_stats` · `get_albums` · `filter_tracks` → `curate_and_play` · `validate_playlist` · `play_album` · `get_listening_history` · `get_top_artists` · `get_taste_profile` · `sync_library`
 
-LLM-powered endpoints hebben een rate limit van 30 verzoeken per uur per IP. API-sleutels worden opgeslagen in `data/config.user.yaml` (rechten 600) en worden nooit blootgesteld via de API.
-
----
-
-## Ontwikkeling
-
-```bash
-git clone https://github.com/Georgemvp/roonsage.git
-cd roonsage
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-export ROON_HOST=192.168.1.x ROON_PORT=9330 GEMINI_API_KEY=your-key
-uvicorn backend.main:app --reload --port 5765
-```
-
-```bash
-pytest tests/ -v   # tests uitvoeren
-ruff check .       # linting
-```
-
-**Stack:** Python 3.11+, FastAPI, python-roonapi, anthropic / openai / google-genai SDK's, rapidfuzz, SQLite, vanilla HTML/CSS/JS.
+Bouw het met `swift build` (target `roonsage-mcp`) en wijs je `claude_desktop_config.json` naar het resulterende binary.
 
 ---
 
-## API Reference
+## Audio Analyzer
 
-Interactieve docs op `/docs` wanneer de server draait.
+De analyzer (CLI `roonsage-analyzer` + de macOS-app `RoonSageAnalyzerApp`) doorloopt je muziekbestanden, extraheert **BPM** en **muzikale toonsoort → Camelot**, en serveert de resultaten over HTTP (`/features`) zodat de Mac- en iOS-apps ze koppelen aan de gesynchroniseerde bibliotheek voor de DJ-/Sonic-functies. Het is volledig native Swift (`AudioAnalysis`) — geen librosa, geen Python.
 
-| Endpoint | Methode | Beschrijving |
-|----------|---------|-------------|
-| `/api/health` | GET | Health check |
-| `/api/config` | GET/POST | Configuratie ophalen of aanpassen |
-| `/api/setup/status` | GET | Status van de onboarding-checklist |
-| `/api/setup/validate-roon` | POST | Roon Core-verbinding valideren |
-| `/api/setup/validate-ai` | POST | AI-provider-credentials valideren |
-| `/api/library/stats/cached` | GET | Genre/decade/totaal uit SQLite |
-| `/api/library/status` | GET | Cache-status, trackcount, needs_resync |
-| `/api/library/sync` | POST | Achtergrond library sync starten |
-| `/api/library/search` | GET | Zoeken op track/artiest/album |
-| `/api/library/artist-albums` | GET | Alle albums van artiest uit cache |
-| `/api/library/filter` | POST | Filter op genre/decade/live-uitsluiting |
-| `/api/library/filter/session` | POST | Server-side key_map opslaan voor curate_and_play |
-| `/api/library/filter/curate` | POST | Gecureerde track-selectie afspelen via session_id + track-nummers |
-| `/api/library/filter/validate` | POST | Track-selectie valideren op kwaliteitsproblemen |
-| `/api/analyze/prompt` | POST | Prompt analyseren → filter-mapping |
-| `/api/generate/stream` | POST | Playlist generatie streamen (SSE) |
-| `/api/roon/zones` | GET | Actieve Roon-zones ophalen |
-| `/api/roon/transport` | POST | play/pause/stop/volgende/vorige/shuffle/repeat/seek |
-| `/api/roon/volume` | POST | Volume instellen/aanpassen/dempen/opvragen |
-| `/api/roon/transfer` | POST | Afspelen verplaatsen naar andere zone |
-| `/api/roon/group` | POST | Zones groeperen of loskoppelen |
-| `/api/roon/radio` | POST | Internetradiostation afspelen |
-| `/api/roon/playlists` | POST | Roon-afspeellijsten tonen of afspelen |
-| `/api/roon/qobuz-search` | POST | Qobuz-catalogus doorzoeken via Roon |
-| `/api/queue` | POST | Tracks naar een Roon-zone sturen |
-| `/api/queue/append` | POST | Tracks toevoegen aan een zone-wachtrij |
-| `/api/recommend/questions` | POST | Verhelderende vragen genereren |
-| `/api/recommend/generate` | POST | Albumaanbevelingen genereren |
-| `/api/results` | GET | Resultatenhistorie ophalen |
-| `/api/art/{item_key}` | GET | Albumhoezen proxyen vanuit Roon |
+- **Track-matching** gebruikt een duurzame `TrackIdentity.matchKey` (`artist|title` met normalisatie van positieprefix / featured-artiest / remaster-editie) plus een primary-artist-reductie en een fuzzy fallback binnen dezelfde artiest, zodat Roons metadata koppelt aan bestandstags ondanks afgekapte klassieke titels en "feat."-verschillen.
+- **Nauwkeurigheid** gebruikt parabolische autocorrelatie-piekinterpolatie voor sub-frame-BPM en per-frame chroma-normalisatie met silent-frame-gating voor toonsoortdetectie. Een `validate <muziekmap> --reference <csv>`-harnas rapporteert BPM-/toonsoortnauwkeurigheid tegen een gelabelde steekproef.
 
 ---
 
-## Credits
+## Legacy Docker-webapp (gedeprecieerd)
 
-RoonSage is gebaseerd op [MediaSage](https://github.com/ecwilsonaz/mediasage) van Eric Wilson, oorspronkelijk gebouwd voor Plex. RoonSage is onafhankelijk doorontwikkeld voor Roon met significante nieuwe functionaliteit, waaronder MCP-integratie, Qobuz-ondersteuning, zone-beheer, tijdsbewuste context en een volledige library-cache laag.
+> ⚠️ De oorspronkelijke zelf-gehoste **FastAPI-webapp + MCP-server** is **gedeprecieerd en wordt niet meer onderhouden**. De volledige broncode staat nu onder [`legacy-docker/`](legacy-docker/) en wordt enkel als referentie bewaard. Zie [`legacy-docker/README.md`](legacy-docker/README.md).
+
+Die stack verbond met een Roon Core als extensie, spiegelde de bibliotheek naar een SQLite-cache en bood ~69 MCP-tools zodat Claude Desktop via een web-UI kon samenstellen, ontdekken en Roon bedienen. Alles wat het deed wordt native heropgebouwd. Draai je het nog, dan staat in de legacy-README de Docker-/config-/API-referentie.
 
 ---
 
-## Licentie
+## Repo-indeling
 
-MIT
+| Pad | Wat |
+|-----|-----|
+| [`native/`](native/) | **Primaire product** — de macOS- & iOS-apps, gedeelde pakketten, analyzer, scripts en docs |
+| [`legacy-docker/`](legacy-docker/) | Gedeprecieerde Docker-/FastAPI-webapp + Python-MCP-server (enkel referentie) |
+| [`docs/`](docs/) | Native audit (`NATIVE_APP_AUDIT.md`) en overige docs |
+| `data/` | Runtime-data (databases, caches) — git-ignored |
+
+CI: `.github/workflows/native-tests.yml` (primair) draait de Swift-suites; de workflows `release-macos` / `release-ios` / `release-analyzer` zijn tag-getriggerd. `.github/workflows/test.yml` is path-gefilterd op `legacy-docker/**`.
+
+---
+
+## Licentie & credits
+
+MIT — zie [LICENSE](LICENSE).
+
+- [Roon Labs](https://roon.app) voor de Extension-, Browse- en discovery-API's (SOOD/MOO)
+- [GRDB.swift](https://github.com/groue/GRDB.swift) voor de lokale database
+- [ListenBrainz](https://listenbrainz.org) voor open luisterdata
+- [Last.fm](https://www.last.fm) voor muziekintelligentie en community-tags
+- [MusicBrainz](https://musicbrainz.org) voor open muziekmetadata
+- [Qobuz](https://www.qobuz.com) voor de lossless streamingcatalogus
+- [Anthropic](https://www.anthropic.com), [OpenAI](https://openai.com) en [Ollama](https://ollama.com) voor de LLM-backends
