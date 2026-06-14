@@ -101,6 +101,11 @@ extension RoonClient {
         if !aURL.isEmpty, let diag = await syncAudioFeatures(from: aURL) {
             features = diag.featureRows
         }
+        // Baseline the library revision so the auto-refresh poll doesn't
+        // immediately re-import what we just pulled.
+        if let rev = await fetchLibraryRevision(base: trimmed) {
+            UserDefaults.standard.set(rev, forKey: "imported_library_revision")
+        }
         return ServerSyncResult(source: trimmed, tracks: tracks, features: features)
     }
 

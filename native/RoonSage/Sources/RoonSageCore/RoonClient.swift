@@ -86,6 +86,8 @@ public final class RoonClient {
     /// Consecutive failed/degraded polls; the UI only drops the connection after
     /// a few in a row so a single blip doesn't bounce to the connect screen.
     var remotePollFailures = 0
+    /// Guards against overlapping auto library re-imports while one is running.
+    var isImportingFromServer = false
     /// Re-issues the zones subscription when its initial state never arrives.
     var zonesWatchdog: Task<Void, Never>?
 

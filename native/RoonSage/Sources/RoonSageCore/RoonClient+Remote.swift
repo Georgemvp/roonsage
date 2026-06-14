@@ -21,6 +21,9 @@ public struct PlaybackSnapshot: Codable, Sendable {
     public var coreHost: String?
     public var corePort: Int
     public var trackCount: Int
+    /// Opaque "library changed" marker (track count + last-sync time). Clients
+    /// re-pull the library when it differs from what they last imported.
+    public var libraryRevision: String?
 }
 
 /// A control command a client sends to the server. Flat (not an enum with
@@ -59,6 +62,7 @@ extension RoonClient {
         }
         var coreName: String?
         if case let .connected(name) = connectionState { coreName = name }
+        let lastSync = (try? database?.syncStateValue(forKey: "last_sync")) ?? nil
         return PlaybackSnapshot(
             zones: zones,
             queueItems: queueItems,
@@ -66,7 +70,8 @@ extension RoonClient {
             coreName: coreName,
             coreHost: coreHost,
             corePort: Int(corePort),
-            trackCount: trackCount
+            trackCount: trackCount,
+            libraryRevision: "\(trackCount)|\(lastSync ?? "")"
         )
     }
 
@@ -186,6 +191,35 @@ extension RoonClient {
                 connectionState = .connecting(host: serverHost ?? "server")
             }
         }
+
+        // Auto-refresh: when the server's library changed (or we've never
+        // imported on this device — stored revision is nil), pull it once in the
+        // background. Keyed on revision so it runs once per change, not per poll.
+        if let rev = snap.libraryRevision,
+           rev != UserDefaults.standard.string(forKey: "imported_library_revision"),
+           !isSyncing, !isImportingFromServer {
+            isImportingFromServer = true
+            Task { [weak self] in await self?.refreshLibraryFromServer(base: base, revision: rev) }
+        }
+    }
+
+    /// Background library (+features) re-import triggered by a revision change.
+    func refreshLibraryFromServer(base: String, revision: String) async {
+        defer { isImportingFromServer = false }
+        guard await importLibrary(fromMac: base) != nil else { return }
+        let aURL = analyzerURL
+        if !aURL.isEmpty { _ = await syncAudioFeatures(from: aURL) }
+        UserDefaults.standard.set(revision, forKey: "imported_library_revision")
+    }
+
+    /// One-shot fetch of the server's current library revision (used to record a
+    /// baseline after a manual sync so auto-refresh doesn't re-import).
+    func fetchLibraryRevision(base: String) async -> String? {
+        guard let url = URL(string: "\(base)/playback") else { return nil }
+        var req = URLRequest(url: url); req.timeoutInterval = 5
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let snap = try? JSONDecoder().decode(PlaybackSnapshot.self, from: data) else { return nil }
+        return snap.libraryRevision
     }
 
     /// Send a proxied command to the server, then immediately re-poll so the UI
