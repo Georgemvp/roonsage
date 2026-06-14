@@ -110,6 +110,10 @@ final class AnalyzerModel {
             // Publish a cached feature/embedding signature (one-time COUNTs, not
             // per-poll) so remotes auto-re-pull when analyses change.
             RoonClient.shared.featuresRevision = "\(store.count())/\(store.embeddedCount())"
+            // Advertise our own analyzer endpoint so remotes import the correct
+            // features URL (loopback is rewritten to the share host on import) —
+            // they no longer have to *guess* the port (:5766 vs the share :5767).
+            RoonClient.shared.analyzerURL = "http://127.0.0.1:\(p)"
         } catch {
             status = "Serve failed: \(error.localizedDescription)"
             return

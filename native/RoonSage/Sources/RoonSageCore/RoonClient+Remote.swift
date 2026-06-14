@@ -238,6 +238,10 @@ extension RoonClient {
     /// Background library (+features) re-import triggered by a revision change.
     func refreshLibraryFromServer(base: String, revision: String) async {
         defer { isImportingFromServer = false }
+        // Refresh settings first so the analyzer URL (and Roon host) stay correct
+        // — the server now advertises its analyzer endpoint, so features pull
+        // from the right port without guessing.
+        _ = await importSettings(fromMac: base)
         guard await importLibrary(fromMac: base) != nil else { return }
         let aURL = featuresURL(serverBase: base)
         if !aURL.isEmpty { _ = await syncAudioFeatures(from: aURL) }
