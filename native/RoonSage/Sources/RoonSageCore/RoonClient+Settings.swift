@@ -78,6 +78,32 @@ extension RoonClient {
         return comps.string ?? urlString
     }
 
+    /// The saved LLM config with one fix-up for thin clients: when the provider
+    /// is Ollama and the base URL is empty or still points at loopback, retarget
+    /// it at the connected core host — where Ollama actually runs. iOS and a
+    /// second Mac never run Ollama locally, so the `localhost` default made
+    /// playlist generation fail with "could not connect to the server". No-op
+    /// (keeps the saved URL) when no non-loopback core host is known yet.
+    /// Use this for *running* completions; saving/editing must keep the raw URL.
+    public func effectiveLLMConfig() -> LLMConfig {
+        var cfg = LLMConfigStore.load()
+        guard cfg.provider == .ollama else { return cfg }
+        let url = cfg.baseURL.trimmingCharacters(in: .whitespaces)
+        let needsRetarget = url.isEmpty || (URL(string: url)?.host.map(Self.isLoopback) ?? true)
+        guard needsRetarget, let host = ollamaFallbackHost else { return cfg }
+        cfg.baseURL = url.isEmpty ? "http://\(host):11434" : Self.rewriteLoopbackHost(in: url, to: host)
+        return cfg
+    }
+
+    /// Best known host that runs Ollama: the live core host, else the host of
+    /// the configured analyzer URL (same Mac), else nil. Loopback never counts.
+    private var ollamaFallbackHost: String? {
+        if let h = coreHost, !h.isEmpty, !Self.isLoopback(h) { return h }
+        if let h = URL(string: analyzerURL.trimmingCharacters(in: .whitespaces))?.host,
+           !Self.isLoopback(h) { return h }
+        return nil
+    }
+
     // MARK: - Full server sync (settings + library + analyses)
 
     public struct ServerSyncResult: Sendable {

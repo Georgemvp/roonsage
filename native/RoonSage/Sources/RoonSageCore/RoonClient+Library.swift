@@ -268,7 +268,7 @@ extension RoonClient {
     /// keywords/decades so the candidate pool is at least keyword-filtered.
     public func analyzeForFilters(request: String) async -> RequestFilters {
         let available = (await libraryStats())?.topGenres.map { $0.genre } ?? []
-        let config = LLMConfigStore.load()
+        let config = effectiveLLMConfig()
 
         if available.isEmpty {
             // No genre data yet — fall back to keywords + decades only so the

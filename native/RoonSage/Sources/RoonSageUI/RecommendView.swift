@@ -235,7 +235,7 @@ public struct RecommendView: View {
         let user = "Request: \(request)\n\nAvailable albums:\n\(list)"
 
         do {
-            let resp = try await LLMClient.shared.complete(system: system, user: user, config: LLMConfigStore.load())
+            let resp = try await LLMClient.shared.complete(system: system, user: user, config: client.effectiveLLMConfig())
             let numbers = parseNumbers(from: resp, max: candidates.count)
             guard !numbers.isEmpty else { errorMessage = "Kon de aanbeveling niet verwerken — probeer opnieuw."; return }
             albums = numbers.compactMap { n in (n >= 1 && n <= candidates.count) ? candidates[n - 1] : nil }

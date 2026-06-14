@@ -266,7 +266,7 @@ public struct GenerateView: View {
         defer { isGenerating = false; phase = "" }
 
         let request = prompt.trimmingCharacters(in: .whitespaces)
-        let config = LLMConfigStore.load()
+        let config = client.effectiveLLMConfig()
 
         // Stage 1 — analyse the request into genre/decade filters so the LLM
         // sees RELEVANT tracks (not just the first 300 alphabetically).

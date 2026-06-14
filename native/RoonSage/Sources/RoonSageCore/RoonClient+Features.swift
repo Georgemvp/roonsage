@@ -307,7 +307,7 @@ extension RoonClient {
         Respond with ONLY the phrase — no quotes, no prose.
         """
         guard let resp = try? await LLMClient.shared.complete(
-            system: system, user: "Request: \(q)", config: LLMConfigStore.load()) else { return nil }
+            system: system, user: "Request: \(q)", config: effectiveLLMConfig()) else { return nil }
         let phrase = resp
             .replacingOccurrences(of: #"<think>[\s\S]*?</think>"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
