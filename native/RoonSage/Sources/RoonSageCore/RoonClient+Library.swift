@@ -196,6 +196,11 @@ extension RoonClient {
         return await Task.detached { (try? db.searchAlbums(query: query)) ?? [] }.value
     }
 
+    public func searchArtists(query: String) async -> [DatabaseManager.ArtistResult] {
+        guard let db = database else { return [] }
+        return await Task.detached { (try? db.searchArtists(query: query)) ?? [] }.value
+    }
+
     public func browseTracks(query: String, tag: String?, limit: Int = 300) async -> [DatabaseManager.LibraryTrackRow] {
         guard let db = database else { return [] }
         return await Task.detached { (try? db.browseTracks(query: query, tag: tag, limit: limit)) ?? [] }.value

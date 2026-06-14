@@ -386,4 +386,54 @@ extension DatabaseManager {
         }
     }
 
+    // MARK: - Artist search
+
+    public struct ArtistResult: Sendable, Identifiable {
+        public var name: String
+        public var trackCount: Int
+        public var albumCount: Int
+        public var imageKey: String?
+        public var id: String { name }
+
+        public init(name: String, trackCount: Int, albumCount: Int, imageKey: String? = nil) {
+            self.name = name
+            self.trackCount = trackCount
+            self.albumCount = albumCount
+            self.imageKey = imageKey
+        }
+    }
+
+    /// Distinct library artists with track/album counts and a representative cover.
+    public func searchArtists(query: String, limit: Int = 200) throws -> [ArtistResult] {
+        try pool.read { db in
+            let base = """
+                SELECT artist,
+                       COUNT(*) AS track_count,
+                       COUNT(DISTINCT album_key) AS album_count,
+                       MAX(image_key) AS image_key
+                FROM tracks
+                WHERE artist IS NOT NULL AND artist != ''
+            """
+            let sql: String
+            let args: StatementArguments
+            if query.isEmpty {
+                sql = base + " GROUP BY artist ORDER BY artist LIMIT ?"
+                args = StatementArguments([limit] as [DatabaseValueConvertible])
+            } else {
+                let pattern = "%\(query)%"
+                sql = base + " AND LOWER(artist) LIKE LOWER(?) GROUP BY artist ORDER BY artist LIMIT ?"
+                args = StatementArguments([pattern, limit] as [DatabaseValueConvertible])
+            }
+            let rows = try Row.fetchAll(db, sql: sql, arguments: args)
+            return rows.map {
+                ArtistResult(
+                    name:       $0["artist"]      as String? ?? "",
+                    trackCount: $0["track_count"] as Int? ?? 0,
+                    albumCount: $0["album_count"] as Int? ?? 0,
+                    imageKey:   $0["image_key"]
+                )
+            }
+        }
+    }
+
 }

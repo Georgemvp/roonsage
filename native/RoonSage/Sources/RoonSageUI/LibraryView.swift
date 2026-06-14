@@ -8,14 +8,33 @@ public struct LibraryView: View {
     @State private var searchText = ""
     @State private var selectedTag: String?
     @State private var tracks: [DatabaseManager.LibraryTrackRow] = []
+    @State private var albums: [DatabaseManager.AlbumResult] = []
+    @State private var artists: [DatabaseManager.ArtistResult] = []
     @State private var tags: [(tag: String, count: Int)] = []
     @State private var isLoadingTracks = false
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
     @State private var sort: SortField = .title
+    @State private var viewMode: ViewMode = .tracks
     @State private var selection = Set<String>()
     @State private var showSaveSheet = false
     @State private var newPlaylistName = ""
+
+    /// Library browsing modes: a flat track list, or a grid of albums / artists.
+    enum ViewMode: String, CaseIterable, Identifiable {
+        case tracks, albums, artists
+        var id: String { rawValue }
+        var label: String {
+            switch self { case .tracks: "Tracks"; case .albums: "Albums"; case .artists: "Artiesten" }
+        }
+        var icon: String {
+            switch self {
+            case .tracks: "music.note.list"; case .albums: "square.grid.2x2"; case .artists: "person.2"
+            }
+        }
+    }
+
+    private let gridColumns = [GridItem(.adaptive(minimum: 150), spacing: Spacing.lg)]
 
     enum SortField: String, CaseIterable, Identifiable {
         case title = "Title", artist = "Artist", album = "Album", year = "Year", bpm = "BPM", random = "Random"
@@ -60,38 +79,31 @@ public struct LibraryView: View {
         VStack(spacing: 0) {
             if client.isSyncing { SyncProgressBanner() }
 
-            if !tags.isEmpty { tagChips }
+            modePicker
 
-            if isLoadingTracks && tracks.isEmpty {
-                SkeletonRows()
-            } else if tracks.isEmpty && !client.isSyncing {
-                emptyState
-            } else {
-                List(displayTracks, selection: $selection) { track in
-                    LibraryTrackRow(track: track, canPlay: client.selectedZone != nil) {
-                        play([asRecord(track)])
-                    }
-                    .contextMenu { rowMenu(track) }
-                    .tag(track.id)
-                }
-                if !selection.isEmpty { selectionBar }
+            switch viewMode {
+            case .tracks:  tracksContent
+            case .albums:  albumsContent
+            case .artists: artistsContent
             }
         }
         .animation(Motion.quick, value: selection.isEmpty)
         .navigationTitle("Bibliotheek (\(client.trackCount) tracks)")
-        .searchable(text: $searchText, prompt: "Zoek op titel, artiest of album…")
+        .searchable(text: $searchText, prompt: searchPrompt)
         .toolbar {
             ToolbarItem {
                 if isSearching {
                     ProgressView().controlSize(.small)
                 }
             }
-            ToolbarItem {
-                Picker("Sorteer", selection: $sort) {
-                    ForEach(SortField.allCases) { Text($0.label).tag($0) }
+            if viewMode == .tracks {
+                ToolbarItem {
+                    Picker("Sorteer", selection: $sort) {
+                        ForEach(SortField.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.menu)
+                    .help("Sorteer tracks")
                 }
-                .pickerStyle(.menu)
-                .help("Sorteer tracks")
             }
             ToolbarItem {
                 if client.isSyncing {
@@ -109,11 +121,12 @@ public struct LibraryView: View {
             searchTask?.cancel()
             searchTask = Task {
                 try? await Task.sleep(nanoseconds: 250_000_000)
-                if !Task.isCancelled { reloadTracks() }
+                if !Task.isCancelled { reloadContent() }
             }
         }
         .onChange(of: selectedTag) { _, _ in reloadTracks() }
         .onChange(of: sort) { _, _ in displayTracks = Self.sortAndDedupe(tracks, by: sort) }
+        .onChange(of: viewMode) { _, _ in reloadContent() }
         .onChange(of: client.trackCount) { _, _ in reload() }
         .onAppear { reload() }
         .alert("Bewaar als playlist", isPresented: $showSaveSheet) {
@@ -129,6 +142,115 @@ public struct LibraryView: View {
         } message: {
             Text("Bewaar \(selection.count) geselecteerde track\(selection.count == 1 ? "" : "s") als lokale playlist.")
         }
+    }
+
+    // MARK: - Mode switcher + content
+
+    private var modePicker: some View {
+        Picker("Weergave", selection: $viewMode) {
+            ForEach(ViewMode.allCases) { mode in
+                Label(mode.label, systemImage: mode.icon).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelStyle(.titleAndIcon)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.sm)
+    }
+
+    private var searchPrompt: String {
+        switch viewMode {
+        case .tracks:  "Zoek op titel, artiest of album…"
+        case .albums:  "Zoek op album of artiest…"
+        case .artists: "Zoek op artiest…"
+        }
+    }
+
+    @ViewBuilder
+    private var tracksContent: some View {
+        if !tags.isEmpty { tagChips }
+
+        if isLoadingTracks && tracks.isEmpty {
+            SkeletonRows()
+        } else if tracks.isEmpty && !client.isSyncing {
+            emptyState
+        } else {
+            List(displayTracks, selection: $selection) { track in
+                LibraryTrackRow(track: track, canPlay: client.selectedZone != nil) {
+                    play([asRecord(track)])
+                }
+                .contextMenu { rowMenu(track) }
+                .tag(track.id)
+            }
+            if !selection.isEmpty { selectionBar }
+        }
+    }
+
+    @ViewBuilder
+    private var albumsContent: some View {
+        if albums.isEmpty {
+            gridEmptyState(noun: "albums")
+        } else {
+            ScrollView {
+                LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
+                    ForEach(albums, id: \.albumKey) { album in
+                        AlbumGridCell(album: album, canPlay: client.selectedZone != nil) {
+                            playAlbum(album)
+                        }
+                        .contextMenu {
+                            Button("Speel album") { playAlbum(album) }
+                                .disabled(client.selectedZone == nil)
+                        }
+                    }
+                }
+                .padding(Spacing.lg)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var artistsContent: some View {
+        if artists.isEmpty {
+            gridEmptyState(noun: "artiesten")
+        } else {
+            ScrollView {
+                LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
+                    ForEach(artists) { artist in
+                        ArtistGridCell(artist: artist, canPlay: client.selectedZone != nil) {
+                            playArtist(artist)
+                        }
+                        .contextMenu {
+                            Button("Speel artiest") { playArtist(artist) }
+                                .disabled(client.selectedZone == nil)
+                        }
+                    }
+                }
+                .padding(Spacing.lg)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func gridEmptyState(noun: String) -> some View {
+        if client.connectionState.isConnected {
+            ContentUnavailableView("Geen \(noun)", systemImage: "square.grid.2x2",
+                description: Text(searchText.isEmpty ? "Synchroniseer je bibliotheek." : "Geen \(noun) voor “\(searchText)”."))
+        } else {
+            ContentUnavailableView("Niet verbonden", systemImage: "wifi.slash",
+                description: Text("Verbind eerst met je Roon Core."))
+        }
+    }
+
+    private func playAlbum(_ album: DatabaseManager.AlbumResult) {
+        guard let zone = client.selectedZone else { return }
+        Haptics.tap()
+        Task { await client.playAlbum(albumKey: album.albumKey, zoneID: zone.id) }
+    }
+
+    private func playArtist(_ artist: DatabaseManager.ArtistResult) {
+        guard let zone = client.selectedZone else { return }
+        Haptics.tap()
+        Task { await client.playArtist(name: artist.name, zoneID: zone.id) }
     }
 
     // MARK: - Selection action bar
@@ -219,7 +341,16 @@ public struct LibraryView: View {
 
     private func reload() {
         Task { tags = await client.topTags(limit: 28) }
-        reloadTracks()
+        reloadContent()
+    }
+
+    /// Loads data for whichever browse mode is active.
+    private func reloadContent() {
+        switch viewMode {
+        case .tracks:  reloadTracks()
+        case .albums:  loadAlbums()
+        case .artists: loadArtists()
+        }
     }
 
     private func reloadTracks() {
@@ -231,6 +362,22 @@ public struct LibraryView: View {
             tracks = rows
             displayTracks = display
             isLoadingTracks = false
+            isSearching = false
+        }
+    }
+
+    private func loadAlbums() {
+        let q = searchText
+        Task {
+            albums = await client.searchAlbums(query: q)
+            isSearching = false
+        }
+    }
+
+    private func loadArtists() {
+        let q = searchText
+        Task {
+            artists = await client.searchArtists(query: q)
             isSearching = false
         }
     }
@@ -321,5 +468,65 @@ struct LibraryTrackRow: View {
             .padding(.horizontal, 5).padding(.vertical, 1)
             .background(.quaternary, in: Capsule())
             .foregroundStyle(.secondary)
+    }
+}
+
+// MARK: - Album grid cell
+
+struct AlbumGridCell: View {
+    let album: DatabaseManager.AlbumResult
+    let canPlay: Bool
+    let onPlay: () -> Void
+
+    var body: some View {
+        Button(action: onPlay) {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .bottomTrailing) {
+                    AlbumArtView(imageKey: album.imageKey, size: 150, cornerRadius: 8)
+                    if canPlay {
+                        Image(systemName: "play.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.white, Color.roonGold)
+                            .padding(6)
+                            .shadow(radius: 2)
+                    }
+                }
+                Text(album.album).font(.callout).lineLimit(1)
+                Text(albumSubtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(!canPlay)
+        .help(canPlay ? "Speel album" : "Kies eerst een zone")
+    }
+
+    private var albumSubtitle: String {
+        var parts: [String] = []
+        if let a = album.artist, !a.isEmpty { parts.append(a) }
+        if let y = album.year { parts.append(String(y)) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Artist grid cell
+
+struct ArtistGridCell: View {
+    let artist: DatabaseManager.ArtistResult
+    let canPlay: Bool
+    let onPlay: () -> Void
+
+    var body: some View {
+        Button(action: onPlay) {
+            VStack(spacing: 6) {
+                AlbumArtView(imageKey: artist.imageKey, size: 150, cornerRadius: 75)
+                Text(artist.name).font(.callout).lineLimit(1)
+                Text("\(artist.albumCount) album\(artist.albumCount == 1 ? "" : "s") · \(artist.trackCount) tracks")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+        .disabled(!canPlay)
+        .help(canPlay ? "Speel artiest" : "Kies eerst een zone")
     }
 }

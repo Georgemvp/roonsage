@@ -198,6 +198,16 @@ extension RoonClient {
         await curateTracks(tracks, zoneID: zoneID)
     }
 
+    /// Play an artist's library tracks to a zone (first plays, rest queue).
+    public func playArtist(name: String, zoneID: String) async {
+        var opts = DatabaseManager.FilterOptions()
+        opts.artists = [name]
+        opts.limit = 200
+        let tracks = await filterTracks(options: opts)
+        guard !tracks.isEmpty else { return }
+        await curateTracks(tracks, zoneID: zoneID)
+    }
+
     // MARK: - Sonic similarity (Radio / Fingerprint)
 
     /// Library tracks sonically similar to a seed (tempo, key, energy, tags).
