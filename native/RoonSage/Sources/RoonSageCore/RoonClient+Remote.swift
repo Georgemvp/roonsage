@@ -196,24 +196,48 @@ extension RoonClient {
             }
         }
 
-        // Auto-refresh: when the server's library changed (or we've never
-        // imported on this device — stored revision is nil), pull it once in the
-        // background. Keyed on revision so it runs once per change, not per poll.
+        // Auto-refresh: pull the library once in the background when the server's
+        // copy changed, when we've never imported here (stored revision nil), or
+        // after a client update (app version changed — picks up import-format
+        // fixes like genres/features without a manual sync). Keyed so it runs
+        // once per change, not per poll.
+        let storedRev = UserDefaults.standard.string(forKey: "imported_library_revision")
+        let storedVer = UserDefaults.standard.string(forKey: "imported_app_version")
         if let rev = snap.libraryRevision,
-           rev != UserDefaults.standard.string(forKey: "imported_library_revision"),
+           (rev != storedRev || Self.appVersion != storedVer),
            !isSyncing, !isImportingFromServer {
             isImportingFromServer = true
             Task { [weak self] in await self?.refreshLibraryFromServer(base: base, revision: rev) }
         }
     }
 
+    static var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    }
+
+    /// Features endpoint: the configured analyzer URL, or — when the server
+    /// didn't report one (it IS the analyzer and never set `analyzer_url`) — the
+    /// server's own host on the analyzer's default port (5766). Persists the
+    /// derived value so later syncs have it.
+    func featuresURL(serverBase: String) -> String {
+        let a = analyzerURL
+        if !a.isEmpty { return a }
+        if let host = URL(string: serverBase)?.host {
+            let derived = "http://\(host):5766"
+            analyzerURL = derived
+            return derived
+        }
+        return a
+    }
+
     /// Background library (+features) re-import triggered by a revision change.
     func refreshLibraryFromServer(base: String, revision: String) async {
         defer { isImportingFromServer = false }
         guard await importLibrary(fromMac: base) != nil else { return }
-        let aURL = analyzerURL
+        let aURL = featuresURL(serverBase: base)
         if !aURL.isEmpty { _ = await syncAudioFeatures(from: aURL) }
         UserDefaults.standard.set(revision, forKey: "imported_library_revision")
+        UserDefaults.standard.set(Self.appVersion, forKey: "imported_app_version")
     }
 
     /// One-shot fetch of the server's current library revision (used to record a

@@ -97,7 +97,7 @@ extension RoonClient {
         guard let tracks = await importLibrary(fromMac: trimmed) else { return nil }
 
         var features = 0
-        let aURL = analyzerURL
+        let aURL = featuresURL(serverBase: trimmed)
         if !aURL.isEmpty, let diag = await syncAudioFeatures(from: aURL) {
             features = diag.featureRows
         }
@@ -106,6 +106,7 @@ extension RoonClient {
         if let rev = await fetchLibraryRevision(base: trimmed) {
             UserDefaults.standard.set(rev, forKey: "imported_library_revision")
         }
+        UserDefaults.standard.set(Self.appVersion, forKey: "imported_app_version")
         return ServerSyncResult(source: trimmed, tracks: tracks, features: features)
     }
 

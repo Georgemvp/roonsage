@@ -115,6 +115,7 @@ extension RoonClient {
             try? db.importLibrary(json: data)
         }).value else { return nil }
         refreshTrackCount()
+        refreshGenreCount()
         await sonicCache.invalidate()
         return count
     }
