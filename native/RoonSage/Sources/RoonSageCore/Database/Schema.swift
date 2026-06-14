@@ -222,6 +222,15 @@ enum Schema {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_listen_source ON listening_history(source)")
         }
 
+        migrator.registerMigration("v15_clap_embeddings") { db in
+            // CLAP sonic embedding pulled from the analyzer (Track E5). embedding
+            // is a packed Float32 BLOB; map_x/map_y hold the PCA-2D projection.
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN embedding BLOB")
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN moods TEXT")
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN map_x REAL")
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN map_y REAL")
+        }
+
         try migrator.migrate(db)
     }
 }

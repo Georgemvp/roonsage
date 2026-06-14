@@ -12,6 +12,20 @@ extension RoonClient {
         set { UserDefaults.standard.set(newValue, forKey: "analyzer_url") }
     }
 
+    /// A/B flag (Track E5): when off, Similar / Fingerprint / Path / Alchemy /
+    /// Map fall back to the rule-based BPM/Camelot/tag engine even if CLAP
+    /// embeddings exist — keeps the scalar baseline comparable before retiring
+    /// it. Default on.
+    public var useSonicEmbeddings: Bool {
+        get { (UserDefaults.standard.object(forKey: "sonic_use_embeddings") as? Bool) ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "sonic_use_embeddings") }
+    }
+
+    /// The vector index when embeddings are enabled, else nil (→ rule-based).
+    private func activeIndex(_ db: DatabaseManager) async -> VectorIndex? {
+        useSonicEmbeddings ? await sonicCache.vectorIndex(from: db) : nil
+    }
+
     public func audioFeaturesStats() async -> (total: Int, matched: Int) {
         guard let db = database else { return (0, 0) }
         return await Task.detached { (try? db.audioFeaturesStats()) ?? (0, 0) }.value
@@ -29,8 +43,23 @@ extension RoonClient {
             // DJ/Sonic joins pick them up; apply on a real sync.
             return try? db?.reconcileFeatureMatches(payload.identities, apply: true)
         }.value
+        // Pull the 512-dim embeddings (binary bundle) after match_keys are
+        // reconciled, so they attach to the right rows.
+        await pullEmbeddings(from: baseURL)
         await sonicCache.invalidate()
         return diag
+    }
+
+    /// Fetch the analyzer's binary `/embeddings` bundle and attach the vectors
+    /// to the feature rows by match_key. Best-effort: older analyzers without
+    /// the endpoint simply yield no embeddings.
+    private func pullEmbeddings(from baseURL: String) async {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
+        guard let url = URL(string: "\(trimmed)/embeddings"),
+              let (data, resp) = try? await URLSession.shared.data(from: url),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
+        let db = database
+        _ = await Task.detached { try? db?.applyEmbeddingsBlob(data) }.value
     }
 
     /// Read-only: fetch features and report the match breakdown WITHOUT mutating
@@ -66,7 +95,7 @@ extension RoonClient {
                     bpm: o["bpm"] as? Double, camelot: o["camelot"] as? String,
                     keyRoot: o["key_root"] as? String, keyMode: o["key_mode"] as? String,
                     energy: o["energy"] as? Double, duration: o["duration"] as? Double,
-                    tags: o["tags"] as? String
+                    tags: o["tags"] as? String, moods: o["moods"] as? String
                 ))
                 identities.append(DatabaseManager.FeatureIdentity(
                     matchKey: mk, artist: o["artist"] as? String, title: o["title"] as? String))
@@ -215,9 +244,41 @@ extension RoonClient {
     public func similarTracks(toMatchKey matchKey: String, limit: Int = 30) async -> [SonicEngine.Scored] {
         guard let db = database, !matchKey.isEmpty else { return [] }
         let lib = await sonicCache.tracks(from: db)
+        let index = await activeIndex(db)
         return await Task.detached {
             guard let seed = lib.first(where: { $0.matchKey == matchKey }) else { return [] }
-            return SonicEngine.similar(to: seed, in: lib, limit: limit)
+            return SonicEngine.similar(to: seed, in: lib, limit: limit, index: index)
+        }.value
+    }
+
+    /// The CLAP k-NN index over the analyzed library (nil when too few
+    /// embeddings exist or the A/B flag is off). For UI features that drive the
+    /// engine directly.
+    public func sonicVectorIndex() async -> VectorIndex? {
+        guard let db = database else { return nil }
+        return await activeIndex(db)
+    }
+
+    /// Free-text → audio search: the analyzer embeds the query text (CLAP shared
+    /// space) via /text-embed, then we cosine-rank the local embedding index.
+    /// Returns [] when the analyzer/text model or embeddings are unavailable.
+    public func sonicTextSearch(_ query: String, limit: Int = 40) async -> [SonicEngine.Scored] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard let db = database, !q.isEmpty else { return [] }
+        let base = analyzerURL.trimmingCharacters(in: .whitespaces)
+        guard !base.isEmpty, var comp = URLComponents(string: "\(base)/text-embed") else { return [] }
+        comp.queryItems = [URLQueryItem(name: "q", value: q)]
+        guard let url = comp.url,
+              let (data, resp) = try? await URLSession.shared.data(from: url),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let arr = obj["embedding"] as? [Double], !arr.isEmpty else { return [] }
+        let vec = arr.map { Float($0) }
+        guard let index = await sonicCache.vectorIndex(from: db) else { return [] }
+        return await Task.detached {
+            index.nearest(to: vec, k: limit).map {
+                SonicEngine.Scored(track: $0.track, similarity: Double(max(0, $0.score)))
+            }
         }.value
     }
 
@@ -244,6 +305,7 @@ extension RoonClient {
     public func sonicFingerprint(seedLimit: Int = 40, recommendCount: Int = 60) async -> Fingerprint? {
         guard let db = database else { return nil }
         let lib = await sonicCache.tracks(from: db)
+        let index = await activeIndex(db)
         return await Task.detached {
             guard !lib.isEmpty else { return nil }
             let top = (try? db.topTracks(limit: seedLimit)) ?? []
@@ -252,7 +314,7 @@ extension RoonClient {
             // Fall back to the loudest/most-typical slice if there's no play history yet.
             let effectiveSeeds = seeds.isEmpty ? Array(lib.prefix(min(40, lib.count))) : seeds
             let profile = SonicEngine.profile(of: effectiveSeeds)
-            let recs = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount)
+            let recs = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount, index: index)
             return Fingerprint(profile: profile, recommendations: recs, seedCount: effectiveSeeds.count)
         }.value
     }
@@ -261,6 +323,29 @@ extension RoonClient {
     public func sonicLibrary() async -> [DatabaseManager.SonicTrack] {
         guard let db = database else { return [] }
         return await sonicCache.tracks(from: db)
+    }
+
+    /// Compute the PCA-2D Music Map projection over the CLAP embeddings, persist
+    /// map_x/map_y, and invalidate the cache so the next load carries coords.
+    /// Returns the number of tracks projected (0 when too few embeddings exist).
+    @discardableResult
+    public func computeMusicMap() async -> Int {
+        guard let db = database, useSonicEmbeddings else { return 0 }
+        let lib = await sonicCache.tracks(from: db)
+        let coords: [(matchKey: String, x: Double, y: Double)] = await Task.detached {
+            let withEmb = lib.filter { ($0.embedding?.count ?? 0) > 0 }
+            guard withEmb.count >= 3, let dim = withEmb.first?.embedding?.count else { return [] }
+            var flat = [Float](); flat.reserveCapacity(withEmb.count * dim)
+            for t in withEmb { flat.append(contentsOf: t.embedding!) }
+            let pts = PCAProjector.project(flat: flat, n: withEmb.count, dim: dim)
+            guard pts.count == withEmb.count else { return [] }
+            return zip(withEmb, pts).map { (matchKey: $0.matchKey, x: Double($1.x), y: Double($1.y)) }
+        }.value
+        guard !coords.isEmpty else { return 0 }
+        let database = db
+        _ = await Task.detached { try? database.updateMapCoords(coords) }.value
+        await sonicCache.invalidate()
+        return coords.count
     }
 
     /// Case-insensitive search over the cached sonic library (title + artist).

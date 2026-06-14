@@ -13,8 +13,23 @@ import Foundation
 public actor SonicLibraryCache {
     private var cached: [DatabaseManager.SonicTrack]?
     private var inFlight: Task<[DatabaseManager.SonicTrack], Never>?
+    private var cachedIndex: VectorIndex?
+    private var indexBuilt = false
 
     public init() {}
+
+    /// The CLAP k-NN index over the analyzed library, built (off the cached
+    /// tracks) and memoized on first use. nil when too few tracks carry an
+    /// embedding — callers then fall back to the rule-based engine. Cleared by
+    /// `invalidate()` alongside the track cache.
+    public func vectorIndex(from db: DatabaseManager) async -> VectorIndex? {
+        if indexBuilt { return cachedIndex }
+        let tracks = await tracks(from: db)
+        let idx = VectorIndex(tracks: tracks)
+        cachedIndex = idx
+        indexBuilt = true
+        return idx
+    }
 
     /// The analyzed library, loading (off-main) and caching on first use.
     public func tracks(from db: DatabaseManager) async -> [DatabaseManager.SonicTrack] {
@@ -35,6 +50,8 @@ public actor SonicLibraryCache {
     public func invalidate() {
         cached = nil
         inFlight = nil
+        cachedIndex = nil
+        indexBuilt = false
     }
 
     /// All cached tracks (loads from `db` on first call). Equivalent to
