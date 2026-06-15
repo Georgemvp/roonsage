@@ -130,15 +130,18 @@ extension DatabaseManager {
             pairs.append((key, blob))
         }
 
-        var updated = 0
-        try await pool.write { db in
-            for p in pairs {
+        // Immutable copy + count returned from the closure: the async pool.write
+        // closure is @Sendable and may not capture/mutate outer vars.
+        let outPairs = pairs
+        return try await pool.write { db -> Int in
+            var updated = 0
+            for p in outPairs {
                 try db.execute(sql: "UPDATE track_audio_features SET embedding = ? WHERE match_key = ?",
                                arguments: [p.blob, p.key])
                 updated += db.changesCount
             }
+            return updated
         }
-        return updated
     }
 
     /// Persist the PCA-2D Music Map coordinates (Track E5d) by match_key.
@@ -196,6 +199,8 @@ extension DatabaseManager {
             let artistKey = TrackIdentity.normalise(TrackIdentity.primaryArtist(f.artist))
             buckets[artistKey, default: []].append(Cand(matchKey: f.matchKey, tokens: FuzzyMatch.tokens(f.title)))
         }
+        // Immutable copy: the async pool.write closure is @Sendable.
+        let outBuckets = buckets
 
         return try await pool.write { db in
             let libraryTracks = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM tracks") ?? 0
@@ -221,7 +226,7 @@ extension DatabaseManager {
                 let titleTokens = FuzzyMatch.tokens(title)
                 var best = Self.fuzzyTitleThreshold
                 var bestKey: String?
-                for cand in buckets[artistKey] ?? [] {
+                for cand in outBuckets[artistKey] ?? [] {
                     let s = FuzzyMatch.score(titleTokens, cand.tokens)
                     if s >= best { best = s; bestKey = cand.matchKey }
                 }

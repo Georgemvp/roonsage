@@ -102,22 +102,25 @@ extension DatabaseManager {
         }
         guard !records.isEmpty else { throw ImportError.empty }
 
+        // Immutable copies: the async pool.write closure is @Sendable and may not
+        // capture the mutable build-up vars (older Swift rejects it as a data race).
+        let outRecords = records, outFps = fps, outGenrePairs = genrePairs
         try await pool.write { db in
             try db.execute(sql: "DELETE FROM tracks")
             try db.execute(sql: "DELETE FROM sync_album_checkpoints")
 
             let chunk = Self.rowsPerChunk(columns: 10)
             var start = 0
-            while start < records.count {
-                let end = min(start + chunk, records.count)
-                let slice = records[start..<end]
+            while start < outRecords.count {
+                let end = min(start + chunk, outRecords.count)
+                let slice = outRecords[start..<end]
                 let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
                 var args: [DatabaseValueConvertible?] = []
                 args.reserveCapacity(slice.count * 10)
                 for (offset, r) in slice.enumerated() {
                     args.append(contentsOf: [r.id, r.title, r.artist, r.album, r.albumKey,
                                              r.year, r.isLive, r.matchKey, r.imageKey,
-                                             fps[start + offset]] as [DatabaseValueConvertible?])
+                                             outFps[start + offset]] as [DatabaseValueConvertible?])
                 }
                 try db.execute(sql: """
                     INSERT INTO tracks
@@ -130,8 +133,8 @@ extension DatabaseManager {
             // Genres (cascade-cleared with the tracks delete).
             let gChunk = Self.rowsPerChunk(columns: 2)
             var gStart = 0
-            while gStart < genrePairs.count {
-                let slice = genrePairs[gStart..<min(gStart + gChunk, genrePairs.count)]
+            while gStart < outGenrePairs.count {
+                let slice = outGenrePairs[gStart..<min(gStart + gChunk, outGenrePairs.count)]
                 let placeholders = slice.map { _ in "(?,?)" }.joined(separator: ",")
                 var args: [DatabaseValueConvertible] = []
                 for p in slice { args.append(p.0); args.append(p.1) }
