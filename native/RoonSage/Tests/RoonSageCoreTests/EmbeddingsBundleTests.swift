@@ -21,7 +21,7 @@ final class EmbeddingsBundleTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    func testEmbeddingsBlobRoundTripsAnalyzerToClient() throws {
+    func testEmbeddingsBlobRoundTripsAnalyzerToClient() async throws {
         let key = TrackIdentity.matchKey(artist: "Artist", album: "Album", title: "Title")
         let emb: [Float] = (0..<512).map { Float($0) / 512.0 - 0.5 }
 
@@ -36,17 +36,17 @@ final class EmbeddingsBundleTests: XCTestCase {
         XCTAssertGreaterThan(blob.count, 13 + 512 * 4, "bundle must carry header + one vector")
 
         // --- client side: matching track + feature row, then apply ---
-        try db.upsertTracks([TrackRecord(
+        try await db.upsertTracks([TrackRecord(
             id: "t1", title: "Title", artist: "Artist", album: "Album",
             albumKey: "ak", year: 2000, matchKey: key)])
-        try db.upsertAudioFeatures([DatabaseManager.AudioFeatureRow(
+        try await db.upsertAudioFeatures([DatabaseManager.AudioFeatureRow(
             matchKey: key, bpm: 120, camelot: "8B", keyRoot: "C", keyMode: "major",
             energy: 0.5, duration: 200, tags: nil, moods: nil)])
 
-        let applied = try db.applyEmbeddingsBlob(blob)
+        let applied = try await db.applyEmbeddingsBlob(blob)
         XCTAssertEqual(applied, 1, "exactly one feature row should be updated")
 
-        let sonic = try db.sonicTracks(excludeLive: false)
+        let sonic = try await db.sonicTracks(excludeLive: false)
         let track = try XCTUnwrap(sonic.first { $0.matchKey == key })
         let vec = try XCTUnwrap(track.embedding)
         XCTAssertEqual(vec.count, 512)

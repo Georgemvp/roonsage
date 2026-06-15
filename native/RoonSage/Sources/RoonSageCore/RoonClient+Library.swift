@@ -114,7 +114,7 @@ extension RoonClient {
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         guard let count = await Task.detached(priority: .userInitiated, operation: {
-            try? db.importLibrary(json: data)
+            try? await db.importLibrary(json: data)
         }).value else { return nil }
         refreshTrackCount()
         refreshGenreCount()
@@ -191,7 +191,7 @@ extension RoonClient {
 
     public func searchTracks(query: String) async -> [TrackRecord] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.searchTracks(query: query, limit: 300)) ?? [] }.value
+        return (try? await db.searchTracks(query: query, limit: 300)) ?? []
     }
 
     public func searchAlbums(query: String) async -> [DatabaseManager.AlbumResult] {
@@ -366,7 +366,7 @@ extension RoonClient {
         // name alone. No-op when track_genres is empty.
         if let db = database, !albums.isEmpty {
             let keys = albums.map(\.albumKey)
-            let genreMap = await Task.detached { (try? db.genresForAlbumKeys(keys)) ?? [:] }.value
+            let genreMap = (try? await db.genresForAlbumKeys(keys)) ?? [:]
             if !genreMap.isEmpty {
                 for i in albums.indices {
                     albums[i].genres = genreMap[albums[i].albumKey] ?? []

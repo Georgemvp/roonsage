@@ -14,8 +14,8 @@ extension DatabaseManager {
     static let importKeyPrefix = "import::"
 
     /// The full library (tracks + genres) as a compact JSON document.
-    public func exportLibraryJSON() throws -> Data {
-        try pool.read { db in
+    public func exportLibraryJSON() async throws -> Data {
+        try await pool.read { db in
             var genresByTrack: [String: [String]] = [:]
             for row in try Row.fetchAll(db, sql: "SELECT track_id, genre FROM track_genres") {
                 if let id = row["track_id"] as String?, let g = row["genre"] as String? {
@@ -56,7 +56,7 @@ extension DatabaseManager {
     /// Replace the whole library with an exported document. Returns the number
     /// of imported tracks. Clears any interrupted-sync state: after an import
     /// the library is complete by definition.
-    public func importLibrary(json: Data) throws -> Int {
+    public func importLibrary(json: Data) async throws -> Int {
         guard let obj = try JSONSerialization.jsonObject(with: json) as? [String: Any],
               let items = obj["tracks"] as? [[String: Any]] else {
             throw ImportError.malformed
@@ -102,7 +102,7 @@ extension DatabaseManager {
         }
         guard !records.isEmpty else { throw ImportError.empty }
 
-        try pool.write { db in
+        try await pool.write { db in
             try db.execute(sql: "DELETE FROM tracks")
             try db.execute(sql: "DELETE FROM sync_album_checkpoints")
 

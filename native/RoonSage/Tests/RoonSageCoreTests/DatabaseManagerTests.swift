@@ -26,18 +26,20 @@ final class DatabaseManagerTests: XCTestCase {
         TrackRecord(id: id, title: title, artist: artist, album: album, albumKey: "ak-\(album)", year: year, matchKey: "\(artist)|\(title)".lowercased())
     }
 
-    func testBatchUpsertTracksRoundTrips() throws {
+    func testBatchUpsertTracksRoundTrips() async throws {
         // More than one chunk (rowsPerChunk for 9 cols = 100) to exercise chunking.
         let records = (0..<250).map { track("t\($0)", "Title \($0)", "Artist \($0 % 7)") }
-        try db.upsertTracks(records)
-        XCTAssertEqual(try db.trackCount(), 250)
+        try await db.upsertTracks(records)
+        let count1 = try await db.trackCount()
+        XCTAssertEqual(count1, 250)
 
         // Re-upsert with a changed title should UPDATE, not duplicate.
         var changed = records[0]
         changed.title = "Renamed"
-        try db.upsertTracks([changed])
-        XCTAssertEqual(try db.trackCount(), 250)
-        let hit = try db.searchTracks(query: "Renamed")
+        try await db.upsertTracks([changed])
+        let count2 = try await db.trackCount()
+        XCTAssertEqual(count2, 250)
+        let hit = try await db.searchTracks(query: "Renamed")
         XCTAssertEqual(hit.first?.id, "t0")
     }
 
@@ -77,13 +79,14 @@ final class DatabaseManagerTests: XCTestCase {
     }
 
     func testGenreMappingBatched() async throws {
-        try db.upsertTracks([
+        try await db.upsertTracks([
             track("a", "Song A", "X", album: "Blue"),
             track("b", "Song B", "Y", album: "Blue"),
             track("c", "Song C", "Z", album: "Red"),
         ])
-        try db.applyGenreMapping(["blue": ["Jazz", "Soul"], "red": ["Rock"]])
-        XCTAssertEqual(try db.genreCount(), 3)  // distinct genres
+        try await db.applyGenreMapping(["blue": ["Jazz", "Soul"], "red": ["Rock"]])
+        let genreCount = try await db.genreCount()
+        XCTAssertEqual(genreCount, 3)  // distinct genres
 
         var opts = DatabaseManager.FilterOptions()
         opts.genres = ["Jazz"]
@@ -92,7 +95,7 @@ final class DatabaseManagerTests: XCTestCase {
     }
 
     func testTopTracksJoin() async throws {
-        try db.upsertTracks([track("a", "Hit", "Band"), track("b", "Filler", "Other")])
+        try await db.upsertTracks([track("a", "Hit", "Band"), track("b", "Filler", "Other")])
         for _ in 0..<3 { try await db.logListen(title: "Hit", artist: "Band", album: nil, zoneID: "z", zoneName: "Z") }
         try await db.logListen(title: "Filler", artist: "Other", album: nil, zoneID: "z", zoneName: "Z")
 
@@ -104,7 +107,7 @@ final class DatabaseManagerTests: XCTestCase {
     }
 
     func testForgottenFavoritesArtistCap() async throws {
-        try db.upsertTracks([
+        try await db.upsertTracks([
             track("a1", "A1", "SameArtist"), track("a2", "A2", "SameArtist"), track("a3", "A3", "SameArtist"),
         ])
         // Old plays (well beyond the 60-day cutoff) so they count as "forgotten".
@@ -119,7 +122,7 @@ final class DatabaseManagerTests: XCTestCase {
     }
 
     func testResolveCurrentTracks() async throws {
-        try db.upsertTracks([track("new1", "Shared Title", "Resolved Artist")])
+        try await db.upsertTracks([track("new1", "Shared Title", "Resolved Artist")])
         // Saved copy carries a stale id but matching title+artist.
         let saved = TrackRecord(id: "stale", title: "Shared Title", artist: "Resolved Artist")
         let resolved = try await db.resolveCurrentTracks([saved])
@@ -154,7 +157,7 @@ extension DatabaseManagerTests {
     /// The analyzer feed contains duplicate match_keys (39911 rows -> ~35714
     /// unique). A multi-row INSERT ... ON CONFLICT DO UPDATE hits the same key
     /// twice within one statement — this must not throw.
-    func testUpsertAudioFeaturesWithDuplicateKeys() throws {
+    func testUpsertAudioFeaturesWithDuplicateKeys() async throws {
         var rows: [DatabaseManager.AudioFeatureRow] = []
         for i in 0..<250 {
             let key = "key-\(i % 120)"   // duplicates within and across chunks
@@ -162,42 +165,49 @@ extension DatabaseManagerTests {
                 matchKey: key, bpm: Double(100 + i), camelot: "8A", keyRoot: "A",
                 keyMode: "minor", energy: 0.5, duration: 200, tags: nil))
         }
-        try db.upsertAudioFeatures(rows)
-        let count = try db.pool.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM track_audio_features") ?? 0 }
+        try await db.upsertAudioFeatures(rows)
+        let count = try await db.pool.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM track_audio_features") ?? 0 }
         XCTAssertEqual(count, 120)
         // Last write wins: key-0 appears at i=0 and i=120 and i=240 -> bpm 340.
-        let bpm = try db.pool.read { try Double.fetchOne($0, sql: "SELECT bpm FROM track_audio_features WHERE match_key='key-0'") }
+        let bpm = try await db.pool.read { try Double.fetchOne($0, sql: "SELECT bpm FROM track_audio_features WHERE match_key='key-0'") }
         XCTAssertEqual(bpm, 340)
     }
 
     // MARK: - FTS5 search
 
     func testFTSSearchMatchesPrefixAndStaysInSync() async throws {
-        try db.upsertTracks([
+        try await db.upsertTracks([
             track("a", "Don't Look Back in Anger", "Oasis", album: "Morning Glory"),
             track("b", "Champagne Supernova", "Oasis", album: "Morning Glory"),
             track("c", "Karma Police", "Radiohead", album: "OK Computer"),
         ])
 
         // Prefix match on title token.
-        XCTAssertEqual(try db.searchTracks(query: "champ").map(\.id), ["b"])
+        let champHit = try await db.searchTracks(query: "champ").map(\.id)
+        XCTAssertEqual(champHit, ["b"])
         // Artist match.
-        XCTAssertEqual(Set(try db.searchTracks(query: "oasis").map(\.id)), ["a", "b"])
+        let oasisHit = try await db.searchTracks(query: "oasis").map(\.id)
+        XCTAssertEqual(Set(oasisHit), ["a", "b"])
         // Multi-token AND across columns.
-        XCTAssertEqual(try db.searchTracks(query: "radiohead karma").map(\.id), ["c"])
+        let radioheadKarmaHit = try await db.searchTracks(query: "radiohead karma").map(\.id)
+        XCTAssertEqual(radioheadKarmaHit, ["c"])
         // FTS operators in user input are neutralised by token quoting.
-        XCTAssertEqual(try db.searchTracks(query: "karma OR oasis").count, 0)
+        let karmaOrOasisCount = try await db.searchTracks(query: "karma OR oasis").count
+        XCTAssertEqual(karmaOrOasisCount, 0)
 
         // UPDATE keeps the index in sync (upsert path).
         var renamed = track("c", "Paranoid Android", "Radiohead", album: "OK Computer")
         renamed.matchKey = "radiohead|paranoid android"
-        try db.upsertTracks([renamed])
-        XCTAssertEqual(try db.searchTracks(query: "karma").count, 0)
-        XCTAssertEqual(try db.searchTracks(query: "paranoid").map(\.id), ["c"])
+        try await db.upsertTracks([renamed])
+        let karmaCount = try await db.searchTracks(query: "karma").count
+        XCTAssertEqual(karmaCount, 0)
+        let paranoidHit = try await db.searchTracks(query: "paranoid").map(\.id)
+        XCTAssertEqual(paranoidHit, ["c"])
 
         // DELETE keeps the index in sync.
         try await db.pool.write { try $0.execute(sql: "DELETE FROM tracks WHERE id='b'") }
-        XCTAssertEqual(try db.searchTracks(query: "champ").count, 0)
+        let champCountAfterDelete = try await db.searchTracks(query: "champ").count
+        XCTAssertEqual(champCountAfterDelete, 0)
 
         // browseTracks + filterTracks route through FTS too.
         let browsed = try await db.browseTracks(query: "parano", tag: nil)

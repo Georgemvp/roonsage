@@ -382,7 +382,9 @@ public final class RoonClient {
             // search fallback in BrowseService.playByBrowse (cheaper than a full
             // re-walk on every reconnect).
             let coreChanged = previousCoreID != nil && previousCoreID != reg.coreID
-            let needsResync = trackCount == 0 || coreChanged || (try? database?.hasNullMatchKeys()) == true
+            // Hoisted out of the `||` — its right operand is a non-async autoclosure.
+            let hasNullKeys = (try? await database?.hasNullMatchKeys()) == true
+            let needsResync = trackCount == 0 || coreChanged || hasNullKeys
             if needsResync { startSync() }
         } catch {
             Log.error("registratie mislukt: \(error.localizedDescription)", category: .roon)
@@ -573,7 +575,7 @@ public final class RoonClient {
         guard let db = database else { trackCount = 0; return }
         // Fire-and-forget so init / import paths never block main on SQLite.
         Task { [weak self] in
-            let count = await Task.detached { (try? db.trackCount()) ?? 0 }.value
+            let count = (try? await db.trackCount()) ?? 0
             self?.trackCount = count
         }
     }
@@ -581,7 +583,7 @@ public final class RoonClient {
     func refreshGenreCount() {
         guard let db = database else { genreCount = 0; return }
         Task { [weak self] in
-            let count = await Task.detached { (try? db.genreCount()) ?? 0 }.value
+            let count = (try? await db.genreCount()) ?? 0
             self?.genreCount = count
         }
     }

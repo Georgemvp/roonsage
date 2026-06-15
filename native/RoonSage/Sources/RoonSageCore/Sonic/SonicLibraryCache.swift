@@ -36,7 +36,7 @@ public actor SonicLibraryCache {
         if let cached { return cached }
         if let inFlight { return await inFlight.value }
         let load = Task.detached(priority: .userInitiated) {
-            (try? db.sonicTracks()) ?? []
+            (try? await db.sonicTracks()) ?? []
         }
         inFlight = load
         let result = await load.value

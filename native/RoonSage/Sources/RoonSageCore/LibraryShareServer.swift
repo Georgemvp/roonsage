@@ -179,7 +179,7 @@ public final class LibraryShareServer: @unchecked Sendable {
             return ("200 OK", data, "application/json")
         }
         if path.hasPrefix("/library") {
-            if let body = try? database.exportLibraryJSON() {
+            if let body = try? await database.exportLibraryJSON() {
                 return ("200 OK", body, "application/json")
             }
             return ("500 Internal Server Error", Data("export failed".utf8), "text/plain")
@@ -191,7 +191,7 @@ public final class LibraryShareServer: @unchecked Sendable {
             return ("500 Internal Server Error", Data("export failed".utf8), "text/plain")
         }
         if path.hasPrefix("/health") {
-            let n = (try? database.trackCount()) ?? 0
+            let n = (try? await database.trackCount()) ?? 0
             return ("200 OK", Data("{\"status\":\"ok\",\"tracks\":\(n)}".utf8), "application/json")
         }
         return ("404 Not Found", Data("not found".utf8), "text/plain")

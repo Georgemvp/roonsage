@@ -22,25 +22,25 @@ final class SonicLibraryCacheTests: XCTestCase {
         }
     }
 
-    private func seed(_ id: String, _ title: String, _ artist: String, bpm: Double) throws {
+    private func seed(_ id: String, _ title: String, _ artist: String, bpm: Double) async throws {
         let mk = "\(artist)|\(title)".lowercased()
-        try db.upsertTracks([TrackRecord(
+        try await db.upsertTracks([TrackRecord(
             id: id, title: title, artist: artist, album: "Album",
             albumKey: "ak", year: 2000, matchKey: mk)])
-        try db.upsertAudioFeatures([DatabaseManager.AudioFeatureRow(
+        try await db.upsertAudioFeatures([DatabaseManager.AudioFeatureRow(
             matchKey: mk, bpm: bpm, camelot: "8A", keyRoot: "A",
             keyMode: "minor", energy: 0.5, duration: 200, tags: nil)])
     }
 
     func testCachesUntilInvalidated() async throws {
-        try seed("t1", "One", "Artist", bpm: 120)
+        try await seed("t1", "One", "Artist", bpm: 120)
         let cache = SonicLibraryCache()
 
         let first = await cache.tracks(from: db)
         XCTAssertEqual(first.count, 1)
 
         // New row lands in SQLite, but the cache must keep serving the old set…
-        try seed("t2", "Two", "Artist", bpm: 100)
+        try await seed("t2", "Two", "Artist", bpm: 100)
         let second = await cache.tracks(from: db)
         XCTAssertEqual(second.count, 1)
 
@@ -51,7 +51,7 @@ final class SonicLibraryCacheTests: XCTestCase {
     }
 
     func testConcurrentFirstLoadsShareOneResult() async throws {
-        try seed("t1", "One", "Artist", bpm: 120)
+        try await seed("t1", "One", "Artist", bpm: 120)
         let cache = SonicLibraryCache()
         let db = self.db!
 

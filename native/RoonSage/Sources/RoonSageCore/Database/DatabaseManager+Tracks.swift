@@ -4,8 +4,8 @@ import GRDB
 extension DatabaseManager {
     // MARK: - Track queries
 
-    public func upsertTrack(_ record: TrackRecord) throws {
-        try pool.write { db in
+    public func upsertTrack(_ record: TrackRecord) async throws {
+        try await pool.write { db in
             try record.save(db)
         }
     }
@@ -19,10 +19,10 @@ extension DatabaseManager {
 
     /// Multi-row upsert (one statement per chunk) — far fewer VDBE round-trips
     /// than a per-record `save()` loop on a full-library sync.
-    public func upsertTracks(_ records: [TrackRecord]) throws {
+    public func upsertTracks(_ records: [TrackRecord]) async throws {
         guard !records.isEmpty else { return }
         let chunk = Self.rowsPerChunk(columns: 9)
-        try pool.write { db in
+        try await pool.write { db in
             var start = 0
             while start < records.count {
                 let slice = records[start..<min(start + chunk, records.count)]
@@ -48,16 +48,16 @@ extension DatabaseManager {
         }
     }
 
-    public func trackCount() throws -> Int {
-        try pool.read { db in
+    public func trackCount() async throws ->Int {
+        try await pool.read { db in
             try TrackRecord.fetchCount(db)
         }
     }
 
     /// True if any track row has a NULL match_key — signals that a library
     /// re-sync is needed to repopulate keys in the current format.
-    public func hasNullMatchKeys() throws -> Bool {
-        try pool.read { db in
+    public func hasNullMatchKeys() async throws ->Bool {
+        try await pool.read { db in
             let n = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM tracks WHERE match_key IS NULL LIMIT 1") ?? 0
             return n > 0
         }
@@ -73,8 +73,8 @@ extension DatabaseManager {
         return tokens.map { "\"\($0)\"*" }.joined(separator: " ")
     }
 
-    public func searchTracks(query: String, limit: Int = 200) throws -> [TrackRecord] {
-        try pool.read { db in
+    public func searchTracks(query: String, limit: Int = 200) async throws ->[TrackRecord] {
+        try await pool.read { db in
             guard let match = Self.ftsQuery(query) else {
                 return try TrackRecord
                     .order(Column("title"))
@@ -98,8 +98,8 @@ extension DatabaseManager {
     /// Tracks are matched to genres by lowercased album title (mirrors the Python
     /// genre sync). Builds an in-memory albumLower → [trackId] index once to avoid
     /// a full table scan per album.
-    public func applyGenreMapping(_ mapping: [String: [String]]) throws {
-        try pool.write { db in
+    public func applyGenreMapping(_ mapping: [String: [String]]) async throws {
+        try await pool.write { db in
             try db.execute(sql: "DELETE FROM track_genres")
 
             var albumToTracks: [String: [String]] = [:]
@@ -138,16 +138,16 @@ extension DatabaseManager {
         }
     }
 
-    public func genreCount() throws -> Int {
-        try pool.read { db in
+    public func genreCount() async throws ->Int {
+        try await pool.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(DISTINCT genre) FROM track_genres") ?? 0
         }
     }
 
     /// Returns a mapping of albumKey → [genre] for the given album keys.
-    public func genresForAlbumKeys(_ keys: [String]) throws -> [String: [String]] {
+    public func genresForAlbumKeys(_ keys: [String]) async throws ->[String: [String]] {
         guard !keys.isEmpty else { return [:] }
-        return try pool.read { db in
+        return try await pool.read { db in
             let ph = keys.map { _ in "?" }.joined(separator: ",")
             let rows = try Row.fetchAll(db, sql: """
                 SELECT DISTINCT t.album_key, tg.genre

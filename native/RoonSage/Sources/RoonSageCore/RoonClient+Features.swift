@@ -28,7 +28,7 @@ extension RoonClient {
 
     public func audioFeaturesStats() async -> (total: Int, matched: Int) {
         guard let db = database else { return (0, 0) }
-        return await Task.detached { (try? db.audioFeaturesStats()) ?? (0, 0) }.value
+        return (try? await db.audioFeaturesStats()) ?? (0, 0)
     }
 
     /// Pull all features from the analyzer's HTTP endpoint, upsert them, and
@@ -38,10 +38,10 @@ extension RoonClient {
         guard let payload = await fetchFeaturePayload(from: baseURL) else { return nil }
         let db = database
         let diag = await Task.detached { () -> DatabaseManager.AudioFeatureDiagnostic? in
-            try? db?.upsertAudioFeatures(payload.features)
+            try? await db?.upsertAudioFeatures(payload.features)
             // Fuzzy fallback rewrites tracks.match_key for confident matches so the
             // DJ/Sonic joins pick them up; apply on a real sync.
-            return try? db?.reconcileFeatureMatches(payload.identities, apply: true)
+            return try? await db?.reconcileFeatureMatches(payload.identities, apply: true)
         }.value
         // Pull the 512-dim embeddings (binary bundle) after match_keys are
         // reconciled, so they attach to the right rows.
@@ -59,7 +59,7 @@ extension RoonClient {
               let (data, resp) = try? await URLSession.shared.data(from: url),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
         let db = database
-        _ = await Task.detached { try? db?.applyEmbeddingsBlob(data) }.value
+        _ = await Task.detached { try? await db?.applyEmbeddingsBlob(data) }.value
     }
 
     /// Read-only: fetch features and report the match breakdown WITHOUT mutating
@@ -68,7 +68,7 @@ extension RoonClient {
         guard let payload = await fetchFeaturePayload(from: baseURL) else { return nil }
         let db = database
         return await Task.detached { () -> DatabaseManager.AudioFeatureDiagnostic? in
-            try? db?.reconcileFeatureMatches(payload.identities, apply: false)
+            try? await db?.reconcileFeatureMatches(payload.identities, apply: false)
         }.value
     }
 
@@ -113,7 +113,7 @@ extension RoonClient {
         guard let db = database else { return [] }
         do {
             return try await Task.detached {
-                let cands = try db.djCandidates(
+                let cands = try await db.djCandidates(
                     minBPM: min(startBPM, endBPM), maxBPM: max(startBPM, endBPM),
                     tags: tags, excludeLive: excludeLive
                 )
@@ -137,7 +137,7 @@ extension RoonClient {
         guard let db = database,
               let seed = featuresFor(title: title, artist: artist, album: album), seed.bpm > 0 else { return [] }
         return await Task.detached {
-            let cands = (try? db.djCandidates(minBPM: seed.bpm - 12, maxBPM: seed.bpm + 12, tags: [], excludeLive: true)) ?? []
+            let cands = (try? await db.djCandidates(minBPM: seed.bpm - 12, maxBPM: seed.bpm + 12, tags: [], excludeLive: true)) ?? []
             guard !cands.isEmpty else { return [] }
             return DJSetBuilder.build(candidates: cands, count: count, startBPM: seed.bpm, endBPM: seed.bpm, curve: .flat)
         }.value
@@ -168,7 +168,7 @@ extension RoonClient {
         let lo = bpm - 8, hi = bpm + 8
         let compatible = Camelot.compatible(camelot)
         return await Task.detached {
-            let cands = (try? db.djCandidates(minBPM: lo, maxBPM: hi, tags: [], excludeLive: true)) ?? []
+            let cands = (try? await db.djCandidates(minBPM: lo, maxBPM: hi, tags: [], excludeLive: true)) ?? []
             func rank(_ c: DatabaseManager.DJCandidate) -> Double {
                 let bpmPen = abs(c.bpm - bpm) / 4.0
                 let harm: Double
@@ -461,7 +461,7 @@ extension RoonClient {
         guard !coords.isEmpty else { return 0 }
         let database = db
         do {
-            try await Task.detached { try database.updateMapCoords(coords) }.value
+            try await database.updateMapCoords(coords)
         } catch {
             Log.warning("Music Map opslaan mislukt: \(error)", category: .roon)
             reportError("Music Map berekenen mislukt — probeer het opnieuw.")

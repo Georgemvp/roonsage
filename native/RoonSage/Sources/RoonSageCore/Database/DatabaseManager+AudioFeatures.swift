@@ -72,11 +72,11 @@ extension DatabaseManager {
         }) ?? nil
     }
 
-    public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) throws {
+    public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) async throws {
         guard !rows.isEmpty else { return }
         let iso = Self.isoFormatter.string(from: Date())
         let chunk = Self.rowsPerChunk(columns: 10)
-        try pool.write { db in
+        try await pool.write { db in
             var start = 0
             while start < rows.count {
                 let slice = rows[start..<min(start + chunk, rows.count)]
@@ -107,7 +107,7 @@ extension DatabaseManager {
     /// Updates `embedding` on existing feature rows by match_key. Returns the
     /// number of rows updated.
     @discardableResult
-    public func applyEmbeddingsBlob(_ data: Data) throws -> Int {
+    public func applyEmbeddingsBlob(_ data: Data) async throws -> Int {
         let bytes = [UInt8](data)
         guard bytes.count >= 13, bytes[0] == 0x52, bytes[1] == 0x53, bytes[2] == 0x45, bytes[3] == 0x42,
               bytes[4] == 1 else { return 0 }   // "RSEB" v1
@@ -131,7 +131,7 @@ extension DatabaseManager {
         }
 
         var updated = 0
-        try pool.write { db in
+        try await pool.write { db in
             for p in pairs {
                 try db.execute(sql: "UPDATE track_audio_features SET embedding = ? WHERE match_key = ?",
                                arguments: [p.blob, p.key])
@@ -142,9 +142,9 @@ extension DatabaseManager {
     }
 
     /// Persist the PCA-2D Music Map coordinates (Track E5d) by match_key.
-    public func updateMapCoords(_ coords: [(matchKey: String, x: Double, y: Double)]) throws {
+    public func updateMapCoords(_ coords: [(matchKey: String, x: Double, y: Double)]) async throws {
         guard !coords.isEmpty else { return }
-        try pool.write { db in
+        try await pool.write { db in
             for c in coords {
                 try db.execute(sql: "UPDATE track_audio_features SET map_x = ?, map_y = ? WHERE match_key = ?",
                                arguments: [c.x, c.y, c.matchKey])
@@ -187,7 +187,7 @@ extension DatabaseManager {
     /// rewrites `tracks.match_key` to the feature's key so the existing joins
     /// (`djCandidates`/`sonicTracks`) pick it up with no query change. When
     /// false it only measures (read-only diagnostic).
-    public func reconcileFeatureMatches(_ feats: [FeatureIdentity], apply: Bool) throws -> AudioFeatureDiagnostic {
+    public func reconcileFeatureMatches(_ feats: [FeatureIdentity], apply: Bool) async throws -> AudioFeatureDiagnostic {
         // Bucket features by normalised primary artist, precomputing title tokens
         // so the inner loop is set intersections, not re-tokenisation.
         struct Cand { let matchKey: String; let tokens: Set<String> }
@@ -197,7 +197,7 @@ extension DatabaseManager {
             buckets[artistKey, default: []].append(Cand(matchKey: f.matchKey, tokens: FuzzyMatch.tokens(f.title)))
         }
 
-        return try pool.write { db in
+        return try await pool.write { db in
             let libraryTracks = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM tracks") ?? 0
             let exact = try Int.fetchOne(db, sql: """
                 SELECT COUNT(*) FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
@@ -261,8 +261,8 @@ extension DatabaseManager {
 
     /// Tracks with audio features inside the BPM window (incl. half/double-time),
     /// optional tag filter, deduped by title+artist.
-    public func djCandidates(minBPM: Double, maxBPM: Double, tags: [String], excludeLive: Bool) throws -> [DJCandidate] {
-        try pool.read { db in
+    public func djCandidates(minBPM: Double, maxBPM: Double, tags: [String], excludeLive: Bool) async throws -> [DJCandidate] {
+        try await pool.read { db in
             var sql = """
                 SELECT t.id, t.title, t.artist, t.album, t.image_key, f.bpm, f.camelot, f.energy, f.tags
                 FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
@@ -325,8 +325,8 @@ extension DatabaseManager {
 
     /// Every library track that has analyzed audio features, deduped by
     /// title+artist. Source data for Sonic Radio / Fingerprint / Music Map.
-    public func sonicTracks(excludeLive: Bool = true) throws -> [SonicTrack] {
-        try pool.read { db in
+    public func sonicTracks(excludeLive: Bool = true) async throws -> [SonicTrack] {
+        try await pool.read { db in
             var sql = """
                 SELECT t.id, t.title, t.artist, t.album, t.image_key, t.match_key,
                        f.bpm, f.camelot, f.energy, f.tags, f.embedding, f.moods, f.map_x, f.map_y
@@ -378,8 +378,8 @@ extension DatabaseManager {
     }
 
     /// (features stored, tracks in the library that have a matching feature).
-    public func audioFeaturesStats() throws -> (total: Int, matched: Int) {
-        try pool.read { db in
+    public func audioFeaturesStats() async throws -> (total: Int, matched: Int) {
+        try await pool.read { db in
             let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_audio_features") ?? 0
             let matched = try Int.fetchOne(db, sql: """
                 SELECT COUNT(*) FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
@@ -396,8 +396,8 @@ extension DatabaseManager {
         }
     }
 
-    public func setSyncState(key: String, value: String) throws {
-        try pool.write { db in
+    public func setSyncState(key: String, value: String) async throws {
+        try await pool.write { db in
             try db.execute(
                 sql: "INSERT OR REPLACE INTO sync_state (key, value) VALUES (?, ?)",
                 arguments: [key, value]

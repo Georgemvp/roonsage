@@ -195,7 +195,7 @@ actor LibrarySyncService {
             try await database.finishSyncRun(generation: run.generation, pruneStale: albumsFailed == 0)
             // Includes rows of resume-skipped albums (tracksFound only counts
             // freshly walked ones).
-            tracksFound = try database.trackCount()
+            tracksFound = try await database.trackCount()
         }
 
         // 9. Genre pass — walk the Roon `genres` hierarchy and map albums → genres.
@@ -215,7 +215,7 @@ actor LibrarySyncService {
         }
 
         // 10. Record sync timestamp
-        try database.setSyncState(key: "last_sync", value: DatabaseManager.isoFormatter.string(from: Date()))
+        try await database.setSyncState(key: "last_sync", value: DatabaseManager.isoFormatter.string(from: Date()))
 
         return tracksFound
     }
@@ -231,7 +231,7 @@ actor LibrarySyncService {
             onProgress?("Genres synchroniseren… (\(done)/\(total))")
         }
         if !mapping.isEmpty {
-            try database.applyGenreMapping(mapping)
+            try await database.applyGenreMapping(mapping)
         }
     }
 

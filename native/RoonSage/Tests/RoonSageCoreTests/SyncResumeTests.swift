@@ -40,7 +40,8 @@ final class SyncResumeTests: XCTestCase {
         XCTAssertEqual(run2.generation, 1)
         XCTAssertTrue(run2.resumed)
         XCTAssertEqual(run2.completedAlbums, ["a|artist • 2000"])
-        XCTAssertEqual(try db.trackCount(), 1)
+        let count = try await db.trackCount()
+        XCTAssertEqual(count, 1)
     }
 
     func testFinishStartsFreshGenerationNextTime() async throws {
@@ -63,18 +64,22 @@ final class SyncResumeTests: XCTestCase {
         try await db.replaceAlbumTracks([rec("b1", "Two", album: "B")],
                                   albumTitle: "B", fingerprint: "fpB", generation: run1.generation)
         try await db.finishSyncRun(generation: run1.generation)
-        XCTAssertEqual(try db.trackCount(), 2)
+        let countAfterGen1 = try await db.trackCount()
+        XCTAssertEqual(countAfterGen1, 2)
 
         // Gen 2: only A still exists in Roon. B's rows must survive the walk…
         let run2 = try await db.beginSyncRun()
         try await db.replaceAlbumTracks([rec("a1-new", "One", album: "A")],
                                   albumTitle: "A", fingerprint: "fpA", generation: run2.generation)
-        XCTAssertEqual(try db.trackCount(), 2, "vanished album must not be dropped mid-walk")
+        let countMidWalk = try await db.trackCount()
+        XCTAssertEqual(countMidWalk, 2, "vanished album must not be dropped mid-walk")
 
         // …and disappear only when the walk completes.
         try await db.finishSyncRun(generation: run2.generation)
-        XCTAssertEqual(try db.trackCount(), 1)
-        XCTAssertEqual(try db.searchTracks(query: "One").first?.id, "a1-new")
+        let countAfterFinish = try await db.trackCount()
+        XCTAssertEqual(countAfterFinish, 1)
+        let survivor = try await db.searchTracks(query: "One").first?.id
+        XCTAssertEqual(survivor, "a1-new")
     }
 
     func testRewalkReplacesOldSessionRowsWithoutDuplicates() async throws {
@@ -87,20 +92,24 @@ final class SyncResumeTests: XCTestCase {
         let run2 = try await db.beginSyncRun()
         try await db.replaceAlbumTracks([rec("new-key-1", "One", album: "A"), rec("new-key-2", "Two", album: "A")],
                                   albumTitle: "A", fingerprint: "fpA", generation: run2.generation)
-        XCTAssertEqual(try db.trackCount(), 2)
+        let countBeforeFinish = try await db.trackCount()
+        XCTAssertEqual(countBeforeFinish, 2)
         try await db.finishSyncRun(generation: run2.generation)
-        XCTAssertEqual(try db.trackCount(), 2)
+        let countAfterFinish = try await db.trackCount()
+        XCTAssertEqual(countAfterFinish, 2)
     }
 
     func testLegacyNullFingerprintRowsReplacedByTitle() async throws {
         // Pre-v10 rows have album_fp NULL; the first re-walk of that album
         // must replace them (matched by title), not duplicate them.
-        try db.upsertTracks([rec("legacy-1", "One", album: "A")])
+        try await db.upsertTracks([rec("legacy-1", "One", album: "A")])
         let run = try await db.beginSyncRun()
         try await db.replaceAlbumTracks([rec("fresh-1", "One", album: "A")],
                                   albumTitle: "A", fingerprint: "fpA", generation: run.generation)
-        XCTAssertEqual(try db.trackCount(), 1)
-        XCTAssertEqual(try db.searchTracks(query: "One").first?.id, "fresh-1")
+        let count = try await db.trackCount()
+        XCTAssertEqual(count, 1)
+        let survivor = try await db.searchTracks(query: "One").first?.id
+        XCTAssertEqual(survivor, "fresh-1")
     }
 
     func testDuplicateEditionAppendsInsteadOfReplacing() async throws {
@@ -111,6 +120,7 @@ final class SyncResumeTests: XCTestCase {
                                   albumTitle: "A", fingerprint: "fpA", generation: run.generation)
         try await db.replaceAlbumTracks([rec("ed2-t1", "One (alt)", album: "A")],
                                   albumTitle: "A", fingerprint: "fpA", generation: run.generation, append: true)
-        XCTAssertEqual(try db.trackCount(), 2)
+        let count = try await db.trackCount()
+        XCTAssertEqual(count, 2)
     }
 }
