@@ -20,6 +20,7 @@ public struct RecommendView: View {
     @State private var history: [DatabaseManager.RecommendationSummary] = []
     @State private var expandedHistoryID: Int64? = nil
     @State private var historyAlbums: [DatabaseManager.AlbumResult] = []
+    @State private var pendingDelete: DatabaseManager.RecommendationSummary? = nil
 
     private let ideas = [
         "Albums voor een regenachtige zondagmiddag",
@@ -34,7 +35,7 @@ public struct RecommendView: View {
                 if client.genreCount == 0 {
                     Label("Genres zijn niet gesynchroniseerd. Ga naar Instellingen → \"Synchroniseer genres\" voor betere aanbevelingen.", systemImage: "exclamationmark.triangle")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.roonWarning)
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -43,8 +44,8 @@ public struct RecommendView: View {
                         .font(.body)
                         .frame(height: 70)
                         .scrollContentBackground(.hidden)
-                        .padding(8)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                        .padding(Spacing.sm)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: Radius.md))
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220))], spacing: 8) {
                         ForEach(ideas, id: \.self) { idea in
                             Button { prompt = idea } label: {
@@ -125,18 +126,16 @@ public struct RecommendView: View {
                                     Image(systemName: expandedHistoryID == entry.id ? "chevron.up" : "chevron.down")
                                 }
                                 .buttonStyle(.borderless)
+                                .accessibilityLabel(expandedHistoryID == entry.id ? "Inklappen" : "Uitklappen")
                                 Button(role: .destructive) {
-                                    client.deleteRecommendation(id: entry.id)
-                                    history.removeAll { $0.id == entry.id }
-                                    if expandedHistoryID == entry.id {
-                                        expandedHistoryID = nil
-                                        historyAlbums = []
-                                    }
+                                    pendingDelete = entry
                                 } label: {
                                     Image(systemName: "trash")
                                 }
                                 .buttonStyle(.borderless)
                                 .foregroundStyle(.secondary)
+                                .accessibilityLabel("Verwijder aanbeveling")
+                                .help("Verwijder deze aanbeveling")
                             }
                             .contentShape(Rectangle())
                             .onTapGesture { Task { await toggleHistory(entry) } }
@@ -154,6 +153,25 @@ public struct RecommendView: View {
             .padding(Spacing.xl)
         }
         .navigationTitle("Aanbevelen")
+        .confirmationDialog(
+            "Aanbeveling verwijderen?",
+            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            presenting: pendingDelete
+        ) { entry in
+            Button("Verwijderen", role: .destructive) {
+                client.deleteRecommendation(id: entry.id)
+                history.removeAll { $0.id == entry.id }
+                if expandedHistoryID == entry.id {
+                    expandedHistoryID = nil
+                    historyAlbums = []
+                }
+                Haptics.success()
+                pendingDelete = nil
+            }
+            Button("Annuleer", role: .cancel) { pendingDelete = nil }
+        } message: { entry in
+            Text(entry.prompt)
+        }
         .onAppear {
             if selectedZoneID == nil { selectedZoneID = client.selectedZone?.id }
             Task { history = await client.recommendations() }
@@ -173,12 +191,15 @@ public struct RecommendView: View {
                 Spacer()
                 Button {
                     guard let zone = selectedZoneID else { return }
+                    Haptics.tap()
                     Task { await client.playAlbum(albumKey: album.albumKey, zoneID: zone) }
                 } label: {
                     Image(systemName: "play.fill")
                 }
                 .buttonStyle(.bordered)
                 .disabled(selectedZoneID == nil)
+                .accessibilityLabel("Speel \(album.album) af")
+                .help(selectedZoneID == nil ? "Kies eerst een zone" : "Speel dit album af")
             }
             .padding(.vertical, 2)
         }
@@ -223,7 +244,7 @@ public struct RecommendView: View {
 
         phase = "Kiezen…"
         let list = candidates.enumerated().map { i, a -> String in
-            var line = "\(i + 1). \(a.album) — \(a.artist ?? "Unknown")\(a.year.map { " (\($0))" } ?? "")"
+            var line = "\(i + 1). \(a.album) — \(a.artist ?? "Onbekend")\(a.year.map { " (\($0))" } ?? "")"
             if !a.genres.isEmpty { line += " [\(a.genres.prefix(3).joined(separator: ", "))]" }
             return line
         }.joined(separator: "\n")

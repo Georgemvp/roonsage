@@ -53,7 +53,7 @@ public struct TasteProfileView: View {
     // MARK: - Header
 
     var headerStats: some View {
-        HStack(spacing: 24) {
+        HStack(spacing: Spacing.xl) {
             VStack(spacing: 2) {
                 Text("\(totalListens.formatted())")
                     .font(.title2.bold().monospacedDigit())
@@ -83,8 +83,8 @@ public struct TasteProfileView: View {
             }
         }
         .pickerStyle(.segmented)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.sm)
     }
 
     // MARK: - Tab content
@@ -107,13 +107,13 @@ public struct TasteProfileView: View {
                 ForEach(LastfmClient.Period.allCases, id: \.self) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, 16).padding(.top, 8)
+            .padding(.horizontal, Spacing.lg).padding(.top, Spacing.sm)
 
             Picker("Soort", selection: $lfKind) {
                 ForEach(LfKind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, 16).padding(.vertical, 8)
+            .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.sm)
 
             Divider()
 
@@ -128,7 +128,7 @@ public struct TasteProfileView: View {
                 ContentUnavailableView("Geen gegevens", systemImage: "chart.bar")
             } else {
                 List(lfItems) { item in
-                    HStack(spacing: 12) {
+                    HStack(spacing: Spacing.md) {
                         Text(item.name).font(.body).lineLimit(1)
                         if let a = item.artist {
                             Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -150,7 +150,7 @@ public struct TasteProfileView: View {
     var artistsList: some View {
         List {
             ForEach(Array(topArtists.enumerated()), id: \.offset) { index, item in
-                HStack(spacing: 12) {
+                HStack(spacing: Spacing.md) {
                     Text("\(index + 1)")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.tertiary)
@@ -186,7 +186,7 @@ public struct TasteProfileView: View {
                         .foregroundStyle(.tertiary)
                         .monospacedDigit()
                 }
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     if let artist = entry.artist {
                         Text(artist)
                             .font(.caption)

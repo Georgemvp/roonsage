@@ -112,7 +112,7 @@ public struct SonicSearchView: View {
                         .buttonStyle(.borderless)
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, Spacing.xs)
             }
         }
     }

@@ -33,6 +33,25 @@ public struct NowPlayingView: View {
             // Meaningful bar title: the playing track (or the zone when idle) —
             // not the redundant "Nu speelt" (the tab bar already labels this).
             .navigationTitle(zone.nowPlaying?.title ?? zone.displayName)
+        } else {
+            // Zones exist but none is selected yet (transient on launch/reconnect,
+            // before RootView restores the last-used zone). Don't show a blank
+            // screen — offer the zones explicitly.
+            ContentUnavailableView {
+                Label("Kies een zone", systemImage: "hifi.speaker")
+            } description: {
+                Text("Selecteer hierboven een zone om af te spelen.")
+            } actions: {
+                ForEach(client.zones) { zone in
+                    Button {
+                        client.selectZone(zone.id)
+                        Haptics.tap()
+                    } label: {
+                        Label(zone.displayName,
+                              systemImage: zone.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker")
+                    }
+                }
+            }
         }
     }
 }

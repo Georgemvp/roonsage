@@ -105,6 +105,13 @@ public final class RoonClient {
     }
     public internal(set) var lastActionError: ActionError?
 
+    /// Surface a failure from a feature/compute view (DJ set, Sonic DNA, Song
+    /// Paths, Music Map, …) in the global error toast, so a failed computation
+    /// reads as "something went wrong" instead of a misleading empty state.
+    public func reportError(_ message: String) {
+        lastActionError = ActionError(message: message)
+    }
+
     /// Run a fire-and-forget user action against the transport service,
     /// surfacing failures (and the not-connected case) via `lastActionError`.
     func runAction(_ label: String, _ op: (TransportService) async throws -> Void) async {

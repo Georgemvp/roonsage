@@ -209,7 +209,7 @@ public struct SettingsView: View {
 
                 if llmProvider == .ollama || llmProvider == .custom {
                     LabeledContent("Base URL") {
-                        HStack(spacing: 8) {
+                        HStack(spacing: Spacing.sm) {
                             TextField("http://localhost:11434", text: $llmBaseURL)
                                 .textFieldStyle(.roundedBorder)
                             if llmProvider == .ollama {
@@ -255,7 +255,7 @@ public struct SettingsView: View {
             // External Services
             Section("Externe diensten") {
                 LabeledContent("ListenBrainz-token") {
-                    HStack(spacing: 8) {
+                    HStack(spacing: Spacing.sm) {
                         SecureField("Plak hier je token", text: $lbToken)
                             .textFieldStyle(.roundedBorder)
                         Button(lbSaved ? "Bewaard!" : "Bewaar") {

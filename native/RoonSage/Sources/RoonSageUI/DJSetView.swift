@@ -66,6 +66,7 @@ public struct DJSetView: View {
                             Label("Bouw DJ-set", systemImage: "slider.horizontal.3")
                         }
                         .buttonStyle(.borderedProminent)
+                        .tint(Color.roonGold)
                         .confirmationDialog(
                             "Set opnieuw bouwen? De huidige set wordt vervangen.",
                             isPresented: $showRebuildConfirm, titleVisibility: .visible
@@ -115,7 +116,8 @@ public struct DJSetView: View {
                 guard let z = selectedZoneID else { return }
                 Task { await client.playDJSet(set, zoneID: z) }
             } label: { Label("Speel", systemImage: "play.fill") }
-            .buttonStyle(.borderedProminent).disabled(selectedZoneID == nil)
+            .buttonStyle(.borderedProminent).tint(Color.roonGold).disabled(selectedZoneID == nil)
+            .help(selectedZoneID == nil ? "Kies eerst een zone" : "Speel de set af")
         }
 
         // Set analysis: BPM flow, energy arc, harmonic transitions
@@ -149,10 +151,7 @@ public struct DJSetView: View {
                     Text("\(Int(t.bpm)) BPM")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
-                    Text(t.camelot)
-                        .font(.caption.monospacedDigit().bold())
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(.quaternary, in: Capsule())
+                    Badge(t.camelot, tint: .roonGold)
                 }
                 .padding(.vertical, 2)
             }
@@ -242,13 +241,13 @@ private struct EnergyCurvePreview: View {
             area.addLine(to: CGPoint(x: size.width, y: size.height))
             area.closeSubpath()
             ctx.fill(area, with: .linearGradient(
-                Gradient(colors: [.orange.opacity(0.30), .orange.opacity(0.05)]),
+                Gradient(colors: [Color.roonWarning.opacity(0.30), Color.roonWarning.opacity(0.05)]),
                 startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: size.height)))
 
             var line = Path()
             line.move(to: pt(0))
             for i in 1..<energies.count { line.addLine(to: pt(i)) }
-            ctx.stroke(line, with: .color(.orange), lineWidth: 2)
+            ctx.stroke(line, with: .color(Color.roonWarning), lineWidth: 2)
         }
     }
 }
@@ -272,7 +271,7 @@ private struct HarmonicTransitionStrip: View {
         switch r {
         case .harmonic: .roonGold
         case .sameKey:  .roonSuccess
-        case .tempo:    .gray.opacity(0.4)
+        case .tempo:    .secondary.opacity(0.4)
         }
     }
 

@@ -19,7 +19,7 @@ public struct MusicMapView: View {
                 ContentUnavailableView("Je bibliotheek in kaart brengen…", systemImage: "map")
             } else if tracks.isEmpty && loaded {
                 ContentUnavailableView(
-                    "No analyzed tracks yet",
+                    "Nog geen geanalyseerde tracks",
                     systemImage: "map",
                     description: Text("Draai de audio-analyzer en synchroniseer in Instellingen om je bibliotheek hier te plotten.")
                 )
@@ -38,7 +38,7 @@ public struct MusicMapView: View {
     private var mapBody: some View {
         VStack(spacing: Spacing.sm) {
             HStack {
-                Text("\(tracks.count) analyzed tracks")
+                Text("\(tracks.count) geanalyseerde tracks")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Text(usingMap ? "Sonische gelijkenis (CLAP · PCA)" : "Energie ↑   ·   Tempo →")
@@ -49,7 +49,7 @@ public struct MusicMapView: View {
 
             GeometryReader { geo in
                 let bounds = Bounds(tracks)
-                let pad: CGFloat = 24
+                let pad: CGFloat = Spacing.xl
                 let plot = CGRect(x: pad, y: pad,
                                   width: max(1, geo.size.width - pad * 2),
                                   height: max(1, geo.size.height - pad * 2))
@@ -57,7 +57,7 @@ public struct MusicMapView: View {
                 ZStack {
                     Canvas { ctx, _ in
                         // Frame
-                        ctx.stroke(Path(plot), with: .color(.gray.opacity(0.15)), lineWidth: 1)
+                        ctx.stroke(Path(plot), with: .color(.secondary.opacity(0.15)), lineWidth: 1)
                         for t in tracks {
                             let pt = position(t, in: plot, bounds: bounds)
                             let isSel = t.id == selected?.id

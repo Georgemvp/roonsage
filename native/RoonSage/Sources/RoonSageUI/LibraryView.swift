@@ -325,7 +325,7 @@ public struct LibraryView: View {
                     } label: {
                         Text(item.tag)
                             .font(.caption)
-                            .padding(.horizontal, 9).padding(.vertical, 4)
+                            .padding(.horizontal, 9).padding(.vertical, Spacing.xs)
                             .background(isOn ? Color.roonGold : Color.platformQuaternaryFill.opacity(0.5),
                                         in: Capsule())
                             // Gold is a light colour — white on gold fails WCAG AA (~2.3:1).
@@ -334,7 +334,7 @@ public struct LibraryView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
+            .padding(.horizontal, 14).padding(.vertical, Spacing.sm)
         }
         .background(.bar)
     }
@@ -411,7 +411,7 @@ struct SyncProgressBanner: View {
             }
             Text(progress.phase).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
-        .padding(.horizontal, 16).padding(.vertical, 8)
+        .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.sm)
         .background(.regularMaterial)
     }
 }
@@ -478,7 +478,7 @@ struct AlbumGridCell: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            AlbumArtView(imageKey: album.imageKey, size: 150, cornerRadius: 8)
+            AlbumArtView(imageKey: album.imageKey, size: 150, cornerRadius: Radius.lg)
             Text(album.album).font(.callout).lineLimit(1)
             Text(albumSubtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
@@ -502,7 +502,7 @@ struct ArtistGridCell: View {
         VStack(spacing: 6) {
             AlbumArtView(imageKey: artist.imageKey, size: 150, cornerRadius: 75)
             Text(artist.name).font(.callout).lineLimit(1)
-            Text("\(artist.albumCount) album\(artist.albumCount == 1 ? "" : "s") · \(artist.trackCount) tracks")
+            Text("\(artist.albumCount) album\(artist.albumCount == 1 ? "" : "s") · \(artist.trackCount) nummers")
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
         .frame(maxWidth: .infinity)

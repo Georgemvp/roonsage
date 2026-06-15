@@ -65,7 +65,7 @@ public struct YearInReviewView: View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: Spacing.md) {
             statCard(value: "\(s.totalPlays)", label: "Nummers gespeeld", icon: "play.fill", color: Color.roonGold)
             statCard(value: "\(s.uniqueArtists)", label: "Artiesten", icon: "person.2.fill", color: Color.roonSuccess)
-            statCard(value: "\(s.uniqueTracks)", label: "Unieke nummers", icon: "music.note", color: .blue)
+            statCard(value: "\(s.uniqueTracks)", label: "Unieke nummers", icon: "music.note", color: Color.roonInfo)
         }
 
         if s.longestStreak > 1 {

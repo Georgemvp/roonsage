@@ -62,7 +62,7 @@ public struct SongAlchemyView: View {
     // MARK: Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
             Label("Song Alchemy", systemImage: "wand.and.sparkles")
                 .font(.title2.bold())
             Text("Meng sonische profielen: optellen = sfeer overnemen, aftrekken = sfeer vermijden.")
@@ -75,7 +75,7 @@ public struct SongAlchemyView: View {
     private func bucket(title: String, tracks: Binding<[DatabaseManager.SonicTrack]>,
                         tint: Color, icon: String, bucket b: Bucket) -> some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: icon).foregroundStyle(tint)
                 Text(title).font(.subheadline.bold())
                 Spacer()
@@ -215,7 +215,7 @@ public struct SongAlchemyView: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(scored.similarity > 0.7 ? Color.roonSuccess : .secondary)
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, Spacing.xs)
             }
         }
     }

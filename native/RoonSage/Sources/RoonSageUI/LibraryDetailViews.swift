@@ -45,7 +45,7 @@ struct AlbumDetailView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: Spacing.lg) {
-            AlbumArtView(imageKey: album.imageKey, size: 120, cornerRadius: 10)
+            AlbumArtView(imageKey: album.imageKey, size: 120, cornerRadius: Radius.lg)
             VStack(alignment: .leading, spacing: 6) {
                 Text(album.album).font(.title3.bold()).lineLimit(2)
                 if let a = album.artist { Text(a).font(.callout).foregroundStyle(.secondary) }
@@ -65,7 +65,7 @@ struct AlbumDetailView: View {
     private var subtitle: String {
         var parts: [String] = []
         if let y = album.year { parts.append(String(y)) }
-        parts.append("\(album.trackCount) tracks")
+        parts.append("\(album.trackCount) nummers")
         return parts.joined(separator: " · ")
     }
 
@@ -103,7 +103,7 @@ struct ArtistDetailView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(artist.name).font(.title2.bold())
-                        Text("\(artist.albumCount) albums · \(artist.trackCount) tracks")
+                        Text("\(artist.albumCount) albums · \(artist.trackCount) nummers")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()

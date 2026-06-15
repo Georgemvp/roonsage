@@ -30,7 +30,7 @@ public struct PlaylistsView: View {
                             row(pl)
                             if expanded == pl.id {
                                 ForEach(Array(tracks.enumerated()), id: \.offset) { i, t in
-                                    HStack(spacing: 8) {
+                                    HStack(spacing: Spacing.sm) {
                                         Text("\(i + 1).")
                                             .foregroundStyle(.tertiary)
                                             .frame(width: 30, alignment: .trailing)
@@ -78,7 +78,7 @@ public struct PlaylistsView: View {
                 Text(qobuzStatus)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .padding(8)
+                    .padding(Spacing.sm)
                     .frame(maxWidth: .infinity)
                     .background(.bar)
             }
@@ -90,7 +90,7 @@ public struct PlaylistsView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(pl.name).font(.headline)
-                Text("\(pl.trackCount) tracks · \(pl.createdAt.prefix(10))")
+                Text("\(pl.trackCount) nummers · \(pl.createdAt.prefix(10))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

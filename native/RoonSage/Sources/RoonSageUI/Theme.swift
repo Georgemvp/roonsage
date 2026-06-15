@@ -57,10 +57,14 @@ public enum Radius {
     public static let xl: CGFloat = 16
 }
 
-/// Semantic typography ramp.
+/// Semantic typography ramp. Anchored to system text styles (not fixed point
+/// sizes) so every label scales with the user's Dynamic Type setting — a fixed
+/// `size:` ramp would silently break accessibility.
 public enum Typography {
-    public static let title = Font.system(size: 22, weight: .bold)
-    public static let heading = Font.system(size: 17, weight: .semibold)
+    /// Screen / hero titles.
+    public static let title = Font.system(.title2, weight: .bold)
+    /// Section headers and card titles.
+    public static let heading = Font.system(.headline)
     public static let body = Font.body
     public static let caption = Font.caption
 }

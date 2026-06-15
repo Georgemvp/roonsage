@@ -47,19 +47,19 @@ public struct GenerateView: View {
             VStack(alignment: .leading, spacing: Spacing.xl) {
 
                 // ── Prompt ────────────────────────────────────────────────
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Wat voor playlist?")
                         .font(.headline)
                     TextEditor(text: $prompt)
                         .font(.body)
                         .frame(height: 76)
                         .scrollContentBackground(.hidden)
-                        .padding(8)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                        .padding(Spacing.sm)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: Radius.md))
                 }
 
                 // ── Templates ─────────────────────────────────────────────
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     HStack {
                         Text("Snelle sjablonen")
                             .font(.subheadline.bold())
@@ -75,7 +75,7 @@ public struct GenerateView: View {
                         HStack(spacing: Spacing.sm) {
                             ForEach(featured) { t in
                                 Button { apply(t) } label: {
-                                    HStack(spacing: 4) {
+                                    HStack(spacing: Spacing.xs) {
                                         Text(t.icon)
                                         Text(t.name).font(.callout)
                                     }
@@ -90,7 +90,7 @@ public struct GenerateView: View {
                 }
 
                 // ── Options ───────────────────────────────────────────────
-                HStack(spacing: 16) {
+                HStack(spacing: Spacing.lg) {
                     HStack(spacing: 6) {
                         Text("Tracks")
                             .foregroundStyle(.secondary)
@@ -119,7 +119,7 @@ public struct GenerateView: View {
                 }
 
                 // ── Generate button ───────────────────────────────────────
-                HStack(spacing: 12) {
+                HStack(spacing: Spacing.md) {
                     Button {
                         Task { await generate() }
                     } label: {
@@ -173,7 +173,7 @@ public struct GenerateView: View {
                     }
 
                     // Save as local playlist
-                    HStack(spacing: 8) {
+                    HStack(spacing: Spacing.sm) {
                         TextField("Naam playlist", text: $playlistName)
                             .textFieldStyle(.roundedBorder)
                         Button {

@@ -40,7 +40,12 @@ targets:
         NSSupportsLiveActivities: YES
         # Standard HTTPS-only encryption → exempt from US export compliance review.
         ITSAppUsesNonExemptEncryption: NO
-        UILaunchScreen: {}
+        # Branded cold-start: dark brand background (no white flash) with the
+        # centred gold logo, instead of a bare empty launch screen.
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+          UIImageName: LaunchLogo
+          UIImageRespectsSafeAreaInsets: true
         # Background refresh for widget/zone state updates.
         UIBackgroundModes:
           - fetch
@@ -89,6 +94,10 @@ targets:
       path: Widgets/Info.plist
       properties:
         CFBundleDisplayName: RoonSage Widgets
+        # Keep the extension version in lockstep with the host app instead of a
+        # hardcoded 1.0 (a mismatch trips App Store submission warnings).
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:

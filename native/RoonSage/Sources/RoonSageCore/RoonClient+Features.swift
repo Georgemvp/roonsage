@@ -111,13 +111,19 @@ extension RoonClient {
         curve: DJSetBuilder.Curve, tags: [String], excludeLive: Bool = true
     ) async -> [DatabaseManager.DJCandidate] {
         guard let db = database else { return [] }
-        return await Task.detached {
-            let cands = (try? db.djCandidates(
-                minBPM: min(startBPM, endBPM), maxBPM: max(startBPM, endBPM),
-                tags: tags, excludeLive: excludeLive
-            )) ?? []
-            return DJSetBuilder.build(candidates: cands, count: count, startBPM: startBPM, endBPM: endBPM, curve: curve)
-        }.value
+        do {
+            return try await Task.detached {
+                let cands = try db.djCandidates(
+                    minBPM: min(startBPM, endBPM), maxBPM: max(startBPM, endBPM),
+                    tags: tags, excludeLive: excludeLive
+                )
+                return DJSetBuilder.build(candidates: cands, count: count, startBPM: startBPM, endBPM: endBPM, curve: curve)
+            }.value
+        } catch {
+            Log.warning("DJ-set bouwen mislukt: \(error)", category: .roon)
+            reportError("DJ-set bouwen mislukt — probeer het opnieuw.")
+            return []
+        }
     }
 
     /// Audio features for a now-playing track (by content match key), if synced.
@@ -411,17 +417,23 @@ extension RoonClient {
         guard let db = database else { return nil }
         let lib = await sonicCache.tracks(from: db)
         let index = await activeIndex(db)
-        return await Task.detached {
-            guard !lib.isEmpty else { return nil }
-            let top = (try? db.topTracks(limit: seedLimit)) ?? []
-            let byKey = Dictionary(lib.map { ($0.matchKey, $0) }, uniquingKeysWith: { a, _ in a })
-            let seeds = top.compactMap { $0.matchKey.flatMap { byKey[$0] } }
-            // Fall back to the loudest/most-typical slice if there's no play history yet.
-            let effectiveSeeds = seeds.isEmpty ? Array(lib.prefix(min(40, lib.count))) : seeds
-            let profile = SonicEngine.profile(of: effectiveSeeds)
-            let recs = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount, index: index)
-            return Fingerprint(profile: profile, recommendations: recs, seedCount: effectiveSeeds.count)
-        }.value
+        do {
+            return try await Task.detached {
+                guard !lib.isEmpty else { return nil }
+                let top = try db.topTracks(limit: seedLimit)
+                let byKey = Dictionary(lib.map { ($0.matchKey, $0) }, uniquingKeysWith: { a, _ in a })
+                let seeds = top.compactMap { $0.matchKey.flatMap { byKey[$0] } }
+                // Fall back to the loudest/most-typical slice if there's no play history yet.
+                let effectiveSeeds = seeds.isEmpty ? Array(lib.prefix(min(40, lib.count))) : seeds
+                let profile = SonicEngine.profile(of: effectiveSeeds)
+                let recs = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount, index: index)
+                return Fingerprint(profile: profile, recommendations: recs, seedCount: effectiveSeeds.count)
+            }.value
+        } catch {
+            Log.warning("Sonic DNA berekenen mislukt: \(error)", category: .roon)
+            reportError("Sonic DNA berekenen mislukt — probeer het opnieuw.")
+            return nil
+        }
     }
 
     /// All analyzed tracks (for the Music Map). Cached; loads off-main.
@@ -448,7 +460,13 @@ extension RoonClient {
         }.value
         guard !coords.isEmpty else { return 0 }
         let database = db
-        _ = await Task.detached { try? database.updateMapCoords(coords) }.value
+        do {
+            try await Task.detached { try database.updateMapCoords(coords) }.value
+        } catch {
+            Log.warning("Music Map opslaan mislukt: \(error)", category: .roon)
+            reportError("Music Map berekenen mislukt — probeer het opnieuw.")
+            return 0
+        }
         await sonicCache.invalidate()
         return coords.count
     }

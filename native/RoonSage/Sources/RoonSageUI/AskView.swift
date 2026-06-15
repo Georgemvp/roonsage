@@ -73,7 +73,7 @@ public struct AskView: View {
 
     private var resultsHeader: some View {
         HStack {
-            Text("\(results.count) tracks").font(.headline)
+            Text("\(results.count) nummers").font(.headline)
             Spacer()
             Button {
                 play(results)

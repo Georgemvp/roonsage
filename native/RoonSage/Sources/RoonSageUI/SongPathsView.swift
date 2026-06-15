@@ -66,7 +66,7 @@ public struct SongPathsView: View {
     // MARK: Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
             Label("Song Paths",
                   systemImage: "point.topleft.down.curvedto.point.bottomright.up")
                 .font(.title2.bold())

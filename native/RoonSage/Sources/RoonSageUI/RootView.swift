@@ -138,6 +138,34 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Sidebar grouping (macOS / iPad)
+
+/// Groups the 18 destinations into scannable sections, mirroring the iOS
+/// "Maak"/"Ontdek" hubs so the macOS sidebar isn't one long flat list.
+enum SidebarSection: String, CaseIterable, Identifiable {
+    case playback, create, explore, settings
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .playback: "Afspelen"
+        case .create:   "Maak"
+        case .explore:  "Ontdek"
+        case .settings: "Systeem"
+        }
+    }
+
+    var items: [SidebarItem] {
+        switch self {
+        case .playback: [.nowPlaying, .queue, .library]
+        case .create:   [.ask, .generate, .recommend, .playlists, .djSet, .liveDJ]
+        case .explore:  [.discovery, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
+        case .settings: [.settings]
+        }
+    }
+}
+
 // MARK: - Adaptive root
 
 /// Adaptive navigation shell shared across platforms:
@@ -175,9 +203,13 @@ struct RootView: View {
     private var splitView: some View {
         NavigationSplitView {
             List(selection: sidebarSelection) {
-                ForEach(SidebarItem.allCases) { item in
-                    Label(item.title, systemImage: item.icon)
-                        .tag(item)
+                ForEach(SidebarSection.allCases) { section in
+                    Section(section.title) {
+                        ForEach(section.items) { item in
+                            Label(item.title, systemImage: item.icon)
+                                .tag(item)
+                        }
+                    }
                 }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)

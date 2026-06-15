@@ -40,7 +40,7 @@ public struct ConnectView: View {
             Spacer()
 
             // Logo
-            VStack(spacing: 12) {
+            VStack(spacing: Spacing.md) {
                 Image(systemName: "music.note.house.fill")
                     .font(.system(size: 64))
                     .foregroundStyle(Color.roonGold)
@@ -63,7 +63,7 @@ public struct ConnectView: View {
             }
 
             // Buttons
-            VStack(spacing: 12) {
+            VStack(spacing: Spacing.md) {
 
                 // Reconnect to last host (shown when a host is known)
                 if let saved = client.savedHost {
@@ -141,9 +141,9 @@ public struct ConnectView: View {
             .font(.caption)
             .foregroundStyle(.tertiary)
             .multilineTextAlignment(.center)
-            .padding(.bottom, 24)
+            .padding(.bottom, Spacing.xl)
         }
-        .padding(48)
+        .padding(Spacing.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await autoConnect() }
         // Re-arms on every state change: a failed/dropped attempt schedules the
@@ -166,13 +166,13 @@ public struct ConnectView: View {
             Text(client.connectionState.label)
                 .font(.callout)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Spacing.lg)
         .padding(.vertical, 10)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: Radius.md))
     }
 
     var manualEntry: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             TextField(isServerMode ? "Server-IP" : "Roon Core IP", text: $host)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 180)

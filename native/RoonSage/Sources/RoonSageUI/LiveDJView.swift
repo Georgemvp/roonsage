@@ -69,7 +69,7 @@ public struct LiveDJView: View {
     private func currentCard(_ np: NowPlaying) -> some View {
         HStack(spacing: Spacing.md) {
             AlbumArtView(imageKey: np.imageKey, size: 72)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text("Nu spelend").font(.caption).foregroundStyle(.secondary)
                 Text(np.title).font(.headline).lineLimit(1)
                 if let artist = np.artist {
@@ -100,7 +100,7 @@ public struct LiveDJView: View {
             Text("Synchroniseer audio-kenmerken (Instellingen → Audio Analyzer) om harmonische suggesties te krijgen.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Spacing.xs)
     }
 
     // MARK: Suggestion row
@@ -136,7 +136,7 @@ public struct LiveDJView: View {
                 .accessibilityLabel("Speel nu")
                 .help("Speel nu")
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Spacing.xs)
     }
 
     @ViewBuilder

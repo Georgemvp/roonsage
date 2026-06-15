@@ -98,7 +98,7 @@ public struct SonicFingerprintView: View {
             statRow("Voorkeur majeur", percent(p.majorAffinity))
             statRow("Tempovariatie", percent(p.tempoVariety))
             if !p.topTags.isEmpty {
-                Text("Kenmerkende tags").font(.caption).foregroundStyle(.secondary).padding(.top, 4)
+                Text("Kenmerkende tags").font(.caption).foregroundStyle(.secondary).padding(.top, Spacing.xs)
                 DriftingTags(tags: p.topTags.map { $0.tag })
             }
         }
