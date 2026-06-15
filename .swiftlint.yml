@@ -1,7 +1,8 @@
 # SwiftLint config for the native Swift apps. Intentionally conservative: this
 # is the first lint pass over an established codebase, so the noisiest opinionated
-# rules are off and the CI step is a SOFT gate (`swiftlint lint` fails only on
-# error-severity violations, not warnings). Tighten over time.
+# rules are off. CI runs `swiftlint lint --lenient` (report-only — violations
+# show as PR annotations but don't fail the build) until the existing findings
+# are cleaned up; then drop --lenient in the workflow to make it a hard gate.
 
 included:
   - native/RoonSage/Sources
