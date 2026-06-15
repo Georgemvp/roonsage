@@ -14,6 +14,52 @@ import Network
 public final class LibraryShareServer: @unchecked Sendable {
     public static let defaultPort: UInt16 = 5767   // 5766 is the analyzer
 
+    // MARK: - Access token
+    //
+    // The server exposes the full library AND the synced settings — which carry
+    // secrets (API keys, Last.fm session, Qobuz password). Binding on all
+    // interfaces with no auth would hand those to anyone on the network. Every
+    // endpoint but /health requires a shared secret, sent in `tokenHeader` (kept
+    // out of the URL so it never lands in access logs). Same-machine (loopback)
+    // callers are exempt; see `route`.
+
+    /// Header a client sends its shared secret in.
+    public static let tokenHeader = "X-RoonSage-Token"
+    private static let tokenKey = "share_token"
+    private static var cachedToken: String?
+
+    /// The server's shared secret — generated once and persisted in the Keychain.
+    /// Warmed in `start()` so request handling is a cache hit.
+    public static func currentToken() -> String {
+        if let c = cachedToken { return c }
+        if let t = KeychainStore.load(key: tokenKey), !t.isEmpty { cachedToken = t; return t }
+        var bytes = [UInt8](repeating: 0, count: 24)
+        for i in bytes.indices { bytes[i] = .random(in: .min ... .max) }
+        let token = bytes.map { String(format: "%02x", $0) }.joined()
+        KeychainStore.save(key: tokenKey, value: token)
+        cachedToken = token
+        return token
+    }
+
+    /// Token configured on this device — the server's generated one, or (on a
+    /// client) the value the user pasted from the server. nil if unset.
+    public static var configuredToken: String? { KeychainStore.load(key: tokenKey) }
+
+    /// Set/clear the token on this device (client pairing UI).
+    public static func setConfiguredToken(_ value: String) {
+        let t = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { KeychainStore.delete(key: tokenKey); cachedToken = nil }
+        else { KeychainStore.save(key: tokenKey, value: t); cachedToken = t }
+    }
+
+    /// When false (default) unauthenticated requests are still served but logged
+    /// — a grace window so existing clients keep working until they're paired.
+    /// Flip to true to hard-reject them. A *wrong* token is always rejected.
+    public static var enforceToken: Bool {
+        get { UserDefaults.standard.bool(forKey: "share_token_enforce") }
+        set { UserDefaults.standard.set(newValue, forKey: "share_token_enforce") }
+    }
+
     private let port: UInt16
     private let database: DatabaseManager
     private var listener: NWListener?
@@ -24,6 +70,7 @@ public final class LibraryShareServer: @unchecked Sendable {
     }
 
     public func start() throws {
+        _ = Self.currentToken()   // warm the token cache before any request
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
         let listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
@@ -38,9 +85,10 @@ public final class LibraryShareServer: @unchecked Sendable {
     }
 
     private func handle(_ conn: NWConnection) {
+        let loopback = Self.endpointIsLoopback(conn.endpoint)
         conn.stateUpdateHandler = { [weak self] state in
             switch state {
-            case .ready: self?.receive(conn, accumulated: Data())
+            case .ready: self?.receive(conn, accumulated: Data(), loopback: loopback)
             case .failed, .cancelled: conn.cancel()
             default: break
             }
@@ -50,13 +98,13 @@ public final class LibraryShareServer: @unchecked Sendable {
 
     /// Accumulate until the full request (headers + any POST body) has arrived,
     /// then route. POST bodies don't always land in the first read.
-    private func receive(_ conn: NWConnection, accumulated: Data) {
+    private func receive(_ conn: NWConnection, accumulated: Data, loopback: Bool) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, _ in
             guard let self else { conn.cancel(); return }
             var buf = accumulated
             if let data { buf.append(data) }
             guard let headerEnd = Self.rangeOfHeaderEnd(buf) else {
-                if isComplete { conn.cancel() } else { self.receive(conn, accumulated: buf) }
+                if isComplete { conn.cancel() } else { self.receive(conn, accumulated: buf, loopback: loopback) }
                 return
             }
             let headerData = buf.subdata(in: buf.startIndex..<headerEnd.lowerBound)
@@ -65,12 +113,12 @@ public final class LibraryShareServer: @unchecked Sendable {
             let contentLength = Self.contentLength(header)
             let bodyReceived = buf.count - (bodyStart - buf.startIndex)
             if bodyReceived < contentLength, !isComplete {
-                self.receive(conn, accumulated: buf)
+                self.receive(conn, accumulated: buf, loopback: loopback)
                 return
             }
             let body = buf.subdata(in: bodyStart..<min(bodyStart + contentLength, buf.endIndex))
             Task {
-                let (status, respBody, ctype) = await self.route(header: header, body: body)
+                let (status, respBody, ctype) = await self.route(header: header, body: body, loopback: loopback)
                 self.send(conn, status: status, body: respBody, ctype: ctype)
             }
         }
@@ -87,12 +135,30 @@ public final class LibraryShareServer: @unchecked Sendable {
         })
     }
 
-    private func route(header: String, body: Data) async -> (String, Data, String) {
+    private func route(header: String, body: Data, loopback: Bool) async -> (String, Data, String) {
         let requestLine = header.split(separator: "\r\n").first.map(String.init) ?? ""
         let parts = requestLine.split(separator: " ").map(String.init)
         let method = parts.first ?? "GET"
         let target = parts.count > 1 ? parts[1] : "/"
         let path = target.split(separator: "?").first.map(String.init) ?? target
+
+        // Auth: everything but /health needs the shared token, unless the peer is
+        // loopback (same machine — already OS-trusted) or we're in the grace
+        // window. A wrong token is always rejected.
+        if !path.hasPrefix("/health"), !loopback {
+            let provided = Self.headerValue(Self.tokenHeader, in: header)
+            if let provided, provided != Self.currentToken() {
+                Log.warning("share-server: rejected \(method) \(path) — bad token", category: .network)
+                return ("401 Unauthorized", Data("unauthorized".utf8), "text/plain")
+            }
+            if provided == nil {
+                if Self.enforceToken {
+                    Log.warning("share-server: rejected \(method) \(path) — no token; pair this client with the server token", category: .network)
+                    return ("401 Unauthorized", Data("unauthorized".utf8), "text/plain")
+                }
+                Log.warning("share-server: serving \(method) \(path) WITHOUT a token (grace mode) — pair clients, then enable enforcement in Settings", category: .network)
+            }
+        }
 
         if method == "POST", path.hasPrefix("/command") {
             let ok = await RoonClient.shared.runRemoteCommandData(body)
@@ -138,6 +204,38 @@ public final class LibraryShareServer: @unchecked Sendable {
             }
         }
         return 0
+    }
+
+    private static func headerValue(_ name: String, in header: String) -> String? {
+        let lname = name.lowercased()
+        for line in header.split(separator: "\r\n") {
+            let kv = line.split(separator: ":", maxSplits: 1)
+            if kv.count == 2, kv[0].lowercased() == lname {
+                let v = kv[1].trimmingCharacters(in: .whitespaces)
+                return v.isEmpty ? nil : v
+            }
+        }
+        return nil
+    }
+
+    /// True when the connecting peer is on this machine (127.0.0.0/8, ::1, the
+    /// v4-mapped loopback, or "localhost"). Such callers skip the token check.
+    private static func endpointIsLoopback(_ endpoint: NWEndpoint) -> Bool {
+        guard case let .hostPort(host, _) = endpoint else { return false }
+        switch host {
+        case .ipv4(let addr):
+            return addr.rawValue.first == 127
+        case .ipv6(let addr):
+            let b = [UInt8](addr.rawValue)
+            guard b.count == 16 else { return false }
+            if b[0..<15].allSatisfy({ $0 == 0 }) && b[15] == 1 { return true }   // ::1
+            if b[10] == 0xff, b[11] == 0xff, b[12] == 127 { return true }        // ::ffff:127.x.x.x
+            return false
+        case .name(let name, _):
+            return name == "localhost"
+        @unknown default:
+            return false
+        }
     }
 
     private static func queryValue(_ name: String, in target: String) -> String? {

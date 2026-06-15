@@ -37,6 +37,7 @@ extension RoonClient {
         guard let url = URL(string: "\(trimmed)/settings") else { return false }
         var req = URLRequest(url: url)
         req.timeoutInterval = 8
+        authorizeShareRequest(&req)
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               var settings = try? JSONDecoder().decode(SyncableSettings.self, from: data)

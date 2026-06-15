@@ -23,6 +23,7 @@ public struct SettingsView: View {
 
     // Server sync (client role: pull settings + library + features from the server)
     @State private var serverURL: String = UserDefaults.standard.string(forKey: "library_import_url") ?? ""
+    @State private var serverToken: String = LibraryShareServer.configuredToken ?? ""
     @State private var settingsSyncBusy = false
     @State private var settingsSyncStatus: String?
 
@@ -132,7 +133,12 @@ public struct SettingsView: View {
                     if let s = settingsSyncStatus {
                         Text(s).font(.caption).foregroundStyle(.secondary)
                     }
-                    Text("Haalt instellingen, de muziekbibliotheek en de analyses op van de RoonSage-server (de analyzer op je always-on Mac). De eerste keer moet je dit apparaat nog wel goedkeuren in Roon.")
+                    SecureField("Servertoken", text: $serverToken)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: serverToken) { _, new in
+                            LibraryShareServer.setConfiguredToken(new)
+                        }
+                    Text("Haalt instellingen, de muziekbibliotheek en de analyses op van de RoonSage-server (de analyzer op je always-on Mac). Plak het token dat de server toont onder ‘Bibliotheek’. De eerste keer moet je dit apparaat nog wel goedkeuren in Roon.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -173,6 +179,22 @@ public struct SettingsView: View {
                     ))
                     Text("Client-apps (Mac/iPhone) halen de bibliotheek hiervandaan op in plaats van zelf urenlang te syncen.")
                         .font(.caption).foregroundStyle(.secondary)
+
+                    if client.isLibrarySharing {
+                        LabeledContent("Toegangstoken") {
+                            Text(LibraryShareServer.currentToken())
+                                .font(.caption.monospaced())
+                                .textSelection(.enabled)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Toggle("Forceer token (weiger niet-gekoppelde clients)", isOn: Binding(
+                            get: { LibraryShareServer.enforceToken },
+                            set: { LibraryShareServer.enforceToken = $0 }
+                        ))
+                        Text("De server deelt ook je instellingen — inclusief API-sleutels en wachtwoorden. Plak dit token in elke client onder ‘Server’. Zet ‘Forceer’ pas aan nadat álle clients gekoppeld zijn, anders verliezen ze toegang.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
 

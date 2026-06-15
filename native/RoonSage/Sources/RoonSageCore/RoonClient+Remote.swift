@@ -163,6 +163,14 @@ extension RoonClient {
         remotePollTask = nil
     }
 
+    /// Attach the share-server shared secret (if this device has been paired)
+    /// so the authenticated endpoints accept the request.
+    func authorizeShareRequest(_ req: inout URLRequest) {
+        if let token = LibraryShareServer.configuredToken, !token.isEmpty {
+            req.setValue(token, forHTTPHeaderField: LibraryShareServer.tokenHeader)
+        }
+    }
+
     /// Fetch /playback once and map it onto the observable state the UI binds to.
     func pollPlaybackOnce() async {
         guard isRemote, let base = remoteBaseURL else { return }
@@ -171,6 +179,7 @@ extension RoonClient {
         guard let url = comps?.url else { return }
         var req = URLRequest(url: url)
         req.timeoutInterval = 5
+        authorizeShareRequest(&req)
         let serverHost = URL(string: base)?.host
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
@@ -259,6 +268,7 @@ extension RoonClient {
     func fetchLibraryRevision(base: String) async -> String? {
         guard let url = URL(string: "\(base)/playback") else { return nil }
         var req = URLRequest(url: url); req.timeoutInterval = 5
+        authorizeShareRequest(&req)
         guard let (data, _) = try? await URLSession.shared.data(for: req),
               let snap = try? JSONDecoder().decode(PlaybackSnapshot.self, from: data) else { return nil }
         return snap.libraryRevision
@@ -275,6 +285,7 @@ extension RoonClient {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONEncoder().encode(command)
+        authorizeShareRequest(&req)
         // Queue-loading commands can take far longer server-side than the rest
         // (an old server that still blocks the response would otherwise time out
         // mid-load); a truly-down server still fails fast via connection refusal.

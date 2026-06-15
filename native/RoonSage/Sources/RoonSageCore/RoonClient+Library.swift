@@ -108,8 +108,10 @@ extension RoonClient {
         // A running sync writes the same tables the import replaces.
         guard let db = database, !isSyncing else { return nil }
         let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
-        guard let url = URL(string: "\(trimmed)/library"),
-              let (data, resp) = try? await URLSession.shared.data(from: url),
+        guard let url = URL(string: "\(trimmed)/library") else { return nil }
+        var req = URLRequest(url: url)
+        authorizeShareRequest(&req)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         guard let count = await Task.detached(priority: .userInitiated, operation: {
             try? db.importLibrary(json: data)
