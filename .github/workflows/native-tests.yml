@@ -28,6 +28,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: SwiftLint
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install SwiftLint
+        run: brew install swiftlint
+      # Soft gate: default severities mean this fails only on error-level
+      # violations, surfacing the rest as annotations. Add --strict to enforce.
+      - name: Lint
+        run: swiftlint lint --config .swiftlint.yml
+
   test:
     name: swift test + release build
     runs-on: macos-14
@@ -36,6 +50,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Cache resolved SPM deps + the build so GRDB isn't re-fetched/recompiled
+      # from scratch every run. Keyed on the committed Package.resolved.
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            native/RoonSage/.build
+            native/RoonProtocol/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('native/RoonSage/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
 
       - name: RoonProtocol — swift test
         run: cd native/RoonProtocol && swift test
@@ -47,3 +73,47 @@ jobs:
       # configuration is stricter and has caught build-only failures before.
       - name: RoonSage — release build sanity (shared targets)
         run: cd native/RoonSage && swift build -c release --product RoonSage
+
+  # Builds the SHIPPABLE artifacts (iOS archive + the macOS/analyzer .app
+  # bundles) without uploading, so packaging breaks — xcodegen, Info.plist
+  # stamping, entitlements, asset catalogs, iOS signing config — surface on PRs
+  # instead of only at release-tag time.
+  build-apps:
+    name: build apps (no upload)
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            native/RoonSage/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-build-${{ runner.os }}-${{ hashFiles('native/RoonSage/Package.resolved') }}
+          restore-keys: spm-build-${{ runner.os }}-
+
+      # Build every shippable executable in release mode. The test job only
+      # builds RoonSage; the analyzer app/CLI and MCP server were never built on
+      # PRs and could break unnoticed until their release tag.
+      - name: macOS release products
+        run: |
+          cd native/RoonSage
+          swift build -c release \
+            --product RoonSage \
+            --product RoonSageAnalyzerApp \
+            --product roonsage-analyzer \
+            --product roonsage-mcp
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: iOS app (simulator build, no signing)
+        run: |
+          cd native/iosapp
+          xcodegen generate
+          xcodebuild -project RoonSageiOS.xcodeproj -scheme RoonSageiOS \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug build CODE_SIGNING_ALLOWED=NO

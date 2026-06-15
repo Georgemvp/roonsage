@@ -8,8 +8,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Swift 5.9+](https://img.shields.io/badge/Swift-5.9+-F05138.svg)](https://swift.org)
 [![Platforms](https://img.shields.io/badge/Platforms-macOS%2014%20%C2%B7%20iOS%2017-007AFF.svg)](#platforms)
-[![macOS](https://img.shields.io/badge/macOS-v1.5.70-e5a00d.svg)](#platforms)
-[![iOS](https://img.shields.io/badge/iOS-v1.6.40-e5a00d.svg)](#platforms)
+[![macOS](https://img.shields.io/github/v/tag/Georgemvp/roonsage?filter=v*&label=macOS&color=e5a00d)](https://github.com/Georgemvp/roonsage/releases)
+[![iOS](https://img.shields.io/github/v/tag/Georgemvp/roonsage?filter=ios-v*&label=iOS&color=e5a00d)](https://github.com/Georgemvp/roonsage/releases)
+[![Analyzer](https://img.shields.io/github/v/tag/Georgemvp/roonsage?filter=analyzer-v*&label=Analyzer&color=e5a00d)](https://github.com/Georgemvp/roonsage/releases)
 [![ListenBrainz](https://img.shields.io/badge/ListenBrainz-integrated-eb743b.svg)](https://listenbrainz.org)
 [![Last.fm](https://img.shields.io/badge/Last.fm-integrated-d51007.svg)](https://www.last.fm)
 

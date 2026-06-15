@@ -2,7 +2,22 @@
 
 All notable changes to RoonSage are documented here.
 
-## [13.2.0] - 2026-06-01
+## Native era (macOS / iOS / Analyzer)
+
+RoonSage is now a native Swift/SwiftUI product. Per-release notes are published
+on **[GitHub Releases](https://github.com/Georgemvp/roonsage/releases)** (the
+in-app updater consumes the same feed), across three independent tag tracks:
+
+- **macOS** — `vX.Y.Z`
+- **iOS** — `ios-vX.Y.Z`
+- **Analyzer** — `analyzer-vX.Y.Z`
+
+The entries below document the **deprecated** Docker/Python web app
+(`legacy-docker/`), kept for historical reference only.
+
+---
+
+## [13.2.0] - 2026-06-01 _(legacy Docker/Python)_
 
 ### Added
 

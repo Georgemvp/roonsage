@@ -3,6 +3,13 @@
 > ⚠️ **This stack is deprecated and no longer maintained.** It is kept here for
 > reference only. The actively-developed product is the native macOS/iOS app in
 > [`../native/`](../native/). See the root [README](../README.md).
+>
+> **Removal plan:** this directory is scheduled for deletion once the last value
+> is extracted from it — namely the legacy `track_audio_features` table exported
+> as the analyzer's accuracy-validation reference CSV (see `native/ROADMAP.md`).
+> No native code depends on it. When deleted, also remove the now-dead
+> `.github/workflows/test.yml` (it only runs on `legacy-docker/**` changes).
+> Git history preserves everything.
 
 This directory holds the original self-hosted **FastAPI web app + MCP server**:
 it connected to a Roon Core as an Extension, mirrored the library into a local

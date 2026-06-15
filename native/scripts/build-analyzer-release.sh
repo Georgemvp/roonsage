@@ -39,7 +39,14 @@ awk -v ver="$VERSION" '
 ' "$PACKAGE_DIR/Sources/RoonSageAnalyzerApp/Info.plist" \
   > "$APP_PATH/Contents/Info.plist"
 ICON="$MACOS_DIR/assets/RoonSageAnalyzer.icns"
-[[ -f "$ICON" ]] && cp "$ICON" "$APP_PATH/Contents/Resources/AppIcon.icns"
+# An `&& cp` here is a latent landmine: under `set -e`, a missing icon makes the
+# `[[ -f ]]` test fail, the `&&` chain returns non-zero, and the whole build
+# aborts. Use an explicit if-block (matches build-release.sh).
+if [[ -f "$ICON" ]]; then
+  cp "$ICON" "$APP_PATH/Contents/Resources/AppIcon.icns"
+else
+  echo "⚠︎ no analyzer icon at $ICON — bundling without a custom icon"
+fi
 
 echo "── Step 3: codesign"
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"

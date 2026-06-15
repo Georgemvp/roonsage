@@ -101,7 +101,10 @@ final class AnalyzerModel {
         // up without waiting on the slow CoreML load. The CLAP model loads
         // off-main and is attached to the running server (no rebind) to enable
         // /text-embed. A status file records the load outcome for diagnostics.
-        let s = HTTPServer(port: p, store: store, clap: clap)
+        // Gate the server with the same shared token clients pair with, so the
+        // feature/embedding corpus isn't open over ZeroTier/LAN. Loopback is
+        // exempt; /health stays public.
+        let s = HTTPServer(port: p, store: store, clap: clap, token: LibraryShareServer.currentToken())
         do {
             try s.start()
             server = s

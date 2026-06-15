@@ -116,7 +116,11 @@ public final class LibraryShareServer: @unchecked Sendable {
                 self.receive(conn, accumulated: buf, loopback: loopback)
                 return
             }
-            let body = buf.subdata(in: bodyStart..<min(bodyStart + contentLength, buf.endIndex))
+            // `contentLength` is clamped to [0, 32 MB] (see `contentLength`), so
+            // this range can never invert — a negative/overflowing header value
+            // used to trap here and crash the always-on extension process.
+            let bodyEnd = min(bodyStart + contentLength, buf.endIndex)
+            let body = buf.subdata(in: min(bodyStart, bodyEnd)..<bodyEnd)
             Task {
                 let (status, respBody, ctype) = await self.route(header: header, body: body, loopback: loopback)
                 self.send(conn, status: status, body: respBody, ctype: ctype)
@@ -144,16 +148,20 @@ public final class LibraryShareServer: @unchecked Sendable {
 
         // Auth: everything but /health needs the shared token, unless the peer is
         // loopback (same machine — already OS-trusted) or we're in the grace
-        // window. A wrong token is always rejected.
+        // window. A wrong token is always rejected. /settings carries secrets
+        // (API keys, Last.fm session, Qobuz password) so it is ALWAYS gated —
+        // grace mode never applies to it.
         if !path.hasPrefix("/health"), !loopback {
+            let sensitive = path.hasPrefix("/settings")
             let provided = Self.headerValue(Self.tokenHeader, in: header)
-            if let provided, provided != Self.currentToken() {
+            if let provided, !Self.constantTimeEquals(provided, Self.currentToken()) {
                 Log.warning("share-server: rejected \(method) \(path) — bad token", category: .network)
                 return ("401 Unauthorized", Data("unauthorized".utf8), "text/plain")
             }
             if provided == nil {
-                if Self.enforceToken {
-                    Log.warning("share-server: rejected \(method) \(path) — no token; pair this client with the server token", category: .network)
+                if Self.enforceToken || sensitive {
+                    let why = sensitive ? "secrets endpoint requires a token" : "pair this client with the server token"
+                    Log.warning("share-server: rejected \(method) \(path) — no token; \(why)", category: .network)
                     return ("401 Unauthorized", Data("unauthorized".utf8), "text/plain")
                 }
                 Log.warning("share-server: serving \(method) \(path) WITHOUT a token (grace mode) — pair clients, then enable enforcement in Settings", category: .network)
@@ -196,17 +204,33 @@ public final class LibraryShareServer: @unchecked Sendable {
         return data.range(of: marker)
     }
 
-    private static func contentLength(_ header: String) -> Int {
+    static func contentLength(_ header: String) -> Int {
         for line in header.split(separator: "\r\n") {
             let kv = line.split(separator: ":", maxSplits: 1)
             if kv.count == 2, kv[0].lowercased() == "content-length" {
-                return Int(kv[1].trimmingCharacters(in: .whitespaces)) ?? 0
+                let n = Int(kv[1].trimmingCharacters(in: .whitespaces)) ?? 0
+                // Clamp: a negative or overflowing value would invert the body
+                // slice range and trap. 32 MB is far above any real command body.
+                return max(0, min(n, 32 * 1024 * 1024))
             }
         }
         return 0
     }
 
-    private static func headerValue(_ name: String, in header: String) -> String? {
+    /// Constant-time string compare — plain `==`/`!=` short-circuits on the first
+    /// differing byte, leaking the match length via timing. Used for the token.
+    static func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+        let ab = Array(a.utf8), bb = Array(b.utf8)
+        var diff = UInt8(ab.count == bb.count ? 0 : 1)
+        for i in 0..<Swift.max(ab.count, bb.count) {
+            let x = i < ab.count ? ab[i] : 0
+            let y = i < bb.count ? bb[i] : 0
+            diff |= (x ^ y)
+        }
+        return diff == 0
+    }
+
+    static func headerValue(_ name: String, in header: String) -> String? {
         let lname = name.lowercased()
         for line in header.split(separator: "\r\n") {
             let kv = line.split(separator: ":", maxSplits: 1)

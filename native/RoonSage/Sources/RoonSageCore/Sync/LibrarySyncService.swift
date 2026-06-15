@@ -111,7 +111,7 @@ actor LibrarySyncService {
                 continue
             }
 
-            let (albumArtist, year) = parseSubtitle(album.subtitle)
+            let (albumArtist, year) = Self.parseSubtitle(album.subtitle)
             // Compilation detection: "Various Artists" / "Diverse artiesten" etc.
             let isCompilation = albumArtist.map {
                 $0.lowercased().hasPrefix("various") || $0.lowercased().hasPrefix("diverse")
@@ -143,7 +143,7 @@ actor LibrarySyncService {
                 let isLive = liveHints.contains { combinedTitle.contains($0) }
                 // For compilations Roon Browse returns the track artist in item.subtitle;
                 // use it so the match_key aligns with the file-tag artist in the analyzer.
-                let (trackArtist, _) = isCompilation ? parseSubtitle(item.subtitle) : (nil, nil)
+                let (trackArtist, _) = isCompilation ? Self.parseSubtitle(item.subtitle) : (nil, nil)
                 let artist = trackArtist ?? albumArtist
                 batch.append(TrackRecord(
                     id: key,
@@ -244,7 +244,9 @@ actor LibrarySyncService {
         "\(title.lowercased())|\((subtitle ?? "").lowercased())"
     }
 
-    private func parseSubtitle(_ subtitle: String?) -> (artist: String?, year: Int?) {
+    /// Parse Roon's `"Artist • Year • Genre"` subtitle. Static + internal so the
+    /// fragile split logic (CLAUDE.md flags it) is unit-testable in isolation.
+    static func parseSubtitle(_ subtitle: String?) -> (artist: String?, year: Int?) {
         guard let subtitle, !subtitle.isEmpty else { return (nil, nil) }
         let parts = subtitle.components(separatedBy: "•").map { $0.trimmingCharacters(in: .whitespaces) }
         let artist = parts.first.map { $0.isEmpty ? nil : $0 } ?? nil

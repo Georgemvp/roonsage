@@ -44,7 +44,10 @@ case "serve":
     let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
     let port = UInt16(option("--port") ?? "5766") ?? 5766
     let clap = args.contains("--no-clap") ? nil : CLAPModel.load()
-    let server = HTTPServer(port: port, store: store, clap: clap)
+    // No Keychain access in the CLI — read the shared token from the environment.
+    // Unset → server runs open (it warns at start); set it to gate the corpus.
+    let shareToken = ProcessInfo.processInfo.environment["ROONSAGE_SHARE_TOKEN"]
+    let server = HTTPServer(port: port, store: store, clap: clap, token: shareToken)
     try server.start()
     print("Serving \(store.count()) tracks on http://0.0.0.0:\(port)/features  (Ctrl-C to stop)")
     print(clap?.canEmbedText == true ? "  text search: /text-embed enabled" : "  text search: disabled (no CLAP)")

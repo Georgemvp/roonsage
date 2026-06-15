@@ -8,9 +8,19 @@ import Network
 ///   GET /embeddings → binary RSEB bundle
 ///   GET /text-embed?q=… → {"embedding":[…]}  (text→vector for search)
 ///   GET /health → status
+///
+/// When `token` is set, every endpoint but `/health` requires it in the
+/// `X-RoonSage-Token` header (loopback callers are exempt) — this server hands
+/// out the full feature/embedding corpus and runs CPU-bound text inference, so
+/// over ZeroTier/LAN it must not be open. `token == nil` keeps it open (local
+/// dev) but logs a warning at start.
 public final class HTTPServer {
+    /// Header a client sends its shared secret in (matches LibraryShareServer).
+    public static let tokenHeader = "X-RoonSage-Token"
+
     private let port: UInt16
     private let store: FeatureStore
+    private let token: String?
     private let clapLock = NSLock()
     private var _clap: CLAPModel?
     private var clap: CLAPModel? {
@@ -18,10 +28,11 @@ public final class HTTPServer {
     }
     private var listener: NWListener?
 
-    public init(port: UInt16, store: FeatureStore, clap: CLAPModel? = nil) {
+    public init(port: UInt16, store: FeatureStore, clap: CLAPModel? = nil, token: String? = nil) {
         self.port = port
         self.store = store
         self._clap = clap
+        self.token = (token?.isEmpty == false) ? token : nil
     }
 
     /// Attach (or replace) the CLAP model on a running server without rebinding
@@ -32,6 +43,9 @@ public final class HTTPServer {
     }
 
     public func start() throws {
+        if token == nil {
+            FileHandle.standardError.write(Data("⚠︎ analyzer HTTP server on \(port) is UNAUTHENTICATED (no token) — anyone on the network can read features/embeddings. Set ROONSAGE_SHARE_TOKEN.\n".utf8))
+        }
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
         let listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
@@ -46,9 +60,10 @@ public final class HTTPServer {
     }
 
     private func handle(_ conn: NWConnection) {
+        let loopback = Self.endpointIsLoopback(conn.endpoint)
         conn.stateUpdateHandler = { [weak self] state in
             switch state {
-            case .ready: self?.receive(conn)
+            case .ready: self?.receive(conn, loopback: loopback)
             case .failed, .cancelled: conn.cancel()
             default: break
             }
@@ -56,11 +71,11 @@ public final class HTTPServer {
         conn.start(queue: .global())
     }
 
-    private func receive(_ conn: NWConnection) {
+    private func receive(_ conn: NWConnection, loopback: Bool) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, _, _ in
             guard let self, let data, let req = String(data: data, encoding: .utf8) else { conn.cancel(); return }
             let path = req.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
-            let (status, body, ctype) = self.route(path)
+            let (status, body, ctype) = self.route(path, request: req, loopback: loopback)
             var header = "HTTP/1.1 \(status)\r\n"
             header += "Content-Type: \(ctype)\r\n"
             header += "Content-Length: \(body.count)\r\n"
@@ -73,7 +88,15 @@ public final class HTTPServer {
         }
     }
 
-    private func route(_ path: String) -> (String, Data, String) {
+    private func route(_ path: String, request: String, loopback: Bool) -> (String, Data, String) {
+        // Auth: everything but /health requires the token unless the peer is on
+        // this machine. A missing or wrong token is rejected.
+        if let token, !path.hasPrefix("/health"), !loopback {
+            let provided = Self.headerValue(Self.tokenHeader, in: request)
+            if provided == nil || !Self.constantTimeEquals(provided!, token) {
+                return ("401 Unauthorized", Data("{\"error\":\"unauthorized\"}".utf8), "application/json")
+            }
+        }
         if path.hasPrefix("/text-embed") {
             guard let clap, clap.canEmbedText, let q = Self.queryValue("q", in: path), !q.isEmpty,
                   let vec = try? clap.textEmbedding(q) else {
@@ -91,6 +114,46 @@ public final class HTTPServer {
         }
         if path.hasPrefix("/health") { return ("200 OK", Data("{\"status\":\"ok\",\"tracks\":\(store.count())}".utf8), "application/json") }
         return ("404 Not Found", Data("not found".utf8), "text/plain")
+    }
+
+    /// Read a header value (case-insensitive) from the raw request string.
+    static func headerValue(_ name: String, in request: String) -> String? {
+        let lname = name.lowercased()
+        for line in request.split(separator: "\r\n") {
+            let kv = line.split(separator: ":", maxSplits: 1)
+            if kv.count == 2, kv[0].lowercased() == lname {
+                let v = kv[1].trimmingCharacters(in: .whitespaces)
+                return v.isEmpty ? nil : v
+            }
+        }
+        return nil
+    }
+
+    /// Constant-time compare — plain `==` leaks match length via timing.
+    static func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+        let ab = Array(a.utf8), bb = Array(b.utf8)
+        var diff = UInt8(ab.count == bb.count ? 0 : 1)
+        for i in 0..<Swift.max(ab.count, bb.count) {
+            diff |= (i < ab.count ? ab[i] : 0) ^ (i < bb.count ? bb[i] : 0)
+        }
+        return diff == 0
+    }
+
+    /// True when the connecting peer is on this machine (loopback) — exempt from
+    /// the token check.
+    static func endpointIsLoopback(_ endpoint: NWEndpoint) -> Bool {
+        guard case let .hostPort(host, _) = endpoint else { return false }
+        switch host {
+        case .ipv4(let addr): return addr.rawValue.first == 127
+        case .ipv6(let addr):
+            let b = [UInt8](addr.rawValue)
+            guard b.count == 16 else { return false }
+            if b[0..<15].allSatisfy({ $0 == 0 }) && b[15] == 1 { return true }   // ::1
+            if b[10] == 0xff, b[11] == 0xff, b[12] == 127 { return true }        // ::ffff:127.x
+            return false
+        case .name(let name, _): return name == "localhost"
+        @unknown default: return false
+        }
     }
 
     /// Extract + percent-decode a query parameter from a request path.

@@ -3,4 +3,5 @@
 *.xcodeproj
 *.xcworkspace
 DerivedData/
-Package.resolved
+# Package.resolved IS committed — this is an app, so pinning exact dependency
+# versions keeps CI and every contributor build reproducible.

@@ -175,7 +175,7 @@ public final class RoonClient {
     public var featuresRevision: String = ""
 
     public init() {
-        database = try? DatabaseManager(url: Self.databaseURL)
+        database = DatabaseManager.open(url: Self.databaseURL)
         refreshTrackCount()
         refreshGenreCount()
         #if os(macOS)
@@ -363,7 +363,9 @@ public final class RoonClient {
         do {
             let body = try await transport.register(payload: payload)
             guard let reg = RoonClientAuth.parseRegistration(body) else {
-                Log.error("registratie-antwoord onbruikbaar: \(body)", category: .roon)
+                // Log only the keys — the raw body carries the Roon token, and
+                // the log file is meant to be shareable.
+                Log.error("registratie-antwoord onbruikbaar; velden: \(body.keys.sorted())", category: .roon)
                 connectionState = .failed("Onverwacht registratie-antwoord")
                 return
             }

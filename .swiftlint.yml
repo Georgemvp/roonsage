@@ -1,0 +1,52 @@
+# SwiftLint config for the native Swift apps. Intentionally conservative: this
+# is the first lint pass over an established codebase, so the noisiest opinionated
+# rules are off and the CI step is a SOFT gate (`swiftlint lint` fails only on
+# error-severity violations, not warnings). Tighten over time.
+
+included:
+  - native/RoonSage/Sources
+  - native/RoonProtocol/Sources
+  - native/iosapp/Sources
+  - native/iosapp/Widgets
+
+excluded:
+  - native/RoonSage/.build
+  - native/RoonProtocol/.build
+  - native/.venv
+  - native/build
+  - "**/Tests"
+  - legacy-docker
+
+# Rules that are pure noise on this codebase (DSP uses x/y/i, SwiftUI bodies are
+# long by nature, etc.). Disabling keeps the signal high.
+disabled_rules:
+  - line_length
+  - todo
+  - type_body_length
+  - function_body_length
+  - file_length
+  - cyclomatic_complexity
+  - identifier_name
+  - type_name
+  - large_tuple
+  - function_parameter_count
+  - nesting
+  - for_where
+  - trailing_comma
+
+# A few high-value opt-ins that catch real mistakes.
+opt_in_rules:
+  - empty_count
+  - empty_string
+  - first_where
+  - last_where
+  - contains_over_first_not_nil
+  - redundant_nil_coalescing
+  - toggle_bool
+
+# Keep force_cast / force_try as warnings (not the default error) so introducing
+# lint never breaks CI on day one; revisit once the codebase is clean.
+force_cast: warning
+force_try: warning
+
+reporter: "github-actions-logging"
