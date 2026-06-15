@@ -7,19 +7,25 @@ import RoonProtocol
 extension RoonClient {
     // MARK: - Saved playlists
 
-    @discardableResult
-    public func savePlaylist(name: String, tracks: [TrackRecord]) -> Int64? {
-        try? database?.savePlaylist(name: name, tracks: tracks)
+    /// Fire-and-forget save (view callers don't use the row id) — keeps the call
+    /// site synchronous while the DB write runs off-main.
+    public func savePlaylist(name: String, tracks: [TrackRecord]) {
+        Task { try? await database?.savePlaylist(name: name, tracks: tracks) }
+    }
+
+    /// Save and return the new row id — for the MCP tool, which reports it.
+    public func savePlaylistReturningID(name: String, tracks: [TrackRecord]) async -> Int64? {
+        try? await database?.savePlaylist(name: name, tracks: tracks)
     }
 
     public func playlists() async -> [DatabaseManager.PlaylistSummary] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.listPlaylists()) ?? [] }.value
+        return (try? await db.listPlaylists()) ?? []
     }
 
     public func playlistTracks(id: Int64) async -> [TrackRecord] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.playlistTracks(id: id)) ?? [] }.value
+        return (try? await db.playlistTracks(id: id)) ?? []
     }
 
     /// Saved tracks re-resolved to the current library (so album art / item_keys
@@ -27,13 +33,13 @@ extension RoonClient {
     public func playlistTracksForDisplay(id: Int64) async -> [TrackRecord] {
         let saved = await playlistTracks(id: id)
         guard !saved.isEmpty else { return [] }
-        let resolved = (try? database?.resolveCurrentTracks(saved)) ?? []
+        let resolved = (try? await database?.resolveCurrentTracks(saved)) ?? []
         guard resolved.count == saved.count else { return saved }
         return resolved
     }
 
     public func deletePlaylist(id: Int64) {
-        try? database?.deletePlaylist(id: id)
+        Task { try? await database?.deletePlaylist(id: id) }
     }
 
     /// Resolve a saved playlist to current item_keys and play it. Returns the
@@ -42,7 +48,7 @@ extension RoonClient {
     public func playPlaylist(id: Int64, zoneID: String) async -> Int {
         let saved = await playlistTracks(id: id)
         guard !saved.isEmpty else { return 0 }
-        let current = (try? database?.resolveCurrentTracks(saved)) ?? []
+        let current = (try? await database?.resolveCurrentTracks(saved)) ?? []
         guard !current.isEmpty else { return 0 }
         await curateTracks(current, zoneID: zoneID)
         return current.count
@@ -55,23 +61,24 @@ extension RoonClient {
 
     // MARK: - Recommendation history
 
-    @discardableResult
-    public func saveRecommendation(prompt: String, albums: [DatabaseManager.AlbumResult]) -> Int64? {
-        try? database?.saveRecommendation(prompt: prompt, albums: albums)
+    /// Fire-and-forget save (callers don't use the row id) — keeps the call site
+    /// synchronous while the DB write runs off-main.
+    public func saveRecommendation(prompt: String, albums: [DatabaseManager.AlbumResult]) {
+        Task { try? await database?.saveRecommendation(prompt: prompt, albums: albums) }
     }
 
     public func recommendations() async -> [DatabaseManager.RecommendationSummary] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.listRecommendations()) ?? [] }.value
+        return (try? await db.listRecommendations()) ?? []
     }
 
     public func recommendationAlbums(id: Int64) async -> [DatabaseManager.AlbumResult] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.recommendationAlbums(id: id)) ?? [] }.value
+        return (try? await db.recommendationAlbums(id: id)) ?? []
     }
 
     public func deleteRecommendation(id: Int64) {
-        try? database?.deleteRecommendation(id: id)
+        Task { try? await database?.deleteRecommendation(id: id) }
     }
 
 }

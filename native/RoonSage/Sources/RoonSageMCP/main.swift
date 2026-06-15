@@ -477,7 +477,7 @@ final class MCPServer {
                 ? await sessions.all(sessionID: sessionID)
                 : await sessions.resolve(sessionID: sessionID, numbers: numbers)
             if tracks.isEmpty { return "No tracks resolved from session \(sessionID). Run filter_tracks first." }
-            guard let pid = client.savePlaylist(name: name, tracks: tracks) else {
+            guard let pid = await client.savePlaylistReturningID(name: name, tracks: tracks) else {
                 return "Could not save playlist."
             }
             return "Saved playlist '\(name)' (id \(pid)) with \(tracks.count) tracks."

@@ -4,9 +4,9 @@ import GRDB
 extension DatabaseManager {
     // MARK: - Listening history
 
-    public func logListen(title: String, artist: String?, album: String?, zoneID: String, zoneName: String) throws {
+    public func logListen(title: String, artist: String?, album: String?, zoneID: String, zoneName: String) async throws {
         let iso = Self.isoFormatter.string(from: Date())
-        try pool.write { db in
+        try await pool.write { db in
             try db.execute(
                 sql: "INSERT INTO listening_history (title, artist, album, zone_id, zone_name, played_at) VALUES (?, ?, ?, ?, ?, ?)",
                 arguments: [title, artist, album, zoneID, zoneName, iso]
@@ -14,8 +14,8 @@ extension DatabaseManager {
         }
     }
 
-    public func totalListens() throws -> Int {
-        try pool.read { db in
+    public func totalListens() async throws ->Int {
+        try await pool.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM listening_history") ?? 0
         }
     }
@@ -28,8 +28,8 @@ extension DatabaseManager {
         public var playedAt: String
     }
 
-    public func recentListens(limit: Int = 50) throws -> [ListenEntry] {
-        try pool.read { db in
+    public func recentListens(limit: Int = 50) async throws ->[ListenEntry] {
+        try await pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT title, artist, album, zone_name, played_at
                 FROM listening_history ORDER BY played_at DESC LIMIT ?
@@ -61,24 +61,24 @@ extension DatabaseManager {
     /// Vroegste `played_at` van listens die NIET uit de opgegeven bron komen.
     /// Wordt als bovengrens gebruikt zodat de import de gaten vóór de lokale
     /// logging vult zonder de eigen Roon-listens te dupliceren.
-    public func earliestListen(excludingSource source: String) throws -> String? {
-        try pool.read { db in
+    public func earliestListen(excludingSource source: String) async throws ->String? {
+        try await pool.read { db in
             try String.fetchOne(db, sql: """
                 SELECT MIN(played_at) FROM listening_history WHERE source <> ?
             """, arguments: [source])
         }
     }
 
-    public func importedListenCount(source: String) throws -> Int {
-        try pool.read { db in
+    public func importedListenCount(source: String) async throws ->Int {
+        try await pool.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM listening_history WHERE source = ?", arguments: [source]) ?? 0
         }
     }
 
     /// Vervangt alle listens van één bron in één transactie (idempotent: een
     /// her-import bouwt simpelweg opnieuw op). `zone_name` wordt de bronnaam.
-    public func replaceImportedListens(_ entries: [ImportedListen], source: String, zoneName: String) throws {
-        try pool.write { db in
+    public func replaceImportedListens(_ entries: [ImportedListen], source: String, zoneName: String) async throws {
+        try await pool.write { db in
             try db.execute(sql: "DELETE FROM listening_history WHERE source = ?", arguments: [source])
             for e in entries {
                 try db.execute(sql: """
@@ -89,8 +89,8 @@ extension DatabaseManager {
         }
     }
 
-    public func topArtistsListened(limit: Int = 20) throws -> [(artist: String, count: Int)] {
-        try pool.read { db in
+    public func topArtistsListened(limit: Int = 20) async throws ->[(artist: String, count: Int)] {
+        try await pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT artist, COUNT(*) as cnt FROM listening_history
                 WHERE artist IS NOT NULL GROUP BY artist ORDER BY cnt DESC LIMIT ?
@@ -109,8 +109,8 @@ extension DatabaseManager {
         public var tracksByDecade: [(decade: String, count: Int)]
     }
 
-    public func libraryStats() throws -> LibraryStats {
-        try pool.read { db in
+    public func libraryStats() async throws ->LibraryStats {
+        try await pool.read { db in
             let totalTracks  = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM tracks") ?? 0
             let totalArtists = try Int.fetchOne(db, sql: "SELECT COUNT(DISTINCT artist) FROM tracks WHERE artist IS NOT NULL") ?? 0
             let totalAlbums  = try Int.fetchOne(db, sql: "SELECT COUNT(DISTINCT album_key) FROM tracks") ?? 0
@@ -148,8 +148,8 @@ extension DatabaseManager {
     }
 
     @discardableResult
-    public func saveRecommendation(prompt: String, albums: [AlbumResult]) throws -> Int64 {
-        try pool.write { db in
+    public func saveRecommendation(prompt: String, albums: [AlbumResult]) async throws ->Int64 {
+        try await pool.write { db in
             let iso = Self.isoFormatter.string(from: Date())
             try db.execute(sql: "INSERT INTO recommendation_history (prompt, created_at) VALUES (?, ?)", arguments: [prompt, iso])
             let hid = db.lastInsertedRowID
@@ -163,8 +163,8 @@ extension DatabaseManager {
         }
     }
 
-    public func listRecommendations(limit: Int = 20) throws -> [RecommendationSummary] {
-        try pool.read { db in
+    public func listRecommendations(limit: Int = 20) async throws ->[RecommendationSummary] {
+        try await pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT h.id, h.prompt, h.created_at, COUNT(a.position) AS cnt
                 FROM recommendation_history h
@@ -182,8 +182,8 @@ extension DatabaseManager {
         }
     }
 
-    public func recommendationAlbums(id: Int64) throws -> [AlbumResult] {
-        try pool.read { db in
+    public func recommendationAlbums(id: Int64) async throws ->[AlbumResult] {
+        try await pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT album_key, album, artist, year, image_key
                 FROM recommendation_albums WHERE history_id = ? ORDER BY position
@@ -201,8 +201,8 @@ extension DatabaseManager {
         }
     }
 
-    public func deleteRecommendation(id: Int64) throws {
-        try pool.write { db in
+    public func deleteRecommendation(id: Int64) async throws {
+        try await pool.write { db in
             try db.execute(sql: "DELETE FROM recommendation_history WHERE id = ?", arguments: [id])
         }
     }
@@ -221,8 +221,8 @@ extension DatabaseManager {
         public var longestStreak: Int       // consecutive days with at least 1 listen
     }
 
-    public func yearInReview(year: Int) throws -> YearStats {
-        try pool.read { db in
+    public func yearInReview(year: Int) async throws ->YearStats {
+        try await pool.read { db in
             let yearStr = "\(year)"
             let nextStr = "\(year + 1)"
 
@@ -296,7 +296,7 @@ extension DatabaseManager {
             let days = dayRows.compactMap { $0["day"] as String? }
             var maxStreak = 0, currentStreak = days.isEmpty ? 0 : 1
             for i in 1..<days.count {
-                if isNextDay(days[i - 1], days[i]) {
+                if Self.isNextDay(days[i - 1], days[i]) {
                     currentStreak += 1
                 } else {
                     maxStreak = max(maxStreak, currentStreak)
@@ -319,7 +319,7 @@ extension DatabaseManager {
         }
     }
 
-    private func isNextDay(_ a: String, _ b: String) -> Bool {
+    private static func isNextDay(_ a: String, _ b: String) -> Bool {
         guard a.count == 10, b.count == 10 else { return false }
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
@@ -351,8 +351,8 @@ extension DatabaseManager {
         }
     }
 
-    public func searchAlbums(query: String, limit: Int = 100) throws -> [AlbumResult] {
-        try pool.read { db in
+    public func searchAlbums(query: String, limit: Int = 100) async throws ->[AlbumResult] {
+        try await pool.read { db in
             let sql: String
             let args: StatementArguments
             if query.isEmpty {
@@ -388,8 +388,8 @@ extension DatabaseManager {
     }
 
     /// Every album by one exact artist, newest releases first.
-    public func albumsByArtist(_ name: String, limit: Int = 200) throws -> [AlbumResult] {
-        try pool.read { db in
+    public func albumsByArtist(_ name: String, limit: Int = 200) async throws ->[AlbumResult] {
+        try await pool.read { db in
             let sql = """
                 SELECT album_key, album, artist, year, COUNT(*) as track_count, MAX(image_key) as image_key
                 FROM tracks
@@ -430,8 +430,8 @@ extension DatabaseManager {
     }
 
     /// Distinct library artists with track/album counts and a representative cover.
-    public func searchArtists(query: String, limit: Int = 200) throws -> [ArtistResult] {
-        try pool.read { db in
+    public func searchArtists(query: String, limit: Int = 200) async throws ->[ArtistResult] {
+        try await pool.read { db in
             let base = """
                 SELECT artist,
                        COUNT(*) AS track_count,

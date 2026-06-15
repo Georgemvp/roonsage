@@ -27,89 +27,89 @@ final class SyncResumeTests: XCTestCase {
         TrackRecord(id: id, title: title, artist: "Artist", album: album, albumKey: "ak-\(id)")
     }
 
-    func testInterruptedRunResumesSameGeneration() throws {
+    func testInterruptedRunResumesSameGeneration() async throws {
         // Fresh run, album A completed, then "interrupted" (no finish).
-        let run1 = try db.beginSyncRun()
+        let run1 = try await db.beginSyncRun()
         XCTAssertEqual(run1.generation, 1)
         XCTAssertFalse(run1.resumed)
-        try db.replaceAlbumTracks([rec("a1", "One", album: "A")],
+        try await db.replaceAlbumTracks([rec("a1", "One", album: "A")],
                                   albumTitle: "A", fingerprint: "a|artist • 2000", generation: run1.generation)
 
         // Resume: same generation, album A is checkpointed, rows intact.
-        let run2 = try db.beginSyncRun()
+        let run2 = try await db.beginSyncRun()
         XCTAssertEqual(run2.generation, 1)
         XCTAssertTrue(run2.resumed)
         XCTAssertEqual(run2.completedAlbums, ["a|artist • 2000"])
         XCTAssertEqual(try db.trackCount(), 1)
     }
 
-    func testFinishStartsFreshGenerationNextTime() throws {
-        let run1 = try db.beginSyncRun()
-        try db.replaceAlbumTracks([rec("a1", "One", album: "A")],
+    func testFinishStartsFreshGenerationNextTime() async throws {
+        let run1 = try await db.beginSyncRun()
+        try await db.replaceAlbumTracks([rec("a1", "One", album: "A")],
                                   albumTitle: "A", fingerprint: "fpA", generation: run1.generation)
-        try db.finishSyncRun(generation: run1.generation)
+        try await db.finishSyncRun(generation: run1.generation)
 
-        let run2 = try db.beginSyncRun()
+        let run2 = try await db.beginSyncRun()
         XCTAssertEqual(run2.generation, 2)
         XCTAssertFalse(run2.resumed)
         XCTAssertTrue(run2.completedAlbums.isEmpty)
     }
 
-    func testVanishedAlbumDroppedOnlyAtFinish() throws {
+    func testVanishedAlbumDroppedOnlyAtFinish() async throws {
         // Gen 1: albums A + B synced and finished.
-        let run1 = try db.beginSyncRun()
-        try db.replaceAlbumTracks([rec("a1", "One", album: "A")],
+        let run1 = try await db.beginSyncRun()
+        try await db.replaceAlbumTracks([rec("a1", "One", album: "A")],
                                   albumTitle: "A", fingerprint: "fpA", generation: run1.generation)
-        try db.replaceAlbumTracks([rec("b1", "Two", album: "B")],
+        try await db.replaceAlbumTracks([rec("b1", "Two", album: "B")],
                                   albumTitle: "B", fingerprint: "fpB", generation: run1.generation)
-        try db.finishSyncRun(generation: run1.generation)
+        try await db.finishSyncRun(generation: run1.generation)
         XCTAssertEqual(try db.trackCount(), 2)
 
         // Gen 2: only A still exists in Roon. B's rows must survive the walk…
-        let run2 = try db.beginSyncRun()
-        try db.replaceAlbumTracks([rec("a1-new", "One", album: "A")],
+        let run2 = try await db.beginSyncRun()
+        try await db.replaceAlbumTracks([rec("a1-new", "One", album: "A")],
                                   albumTitle: "A", fingerprint: "fpA", generation: run2.generation)
         XCTAssertEqual(try db.trackCount(), 2, "vanished album must not be dropped mid-walk")
 
         // …and disappear only when the walk completes.
-        try db.finishSyncRun(generation: run2.generation)
+        try await db.finishSyncRun(generation: run2.generation)
         XCTAssertEqual(try db.trackCount(), 1)
         XCTAssertEqual(try db.searchTracks(query: "One").first?.id, "a1-new")
     }
 
-    func testRewalkReplacesOldSessionRowsWithoutDuplicates() throws {
+    func testRewalkReplacesOldSessionRowsWithoutDuplicates() async throws {
         // Same album, new Roon session → new item_keys. Replace, don't duplicate.
-        let run1 = try db.beginSyncRun()
-        try db.replaceAlbumTracks([rec("old-key-1", "One", album: "A"), rec("old-key-2", "Two", album: "A")],
+        let run1 = try await db.beginSyncRun()
+        try await db.replaceAlbumTracks([rec("old-key-1", "One", album: "A"), rec("old-key-2", "Two", album: "A")],
                                   albumTitle: "A", fingerprint: "fpA", generation: run1.generation)
-        try db.finishSyncRun(generation: run1.generation)
+        try await db.finishSyncRun(generation: run1.generation)
 
-        let run2 = try db.beginSyncRun()
-        try db.replaceAlbumTracks([rec("new-key-1", "One", album: "A"), rec("new-key-2", "Two", album: "A")],
+        let run2 = try await db.beginSyncRun()
+        try await db.replaceAlbumTracks([rec("new-key-1", "One", album: "A"), rec("new-key-2", "Two", album: "A")],
                                   albumTitle: "A", fingerprint: "fpA", generation: run2.generation)
         XCTAssertEqual(try db.trackCount(), 2)
-        try db.finishSyncRun(generation: run2.generation)
+        try await db.finishSyncRun(generation: run2.generation)
         XCTAssertEqual(try db.trackCount(), 2)
     }
 
-    func testLegacyNullFingerprintRowsReplacedByTitle() throws {
+    func testLegacyNullFingerprintRowsReplacedByTitle() async throws {
         // Pre-v10 rows have album_fp NULL; the first re-walk of that album
         // must replace them (matched by title), not duplicate them.
         try db.upsertTracks([rec("legacy-1", "One", album: "A")])
-        let run = try db.beginSyncRun()
-        try db.replaceAlbumTracks([rec("fresh-1", "One", album: "A")],
+        let run = try await db.beginSyncRun()
+        try await db.replaceAlbumTracks([rec("fresh-1", "One", album: "A")],
                                   albumTitle: "A", fingerprint: "fpA", generation: run.generation)
         XCTAssertEqual(try db.trackCount(), 1)
         XCTAssertEqual(try db.searchTracks(query: "One").first?.id, "fresh-1")
     }
 
-    func testDuplicateEditionAppendsInsteadOfReplacing() throws {
+    func testDuplicateEditionAppendsInsteadOfReplacing() async throws {
         // Two albums with an identical fingerprint in one walk (same title/
         // artist/year editions): the second must append, not wipe the first.
-        let run = try db.beginSyncRun()
-        try db.replaceAlbumTracks([rec("ed1-t1", "One", album: "A")],
+        let run = try await db.beginSyncRun()
+        try await db.replaceAlbumTracks([rec("ed1-t1", "One", album: "A")],
                                   albumTitle: "A", fingerprint: "fpA", generation: run.generation)
-        try db.replaceAlbumTracks([rec("ed2-t1", "One (alt)", album: "A")],
+        try await db.replaceAlbumTracks([rec("ed2-t1", "One (alt)", album: "A")],
                                   albumTitle: "A", fingerprint: "fpA", generation: run.generation, append: true)
         XCTAssertEqual(try db.trackCount(), 2)
     }

@@ -198,17 +198,17 @@ extension RoonClient {
 
     public func undiscoveredAlbums(limit: Int = 16) async -> [DatabaseManager.AlbumResult] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.undiscoveredAlbums(limit: limit)) ?? [] }.value
+        return (try? await db.undiscoveredAlbums(limit: limit)) ?? []
     }
 
     public func forgottenFavorites(days: Int = 60, limit: Int = 20) async -> [TrackRecord] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.forgottenFavorites(days: days, limit: limit)) ?? [] }.value
+        return (try? await db.forgottenFavorites(days: days, limit: limit)) ?? []
     }
 
     public func topTracks(limit: Int = 25) async -> [TrackRecord] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.topTracks(limit: limit)) ?? [] }.value
+        return (try? await db.topTracks(limit: limit)) ?? []
     }
 
     /// Filter by `options`, shuffle, and play a random `count`-track mix.
@@ -420,7 +420,7 @@ extension RoonClient {
         do {
             return try await Task.detached {
                 guard !lib.isEmpty else { return nil }
-                let top = try db.topTracks(limit: seedLimit)
+                let top = try await db.topTracks(limit: seedLimit)
                 let byKey = Dictionary(lib.map { ($0.matchKey, $0) }, uniquingKeysWith: { a, _ in a })
                 let seeds = top.compactMap { $0.matchKey.flatMap { byKey[$0] } }
                 // Fall back to the loudest/most-typical slice if there's no play history yet.

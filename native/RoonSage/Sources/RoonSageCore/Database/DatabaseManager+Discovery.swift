@@ -5,8 +5,8 @@ extension DatabaseManager {
     // MARK: - Discovery (cache-only sections)
 
     /// Albums with no matching entry in listening history — never played here.
-    public func undiscoveredAlbums(limit: Int = 16) throws -> [AlbumResult] {
-        try pool.read { db in
+    public func undiscoveredAlbums(limit: Int = 16) async throws ->[AlbumResult] {
+        try await pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT album_key, album, artist, year, COUNT(*) AS track_count, MAX(image_key) as image_key
                 FROM tracks
@@ -34,8 +34,8 @@ extension DatabaseManager {
 
     /// Tracks you used to play but haven't in the last `days` days, max 2 per
     /// artist, most-played first. Resolved to current library item_keys.
-    public func forgottenFavorites(days: Int = 60, limit: Int = 20) throws -> [TrackRecord] {
-        try pool.read { db in
+    public func forgottenFavorites(days: Int = 60, limit: Int = 20) async throws ->[TrackRecord] {
+        try await pool.read { db in
             let cutoff = Self.isoFormatter.string(from: Date().addingTimeInterval(-Double(days) * 86_400))
             // Single JOIN: history aggregate → current library track (was an
             // N+1 point-lookup per history row). 2-per-artist cap stays in Swift.
@@ -67,8 +67,8 @@ extension DatabaseManager {
 
     /// Your most-played tracks (from listening history), resolved to current
     /// library item_keys.
-    public func topTracks(limit: Int = 25) throws -> [TrackRecord] {
-        try pool.read { db in
+    public func topTracks(limit: Int = 25) async throws ->[TrackRecord] {
+        try await pool.read { db in
             // Single JOIN instead of N+1 per-row lookups.
             return try TrackRecord.fetchAll(db, sql: """
                 SELECT t.* FROM tracks t
@@ -101,8 +101,8 @@ extension DatabaseManager {
 
     /// All tracks of one album (by album_key), in sync/browse order, joined with
     /// audio features. Used by the album detail drill-down.
-    public func tracksForAlbum(_ albumKey: String) throws -> [LibraryTrackRow] {
-        try pool.read { db in
+    public func tracksForAlbum(_ albumKey: String) async throws ->[LibraryTrackRow] {
+        try await pool.read { db in
             let sql = """
                 SELECT t.id, t.title, t.artist, t.album, t.year, t.is_live, t.image_key, f.bpm, f.camelot, f.tags
                 FROM tracks t LEFT JOIN track_audio_features f ON t.match_key = f.match_key
@@ -129,8 +129,8 @@ extension DatabaseManager {
 
     /// Tracks (left-joined with audio features) filtered by free-text query and
     /// an optional tag. Returns title/artist/album + bpm/camelot/tags when known.
-    public func browseTracks(query: String, tag: String?, limit: Int = 300) throws -> [LibraryTrackRow] {
-        try pool.read { db in
+    public func browseTracks(query: String, tag: String?, limit: Int = 300) async throws ->[LibraryTrackRow] {
+        try await pool.read { db in
             var conditions: [String] = []
             var args: [DatabaseValueConvertible] = []
             // FTS5 prefix match instead of a leading-wildcard LIKE full scan.
@@ -168,8 +168,8 @@ extension DatabaseManager {
     }
 
     /// Most common LLM tags (parsed from the JSON arrays), for filter chips.
-    public func topTags(limit: Int = 30) throws -> [(tag: String, count: Int)] {
-        try pool.read { db in
+    public func topTags(limit: Int = 30) async throws ->[(tag: String, count: Int)] {
+        try await pool.read { db in
             let rows = try String.fetchAll(db, sql: "SELECT tags FROM track_audio_features WHERE tags IS NOT NULL")
             var counts: [String: Int] = [:]
             for json in rows {

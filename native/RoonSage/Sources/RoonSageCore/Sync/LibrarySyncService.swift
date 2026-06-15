@@ -81,7 +81,7 @@ actor LibrarySyncService {
         //    are only dropped in finishSyncRun() after a COMPLETE walk. An
         //    interrupted sync (screen lock / app suspend) therefore keeps the
         //    old library intact and resumes by skipping checkpointed albums.
-        let run = try database.beginSyncRun()
+        let run = try await database.beginSyncRun()
         if run.resumed {
             onProgress(Progress(
                 phase: "Sync hervatten (\(run.completedAlbums.count) albums klaar)…",
@@ -165,7 +165,7 @@ actor LibrarySyncService {
                 generation: run.generation,
                 append: seenThisRun.contains(fingerprint)))
             if pendingBatch.count >= 25 {
-                try database.replaceAlbumBatch(pendingBatch)
+                try await database.replaceAlbumBatch(pendingBatch)
                 pendingBatch.removeAll(keepingCapacity: true)
             }
             seenThisRun.insert(fingerprint)
@@ -181,7 +181,7 @@ actor LibrarySyncService {
         }
 
         if !pendingBatch.isEmpty {
-            try database.replaceAlbumBatch(pendingBatch)
+            try await database.replaceAlbumBatch(pendingBatch)
             pendingBatch.removeAll()
         }
 
@@ -192,7 +192,7 @@ actor LibrarySyncService {
         //    the destructive prune: failed albums have no checkpoint this
         //    generation and pruning would delete their still-valid rows.
         if !isCancelled {
-            try database.finishSyncRun(generation: run.generation, pruneStale: albumsFailed == 0)
+            try await database.finishSyncRun(generation: run.generation, pruneStale: albumsFailed == 0)
             // Includes rows of resume-skipped albums (tracksFound only counts
             // freshly walked ones).
             tracksFound = try database.trackCount()

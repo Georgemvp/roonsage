@@ -55,7 +55,7 @@ extension RoonClient {
 
         // Bovengrens: alleen historie vóór onze eerste eigen Roon-listen.
         let cutoff: Int? = await Task.detached {
-            guard let iso = (try? db.earliestListen(excludingSource: "lastfm")) ?? nil else { return nil }
+            guard let iso = (try? await db.earliestListen(excludingSource: "lastfm")) ?? nil else { return nil }
             return ISO8601DateFormatter().date(from: iso).map { Int($0.timeIntervalSince1970) - 1 }
         }.value
 
@@ -94,8 +94,8 @@ extension RoonClient {
                     title: s.track, artist: s.artist, album: s.album,
                     playedAt: iso.string(from: Date(timeIntervalSince1970: Double(s.uts))))
             }
-            try? db.replaceImportedListens(entries, source: "lastfm", zoneName: "Last.fm")
-            return (try? db.importedListenCount(source: "lastfm")) ?? entries.count
+            try? await db.replaceImportedListens(entries, source: "lastfm", zoneName: "Last.fm")
+            return (try? await db.importedListenCount(source: "lastfm")) ?? entries.count
         }.value
 
         lastfmImportStatus = "\(written.formatted()) scrobbles geïmporteerd ✓"

@@ -16,8 +16,8 @@ extension DatabaseManager {
         public init() {}
     }
 
-    public func filterTracks(options: FilterOptions) throws -> [TrackRecord] {
-        try pool.read { db in
+    public func filterTracks(options: FilterOptions) async throws ->[TrackRecord] {
+        try await pool.read { db in
             var conditions: [String] = []
             var args: [DatabaseValueConvertible] = []
 
@@ -70,8 +70,8 @@ extension DatabaseManager {
         public var createdAt: String
     }
 
-    public func savePlaylist(name: String, tracks: [TrackRecord]) throws -> Int64 {
-        try pool.write { db in
+    public func savePlaylist(name: String, tracks: [TrackRecord]) async throws ->Int64 {
+        try await pool.write { db in
             let iso = Self.isoFormatter.string(from: Date())
             try db.execute(sql: "INSERT INTO playlists (name, created_at) VALUES (?, ?)", arguments: [name, iso])
             let pid = db.lastInsertedRowID
@@ -97,8 +97,8 @@ extension DatabaseManager {
         }
     }
 
-    public func listPlaylists() throws -> [PlaylistSummary] {
-        try pool.read { db in
+    public func listPlaylists() async throws ->[PlaylistSummary] {
+        try await pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT p.id, p.name, p.created_at, COUNT(pt.position) AS cnt
                 FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
@@ -116,8 +116,8 @@ extension DatabaseManager {
     }
 
     /// Saved tracks as stored (track_id may be stale after a resync).
-    public func playlistTracks(id: Int64) throws -> [TrackRecord] {
-        try pool.read { db in
+    public func playlistTracks(id: Int64) async throws ->[TrackRecord] {
+        try await pool.read { db in
             try TrackRecord.fetchAll(db, sql: """
                 SELECT track_id AS id, title, artist, album, album_key, year, is_live
                 FROM playlist_tracks WHERE playlist_id = ? ORDER BY position
@@ -125,17 +125,17 @@ extension DatabaseManager {
         }
     }
 
-    public func deletePlaylist(id: Int64) throws {
-        try pool.write { db in
+    public func deletePlaylist(id: Int64) async throws {
+        try await pool.write { db in
             try db.execute(sql: "DELETE FROM playlists WHERE id = ?", arguments: [id])
         }
     }
 
     /// Re-resolve a saved track to a CURRENT library track (Roon item_keys change
     /// across resyncs). Matches by title + artist, case-insensitive.
-    public func resolveCurrentTracks(_ saved: [TrackRecord]) throws -> [TrackRecord] {
+    public func resolveCurrentTracks(_ saved: [TrackRecord]) async throws ->[TrackRecord] {
         guard !saved.isEmpty else { return [] }
-        return try pool.read { db in
+        return try await pool.read { db in
             // One query fetching every candidate by title, then resolve in-memory
             // (was one SELECT per saved track).
             let titles = Array(Set(saved.map { $0.title.lowercased() }))

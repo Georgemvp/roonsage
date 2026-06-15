@@ -197,8 +197,6 @@ public struct YearInReviewView: View {
         defer { loading = false }
         let y = selectedYear
         guard let db = client.database else { return }
-        stats = await Task.detached {
-            try? db.yearInReview(year: y)
-        }.value
+        stats = try? await db.yearInReview(year: y)
     }
 }

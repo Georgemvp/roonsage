@@ -41,34 +41,42 @@ final class DatabaseManagerTests: XCTestCase {
         XCTAssertEqual(hit.first?.id, "t0")
     }
 
-    func testImportedListensAreIdempotentAndScoped() throws {
+    func testImportedListensAreIdempotentAndScoped() async throws {
         // Eigen Roon-listen (bron 'roon') op een bekend tijdstip.
-        try db.logListen(title: "Live Track", artist: "A", album: nil, zoneID: "z", zoneName: "Salon")
-        let roonEarliest = try XCTUnwrap(db.earliestListen(excludingSource: "lastfm"))
+        try await db.logListen(title: "Live Track", artist: "A", album: nil, zoneID: "z", zoneName: "Salon")
+        let roonEarliestOpt = try await db.earliestListen(excludingSource: "lastfm")
+        let roonEarliest = try XCTUnwrap(roonEarliestOpt)
         XCTAssertFalse(roonEarliest.isEmpty)
 
         let entries = [
             DatabaseManager.ImportedListen(title: "Old 1", artist: "B", album: "Album", playedAt: "2024-03-01T10:00:00Z"),
             DatabaseManager.ImportedListen(title: "Old 2", artist: "C", album: nil, playedAt: "2025-07-15T20:00:00Z"),
         ]
-        try db.replaceImportedListens(entries, source: "lastfm", zoneName: "Last.fm")
-        XCTAssertEqual(try db.importedListenCount(source: "lastfm"), 2)
-        XCTAssertEqual(try db.totalListens(), 3)  // 1 roon + 2 lastfm
+        try await db.replaceImportedListens(entries, source: "lastfm", zoneName: "Last.fm")
+        let importedCount1 = try await db.importedListenCount(source: "lastfm")
+        XCTAssertEqual(importedCount1, 2)
+        let total1 = try await db.totalListens()
+        XCTAssertEqual(total1, 3)  // 1 roon + 2 lastfm
 
         // Her-import bouwt opnieuw op zonder te dupliceren.
-        try db.replaceImportedListens(entries, source: "lastfm", zoneName: "Last.fm")
-        XCTAssertEqual(try db.importedListenCount(source: "lastfm"), 2)
-        XCTAssertEqual(try db.totalListens(), 3)
+        try await db.replaceImportedListens(entries, source: "lastfm", zoneName: "Last.fm")
+        let importedCount2 = try await db.importedListenCount(source: "lastfm")
+        XCTAssertEqual(importedCount2, 2)
+        let total2 = try await db.totalListens()
+        XCTAssertEqual(total2, 3)
 
         // De geïmporteerde historie voedt het jaaroverzicht van een eerder jaar.
-        XCTAssertEqual(try db.yearInReview(year: 2025).totalPlays, 1)
-        XCTAssertEqual(try db.yearInReview(year: 2024).totalPlays, 1)
+        let plays2025 = try await db.yearInReview(year: 2025).totalPlays
+        XCTAssertEqual(plays2025, 1)
+        let plays2024 = try await db.yearInReview(year: 2024).totalPlays
+        XCTAssertEqual(plays2024, 1)
 
         // earliestListen negeert de Last.fm-bron: blijft de Roon-listen.
-        XCTAssertEqual(try db.earliestListen(excludingSource: "lastfm"), roonEarliest)
+        let roonEarliestAgain = try await db.earliestListen(excludingSource: "lastfm")
+        XCTAssertEqual(roonEarliestAgain, roonEarliest)
     }
 
-    func testGenreMappingBatched() throws {
+    func testGenreMappingBatched() async throws {
         try db.upsertTracks([
             track("a", "Song A", "X", album: "Blue"),
             track("b", "Song B", "Y", album: "Blue"),
@@ -79,23 +87,23 @@ final class DatabaseManagerTests: XCTestCase {
 
         var opts = DatabaseManager.FilterOptions()
         opts.genres = ["Jazz"]
-        let jazz = try db.filterTracks(options: opts)
+        let jazz = try await db.filterTracks(options: opts)
         XCTAssertEqual(Set(jazz.map { $0.id }), ["a", "b"])
     }
 
-    func testTopTracksJoin() throws {
+    func testTopTracksJoin() async throws {
         try db.upsertTracks([track("a", "Hit", "Band"), track("b", "Filler", "Other")])
-        for _ in 0..<3 { try db.logListen(title: "Hit", artist: "Band", album: nil, zoneID: "z", zoneName: "Z") }
-        try db.logListen(title: "Filler", artist: "Other", album: nil, zoneID: "z", zoneName: "Z")
+        for _ in 0..<3 { try await db.logListen(title: "Hit", artist: "Band", album: nil, zoneID: "z", zoneName: "Z") }
+        try await db.logListen(title: "Filler", artist: "Other", album: nil, zoneID: "z", zoneName: "Z")
 
-        let top = try db.topTracks(limit: 10)
+        let top = try await db.topTracks(limit: 10)
         XCTAssertEqual(top.first?.id, "a")            // most played first
         XCTAssertEqual(top.count, 2)
         // No duplicate rows even though tracks table could hold dupes.
         XCTAssertEqual(Set(top.map { $0.id }).count, top.count)
     }
 
-    func testForgottenFavoritesArtistCap() throws {
+    func testForgottenFavoritesArtistCap() async throws {
         try db.upsertTracks([
             track("a1", "A1", "SameArtist"), track("a2", "A2", "SameArtist"), track("a3", "A3", "SameArtist"),
         ])
@@ -104,26 +112,28 @@ final class DatabaseManagerTests: XCTestCase {
         try logOldListens("A2", "SameArtist", times: 4)
         try logOldListens("A3", "SameArtist", times: 3)
 
-        let forgotten = try db.forgottenFavorites(days: 1, limit: 10)
+        let forgotten = try await db.forgottenFavorites(days: 1, limit: 10)
         // Max 2 per artist.
         XCTAssertEqual(forgotten.count, 2)
         XCTAssertEqual(Set(forgotten.map { $0.id }), ["a1", "a2"])
     }
 
-    func testResolveCurrentTracks() throws {
+    func testResolveCurrentTracks() async throws {
         try db.upsertTracks([track("new1", "Shared Title", "Resolved Artist")])
         // Saved copy carries a stale id but matching title+artist.
         let saved = TrackRecord(id: "stale", title: "Shared Title", artist: "Resolved Artist")
-        let resolved = try db.resolveCurrentTracks([saved])
+        let resolved = try await db.resolveCurrentTracks([saved])
         XCTAssertEqual(resolved.first?.id, "new1")
 
         // Saved with nil artist still matches by title.
         let savedNil = TrackRecord(id: "stale2", title: "Shared Title", artist: nil)
-        XCTAssertEqual(try db.resolveCurrentTracks([savedNil]).first?.id, "new1")
+        let resolvedNil = try await db.resolveCurrentTracks([savedNil])
+        XCTAssertEqual(resolvedNil.first?.id, "new1")
 
         // No match returns empty.
         let none = TrackRecord(id: "x", title: "Nonexistent", artist: "Nobody")
-        XCTAssertTrue(try db.resolveCurrentTracks([none]).isEmpty)
+        let resolvedNone = try await db.resolveCurrentTracks([none])
+        XCTAssertTrue(resolvedNone.isEmpty)
     }
 
     // MARK: - Helpers
@@ -162,7 +172,7 @@ extension DatabaseManagerTests {
 
     // MARK: - FTS5 search
 
-    func testFTSSearchMatchesPrefixAndStaysInSync() throws {
+    func testFTSSearchMatchesPrefixAndStaysInSync() async throws {
         try db.upsertTracks([
             track("a", "Don't Look Back in Anger", "Oasis", album: "Morning Glory"),
             track("b", "Champagne Supernova", "Oasis", album: "Morning Glory"),
@@ -186,14 +196,16 @@ extension DatabaseManagerTests {
         XCTAssertEqual(try db.searchTracks(query: "paranoid").map(\.id), ["c"])
 
         // DELETE keeps the index in sync.
-        try db.pool.write { try $0.execute(sql: "DELETE FROM tracks WHERE id='b'") }
+        try await db.pool.write { try $0.execute(sql: "DELETE FROM tracks WHERE id='b'") }
         XCTAssertEqual(try db.searchTracks(query: "champ").count, 0)
 
         // browseTracks + filterTracks route through FTS too.
-        XCTAssertEqual(try db.browseTracks(query: "parano", tag: nil).map(\.id), ["c"])
+        let browsed = try await db.browseTracks(query: "parano", tag: nil)
+        XCTAssertEqual(browsed.map(\.id), ["c"])
         var opts = DatabaseManager.FilterOptions()
         opts.keywords = "android"
         opts.excludeLive = false
-        XCTAssertEqual(try db.filterTracks(options: opts).map(\.id), ["c"])
+        let filtered = try await db.filterTracks(options: opts)
+        XCTAssertEqual(filtered.map(\.id), ["c"])
     }
 }

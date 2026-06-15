@@ -22,8 +22,8 @@ extension DatabaseManager {
     /// Start a sync run: resume the in-progress generation if one was
     /// interrupted, otherwise open a fresh generation (which re-walks every
     /// album — required after match_key-resetting migrations).
-    public func beginSyncRun() throws -> SyncRun {
-        try pool.write { db in
+    public func beginSyncRun() async throws -> SyncRun {
+        try await pool.write { db in
             let inProgress = try String.fetchOne(
                 db, sql: "SELECT value FROM sync_state WHERE key='sync_in_progress'") == "1"
             let current = Int(try String.fetchOne(
@@ -53,8 +53,8 @@ extension DatabaseManager {
         fingerprint: String,
         generation: Int,
         append: Bool = false
-    ) throws {
-        try pool.write { db in
+    ) async throws {
+        try await pool.write { db in
             if !append {
                 // Old-session rows of this album (item_keys differ, so the id
                 // upsert can't dedupe them) + pre-v10 legacy rows by title.
@@ -105,8 +105,8 @@ extension DatabaseManager {
     /// failed to browse during the walk: those albums have no checkpoint this
     /// generation, so pruning would silently delete their (still valid) rows —
     /// a flaky connection must never shrink the library.
-    public func finishSyncRun(generation: Int, pruneStale: Bool = true) throws {
-        try pool.write { db in
+    public func finishSyncRun(generation: Int, pruneStale: Bool = true) async throws {
+        try await pool.write { db in
             if pruneStale {
                 try db.execute(
                     sql: """
@@ -136,9 +136,9 @@ extension DatabaseManager {
         }
     }
 
-    public func replaceAlbumBatch(_ items: [AlbumBatchItem]) throws {
+    public func replaceAlbumBatch(_ items: [AlbumBatchItem]) async throws {
         guard !items.isEmpty else { return }
-        try pool.write { db in
+        try await pool.write { db in
             let chunk = Self.rowsPerChunk(columns: 10)
             for item in items {
                 if !item.append {

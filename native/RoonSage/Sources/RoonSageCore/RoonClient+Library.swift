@@ -12,28 +12,28 @@ extension RoonClient {
     /// libraries. Light count queries below stay synchronous.
     public func filterTracks(options: DatabaseManager.FilterOptions) async -> [TrackRecord] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.filterTracks(options: options)) ?? [] }.value
+        return (try? await db.filterTracks(options: options)) ?? []
     }
 
     /// Full-table aggregates (COUNT DISTINCT, GROUP BY) — must not block main.
     public func libraryStats() async -> DatabaseManager.LibraryStats? {
         guard let db = database else { return nil }
-        return await Task.detached { try? db.libraryStats() }.value
+        return try? await db.libraryStats()
     }
 
     public func recentListens(limit: Int = 50) async -> [DatabaseManager.ListenEntry] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.recentListens(limit: limit)) ?? [] }.value
+        return (try? await db.recentListens(limit: limit)) ?? []
     }
 
     public func topArtistsListened(limit: Int = 20) async -> [(artist: String, count: Int)] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.topArtistsListened(limit: limit)) ?? [] }.value
+        return (try? await db.topArtistsListened(limit: limit)) ?? []
     }
 
     public func totalListens() async -> Int {
         guard let db = database else { return 0 }
-        return await Task.detached { (try? db.totalListens()) ?? 0 }.value
+        return (try? await db.totalListens()) ?? 0
     }
 
     public func imageURL(forKey key: String, size: Int = 200) -> URL? {
@@ -196,33 +196,33 @@ extension RoonClient {
 
     public func searchAlbums(query: String) async -> [DatabaseManager.AlbumResult] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.searchAlbums(query: query)) ?? [] }.value
+        return (try? await db.searchAlbums(query: query)) ?? []
     }
 
     public func searchArtists(query: String) async -> [DatabaseManager.ArtistResult] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.searchArtists(query: query)) ?? [] }.value
+        return (try? await db.searchArtists(query: query)) ?? []
     }
 
     public func albumsByArtist(_ name: String) async -> [DatabaseManager.AlbumResult] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.albumsByArtist(name)) ?? [] }.value
+        return (try? await db.albumsByArtist(name)) ?? []
     }
 
     public func tracksForAlbum(_ albumKey: String) async -> [DatabaseManager.LibraryTrackRow] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.tracksForAlbum(albumKey)) ?? [] }.value
+        return (try? await db.tracksForAlbum(albumKey)) ?? []
     }
 
     public func browseTracks(query: String, tag: String?, limit: Int = 300) async -> [DatabaseManager.LibraryTrackRow] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.browseTracks(query: query, tag: tag, limit: limit)) ?? [] }.value
+        return (try? await db.browseTracks(query: query, tag: tag, limit: limit)) ?? []
     }
 
     /// Scans + JSON-parses the whole feature table — must not block main.
     public func topTags(limit: Int = 30) async -> [(tag: String, count: Int)] {
         guard let db = database else { return [] }
-        return await Task.detached { (try? db.topTags(limit: limit)) ?? [] }.value
+        return (try? await db.topTags(limit: limit)) ?? []
     }
 
     /// Play a single library track by id to a zone (first plays now).

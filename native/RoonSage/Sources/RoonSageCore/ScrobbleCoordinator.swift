@@ -62,7 +62,7 @@ actor ScrobbleCoordinator {
 
     /// The gated commit: local listening history + ListenBrainz + Last.fm.
     private static func commit(_ item: Item, startedAt: Int, database: DatabaseManager?) async {
-        try? database?.logListen(
+        try? await database?.logListen(
             title: item.title, artist: item.artist, album: item.album,
             zoneID: item.zoneID, zoneName: item.zoneName)
 
