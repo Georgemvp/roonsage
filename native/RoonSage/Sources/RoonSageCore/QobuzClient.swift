@@ -64,15 +64,22 @@ public actor QobuzClient {
     }
 
     private func tryLogin(email: String, password: String, appId: String) async -> Session? {
+        // app_id is not a secret and stays in the query; the credentials go in
+        // the POST body so the email/password never land in a URL query string
+        // (which leaks into server access logs and any TLS-terminating proxy).
         var comps = URLComponents(string: "\(base)/user/login")!
-        comps.queryItems = [
+        comps.queryItems = [.init(name: "app_id", value: appId)]
+        guard let url = comps.url else { return nil }
+        var bodyComps = URLComponents()
+        bodyComps.queryItems = [
             .init(name: "email", value: email),
             .init(name: "password", value: password),
-            .init(name: "app_id", value: appId),
         ]
-        guard let url = comps.url else { return nil }
         var req = URLRequest(url: url)
+        req.httpMethod = "POST"
         req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyComps.percentEncodedQuery.map { Data($0.utf8) }
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
