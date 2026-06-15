@@ -21,7 +21,7 @@ final class AnalyzerUpdater {
     var available: UpdateInfo?
     var isInstalling = false
 
-    private let releasesURL = URL(string: "https://api.github.com/repos/Georgemvp/roon-mediasage/releases?per_page=40")!
+    private let releasesURL = URL(string: "https://api.github.com/repos/Georgemvp/roonsage/releases?per_page=40")!
     private let tagPrefix = "analyzer-v"
 
     func checkOnLaunch() async {

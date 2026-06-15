@@ -18,7 +18,7 @@ public actor UpdateChecker {
     // whichever was published last, so an analyzer/iOS tag would hide a real
     // macOS update (or offer a bogus one). Scan the list and keep only macOS
     // `v*` tags.
-    private let releasesURL = URL(string: "https://api.github.com/repos/Georgemvp/roon-mediasage/releases?per_page=40")!
+    private let releasesURL = URL(string: "https://api.github.com/repos/Georgemvp/roonsage/releases?per_page=40")!
 
     private init() {}
 
@@ -40,7 +40,7 @@ public actor UpdateChecker {
             let version = String(tag.dropFirst())   // strip leading "v"
             guard isNewer(version, than: currentVersion) else { continue }
 
-            let releasePageURL = rel["html_url"] as? String ?? "https://github.com/Georgemvp/roon-mediasage/releases"
+            let releasePageURL = rel["html_url"] as? String ?? "https://github.com/Georgemvp/roonsage/releases"
             let assets = rel["assets"] as? [[String: Any]] ?? []
             let dmgURL = assets
                 .first { ($0["name"] as? String)?.hasSuffix(".dmg") == true }

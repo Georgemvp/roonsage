@@ -4,9 +4,16 @@ name: Legacy Docker/Python Tests
 # is no longer the primary product (the native macOS/iOS apps are; see
 # native-tests.yml). This job only runs when something under legacy-docker/
 # actually changes, so native-only commits don't trigger the Python suite.
+#
+# NOTE: `paths` filters are ignored for tag pushes, so without the explicit
+# `branches:` restriction below this deprecated suite ran (and failed) on every
+# release tag (v*, ios-v*, analyzer-v*), painting the repo's status red even
+# though the native tests were green. Restricting push to `main` excludes tags.
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'legacy-docker/**'
       - '.github/workflows/test.yml'
@@ -14,6 +21,10 @@ on:
     paths:
       - 'legacy-docker/**'
       - '.github/workflows/test.yml'
+
+concurrency:
+  group: legacy-tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:

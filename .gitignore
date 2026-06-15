@@ -92,6 +92,17 @@ data/*.db
 data/*.db-wal
 data/*.db-shm
 
+# Runtime DB backups + scratch artefacts that leak into data/ at the repo root.
+# NB: the tracked app data (data/*_templates.yaml, data/mood_centroids.json) is
+# deliberately committed, so this stays specific instead of ignoring all of data/.
+data/*.db.bak
+data/*.db.bak-wal
+data/*.db.bak-shm
+data/scrobble_backup.json
+data/dockercheck.txt
+data/test*.txt
+data/models/
+
 # Temporary files
 tmp/
 temp/

@@ -4,9 +4,17 @@ name: Native Tests (macOS/iOS)
 # for the shared packages and a release-build sanity check (CI is stricter than
 # a local debug build). Path-filtered so legacy-docker/** changes don't trigger
 # it — those run the deprecated Python suite in test.yml instead.
+#
+# Restricted to `main` (+ PRs) on purpose: tags are cut from the same commit
+# already pushed to main, and `paths` filters don't apply to tag pushes — so
+# without this every release would re-run these tests once per tag (v*, ios-v*,
+# analyzer-v*) on top of the main run, i.e. 4× the same suite on one commit.
+# The release workflows still do their own `swift build -c release`.
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'native/**'
       - '.github/workflows/native-tests.yml'
@@ -14,6 +22,10 @@ on:
     paths:
       - 'native/**'
       - '.github/workflows/native-tests.yml'
+
+concurrency:
+  group: native-tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:

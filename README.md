@@ -4,6 +4,7 @@
 
 **Native macOS & iOS apps for Roon — browse your library, control playback, curate playlists with AI, and explore your music's sonic DNA.**
 
+[![Native Tests](https://github.com/Georgemvp/roonsage/actions/workflows/native-tests.yml/badge.svg?branch=main)](https://github.com/Georgemvp/roonsage/actions/workflows/native-tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Swift 5.9+](https://img.shields.io/badge/Swift-5.9+-F05138.svg)](https://swift.org)
 [![Platforms](https://img.shields.io/badge/Platforms-macOS%2014%20%C2%B7%20iOS%2017-007AFF.svg)](#platforms)

@@ -16,8 +16,8 @@ reliably on someone else's machine?**
 ## Native app (primary)
 
 ```bash
-git clone https://github.com/Georgemvp/roon-mediasage.git
-cd roon-mediasage/native
+git clone https://github.com/Georgemvp/roonsage.git
+cd roonsage/native
 
 # Run the Swift test suites
 (cd RoonProtocol && swift test)

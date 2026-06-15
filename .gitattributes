@@ -1,0 +1,11 @@
+# Language statistics (GitHub Linguist)
+#
+# The repo has two tracks (see CLAUDE.md / README): the native Swift/SwiftUI
+# macOS & iOS apps under native/ are the PRIMARY product; the Docker/FastAPI
+# web app under legacy-docker/ is DEPRECATED and kept for reference only.
+#
+# By default Linguist counts every file, so the deprecated Python/JS/CSS web
+# app (~179 .py + all .js/.css) dominates the sidebar breakdown and buries
+# Swift. Mark the legacy track as vendored so it is excluded from the language
+# stats and Swift ranks first, matching what the project actually is.
+legacy-docker/** linguist-vendored
