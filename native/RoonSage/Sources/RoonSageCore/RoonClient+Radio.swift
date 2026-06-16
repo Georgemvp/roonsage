@@ -65,7 +65,16 @@ extension RoonClient {
         guard let db = database else { return [] }
         let lib = await sonicCache.tracks(from: db)
         guard !lib.isEmpty else { return [] }
-        let top = (try? await db.topArtistsListened(limit: 100)) ?? []
+        // Top artists drive the seeds. The thin client's local `listening_history`
+        // is empty (history lives on the server), so pull it from /history in
+        // remote mode — otherwise radios never appear on the client apps.
+        let top: [(artist: String, count: Int)]
+        if isRemote {
+            let snap = await tasteProfile(topLimit: 100, recentLimit: 1)
+            top = (snap?.topArtists ?? []).map { (artist: $0.artist, count: $0.count) }
+        } else {
+            top = (try? await db.topArtistsListened(limit: 100)) ?? []
+        }
         guard !top.isEmpty else { return [] }
 
         // Group analyzed tracks by lowercased artist for O(1) lookup.

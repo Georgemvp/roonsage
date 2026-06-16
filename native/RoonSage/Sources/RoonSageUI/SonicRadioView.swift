@@ -271,8 +271,14 @@ public struct SonicRadioView: View {
         // Re-read so cards reflect their new "op Qobuz" status.
         qobuzRadios = await client.buildArtistRadioPlaylists()
         qobuzLoaded = true
-        syncMessage = count > 0
-            ? "\(count) radio('s) gesynchroniseerd naar Qobuz."
-            : "Synchroniseren mislukt — controleer je Qobuz-instellingen."
+        if count > 0 {
+            syncMessage = "\(count) radio('s) gesynchroniseerd naar Qobuz."
+        } else if !client.qobuzConfigured {
+            syncMessage = "Qobuz is niet ingesteld — vul je inloggegevens in bij Instellingen."
+        } else if qobuzRadios.isEmpty {
+            syncMessage = "Nog geen radio's om te synchroniseren — luister wat muziek en zorg dat je bibliotheek geanalyseerd is."
+        } else {
+            syncMessage = "Synchroniseren mislukt — controleer je Qobuz-instellingen."
+        }
     }
 }
