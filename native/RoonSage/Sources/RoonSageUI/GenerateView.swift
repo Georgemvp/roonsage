@@ -20,6 +20,7 @@ public struct GenerateView: View {
     @State private var revealedCount = 0
     @State private var revealTask: Task<Void, Never>? = nil
     @State private var analysisSummary: String? = nil
+    @State private var aiDescription: String? = nil
     @State private var playlistName = ""
     @State private var justSaved    = false
     @State private var qobuzStatus: String? = nil
@@ -106,16 +107,6 @@ public struct GenerateView: View {
                     }
 
                     Spacer()
-
-                    if !client.zones.isEmpty {
-                        Picker("Zone", selection: $selectedZoneID) {
-                            Text("Kies zone…").tag(Optional<String>.none)
-                            ForEach(client.zones) { z in
-                                Label(z.displayName, systemImage: z.state.icon).tag(Optional(z.id))
-                            }
-                        }
-                        .frame(maxWidth: 200)
-                    }
                 }
 
                 // ── Generate button ───────────────────────────────────────
@@ -123,15 +114,13 @@ public struct GenerateView: View {
                     Button {
                         Task { await generate() }
                     } label: {
-                        Label(isGenerating ? "Genereren…" : "Genereer & speel",
+                        Label(isGenerating ? "Genereren…" : "Genereer playlist",
                               systemImage: "wand.and.stars")
                             .frame(minWidth: 180)
                     }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty
-                              || isGenerating
-                              || selectedZoneID == nil)
+                    .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || isGenerating)
 
                     if isGenerating {
                         ProgressView().controlSize(.small)
@@ -149,27 +138,54 @@ public struct GenerateView: View {
                 if !generatedTracks.isEmpty {
                     Divider()
 
-                    HStack {
-                        Image(systemName: "wand.and.stars")
-                            .foregroundStyle(Color.roonGold)
-                            .symbolEffect(.bounce, value: generatedTracks.count)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Gegenereerd — \(generatedTracks.count) tracks")
-                                .font(.headline)
-                            if let summary = analysisSummary {
-                                Text(summary).font(.caption).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: Spacing.md) {
+                        HStack(alignment: .top, spacing: Spacing.sm) {
+                            Image(systemName: "wand.and.stars")
+                                .foregroundStyle(Color.roonGold)
+                                .symbolEffect(.bounce, value: generatedTracks.count)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(playlistName.isEmpty ? "Gegenereerde playlist" : playlistName)
+                                    .font(.title3.bold())
+                                if let aiDescription, !aiDescription.isEmpty {
+                                    Text(aiDescription)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                HStack(spacing: 5) {
+                                    Text("\(generatedTracks.count) tracks")
+                                    if let summary = analysisSummary { Text("· \(summary)") }
+                                    if justSaved { Text("· opgeslagen").foregroundStyle(Color.roonGold) }
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
                             }
+                            Spacer()
                         }
-                        Spacer()
-                        Button {
-                            if let zoneID = selectedZoneID {
-                                Haptics.tap()
-                                Task { await client.curateTracks(generatedTracks, zoneID: zoneID) }
+
+                        // Play choice — pick a zone, then start it. No auto-play.
+                        HStack(spacing: Spacing.sm) {
+                            if !client.zones.isEmpty {
+                                Picker("Zone", selection: $selectedZoneID) {
+                                    Text("Kies zone…").tag(Optional<String>.none)
+                                    ForEach(client.zones) { z in
+                                        Label(z.displayName, systemImage: z.state.icon).tag(Optional(z.id))
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(maxWidth: 220)
                             }
-                        } label: {
-                            Label("Speel opnieuw", systemImage: "play.fill")
+                            Button {
+                                if let zoneID = selectedZoneID {
+                                    Haptics.tap()
+                                    Task { await client.curateTracks(generatedTracks, zoneID: zoneID) }
+                                }
+                            } label: {
+                                Label("Speel af", systemImage: "play.fill").frame(minWidth: 120)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(selectedZoneID == nil)
                         }
-                        .buttonStyle(.bordered)
                     }
 
                     // Save as local playlist
@@ -179,7 +195,7 @@ public struct GenerateView: View {
                         Button {
                             let name = playlistName.trimmingCharacters(in: .whitespaces)
                             guard !name.isEmpty else { return }
-                            _ = client.savePlaylist(name: name, tracks: generatedTracks)
+                            client.savePlaylist(name: name, tracks: generatedTracks)
                             Haptics.success()
                             justSaved = true
                             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { justSaved = false }
@@ -262,6 +278,7 @@ public struct GenerateView: View {
         generatedTracks = []
         revealedCount = 0
         analysisSummary = nil
+        aiDescription = nil
         justSaved = false
         defer { isGenerating = false; phase = "" }
 
@@ -319,10 +336,15 @@ public struct GenerateView: View {
                 return candidates[n - 1]
             }
             revealTracks(selected)
-            if playlistName.isEmpty { playlistName = suggestedName(request) }
-            if let zoneID = selectedZoneID {
-                await client.curateTracks(selected, zoneID: zoneID)
-            }
+
+            // Stage 4 — AI title + description, then auto-save locally. No
+            // auto-play: the user chooses whether/where via the zone selector.
+            phase = "Titel & beschrijving…"
+            let meta = await describePlaylist(request: request, tracks: selected, config: config)
+            playlistName = meta.title
+            aiDescription = meta.description
+            client.savePlaylist(name: meta.title, tracks: selected)
+            justSaved = true
         } catch {
             errorMessage = error.localizedDescription
             Haptics.error()
@@ -344,6 +366,31 @@ public struct GenerateView: View {
                 withAnimation(Motion.spring) { revealedCount = i }
             }
         }
+    }
+
+    /// LLM stage 4: an evocative Dutch title + a one-line description for the
+    /// curated set. Falls back to a heuristic name (no description) on failure.
+    private func describePlaylist(request: String, tracks: [TrackRecord], config: LLMConfig) async -> (title: String, description: String?) {
+        let sample = tracks.prefix(30).map { t -> String in
+            var s = t.title
+            if let a = t.artist { s += " — \(a)" }
+            return s
+        }.joined(separator: "\n")
+        let system = """
+        You name and describe a music playlist in Dutch. \
+        Respond with ONLY a JSON object, no prose: {"title": "", "description": ""} \
+        - title: a short, evocative name (max 5 words), no surrounding quotes, no emoji. \
+        - description: one or two warm sentences capturing the mood and vibe of the set.
+        """
+        let user = "Verzoek van de gebruiker: \(request)\n\nTracks:\n\(sample)"
+        guard let resp = try? await LLMClient.shared.complete(system: system, user: user, config: config),
+              let obj = extractJSON(resp) else {
+            return (suggestedName(request), nil)
+        }
+        let title = (obj["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let desc  = (obj["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (title?.isEmpty == false ? title! : suggestedName(request),
+                desc?.isEmpty == false ? desc : nil)
     }
 
     private struct Analysis { var genres: [String]; var decades: [Int]; var keywords: String; var tags: [String] }
