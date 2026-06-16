@@ -20,6 +20,7 @@ public struct GenerateView: View {
     @State private var revealedCount = 0
     @State private var revealTask: Task<Void, Never>? = nil
     @State private var analysisSummary: String? = nil
+    @State private var droppedIntentNote: String? = nil
     @State private var aiDescription: String? = nil
     @State private var playlistName = ""
     @State private var justSaved    = false
@@ -159,6 +160,12 @@ public struct GenerateView: View {
                                 }
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
+                                if let note = droppedIntentNote {
+                                    Label(note, systemImage: "exclamationmark.triangle.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
                             Spacer()
                         }
@@ -278,6 +285,7 @@ public struct GenerateView: View {
         generatedTracks = []
         revealedCount = 0
         analysisSummary = nil
+        droppedIntentNote = nil
         aiDescription = nil
         justSaved = false
         defer { isGenerating = false; phase = "" }
@@ -292,10 +300,11 @@ public struct GenerateView: View {
 
         // Stage 2 — build a varied candidate pool from the filtered library.
         phase = "Kandidaten selecteren…"
-        let pool = await buildCandidates(
+        let built = await buildCandidates(
             genres: analysis.genres, decades: analysis.decades,
             keywords: analysis.keywords, tags: analysis.tags, target: targetCount
         )
+        let pool = built.tracks
         guard !pool.isEmpty else {
             errorMessage = "Geen passende tracks — synchroniseer je bibliotheek of probeer een bredere omschrijving."
             return
@@ -304,7 +313,17 @@ public struct GenerateView: View {
         // LLM curates from the most relevant candidates first (falls back to the
         // pool order when embeddings/analyzer text model aren't available).
         let candidates = await client.sonicRerank(request, pool, limit: pool.count, maxPerArtist: 50) ?? pool
-        analysisSummary = summarise(analysis, poolSize: candidates.count)
+        // Summarise on the filters that SURVIVED broadening, not what the LLM
+        // wanted — so "Uit hele bibliotheek" honestly signals the genre intent
+        // couldn't be honoured.
+        analysisSummary = summarise(built.survived, poolSize: candidates.count)
+        // If the request implied a genre/mood but the library had too few matching
+        // tracks, warn rather than silently curating an off-target playlist.
+        if (!analysis.genres.isEmpty || !analysis.tags.isEmpty) && built.survived.genres.isEmpty && built.survived.tags.isEmpty {
+            droppedIntentNote = "Te weinig tracks voor dit genre in je bibliotheek — gekozen uit de hele bibliotheek."
+        } else {
+            droppedIntentNote = nil
+        }
 
         // Stage 3 — curate the final selection.
         phase = "Cureren…"
@@ -398,20 +417,24 @@ public struct GenerateView: View {
     /// LLM stage 1: map the request to genres + decades + keywords + mood tags,
     /// each chosen from what the library actually has. Degrades to no filter.
     private func analyzeRequest(_ request: String, config: LLMConfig) async -> Analysis {
-        let available = ((await client.libraryStats())?.topGenres.map { $0.genre }) ?? []
+        // Use the FULL genre vocabulary (not just top-20) so smaller genres stay
+        // selectable. Roon's taxonomy is coarse (~21 top-level genres, e.g. one
+        // "Jazz", no sub-styles), so the model is told to map sub-styles to their
+        // parent, with substring matching below as a safety net.
+        let available = await client.allGenres(limit: 200)
         let availableTags = (await client.topTags(limit: 60)).map { $0.tag }
         guard !available.isEmpty || !availableTags.isEmpty else {
             return Analysis(genres: [], decades: [], keywords: "", tags: [])
         }
 
-        let genreList = available.prefix(40).joined(separator: ", ")
+        let genreList = available.prefix(80).joined(separator: ", ")
         let tagLine = availableTags.isEmpty ? ""
             : "\n- tags: 0-5 mood/vibe tags chosen EXACTLY from this list that fit the request: \(availableTags.prefix(50).joined(separator: ", "))"
         let system = """
         You map a music playlist request to library filters. \
         Respond with ONLY a JSON object, no prose: \
         {"genres": [], "decades": [], "keywords": "", "tags": []} \
-        - genres: 0-6 names chosen EXACTLY from the available list that fit the request's mood/style. Empty = no genre constraint. \
+        - genres: 0-6 names copied VERBATIM from the available list that fit the request's mood/style. The list is the COMPLETE vocabulary — never invent names. Map any sub-style in the request to its closest PARENT in the list (e.g. bebop/swing/smooth jazz/hard bop -> "Jazz"; techno/house -> the closest electronic name; baroque/opera -> "Classical"). Empty = no genre constraint. \
         - decades: 0-3 decade start years like 1980 if an era is implied, else []. \
         - keywords: short extra search terms for title/artist, or "".\(tagLine)
         Available genres: \(genreList)
@@ -421,9 +444,21 @@ public struct GenerateView: View {
             return Analysis(genres: [], decades: [], keywords: "", tags: [])
         }
 
-        var canonicalGenres: [String: String] = [:]
-        for g in available { canonicalGenres[g.lowercased()] = g }
-        let genres = (obj["genres"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() }.compactMap { canonicalGenres[$0] } ?? []
+        // Expand each model-picked genre to every library genre it overlaps with,
+        // so "jazz" also pulls in "Vocal Jazz", "Jazz Fusion", "Cool Jazz", etc.
+        // (exact equality alone left these out → empty filter → whole-library
+        // fallback that ignored the request). Bidirectional substring match.
+        let picked = (obj["genres"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() } ?? []
+        var matched: [String] = []
+        var seen = Set<String>()
+        for p in picked where !p.isEmpty {
+            for g in available {
+                let gl = g.lowercased()
+                guard gl.contains(p) || p.contains(gl) else { continue }
+                if seen.insert(gl).inserted { matched.append(g) }
+            }
+        }
+        let genres = matched
         let decades = (obj["decades"] as? [Any])?.compactMap { ($0 as? Int) ?? Int(String(describing: $0)) } ?? []
         let keywords = (obj["keywords"] as? String) ?? ""
         let tagSet = Set(availableTags.map { $0.lowercased() })
@@ -433,7 +468,7 @@ public struct GenerateView: View {
 
     /// Filter the library by the analysed criteria, broadening if too sparse,
     /// then shuffle so the LLM sees a varied sample rather than an A→Z slice.
-    private func buildCandidates(genres: [String], decades: [Int], keywords: String, tags: [String], target: Int) async -> [TrackRecord] {
+    private func buildCandidates(genres: [String], decades: [Int], keywords: String, tags: [String], target: Int) async -> (tracks: [TrackRecord], survived: Analysis) {
         let minPool = max(target * 3, 40)
         var opts = DatabaseManager.FilterOptions()
         opts.genres = genres
@@ -457,7 +492,11 @@ public struct GenerateView: View {
             opts.genres = []; pool = await client.filterTracks(options: opts)
         }
         pool.shuffle()
-        return Array(pool.prefix(400))
+        // Report the filters that actually survived broadening so the summary is
+        // honest about whether the request's genre intent really constrained the
+        // pool (or quietly fell back to the whole library).
+        let survived = Analysis(genres: opts.genres, decades: opts.decades, keywords: opts.keywords, tags: opts.tags)
+        return (Array(pool.prefix(400)), survived)
     }
 
     private func summarise(_ a: Analysis, poolSize: Int) -> String {

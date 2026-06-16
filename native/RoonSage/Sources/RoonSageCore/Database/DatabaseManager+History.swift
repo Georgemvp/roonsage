@@ -198,6 +198,19 @@ extension DatabaseManager {
         }
     }
 
+    /// Every distinct genre in the library, most-used first. Unlike
+    /// `libraryStats().topGenres` (capped at 20) this is the full vocabulary, so
+    /// niche genres (jazz sub-styles, world, classical sub-genres) stay
+    /// selectable when mapping a request to filters.
+    public func allGenres(limit: Int = 200) async throws ->[String] {
+        try await pool.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT genre FROM track_genres
+                GROUP BY genre ORDER BY COUNT(*) DESC LIMIT ?
+            """, arguments: [limit])
+        }
+    }
+
     // MARK: - Recommendation history
 
     public struct RecommendationSummary: Sendable {

@@ -21,6 +21,12 @@ extension RoonClient {
         return try? await db.libraryStats()
     }
 
+    /// Full genre vocabulary (most-used first) for mapping a request to filters.
+    public func allGenres(limit: Int = 200) async -> [String] {
+        guard let db = database else { return [] }
+        return (try? await db.allGenres(limit: limit)) ?? []
+    }
+
     public func recentListens(limit: Int = 50) async -> [DatabaseManager.ListenEntry] {
         guard let db = database else { return [] }
         return (try? await db.recentListens(limit: limit)) ?? []
