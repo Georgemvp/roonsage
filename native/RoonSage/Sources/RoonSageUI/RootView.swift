@@ -77,6 +77,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case playlists   = "Playlists"
     case djSet       = "DJ Set"
     case liveDJ      = "Live DJ"
+    case radios      = "Radios"
     case fingerprint = "Sonic DNA"
     case musicMap    = "Music Map"
     case songPaths   = "Song Paths"
@@ -102,6 +103,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .playlists:   "Playlists"
         case .djSet:       "DJ Set"
         case .liveDJ:      "Live DJ"
+        case .radios:      "Radio's"
         case .fingerprint: "Sonic DNA"
         case .musicMap:    "Music Map"
         case .songPaths:   "Song Paths"
@@ -125,6 +127,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .playlists:   "list.star"
         case .djSet:       "slider.horizontal.3"
         case .liveDJ:      "slider.horizontal.2.gobackward"
+        case .radios:      "dot.radiowaves.left.and.right"
         case .fingerprint: "waveform.path.ecg"
         case .musicMap:    "map"
         case .songPaths:   "point.topleft.down.curvedto.point.bottomright.up"
@@ -160,7 +163,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         switch self {
         case .playback: [.nowPlaying, .queue, .library]
         case .create:   [.ask, .generate, .recommend, .playlists, .djSet, .liveDJ]
-        case .explore:  [.discovery, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
+        case .explore:  [.discovery, .radios, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
         case .settings: [.settings]
         }
     }
@@ -296,7 +299,7 @@ struct RootView: View {
 
     private var iOSTabSelection: Binding<SidebarItem> {
         let createItems: Set<SidebarItem> = [.generate, .ask, .recommend, .djSet, .liveDJ, .queue, .playlists]
-        let exploreItems: Set<SidebarItem> = [.discovery, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
+        let exploreItems: Set<SidebarItem> = [.discovery, .radios, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
         return Binding(
             get: {
                 if createItems.contains(selection) { return .generate }
@@ -349,6 +352,9 @@ struct RootView: View {
                 NavigationLink { DiscoveryView().navigationTitle("Ontdek").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Ontdek", systemImage: SidebarItem.discovery.icon)
                 }
+                NavigationLink { SonicRadioView().navigationTitle("Radio's").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Radio's", systemImage: SidebarItem.radios.icon)
+                }
                 NavigationLink { TasteProfileView().navigationTitle("Smaakprofiel").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Smaakprofiel", systemImage: SidebarItem.taste.icon)
                 }
@@ -399,6 +405,7 @@ struct RootView: View {
         case .alchemy:     SongAlchemyView()
         case .sonicSearch: SonicSearchView()
         case .discovery:   DiscoveryView()
+        case .radios:      SonicRadioView()
         case .taste:       TasteProfileView()
         case .yearInReview: YearInReviewView()
         case .settings:    SettingsView()

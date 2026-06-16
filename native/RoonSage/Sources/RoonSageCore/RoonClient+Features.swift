@@ -22,7 +22,7 @@ extension RoonClient {
     }
 
     /// The vector index when embeddings are enabled, else nil (→ rule-based).
-    private func activeIndex(_ db: DatabaseManager) async -> VectorIndex? {
+    func activeIndex(_ db: DatabaseManager) async -> VectorIndex? {
         useSonicEmbeddings ? await sonicCache.vectorIndex(from: db) : nil
     }
 

@@ -74,6 +74,15 @@ public final class RoonClient {
     /// Zone the queue is currently subscribed to (idempotent re-subscribe).
     var queueZoneID: String?
 
+    // MARK: - Sonic Radio (endless, artist-seeded — see RoonClient+Radio)
+    /// The currently-running endless radio, if any. Drives the "playing" banner.
+    public internal(set) var activeRadio: RadioStatus?
+    /// Internal run state of the active radio (candidate pool + cursor). Not
+    /// observed by the UI; only `activeRadio` is.
+    var radioState: RadioRunState?
+    /// Polls the queue depth and tops the station up when it runs low.
+    var radioMonitorTask: Task<Void, Never>?
+
     // MARK: - Control mode (playback proxy)
     /// `.direct` = talk to Roon over the WebSocket (the server build).
     /// `.server` = talk to the RoonSage server over HTTP (the client apps);
