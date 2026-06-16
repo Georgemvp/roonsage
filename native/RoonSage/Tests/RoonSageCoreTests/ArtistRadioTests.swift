@@ -80,6 +80,30 @@ final class ArtistRadioTests: XCTestCase {
         XCTAssertEqual(d, "FBD", "missing description → fallback")
     }
 
+    func testParseClampsLongTitleOnWordBoundary() {
+        let full = "Dromerige Progressieve Rock van David Gilmour en Pink Floyd"
+        let raw = #"{"title": "\#(full)", "description": "ok"}"#
+        let (t, _) = RoonClient.parseTitleJSON(raw, fallbackTitle: "FB", fallbackDesc: "FBD")
+        XCTAssertLessThanOrEqual(t.count, 45, "long title clamped to max")
+        XCTAssertFalse(t.hasSuffix(" "), "no dangling space")
+        // The result must be whole leading words of the original (boundary cut).
+        XCTAssertTrue(full.hasPrefix(t), "clamped title is a prefix of the original")
+        let nextIndex = full.index(full.startIndex, offsetBy: t.count)
+        XCTAssertEqual(full[nextIndex], " ", "the character after the cut is a space — no mid-word slice")
+    }
+
+    func testClampTitleTrimsTrailingConnector() {
+        // Cutting right after "&" must not leave a dangling connector.
+        let clamped = RoonClient.clampTitle("Hypnotische Deep House van Bob Moses & friends here", max: 40)
+        XCTAssertLessThanOrEqual(clamped.count, 40)
+        XCTAssertFalse(clamped.hasSuffix("&"))
+        XCTAssertFalse(clamped.hasSuffix(" "))
+    }
+
+    func testClampTitleLeavesShortTitleUntouched() {
+        XCTAssertEqual(RoonClient.clampTitle("Epische Arena-Rock", max: 45), "Epische Arena-Rock")
+    }
+
     // MARK: stable Qobuz name
 
     func testQobuzPlaylistNameIsStablePrefix() {

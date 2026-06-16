@@ -226,10 +226,11 @@ extension RoonClient {
         Eisen voor "title":
         - Maak METEEN duidelijk wat voor muziek/sfeer het is: noem het genre/stijl en/of de sfeer of energie (bv. "Melodieuze indie-rock", "Dromerige akoestische avond", "Energieke house").
         - Mag de artiest noemen, maar dat hoeft niet. Vermijd vage woordgrappen die het genre niet verraden.
-        - Nederlands, pakkend, MAX 45 tekens. Niet het saaie "Radio: \(artist)".
+        - Gebruik UITSLUITEND bestaande, correct gespelde Nederlandse woorden (Engelse genrenamen mogen). Verzin GEEN woorden.
+        - Kort en krachtig: MAX 45 tekens, het liefst korter. Niet het saaie "Radio: \(artist)".
 
         Eisen voor "description":
-        - 1 à 2 zinnen, Nederlands, beschrijf de stijl/sfeer en noem een paar kenmerkende artiesten of het genre.
+        - 1 à 2 korte zinnen, vlot en correct Nederlands. Beschrijf de stijl/sfeer en noem een paar kenmerkende artiesten of het genre. Verzin geen woorden.
         """
 
         let config = LLMConfigStore.load()
@@ -251,9 +252,19 @@ extension RoonClient {
         var title = (obj["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         var desc  = (obj["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if title.isEmpty { title = fallbackTitle }
-        if title.count > 60 { title = String(title.prefix(60)).trimmingCharacters(in: .whitespaces) }
+        title = clampTitle(title, max: 45)
         if desc.isEmpty { desc = fallbackDesc }
         return (title, desc)
+    }
+
+    /// Hard length cap on a title, cut at a word boundary so an over-long LLM
+    /// reply never dangles a half word or a trailing connector ("&", ":", "-").
+    nonisolated static func clampTitle(_ title: String, max: Int) -> String {
+        guard title.count > max else { return title }
+        let head = String(title.prefix(max))
+        // Prefer the last space so we don't slice mid-word.
+        let cut = head.lastIndex(of: " ").map { String(head[..<$0]) } ?? head
+        return cut.trimmingCharacters(in: CharacterSet(charactersIn: " &:-–—,·"))
     }
 
     // MARK: Qobuz sync
