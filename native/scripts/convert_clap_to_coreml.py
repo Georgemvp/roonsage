@@ -59,12 +59,61 @@ def _lazy_imports():
     return np, torch, ClapModel, ClapProcessor
 
 
+# PyTorch bicubic uses Keys' cubic convolution with A = -0.75.
+_BICUBIC_A = -0.75
+
+
+def _bicubic_resample_matrix(in_size: int, out_size: int, align_corners: bool):
+    """A fixed (out_size x in_size) float32 matrix W such that `W @ v` resamples a
+    length-`in_size` signal to `out_size` with the SAME bicubic interpolation
+    PyTorch's `aten::upsample_bicubic2d` applies (cubic convolution, A=-0.75,
+    border-replicated 4-tap support). Because the analyzer's input shape and the
+    HTSAT target size are both fixed at trace time, the whole resize is this one
+    constant linear map — so we get exact bicubic (not a bilinear approximation)
+    as a single matmul, with no MIL bicubic op needed.
+    """
+    import numpy as np
+
+    if out_size == in_size:
+        return np.eye(in_size, dtype=np.float32)
+
+    A = _BICUBIC_A
+
+    def cubic1(x):  # |x| <= 1
+        return ((A + 2.0) * x - (A + 3.0)) * x * x + 1.0
+
+    def cubic2(x):  # 1 < |x| < 2
+        return ((A * x - 5.0 * A) * x + 8.0 * A) * x - 4.0 * A
+
+    # Source coordinate per PyTorch `area_pixel_compute_source_index` (cubic=True:
+    # negative source indices are kept, not clamped to 0).
+    if align_corners:
+        scale = (in_size - 1) / (out_size - 1) if out_size > 1 else 0.0
+    else:
+        scale = in_size / out_size
+
+    W = np.zeros((out_size, in_size), dtype=np.float64)
+    for i in range(out_size):
+        src = scale * i if align_corners else scale * (i + 0.5) - 0.5
+        x0 = int(np.floor(src))
+        t = src - x0
+        # Coefficients for the 4 taps at offsets [-1, 0, 1, 2] (sum to 1).
+        coeffs = (cubic2(t + 1.0), cubic1(t), cubic1(1.0 - t), cubic2(2.0 - t))
+        for off, w in zip((-1, 0, 1, 2), coeffs):
+            idx = min(max(x0 + off, 0), in_size - 1)   # replicate border
+            W[i, idx] += w
+    return W.astype(np.float32)
+
+
 def _register_custom_ops():
     """CLAP/HTSAT resizes the mel to a square image with bicubic interpolation,
-    an op Core ML's torch frontend does not implement. Approximate it with
-    bilinear — the input-side resize is robust and the PyTorch<->CoreML parity is
-    verified in `validate`. Input shapes are fixed at trace time, so the target
-    size is a constant and we derive bilinear scale factors from it.
+    an op Core ML's torch frontend does not implement. Input shapes (and thus the
+    target size) are fixed at trace time, so we implement EXACT bicubic as a baked
+    constant matmul (`_bicubic_resample_matrix`) instead of the old bilinear
+    approximation — this closes the PyTorch<->CoreML parity gap (see
+    EMBEDDING_NOTES.md / `validate`). Each axis is resampled independently, so a
+    one-axis interpolate (HTSAT resizes time and freq separately) is a single
+    matmul; an unchanged axis is an identity matrix and is skipped.
     """
     from coremltools.converters.mil import Builder as mb
     from coremltools.converters.mil.frontend.torch.ops import _get_inputs
@@ -78,21 +127,31 @@ def _register_custom_ops():
 
     @register_torch_op
     def upsample_bicubic2d(context, node):
+        import numpy as np
+
         inputs = _get_inputs(context, node)
         x = inputs[0]
         out_size = [int(v) for v in inputs[1].val]
         align = False
         if len(inputs) > 2 and inputs[2] is not None and inputs[2].val is not None:
             align = bool(inputs[2].val)
-        # Use an EXACT target size (not scale factors) — scale-factor rounding
-        # produced an off-by-one time dim that broke the downstream HTSAT reshape.
-        y = mb.resize_bilinear(
-            x=x,
-            target_size_height=out_size[0],
-            target_size_width=out_size[1],
-            sampling_mode="ALIGN_CORNERS" if align else "DEFAULT",
-            name=node.name,
-        )
+
+        in_h, in_w = int(x.shape[-2]), int(x.shape[-1])
+        out_h, out_w = out_size[0], out_size[1]
+
+        y = x
+        # Resize the height (time) axis: y = Wh @ x.
+        if out_h != in_h:
+            wh = _bicubic_resample_matrix(in_h, out_h, align)          # (out_h, in_h)
+            y = mb.matmul(x=wh, y=y)
+        # Resize the width (mel) axis: y = y @ Ww.
+        if out_w != in_w:
+            ww = np.ascontiguousarray(
+                _bicubic_resample_matrix(in_w, out_w, align).T)        # (in_w, out_w)
+            y = mb.matmul(x=y, y=ww)
+        # Keep an EXACT target size (no scale factors) so the downstream HTSAT
+        # reshape never sees an off-by-one; name the output as the node expects.
+        y = mb.identity(x=y, name=node.name)
         context.add(y)
 
 

@@ -1,9 +1,10 @@
 # Embedding spike — CLAP → Core ML (Track E, Step 0)
 
-Status: **spike PASSED, with one caveat.** CLAP converts and runs natively on
-Apple Silicon; embeddings discriminate musically; PyTorch↔Core ML parity is
-0.93–0.99 (below the 0.99 target) due to a bicubic→bilinear approximation. We do
-**not** fall back to OpenL3.
+Status: **shipped.** CLAP converts and runs natively on Apple Silicon;
+embeddings discriminate musically; PyTorch↔Core ML parity is **1.0000** (worst,
+5 tracks) after replacing the bicubic→bilinear approximation with an exact
+bicubic resample (see "Conversion hurdles solved"). We do **not** fall back to
+OpenL3.
 
 ## Decision
 
@@ -17,11 +18,29 @@ Apple Silicon; embeddings discriminate musically; PyTorch↔Core ML parity is
 
 ## Conversion hurdles solved
 
-HTSAT (CLAP's audio backbone) uses `upsample_bicubic2d` to resize the mel into a
-square "image". Core ML's torch frontend does not implement that op. Fix: a
-custom `@register_torch_op` that maps it to `mb.resize_bilinear` with an **exact
-target size** (scale-factor resizing rounded 1024→1023 and broke the downstream
-HTSAT reshape). The bilinear approximation is the source of the parity gap below.
+HTSAT (CLAP's audio backbone) resizes the mel into a square "image" via
+`upsample_bicubic2d` (HF `ClapAudioModel.reshape_mel2img`, bicubic +
+`align_corners=True`, one 1D interpolate per axis). Core ML's torch frontend does
+not implement that op.
+
+**Fix (exact bicubic, not bilinear).** The analyzer's input shape (1×1×1001×64)
+and the HTSAT target sizes are both fixed at trace time, so each 1D bicubic
+resize is a *constant linear map*. A custom `@register_torch_op` bakes the exact
+PyTorch cubic-convolution kernel (A = −0.75, border-replicated 4-tap,
+align-corners source coordinates) into an `(out × in)` matrix and applies it as a
+single `mb.matmul` per axis (`_bicubic_resample_matrix` in
+`convert_clap_to_coreml.py`). An unchanged axis is an identity matrix and is
+skipped. This keeps the exact target size (no scale factors → no 1024→1023
+off-by-one in the downstream reshape) and reproduces PyTorch's `interpolate` to
+~1e-7. **Earlier approach:** `mb.resize_bilinear` at the same target size — robust
+but only 0.93–0.96 parity; replaced.
+
+Alternatives considered (and why bicubic-matmul won): (a) `align_corners=True`
+bilinear — that *is* the old approach, capped at ~0.94 worst; (b) pre-resizing
+the mel on the PyTorch/Swift front-end so the in-model interpolate is a
+near-identity — more moving parts and would force a CLAPMel change for no gain
+once the exact in-model resize was available. The matmul is exact, deterministic,
+FLOAT32, and leaves the Swift runtime Python-free.
 
 ## Mel front-end config (Step 1 MUST reproduce this in Swift)
 
@@ -43,26 +62,40 @@ The exact mel filter-bank matrix (`[513, 64]`) is dumped to
 recomputing a filter-bank, so the Swift mel matches PyTorch bit-for-bit and the
 only remaining gap is the bilinear-vs-bicubic resize.
 
-## Spike results (5 diverse tracks)
+## Parity results
 
-Discrimination is real — diagonal 1.0, off-diagonals 0.05–0.57, and the **track
-rankings are identical** between PyTorch and Core ML (e.g. Linkin Park's nearest
-neighbour is Erik Truffaz in both). Rankings are what k-NN retrieval depends on.
+Measured with `validate` on 5 fixed, diverse tracks (Sting, Sinatra, Bowie,
+Aaron Smith, Queen + Adam Lambert), comparing PyTorch `get_audio_features`
+against the Core ML audio encoder fed the **same** `input_features`:
 
-Per-track PyTorch↔Core ML parity: 0.94 / 0.99 / 0.93 / 0.96 / 0.93 (worst 0.93).
+| approach | per-track parity | worst |
+|----------|------------------|-------|
+| bilinear (old) | 0.959 / 0.962 / 0.956 / 0.943 / 0.967 | **0.9425** |
+| exact bicubic (now) | 1.0000 ×5 | **1.0000** |
 
-## Caveats & follow-ups for Step 1+
+With the exact bicubic resize the PyTorch and Core ML cosine matrices are
+identical to 3 decimals — so the inter-track distances that Similar / Map / Path
+/ Alchemy / Radio rank on now match the PyTorch reference, not just the diagonal.
+(`validate`'s PyTorch matrix varies run-to-run because CLAP's feature extractor
+random-crops a 10 s window; parity is window-independent because both sides get
+the identical mel.)
 
-1. **Parity 0.93 is fine for retrieval** (Similar / Map / Path / Alchemy are all
-   Core-ML-internal — the whole library is embedded by the *same* model, so the
-   bilinear shift is common-mode and cancels in cosine ranking).
-2. **Mood scoring crosses encoders** (audio embed vs text-label embed). Generate
-   the mood-label embeddings with the **Core ML text encoder** (`CLAPText`), not
+## Caveats & follow-ups
+
+1. **Retrieval was already common-mode-robust** (the whole library is embedded by
+   the same model, so a uniform shift cancels in cosine ranking) — but the
+   bilinear shift was *not* uniform across spectra, which distorted the off-
+   diagonal distances. The exact bicubic removes that distortion.
+2. **Mood scoring crosses encoders** (audio embed vs text-label embed). Mood-label
+   embeddings are generated with the **Core ML text encoder** (`CLAPText`), not
    the PyTorch `clap_mood_embeds.npy`, so both sides share the same space. The
-   PyTorch `clap_mood_embeds.npy` is kept only as a reference.
-3. If mood accuracy proves off, revisit the bicubic approximation (true bicubic
-   has no MIL op; option: pre-resize the mel front-end to the target frame count
-   so the in-model interpolation is a near-identity).
+   text encoder has no bicubic resize, so this fix only sharpens the audio side —
+   which is the half that was drifting.
+3. **Re-embedding required to benefit.** Existing stored embeddings predate this
+   fix; they are regenerated by the version-gated `embedding-only` re-analysis
+   (the `CLAPModel.modelVersion` bump triggers it). The Swift golden fixtures
+   (`golden_embedding.f32`, `golden.json`) were regenerated against the new model;
+   `swift test` (CLAPEmbeddingTests) passes at cosine 1.0000.
 
 ## Shipping the model (RESOLVED — build-time fetch)
 

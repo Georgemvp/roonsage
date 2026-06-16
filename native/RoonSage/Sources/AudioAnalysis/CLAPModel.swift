@@ -59,7 +59,9 @@ public final class CLAPModel: @unchecked Sendable {
 
     init(dir: URL) throws {
         let cfg = try MelConfig(dir: dir)
-        self.modelVersion = "clap-\(cfg.model.split(separator: "/").last ?? "")-v1"
+        // -v2: multi-window embedding (see `embed(url:)`). Bumping the suffix makes
+        // the LibraryWalker re-embed every `-v1` row (embedding-only — scalars kept).
+        self.modelVersion = "clap-\(cfg.model.split(separator: "/").last ?? "")-v2"
 
         let filters = try Self.loadF32(dir.appendingPathComponent("clap_mel_filters.f32"))
         self.mel = CLAPMel(melFilters: filters)
@@ -99,13 +101,35 @@ public final class CLAPModel: @unchecked Sendable {
         return Self.l2(Self.toFloats(emb))
     }
 
-    /// Decode a representative 48 kHz mono window and embed it.
+    /// Windows (as track fractions) averaged into one embedding. Sampling the
+    /// body of the track — not just the intro — keeps a long build-up, a spoken
+    /// intro or a quiet opening from misrepresenting the whole song.
+    static let embedWindowFractions: [Double] = [0.25, 0.5, 0.75]
+
+    /// Decode several representative 48 kHz mono windows across the track and
+    /// embed their mean direction (each window's vector is L2-normalized, so the
+    /// average is a centroid; re-normalized to a unit vector). Falls back to a
+    /// single window from the start if every windowed decode/embed fails.
     public func embed(url: URL) throws -> [Float] {
         let secs = Double(CLAPMel.clipSamples) / Double(CLAPMel.sampleRate)
-        let audio = try AudioDecoder.decode(
-            url: url, targetSampleRate: Double(CLAPMel.sampleRate),
-            maxSeconds: secs, startFraction: 0)
-        return try embed(samples: audio.samples)
+        var sum = [Float](repeating: 0, count: Self.embeddingDim)
+        var n = 0
+        for f in Self.embedWindowFractions {
+            guard let audio = try? AudioDecoder.decode(
+                url: url, targetSampleRate: Double(CLAPMel.sampleRate),
+                maxSeconds: secs, startFraction: f),
+                let e = try? embed(samples: audio.samples), e.count == Self.embeddingDim
+            else { continue }
+            vDSP_vadd(sum, 1, e, 1, &sum, 1, vDSP_Length(Self.embeddingDim))
+            n += 1
+        }
+        guard n > 0 else {
+            let audio = try AudioDecoder.decode(
+                url: url, targetSampleRate: Double(CLAPMel.sampleRate),
+                maxSeconds: secs, startFraction: 0)
+            return try embed(samples: audio.samples)
+        }
+        return Self.l2(sum)   // mean direction of the windows, unit-normalized
     }
 
     // MARK: - Moods
