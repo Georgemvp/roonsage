@@ -54,10 +54,20 @@ extension RoonClient {
     /// read — does not touch Qobuz. Safe to call from either build (server or a
     /// client app rendering the cards).
     public func buildArtistRadioPlaylists() async -> [SonicRadioPlaylist] {
-        let radios = Array(await dailyRadios().prefix(Self.artistRadioCount))
-        guard !radios.isEmpty, let db = database else { return [] }
+        guard let db = database else {
+            Log.warning("Artiesten-radio's: geen database beschikbaar — overgeslagen", category: .roon)
+            return []
+        }
         let lib = await sonicCache.tracks(from: db)
-        guard !lib.isEmpty else { return [] }
+        guard !lib.isEmpty else {
+            Log.warning("Artiesten-radio's: 0 geanalyseerde tracks (audio-features). Sync eerst de features naar dit apparaat.", category: .roon)
+            return []
+        }
+        let radios = Array(await dailyRadios().prefix(Self.artistRadioCount))
+        guard !radios.isEmpty else {
+            Log.warning("Artiesten-radio's: geen seed-artiesten — lege luistergeschiedenis of te weinig geanalyseerde tracks per artiest.", category: .roon)
+            return []
+        }
         let index = await activeIndex(db)
         let stamp = Self.dayStamp()
 
@@ -86,6 +96,7 @@ extension RoonClient {
                 imageKey: radio.imageKey, tracks: tracks,
                 qobuzPlaylistID: UserDefaults.standard.string(forKey: Self.qobuzIDKey(key))))
         }
+        Log.info("Artiesten-radio's gebouwd: \(out.count) playlists (van \(radios.count) seeds, \(lib.count) geanalyseerde tracks)", category: .roon)
         return out
     }
 
@@ -239,19 +250,26 @@ extension RoonClient {
     public func startArtistRadioRefresh() {
         guard controlMode == .direct, artistRadioRefreshTask == nil else { return }
         artistRadioRefreshTask = Task { [weak self] in
-            // Let the server connect to Roon + load its library on launch first.
-            try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+            // Brief grace so the server can connect to Roon + load its library on
+            // launch before the first attempt.
+            try? await Task.sleep(nanoseconds: 20 * 1_000_000_000)
             while !Task.isCancelled {
                 guard let self else { return }
                 var didSync = false
-                if self.qobuzConfigured { didSync = await self.syncArtistRadiosToQobuz() > 0 }
+                if self.qobuzConfigured {
+                    let n = await self.syncArtistRadiosToQobuz()
+                    didSync = n > 0
+                    Log.info("Artiesten-radio auto-sync: \(n) playlist(s) naar Qobuz gezet", category: .network)
+                } else {
+                    Log.warning("Artiesten-radio auto-sync overgeslagen — Qobuz is niet ingesteld op de server (Instellingen → Server).", category: .network)
+                }
                 // Re-sync on the full cadence once it's working; retry sooner while
                 // still warming up (library/features not ready yet, or no Qobuz).
                 let wait = didSync ? Self.artistRadioRefreshInterval : 15 * 60 * 1_000_000_000
                 try? await Task.sleep(nanoseconds: wait)
             }
         }
-        Log.info("AI artiesten-radio auto-sync gestart (elke 3 uur)", category: .roon)
+        Log.info("AI artiesten-radio auto-sync gestart (eerste poging na 20s, daarna elke 3 uur)", category: .roon)
     }
 
     public func stopArtistRadioRefresh() {
