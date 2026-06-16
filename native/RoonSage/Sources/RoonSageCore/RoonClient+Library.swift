@@ -57,6 +57,27 @@ extension RoonClient {
         return try? await db.listenSnapshot(topLimit: topLimit, recentLimit: recentLimit)
     }
 
+    /// Year-in-review stats for the given year. Like `tasteProfile`, the thin
+    /// client's local `listening_history` is empty, so pull it from the server;
+    /// the macOS server reads its own DB. Returns nil on a transient failure so
+    /// the view keeps its last-known data instead of flashing the empty state.
+    public func yearInReview(year: Int) async -> DatabaseManager.YearStats? {
+        if isRemote {
+            guard let base = remoteBaseURL,
+                  let url = URL(string: "\(base)/year-review?year=\(year)") else { return nil }
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 8
+            authorizeShareRequest(&req)
+            guard let (data, resp) = try? await URLSession.shared.data(for: req),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let stats = try? JSONDecoder().decode(DatabaseManager.YearStats.self, from: data)
+            else { return nil }
+            return stats
+        }
+        guard let db = database else { return nil }
+        return try? await db.yearInReview(year: year)
+    }
+
     public func imageURL(forKey key: String, size: Int = 200) -> URL? {
         guard let host = coreHost else { return nil }
         return URL(string: "http://\(host):\(corePort)/api/image/\(key)?width=\(size)&height=\(size)&scale=fit")

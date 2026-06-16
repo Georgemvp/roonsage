@@ -269,13 +269,30 @@ extension DatabaseManager {
 
     // MARK: - Year-in-Review
 
-    public struct YearStats: Sendable {
+    public struct YearArtist: Sendable, Codable {
+        public var artist: String
+        public var count: Int
+        public init(artist: String, count: Int) { self.artist = artist; self.count = count }
+    }
+
+    public struct YearTrack: Sendable, Codable {
+        public var title: String
+        public var artist: String?
+        public var count: Int
+        public init(title: String, artist: String?, count: Int) {
+            self.title = title; self.artist = artist; self.count = count
+        }
+    }
+
+    /// Codable so a thin client can pull a year's stats from the server (its own
+    /// `listening_history` is empty — only `tracks`/`track_genres` are synced).
+    public struct YearStats: Sendable, Codable {
         public var year: Int
         public var totalPlays: Int
         public var uniqueArtists: Int
         public var uniqueTracks: Int
-        public var topArtists: [(artist: String, count: Int)]
-        public var topTracks: [(title: String, artist: String?, count: Int)]
+        public var topArtists: [YearArtist]
+        public var topTracks: [YearTrack]
         public var playsByHour: [Int]      // index 0-23, count per hour
         public var firstListen: ListenEntry?
         public var longestStreak: Int       // consecutive days with at least 1 listen
@@ -306,14 +323,14 @@ extension DatabaseManager {
                 WHERE played_at >= ? AND played_at < ? AND artist IS NOT NULL
                 GROUP BY artist ORDER BY cnt DESC LIMIT 8
             """, arguments: ["\(yearStr)-01-01", "\(nextStr)-01-01"])
-            let topArtists = artistRows.map { (artist: $0["artist"] as String? ?? "", count: $0["cnt"] as Int? ?? 0) }
+            let topArtists = artistRows.map { YearArtist(artist: $0["artist"] as String? ?? "", count: $0["cnt"] as Int? ?? 0) }
 
             let trackRows = try Row.fetchAll(db, sql: """
                 SELECT title, artist, COUNT(*) as cnt FROM listening_history
                 WHERE played_at >= ? AND played_at < ?
                 GROUP BY title, artist ORDER BY cnt DESC LIMIT 8
             """, arguments: ["\(yearStr)-01-01", "\(nextStr)-01-01"])
-            let topTracks = trackRows.map { (
+            let topTracks = trackRows.map { YearTrack(
                 title: $0["title"] as String? ?? "",
                 artist: $0["artist"] as String?,
                 count: $0["cnt"] as Int? ?? 0

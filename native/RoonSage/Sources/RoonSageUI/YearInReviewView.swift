@@ -18,6 +18,11 @@ public struct YearInReviewView: View {
         return Array((current - 4)...current).reversed()
     }
 
+    // A year is not a quantity: interpolating the Int into a LocalizedStringKey
+    // applies the locale's grouping separator ("2.026" in nl). Interpolate this
+    // String instead so it stays "2026".
+    private var yearText: String { String(selectedYear) }
+
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.xl) {
@@ -27,7 +32,7 @@ public struct YearInReviewView: View {
                         .font(.title2.bold())
                     Spacer()
                     Picker("Jaar", selection: $selectedYear) {
-                        ForEach(years, id: \.self) { Text("\($0)").tag($0) }
+                        ForEach(years, id: \.self) { Text(verbatim: "\($0)").tag($0) }
                     }
                     .pickerStyle(.menu)
                     .tint(Color.roonGold)
@@ -39,18 +44,18 @@ public struct YearInReviewView: View {
                     content(s)
                 } else {
                     ContentUnavailableView(
-                        "Geen luistergeschiedenis voor \(selectedYear)",
+                        "Geen luistergeschiedenis voor \(yearText)",
                         systemImage: "calendar.badge.exclamationmark",
                         description: Text("Importeer je Last.fm-historie in Instellingen om eerdere jaren te vullen."))
                 }
             }
             .padding()
         }
-        .navigationTitle("Jaaroverzicht \(selectedYear)")
+        .navigationTitle("Jaaroverzicht \(yearText)")
         .toolbar {
             if stats != nil {
                 ToolbarItem(placement: .primaryAction) {
-                    ShareLink(item: shareText, subject: Text("Mijn \(selectedYear) in muziek")) {
+                    ShareLink(item: shareText, subject: Text("Mijn \(yearText) in muziek")) {
                         Label("Deel", systemImage: "square.and.arrow.up")
                     }
                 }
@@ -76,7 +81,7 @@ public struct YearInReviewView: View {
 
         if let first = s.firstListen {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Eerste nummer van \(selectedYear)")
+                Text("Eerste nummer van \(yearText)")
                     .font(.caption).foregroundStyle(.secondary)
                 Text(first.title).font(.callout.bold()).lineLimit(1)
                 if let a = first.artist { Text(a).font(.caption).foregroundStyle(.secondary) }
@@ -195,8 +200,11 @@ public struct YearInReviewView: View {
     private func load() async {
         loading = true
         defer { loading = false }
-        let y = selectedYear
-        guard let db = client.database else { return }
-        stats = try? await db.yearInReview(year: y)
+        // Thin clients have no local listening_history; the client routes this to
+        // the server. Keep last-known stats on a transient nil so we don't flash
+        // the empty state.
+        if let s = await client.yearInReview(year: selectedYear) {
+            stats = s
+        }
     }
 }

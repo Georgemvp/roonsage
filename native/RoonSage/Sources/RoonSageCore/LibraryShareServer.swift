@@ -192,6 +192,14 @@ public final class LibraryShareServer: @unchecked Sendable {
             }
             return ("500 Internal Server Error", Data("history failed".utf8), "text/plain")
         }
+        if path.hasPrefix("/year-review") {
+            let year = Int(Self.queryValue("year", in: target) ?? "") ?? Calendar.current.component(.year, from: Date())
+            if let stats = try? await database.yearInReview(year: year),
+               let body = try? JSONEncoder().encode(stats) {
+                return ("200 OK", body, "application/json")
+            }
+            return ("500 Internal Server Error", Data("year-review failed".utf8), "text/plain")
+        }
         if path.hasPrefix("/settings") {
             if let body = try? JSONEncoder().encode(SyncableSettings.exportCurrent()) {
                 return ("200 OK", body, "application/json")
