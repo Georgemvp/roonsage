@@ -26,6 +26,34 @@ final class ArtistRadioTests: XCTestCase {
         XCTAssertEqual(out.count, 13)
     }
 
+    func testCapAppliesSeedCap() {
+        var pool = (0..<20).map { track("seed\($0)", "Seed") }
+        pool += (0..<20).map { track("n\($0)", "Neighbour\($0)") }
+        let out = RoonClient.capForPlaylist(
+            pool, seedArtist: "Seed", minTracks: 20, maxTracks: 30, maxPerArtist: 3, seedCap: 10)
+        XCTAssertEqual(out.filter { $0.artist == "Seed" }.count, 10, "seed artist capped at seedCap")
+        XCTAssertEqual(out.count, 30)
+    }
+
+    func testCapDedupesVersionsOfSameSong() {
+        let pool = [
+            TrackRecord(id: "1", title: "I'll Keep Loving You", artist: "Guetta"),
+            TrackRecord(id: "2", title: "I'll Keep Loving You (feat. Birdy)", artist: "Guetta"),
+            TrackRecord(id: "3", title: "I'll Keep Loving You [Radio Edit]", artist: "Guetta"),
+            TrackRecord(id: "4", title: "Other Song", artist: "Guetta"),
+        ]
+        let out = RoonClient.capForPlaylist(
+            pool, seedArtist: "Seed", minTracks: 1, maxTracks: 30, maxPerArtist: 3)
+        let titles = out.filter { $0.artist == "Guetta" }.map(\.title)
+        XCTAssertEqual(titles.count, 2, "three editions of one song collapse to one + the other song")
+    }
+
+    func testTitleDedupKeyStripsQualifiers() {
+        XCTAssertEqual(RoonClient.titleDedupKey("This Ain't a Love Song [Album Version]"), "this ain't a love song")
+        XCTAssertEqual(RoonClient.titleDedupKey("Get Lucky (feat. Pharrell)"), "get lucky")
+        XCTAssertEqual(RoonClient.titleDedupKey("Plain Title"), "plain title")
+    }
+
     func testCapStopsAtMaxTracks() {
         let pool = (0..<100).map { track("seed\($0)", "Seed") }
         let out = RoonClient.capForPlaylist(

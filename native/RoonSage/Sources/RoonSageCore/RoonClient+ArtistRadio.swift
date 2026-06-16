@@ -23,9 +23,12 @@ extension RoonClient {
     nonisolated static let artistRadioCount       = 6
     nonisolated static let artistRadioMinTracks   = 20
     nonisolated static let artistRadioMaxTracks   = 30
-    /// Variety cap for non-seed artists (the seed artist is exempt so the
-    /// station still leans on-brand).
+    /// Variety cap for non-seed artists (keeps the playlist from leaning on one
+    /// neighbour).
     nonisolated static let artistRadioMaxPerArtist = 3
+    /// Cap on the seed artist's own tracks — anchors the playlist without turning
+    /// it into a single-artist mix; the rest are nearest sonic neighbours.
+    nonisolated static let artistRadioSeedCap = 10
     /// Re-sync cadence on the always-on server build.
     nonisolated static let artistRadioRefreshInterval: UInt64 = 3 * 60 * 60 * 1_000_000_000
 
@@ -69,7 +72,6 @@ extension RoonClient {
             return []
         }
         let index = await activeIndex(db)
-        let stamp = Self.dayStamp()
         // id → analyzed track, so we can summarise the sonic profile (tags,
         // mood, energy, tempo) of the selection for the title prompt.
         let byId = Dictionary(lib.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -78,11 +80,10 @@ extension RoonClient {
         for radio in radios {
             let seedIds = radio.seedIds
             let key = radio.id
-            // A distinct salt from the playback station so the Qobuz playlist
-            // isn't a carbon copy of what the live radio would queue.
+            // Coherent, similarity-ordered candidates (nearest neighbours first),
+            // NOT the endless radio's shuffled 250-pool.
             let pool = await Task.detached {
-                Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
-                                          seed: "\(stamp)-\(key)-qobuz")
+                Self.buildPlaylistCandidates(seedIds: seedIds, lib: lib, index: index)
             }.value
             guard !pool.isEmpty else { continue }
 
@@ -90,7 +91,8 @@ extension RoonClient {
                 pool, seedArtist: radio.artist,
                 minTracks: Self.artistRadioMinTracks,
                 maxTracks: Self.artistRadioMaxTracks,
-                maxPerArtist: Self.artistRadioMaxPerArtist)
+                maxPerArtist: Self.artistRadioMaxPerArtist,
+                seedCap: Self.artistRadioSeedCap)
             guard tracks.count >= 2 else { continue }
 
             let profile = Self.sonicProfileSummary(tracks.compactMap { byId[$0.id] })
@@ -104,24 +106,28 @@ extension RoonClient {
         return out
     }
 
-    /// Cap the ordered candidate pool to a playlist of `minTracks…maxTracks`,
-    /// limiting non-seed artists to `maxPerArtist` for variety. If the cap leaves
-    /// us short of `minTracks`, top up from what was skipped.
+    /// Cap the (similarity-ordered) candidate pool to a playlist of
+    /// `minTracks…maxTracks`, limiting non-seed artists to `maxPerArtist` and the
+    /// seed artist to `seedCap` (so it's a radio, not a single-artist mix). If the
+    /// cap leaves us short of `minTracks`, top up from what was skipped.
     nonisolated static func capForPlaylist(
         _ pool: [TrackRecord], seedArtist: String,
-        minTracks: Int, maxTracks: Int, maxPerArtist: Int
+        minTracks: Int, maxTracks: Int, maxPerArtist: Int, seedCap: Int = .max
     ) -> [TrackRecord] {
         let seedKey = seedArtist.lowercased()
         var perArtist: [String: Int] = [:]
+        var seenTitles = Set<String>()   // collapse "song", "song (Remix)", "song (feat…)"
         var picked: [TrackRecord] = []
         var skipped: [TrackRecord] = []
         for t in pool {
             if picked.count >= maxTracks { break }
             let a = (t.artist ?? "").lowercased()
-            if a == seedKey {
-                picked.append(t)
-            } else if perArtist[a, default: 0] < maxPerArtist {
+            let titleKey = "\(a)|\(titleDedupKey(t.title))"
+            if seenTitles.contains(titleKey) { continue }   // drop near-duplicate versions
+            let cap = a == seedKey ? seedCap : maxPerArtist
+            if perArtist[a, default: 0] < cap {
                 perArtist[a, default: 0] += 1
+                seenTitles.insert(titleKey)
                 picked.append(t)
             } else {
                 skipped.append(t)
@@ -130,10 +136,38 @@ extension RoonClient {
         if picked.count < minTracks {
             for t in skipped {
                 if picked.count >= min(minTracks, maxTracks) { break }
-                picked.append(t)
+                let titleKey = "\((t.artist ?? "").lowercased())|\(titleDedupKey(t.title))"
+                if seenTitles.insert(titleKey).inserted { picked.append(t) }
             }
         }
         return picked
+    }
+
+    /// Normalised title for dedup: lowercased, with bracketed/parenthesised
+    /// qualifiers ("(feat…)", "(… Remix)", "[Album Version]") stripped, so the
+    /// same song in several editions collapses to one entry.
+    nonisolated static func titleDedupKey(_ title: String) -> String {
+        var s = title.lowercased()
+        s = s.replacingOccurrences(of: #"[\(\[\{].*?[\)\]\}]"#, with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return s.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Similarity-ordered candidate list for a coherent artist PLAYLIST (distinct
+    /// from the endless radio's shuffled pool): the seed artist's own tracks first,
+    /// then the nearest sonic neighbours in descending similarity — NOT a random
+    /// sample of a wide net, so the result actually sounds like the seed artist.
+    nonisolated static func buildPlaylistCandidates(
+        seedIds: [String], lib: [DatabaseManager.SonicTrack], index: VectorIndex?
+    ) -> [TrackRecord] {
+        let seedSet = Set(seedIds)
+        let own = lib.filter { seedSet.contains($0.id) }
+        guard !own.isEmpty else { return [] }
+        let neighbours = SonicEngine.nearest(toSeeds: own, in: lib, limit: 120, index: index).map(\.track)
+        var seen = Set<String>()
+        var ordered: [DatabaseManager.SonicTrack] = []
+        for t in own + neighbours where seen.insert(t.id).inserted { ordered.append(t) }
+        return ordered.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
     }
 
     // MARK: AI title + description
