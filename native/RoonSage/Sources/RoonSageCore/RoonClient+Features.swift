@@ -357,9 +357,17 @@ extension RoonClient {
                 if let e = index.embedding(forId: t.id) { embByKey[t.matchKey] = e }
             }
             guard !embByKey.isEmpty else { return nil }
-            let out = Self.rankCandidates(tracks, queryVec: vec, embByKey: embByKey,
-                                          limit: limit, maxPerArtist: maxPerArtist)
-            return out.isEmpty ? nil : out
+            let ranked = Self.rankCandidates(tracks, queryVec: vec, embByKey: embByKey,
+                                             limit: limit, maxPerArtist: maxPerArtist)
+            guard !ranked.isEmpty else { return nil }
+            // Coverage guard: rankCandidates drops candidates without an embedding,
+            // so on a partially-analysed library the pool would silently shrink to
+            // "whatever happens to be analysed". Float the embedded, sonically-
+            // relevant tracks to the top but keep the rest (original order) after
+            // them, so the curation LLM + top-up still see the full pool.
+            let rankedIDs = Set(ranked.map(\.id))
+            let leftovers = tracks.filter { !rankedIDs.contains($0.id) }
+            return Array((ranked + leftovers).prefix(limit))
         }.value
     }
 

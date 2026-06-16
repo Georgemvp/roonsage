@@ -21,6 +21,9 @@ public struct GenerateView: View {
     @State private var revealTask: Task<Void, Never>? = nil
     @State private var analysisSummary: String? = nil
     @State private var droppedIntentNote: String? = nil
+    /// Identities of tracks used by recent generations, newest last — lightly
+    /// de-prioritised so repeating a prompt doesn't return the same playlist.
+    @State private var recentlyGenerated: [String] = []
     @State private var aiDescription: String? = nil
     @State private var playlistName = ""
     @State private var justSaved    = false
@@ -343,17 +346,33 @@ public struct GenerateView: View {
         """
         let user = "Request: \(request)\n\nAvailable tracks:\n\(list)"
 
+        // Soft curation signals: favour artists the user actually plays (empty on
+        // a thin client without history → no effect) and avoid repeating tracks
+        // from recent generations.
+        let preferred = Set((await client.topArtistsListened(limit: 30)).map { $0.artist.lowercased() })
+        let deprioritized = Set(recentlyGenerated)
+
         do {
             let response = try await LLMClient.shared.complete(system: system, user: user, config: config)
             let numbers  = parseNumbers(from: response, max: candidates.count)
-            guard !numbers.isEmpty else {
-                errorMessage = "Kon geen tracknummers uit het antwoord halen — probeer opnieuw."
-                return
-            }
-            let selected = numbers.compactMap { n -> TrackRecord? in
+            let llmPicks = numbers.compactMap { n -> TrackRecord? in
                 guard n >= 1, n <= candidates.count else { return nil }
                 return candidates[n - 1]
             }
+            // Deterministic post-pass: dedup, enforce max-2-per-artist + no
+            // back-to-back artists, and top up to the target from the ranked pool
+            // when the LLM under-delivers (invalid/too-few numbers) instead of
+            // erroring or returning a short, clustered list.
+            let selected = PlaylistAssembler.assemble(
+                llmPicks: llmPicks, pool: candidates, target: targetCount,
+                maxPerArtist: 2, preferredArtists: preferred, deprioritized: deprioritized
+            )
+            guard !selected.isEmpty else {
+                errorMessage = "Kon geen playlist samenstellen — probeer een bredere omschrijving."
+                return
+            }
+            // Remember these for anti-repetition next time (cap the trail).
+            recentlyGenerated = (recentlyGenerated + selected.map { PlaylistAssembler.identity($0) }).suffix(240).map { $0 }
             revealTracks(selected)
 
             // Stage 4 — AI title + description, then auto-save locally. No
