@@ -72,6 +72,8 @@ extension RoonClient {
             return []
         }
         let index = await activeIndex(db)
+        // Roon genres per track, for genre-affinity ranking of the neighbours.
+        let genres = (try? await db.genresByTrackID()) ?? [:]
         // id → analyzed track, so we can summarise the sonic profile (tags,
         // mood, energy, tempo) of the selection for the title prompt.
         let byId = Dictionary(lib.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -83,7 +85,7 @@ extension RoonClient {
             // Coherent, similarity-ordered candidates (nearest neighbours first),
             // NOT the endless radio's shuffled 250-pool.
             let pool = await Task.detached {
-                Self.buildPlaylistCandidates(seedIds: seedIds, lib: lib, index: index)
+                Self.buildPlaylistCandidates(seedIds: seedIds, lib: lib, index: index, genres: genres)
             }.value
             guard !pool.isEmpty else { continue }
 
@@ -157,17 +159,49 @@ extension RoonClient {
     /// from the endless radio's shuffled pool): the seed artist's own tracks first,
     /// then the nearest sonic neighbours in descending similarity — NOT a random
     /// sample of a wide net, so the result actually sounds like the seed artist.
+    ///
+    /// `genres` (Roon genre per track id) layers genre-affinity on top of CLAP
+    /// texture similarity: neighbours that SHARE a genre with the seed artist come
+    /// first (nearest within that group), then off-genre neighbours fill any
+    /// remaining slots. CLAP alone matches mood/texture and drifts across genres
+    /// (a mellow dance ballad near indie rock); the genre layer keeps it on-genre
+    /// without risking an under-filled playlist.
     nonisolated static func buildPlaylistCandidates(
-        seedIds: [String], lib: [DatabaseManager.SonicTrack], index: VectorIndex?
+        seedIds: [String], lib: [DatabaseManager.SonicTrack], index: VectorIndex?,
+        genres: [String: Set<String>] = [:]
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
         let own = lib.filter { seedSet.contains($0.id) }
         guard !own.isEmpty else { return [] }
-        let neighbours = SonicEngine.nearest(toSeeds: own, in: lib, limit: 120, index: index).map(\.track)
+        let neighbours = SonicEngine.nearest(toSeeds: own, in: lib, limit: 200, index: index).map(\.track)
+
+        var seedGenres = Set<String>()
+        for id in seedIds { if let g = genres[id] { seedGenres.formUnion(g) } }
+        // Drop "umbrella" genres that sit on a large share of the library (e.g.
+        // Roon's "Pop/Rock"): they match almost everything, so anchoring on them
+        // is no better than no filter. Only discriminating genres remain.
+        if !genres.isEmpty {
+            let total = max(1, genres.count)
+            var freq: [String: Int] = [:]
+            for gs in genres.values { for g in gs { freq[g, default: 0] += 1 } }
+            seedGenres = seedGenres.filter { Double(freq[$0] ?? 0) / Double(total) <= 0.35 }
+        }
+
+        let ordered: [DatabaseManager.SonicTrack]
+        if seedGenres.isEmpty {
+            ordered = own + neighbours          // no genre data → pure nearest
+        } else {
+            func sharesGenre(_ t: DatabaseManager.SonicTrack) -> Bool {
+                genres[t.id].map { !$0.isDisjoint(with: seedGenres) } ?? false
+            }
+            // Both halves keep their similarity order.
+            ordered = own + neighbours.filter(sharesGenre) + neighbours.filter { !sharesGenre($0) }
+        }
+
         var seen = Set<String>()
-        var ordered: [DatabaseManager.SonicTrack] = []
-        for t in own + neighbours where seen.insert(t.id).inserted { ordered.append(t) }
-        return ordered.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
+        var deduped: [DatabaseManager.SonicTrack] = []
+        for t in ordered where seen.insert(t.id).inserted { deduped.append(t) }
+        return deduped.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
     }
 
     // MARK: AI title + description

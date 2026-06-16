@@ -144,6 +144,19 @@ extension DatabaseManager {
         }
     }
 
+    /// Roon genres keyed by track id, for genre-affinity ranking (artist radios).
+    /// One pass over `track_genres`; cheap enough to load whole.
+    public func genresByTrackID() async throws -> [String: Set<String>] {
+        try await pool.read { db in
+            var map: [String: Set<String>] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT track_id, genre FROM track_genres") {
+                guard let id = row["track_id"] as String?, let g = row["genre"] as String? else { continue }
+                map[id, default: []].insert(g)
+            }
+            return map
+        }
+    }
+
     /// Returns a mapping of albumKey → [genre] for the given album keys.
     public func genresForAlbumKeys(_ keys: [String]) async throws ->[String: [String]] {
         guard !keys.isEmpty else { return [:] }
