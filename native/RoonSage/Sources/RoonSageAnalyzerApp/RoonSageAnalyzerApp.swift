@@ -38,6 +38,8 @@ struct RoonSageAnalyzerApp: App {
             // The share server auto-starts via RoonClient init.
             .task { await connectRoon() }
             .task { await lastfmSyncLoop() }
+            // The server keeps the AI artist radios fresh on Qobuz (every 3h).
+            .task { client.startArtistRadioRefresh() }
         }
         .windowResizability(.contentSize)
     }

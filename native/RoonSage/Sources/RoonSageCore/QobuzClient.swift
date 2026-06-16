@@ -44,6 +44,54 @@ public actor QobuzClient {
         return SaveResult(matched: ids.count, total: tracks.count, playlistID: playlistID)
     }
 
+    /// Find-or-create a playlist by exact name, replace its contents with
+    /// `tracks`, and (re)set its description. Used by the always-on AI
+    /// artist-radio sync so a refresh updates the SAME Qobuz playlist instead of
+    /// piling up duplicates. The exact `name` is the stable identity key — keep it
+    /// stable across refreshes (callers cache the AI title for this reason).
+    public func syncPlaylist(
+        name: String,
+        description: String,
+        tracks: [(title: String, artist: String?)],
+        email: String,
+        password: String
+    ) async -> SaveResult? {
+        guard let session = await login(email: email, password: password) else { return nil }
+
+        // 1. Find existing by exact (case-insensitive) name, else create fresh
+        //    with the AI description.
+        let playlistID: String
+        if let existing = await findPlaylist(named: name, session: session) {
+            playlistID = existing
+            // Name is the anchor and unchanged, but the description may have been
+            // regenerated — push it so the Qobuz card stays current.
+            await updatePlaylist(playlistID: playlistID, name: name, description: description, session: session)
+        } else if let created = await createPlaylist(name: name, description: description, session: session) {
+            playlistID = created
+        } else {
+            return nil
+        }
+
+        // 2. Clear the current contents. Qobuz `deleteTracks` takes positional
+        //    IDs and may shift positions per pass, so loop until empty (bounded).
+        for _ in 0..<4 {
+            let count = await playlistTrackCount(playlistID: playlistID, session: session)
+            if count == 0 { break }
+            await deletePlaylistTracks(playlistID: playlistID, count: count, session: session)
+        }
+
+        // 3. Resolve + add the fresh set.
+        var ids: [Int] = []
+        for t in tracks {
+            let query = [t.artist, t.title].compactMap { $0 }.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            if let id = await resolveTrackID(query: query, wantTitle: t.title, wantArtist: t.artist, session: session) {
+                ids.append(id)
+            }
+        }
+        if !ids.isEmpty { await addTracks(playlistID: playlistID, trackIDs: ids, session: session) }
+        return SaveResult(matched: ids.count, total: tracks.count, playlistID: playlistID)
+    }
+
     /// Verify credentials and return the account display name, or nil.
     public func verify(email: String, password: String) async -> String? {
         guard await login(email: email, password: password) != nil else { return nil }
@@ -124,18 +172,74 @@ public actor QobuzClient {
         return nil
     }
 
-    private func createPlaylist(name: String, session: Session) async -> String? {
+    private func createPlaylist(name: String, description: String = "Created by RoonSage", session: Session) async -> String? {
         guard let url = URL(string: "\(base)/playlist/create") else { return nil }
         var req = authedRequest(url, session: session)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.httpBody = form(["name": name, "description": "Created by RoonSage", "is_public": "false"])
+        req.httpBody = form(["name": name, "description": description, "is_public": "false"])
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         if let id = json["id"] as? Int { return String(id) }
         if let id = json["id"] as? String { return id }
         return nil
+    }
+
+    // MARK: - Playlist sync helpers (find / update / clear)
+
+    /// Look up one of the user's playlists by exact (case-insensitive) name.
+    /// `limit` is generous so an existing radio playlist isn't missed behind a
+    /// large library of other playlists (which would create a duplicate).
+    private func findPlaylist(named name: String, session: Session) async -> String? {
+        var comps = URLComponents(string: "\(base)/playlist/getUserPlaylists")!
+        comps.queryItems = [.init(name: "limit", value: "500"), .init(name: "offset", value: "0")]
+        guard let url = comps.url,
+              let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = (json["playlists"] as? [String: Any])?["items"] as? [[String: Any]] else { return nil }
+        let target = name.lowercased()
+        for p in items where (p["name"] as? String ?? "").lowercased() == target {
+            if let id = p["id"] as? Int { return String(id) }
+            if let id = p["id"] as? String { return id }
+        }
+        return nil
+    }
+
+    private func updatePlaylist(playlistID: String, name: String, description: String, session: Session) async {
+        guard let url = URL(string: "\(base)/playlist/update") else { return }
+        var req = authedRequest(url, session: session)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        req.httpBody = form(["playlist_id": playlistID, "name": name, "description": description])
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
+    private func playlistTrackCount(playlistID: String, session: Session) async -> Int {
+        var comps = URLComponents(string: "\(base)/playlist/get")!
+        comps.queryItems = [.init(name: "playlist_id", value: playlistID), .init(name: "extra", value: "tracks")]
+        guard let url = comps.url,
+              let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return 0 }
+        if let tracks = json["tracks"] as? [String: Any] {
+            if let total = tracks["total"] as? Int { return total }
+            if let items = tracks["items"] as? [[String: Any]] { return items.count }
+        }
+        if let total = json["tracks_count"] as? Int { return total }
+        return 0
+    }
+
+    /// Clear `count` tracks. Qobuz `deleteTracks` takes positional IDs within the
+    /// playlist (0-based slots), NOT catalog track IDs — pass every slot to empty
+    /// it. The caller loops in case positions shift between passes.
+    private func deletePlaylistTracks(playlistID: String, count: Int, session: Session) async {
+        guard count > 0, let url = URL(string: "\(base)/playlist/deleteTracks") else { return }
+        let positions = (0..<count).map(String.init).joined(separator: ",")
+        var req = authedRequest(url, session: session)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        req.httpBody = form(["playlist_id": playlistID, "playlist_track_ids": positions])
+        _ = try? await URLSession.shared.data(for: req)
     }
 
     private func addTracks(playlistID: String, trackIDs: [Int], session: Session) async {

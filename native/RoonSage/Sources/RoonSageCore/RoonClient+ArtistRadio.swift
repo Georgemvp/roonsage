@@ -1,0 +1,261 @@
+import Foundation
+
+// MARK: - AI Artist Radios → Qobuz
+//
+// Builds ~6 artist-seeded stations (the same seeds as `dailyRadios()`), caps
+// each to a 20–30 track playlist, gives every station an AI-generated Dutch
+// title + description, and mirrors them to Qobuz as STABLE playlists that a
+// refresh updates in place (find-or-create + replace) instead of duplicating.
+//
+// ## Stable identity (the one chosen key)
+// The Qobuz **exact playlist name** — `"RoonSage · <AI-title>"` — is the find
+// key. To keep that name stable across refreshes (the AI title is generated
+// from the *current* selection, which changes every 3h) we generate the title
+// ONCE per radio and cache it in UserDefaults keyed by the radio id
+// (`artist:<lower>`). Every later refresh reuses the cached title, so the name —
+// and therefore the playlist Qobuz resolves it to — stays put. The radio id is
+// the anchor; the cached title is its stable human face. We also persist the
+// resolved Qobuz playlist id for display/diagnostics.
+
+extension RoonClient {
+
+    // MARK: Tuning
+    nonisolated static let artistRadioCount       = 6
+    nonisolated static let artistRadioMinTracks   = 20
+    nonisolated static let artistRadioMaxTracks   = 30
+    /// Variety cap for non-seed artists (the seed artist is exempt so the
+    /// station still leans on-brand).
+    nonisolated static let artistRadioMaxPerArtist = 3
+    /// Re-sync cadence on the always-on server build.
+    nonisolated static let artistRadioRefreshInterval: UInt64 = 3 * 60 * 60 * 1_000_000_000
+
+    // MARK: Model
+
+    /// One AI artist radio prepared for (or already mirrored to) Qobuz.
+    public struct SonicRadioPlaylist: Sendable, Identifiable {
+        public let id: String          // == SonicRadio.id ("artist:<lower>") — the stable anchor
+        public let artist: String      // seed artist (display name)
+        public let title: String       // AI playlist title (cached, stable)
+        public let description: String // AI playlist description (1–2 sentences, NL)
+        public let imageKey: String?   // artwork from a representative track
+        public let tracks: [TrackRecord]
+        public var qobuzPlaylistID: String?   // set once mirrored / known
+
+        /// The stable Qobuz playlist name derived from the AI title.
+        public var qobuzName: String { RoonClient.qobuzPlaylistName(for: title) }
+    }
+
+    nonisolated static func qobuzPlaylistName(for title: String) -> String { "RoonSage · \(title)" }
+
+    // MARK: Build
+
+    /// Build the ~6 AI artist radios: same seeds as the daily stations, each
+    /// capped to a 20–30 track playlist with an AI title + description. Pure
+    /// read — does not touch Qobuz. Safe to call from either build (server or a
+    /// client app rendering the cards).
+    public func buildArtistRadioPlaylists() async -> [SonicRadioPlaylist] {
+        let radios = Array(await dailyRadios().prefix(Self.artistRadioCount))
+        guard !radios.isEmpty, let db = database else { return [] }
+        let lib = await sonicCache.tracks(from: db)
+        guard !lib.isEmpty else { return [] }
+        let index = await activeIndex(db)
+        let stamp = Self.dayStamp()
+
+        var out: [SonicRadioPlaylist] = []
+        for radio in radios {
+            let seedIds = radio.seedIds
+            let key = radio.id
+            // A distinct salt from the playback station so the Qobuz playlist
+            // isn't a carbon copy of what the live radio would queue.
+            let pool = await Task.detached {
+                Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
+                                          seed: "\(stamp)-\(key)-qobuz")
+            }.value
+            guard !pool.isEmpty else { continue }
+
+            let tracks = Self.capForPlaylist(
+                pool, seedArtist: radio.artist,
+                minTracks: Self.artistRadioMinTracks,
+                maxTracks: Self.artistRadioMaxTracks,
+                maxPerArtist: Self.artistRadioMaxPerArtist)
+            guard tracks.count >= 2 else { continue }
+
+            let meta = await aiTitleAndDescription(for: radio, sample: tracks)
+            out.append(SonicRadioPlaylist(
+                id: key, artist: radio.artist, title: meta.title, description: meta.description,
+                imageKey: radio.imageKey, tracks: tracks,
+                qobuzPlaylistID: UserDefaults.standard.string(forKey: Self.qobuzIDKey(key))))
+        }
+        return out
+    }
+
+    /// Cap the ordered candidate pool to a playlist of `minTracks…maxTracks`,
+    /// limiting non-seed artists to `maxPerArtist` for variety. If the cap leaves
+    /// us short of `minTracks`, top up from what was skipped.
+    nonisolated static func capForPlaylist(
+        _ pool: [TrackRecord], seedArtist: String,
+        minTracks: Int, maxTracks: Int, maxPerArtist: Int
+    ) -> [TrackRecord] {
+        let seedKey = seedArtist.lowercased()
+        var perArtist: [String: Int] = [:]
+        var picked: [TrackRecord] = []
+        var skipped: [TrackRecord] = []
+        for t in pool {
+            if picked.count >= maxTracks { break }
+            let a = (t.artist ?? "").lowercased()
+            if a == seedKey {
+                picked.append(t)
+            } else if perArtist[a, default: 0] < maxPerArtist {
+                perArtist[a, default: 0] += 1
+                picked.append(t)
+            } else {
+                skipped.append(t)
+            }
+        }
+        if picked.count < minTracks {
+            for t in skipped {
+                if picked.count >= min(minTracks, maxTracks) { break }
+                picked.append(t)
+            }
+        }
+        return picked
+    }
+
+    // MARK: AI title + description
+
+    private static func titleKey(_ id: String) -> String  { "artistradio.title.\(id)" }
+    private static func descKey(_ id: String) -> String   { "artistradio.desc.\(id)" }
+    static func qobuzIDKey(_ id: String) -> String        { "artistradio.qobuzid.\(id)" }
+
+    /// Cached AI title/description for a radio (generated once so the Qobuz name
+    /// stays stable), generating + persisting them on first use.
+    func aiTitleAndDescription(for radio: SonicRadio, sample: [TrackRecord]) async -> (title: String, description: String) {
+        let d = UserDefaults.standard
+        if let t = d.string(forKey: Self.titleKey(radio.id)), !t.isEmpty,
+           let desc = d.string(forKey: Self.descKey(radio.id)), !desc.isEmpty {
+            return (t, desc)
+        }
+        let meta = await Self.generateAIMeta(artist: radio.artist, sample: sample)
+        d.set(meta.title, forKey: Self.titleKey(radio.id))
+        d.set(meta.description, forKey: Self.descKey(radio.id))
+        return meta
+    }
+
+    /// Ask the configured LLM for a catchy Dutch title + short description, as
+    /// strict JSON. Falls back to a tidy default when the LLM isn't configured,
+    /// errors, or returns unparseable output.
+    nonisolated static func generateAIMeta(artist: String, sample: [TrackRecord]) async -> (title: String, description: String) {
+        let fallbackTitle = "Sonische reis met \(artist)"
+        let fallbackDesc  = "Een eindeloze radio rond \(artist) en muzikaal verwante artiesten uit je bibliotheek."
+
+        let examples = sample.prefix(8)
+            .map { "• \($0.title) — \($0.artist ?? "onbekend")" }
+            .joined(separator: "\n")
+        let others = Array(Set(sample.compactMap { $0.artist }
+            .filter { $0.lowercased() != artist.lowercased() }))
+            .prefix(6).joined(separator: ", ")
+
+        let system = """
+        Je bent een muziekredacteur die pakkende Nederlandse playlist-titels schrijft. \
+        Antwoord UITSLUITEND met strikt geldige JSON, exact in de vorm \
+        {"title": "...", "description": "..."}. Geen uitleg, geen markdown, geen codeblok.
+        """
+        let user = """
+        Bedenk een titel en korte beschrijving voor een radio-playlist die draait om de artiest "\(artist)".
+        Voorbeeldtracks uit de selectie:
+        \(examples)
+        Verwante artiesten: \(others.isEmpty ? "diverse" : others)
+
+        Eisen:
+        - "title": pakkend en sfeervol, in het Nederlands, MAX 40 tekens. Vermijd het saaie "Radio: \(artist)".
+        - "description": 1 à 2 zinnen, Nederlands, beschrijft de sfeer/stijl van de radio.
+        """
+
+        let config = LLMConfigStore.load()
+        guard let raw = try? await LLMClient.shared.complete(system: system, user: user, config: config) else {
+            return (fallbackTitle, fallbackDesc)
+        }
+        return parseTitleJSON(raw, fallbackTitle: fallbackTitle, fallbackDesc: fallbackDesc)
+    }
+
+    /// Defensively extract `{title, description}` from a (possibly fenced /
+    /// chatty) LLM reply, falling back per-field on anything missing.
+    nonisolated static func parseTitleJSON(_ raw: String, fallbackTitle: String, fallbackDesc: String) -> (title: String, description: String) {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let start = s.firstIndex(of: "{"), let end = s.lastIndex(of: "}"), start < end,
+              let data = String(s[start...end]).data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return (fallbackTitle, fallbackDesc) }
+
+        var title = (obj["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var desc  = (obj["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if title.isEmpty { title = fallbackTitle }
+        if title.count > 60 { title = String(title.prefix(60)).trimmingCharacters(in: .whitespaces) }
+        if desc.isEmpty { desc = fallbackDesc }
+        return (title, desc)
+    }
+
+    // MARK: Qobuz sync
+
+    /// Build the AI artist radios and mirror each to its stable Qobuz playlist
+    /// (find-or-create by name, replace contents, push AI description). Returns
+    /// the number of playlists successfully synced. Surfaces a toast (and returns
+    /// 0) when Qobuz isn't configured or there's nothing to build.
+    @discardableResult
+    public func syncArtistRadiosToQobuz() async -> Int {
+        guard let email = KeychainStore.load(key: "qobuz_email"), !email.isEmpty,
+              let pw = KeychainStore.load(key: "qobuz_password"), !pw.isEmpty else {
+            reportError("Qobuz is niet ingesteld — vul je inloggegevens in bij Instellingen.")
+            return 0
+        }
+        let playlists = await buildArtistRadioPlaylists()
+        guard !playlists.isEmpty else {
+            reportError("Geen artiesten-radio's om te synchroniseren — analyseer eerst meer muziek.")
+            return 0
+        }
+
+        var synced = 0
+        for pl in playlists {
+            let name = pl.qobuzName
+            let pairs = pl.tracks.map { (title: $0.title, artist: $0.artist) }
+            if let result = await QobuzClient.shared.syncPlaylist(
+                name: name, description: pl.description, tracks: pairs, email: email, password: pw) {
+                UserDefaults.standard.set(result.playlistID, forKey: Self.qobuzIDKey(pl.id))
+                synced += 1
+                Log.info("AI artiesten-radio gesynct naar Qobuz: '\(name)' (\(result.matched)/\(result.total) tracks)",
+                         category: .network)
+            } else {
+                Log.warning("AI artiesten-radio sync mislukt voor '\(name)' (Qobuz-login of -aanmaak faalde)",
+                            category: .network)
+            }
+        }
+        return synced
+    }
+
+    // MARK: Auto-refresh (server build)
+
+    /// Start the periodic Qobuz sync. No-op unless this is the always-on server
+    /// build (`.direct`); the client apps sync on demand via the UI button.
+    public func startArtistRadioRefresh() {
+        guard controlMode == .direct, artistRadioRefreshTask == nil else { return }
+        artistRadioRefreshTask = Task { [weak self] in
+            // Let the server connect to Roon + load its library on launch first.
+            try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+            while !Task.isCancelled {
+                guard let self else { return }
+                var didSync = false
+                if self.qobuzConfigured { didSync = await self.syncArtistRadiosToQobuz() > 0 }
+                // Re-sync on the full cadence once it's working; retry sooner while
+                // still warming up (library/features not ready yet, or no Qobuz).
+                let wait = didSync ? Self.artistRadioRefreshInterval : 15 * 60 * 1_000_000_000
+                try? await Task.sleep(nanoseconds: wait)
+            }
+        }
+        Log.info("AI artiesten-radio auto-sync gestart (elke 3 uur)", category: .roon)
+    }
+
+    public func stopArtistRadioRefresh() {
+        artistRadioRefreshTask?.cancel()
+        artistRadioRefreshTask = nil
+    }
+}

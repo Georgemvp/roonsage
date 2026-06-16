@@ -93,6 +93,10 @@ public final class RoonClient {
     var radioState: RadioRunState?
     /// Polls the queue depth and tops the station up when it runs low.
     var radioMonitorTask: Task<Void, Never>?
+    /// Periodic "AI artist radios → Qobuz" sync on the always-on server build
+    /// (see RoonClient+ArtistRadio). A stored property here because extensions
+    /// can't add stored state.
+    var artistRadioRefreshTask: Task<Void, Never>?
 
     // MARK: - Control mode (playback proxy)
     /// `.direct` = talk to Roon over the WebSocket (the server build).
