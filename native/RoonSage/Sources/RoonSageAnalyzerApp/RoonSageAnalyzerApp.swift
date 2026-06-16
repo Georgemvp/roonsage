@@ -37,8 +37,18 @@ struct RoonSageAnalyzerApp: App {
             // sync can run and the share server (5767) serves a populated DB.
             // The share server auto-starts via RoonClient init.
             .task { await connectRoon() }
+            .task { await lastfmSyncLoop() }
         }
         .windowResizability(.contentSize)
+    }
+
+    /// Haalt elke 15 minuten nieuwe Last.fm-scrobbles op (inclusief ARC-plays die
+    /// Roon naar Last.fm heeft doorgestuurd). Start direct bij app-launch.
+    private func lastfmSyncLoop() async {
+        while !Task.isCancelled {
+            await client.syncRecentLastfmScrobbles()
+            try? await Task.sleep(nanoseconds: 15 * 60 * 1_000_000_000)
+        }
     }
 
     /// The server must stay connected to Roon. Keep (re)trying from a not-

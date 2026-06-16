@@ -32,6 +32,63 @@ extension RoonClient {
         return await LastfmClient.shared.getTopAlbums(user: c.user, apiKey: c.apiKey, period: period, limit: limit)
     }
 
+    // MARK: - Incrementele Last.fm-sync (recente scrobbles)
+
+    /// Haalt scrobbles op die Last.fm heeft ontvangen sinds de laatste geslaagde
+    /// sync en voegt ze toe aan `listening_history` (duplicaten worden overgeslagen).
+    /// Bedoeld om periodiek op de server te draaien zodat ARC-plays automatisch
+    /// binnenkomen. Geeft het aantal nieuw toegevoegde scrobbles terug.
+    @discardableResult
+    public func syncRecentLastfmScrobbles() async -> Int {
+        guard !lastfmImportInProgress else { return 0 }
+        guard let c = lastfmReadCreds() else { return 0 }
+        guard let db = database else { return 0 }
+
+        // Ondergrens: meest recente Last.fm-row in de DB, minus 60 seconden overlap.
+        let fromTs: Int? = await Task.detached {
+            guard let iso = (try? await db.latestImportedListen(source: "lastfm")) ?? nil,
+                  let date = ISO8601DateFormatter().date(from: iso)
+            else { return nil }
+            return max(0, Int(date.timeIntervalSince1970) - 60)
+        }.value
+
+        Log.info("Last.fm incrementele sync (from=\(fromTs.map(String.init) ?? "begin"))", category: .scrobble)
+
+        var collected: [LastfmClient.Scrobble] = []
+        var page = 1
+        var totalPages = 1
+
+        while page <= totalPages && page <= 50 {   // max 50 pagina's = 10 000 scrobbles
+            guard let result = await LastfmClient.shared.getRecentTracks(
+                user: c.user, apiKey: c.apiKey, page: page, limit: 200, from: fromTs) else {
+                Log.warning("Last.fm sync netwerkfout op pagina \(page)", category: .scrobble)
+                break
+            }
+            totalPages = max(result.totalPages, 1)
+            collected.append(contentsOf: result.scrobbles)
+            page += 1
+        }
+
+        guard !collected.isEmpty else { return 0 }
+
+        let scrobbles = collected
+        let added = await Task.detached { () -> Int in
+            let iso = ISO8601DateFormatter()
+            let entries = scrobbles.map { s in
+                DatabaseManager.ImportedListen(
+                    title: s.track, artist: s.artist, album: s.album,
+                    playedAt: iso.string(from: Date(timeIntervalSince1970: Double(s.uts))))
+            }
+            try? await db.appendImportedListens(entries, source: "lastfm", zoneName: "Last.fm")
+            return (try? await db.importedListenCount(source: "lastfm")) ?? 0
+        }.value
+
+        if added > 0 {
+            Log.info("Last.fm sync: \(collected.count) opgehaald, totaal \(added) in DB", category: .scrobble)
+        }
+        return collected.count
+    }
+
     // MARK: - Historie-import (volledige backfill in listening_history)
 
     /// Haalt de volledige Last.fm-scrobblehistorie op en schrijft die als

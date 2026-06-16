@@ -69,6 +69,34 @@ extension DatabaseManager {
         }
     }
 
+    /// Meest recente `played_at` van listens van de opgegeven bron.
+    /// Wordt als ondergrens (from-timestamp) gebruikt bij incrementele Last.fm-sync.
+    public func latestImportedListen(source: String) async throws -> String? {
+        try await pool.read { db in
+            try String.fetchOne(db, sql: """
+                SELECT MAX(played_at) FROM listening_history WHERE source = ?
+            """, arguments: [source])
+        }
+    }
+
+    /// Voegt nieuwe listens toe zonder bestaande te verwijderen. Duplicaten
+    /// (zelfde source + played_at + artist) worden overgeslagen.
+    public func appendImportedListens(_ entries: [ImportedListen], source: String, zoneName: String) async throws {
+        try await pool.write { db in
+            for e in entries {
+                try db.execute(sql: """
+                    INSERT INTO listening_history (title, artist, album, zone_id, zone_name, played_at, source)
+                    SELECT ?, ?, ?, NULL, ?, ?, ?
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM listening_history
+                        WHERE source = ? AND played_at = ? AND artist = ?
+                    )
+                """, arguments: [e.title, e.artist, e.album, zoneName, e.playedAt, source,
+                                 source, e.playedAt, e.artist])
+            }
+        }
+    }
+
     public func importedListenCount(source: String) async throws ->Int {
         try await pool.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM listening_history WHERE source = ?", arguments: [source]) ?? 0
@@ -295,12 +323,14 @@ extension DatabaseManager {
             """, arguments: ["\(yearStr)-01-01", "\(nextStr)-01-01"])
             let days = dayRows.compactMap { $0["day"] as String? }
             var maxStreak = 0, currentStreak = days.isEmpty ? 0 : 1
-            for i in 1..<days.count {
-                if Self.isNextDay(days[i - 1], days[i]) {
-                    currentStreak += 1
-                } else {
-                    maxStreak = max(maxStreak, currentStreak)
-                    currentStreak = 1
+            if days.count > 1 {
+                for i in 1..<days.count {
+                    if Self.isNextDay(days[i - 1], days[i]) {
+                        currentStreak += 1
+                    } else {
+                        maxStreak = max(maxStreak, currentStreak)
+                        currentStreak = 1
+                    }
                 }
             }
             let streak = max(maxStreak, currentStreak)

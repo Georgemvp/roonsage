@@ -153,12 +153,13 @@ public actor LastfmClient {
     /// zodat we alleen de historie vóór de lokale logging hoeven op te halen.
     /// Het "now playing"-item (zonder datum) wordt overgeslagen.
     public func getRecentTracks(user: String, apiKey: String, page: Int,
-                                limit: Int = 200, to: Int? = nil) async -> RecentPage? {
+                                limit: Int = 200, to: Int? = nil, from: Int? = nil) async -> RecentPage? {
         var params = [
             "method": "user.getrecenttracks", "user": user, "api_key": apiKey,
             "format": "json", "limit": String(limit), "page": String(page),
         ]
         if let to { params["to"] = String(to) }
+        if let from { params["from"] = String(from) }
         guard let json = await get(params),
               let rt = json["recenttracks"] as? [String: Any] else { return nil }
 
