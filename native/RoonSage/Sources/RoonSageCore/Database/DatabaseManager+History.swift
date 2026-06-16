@@ -20,12 +20,44 @@ extension DatabaseManager {
         }
     }
 
-    public struct ListenEntry: Sendable {
+    public struct ListenEntry: Sendable, Codable {
         public var title: String
         public var artist: String?
         public var album: String?
         public var zoneName: String?
         public var playedAt: String
+    }
+
+    /// Top-artist play count, in a Codable shape (the tuple `topArtistsListened`
+    /// returns doesn't round-trip as JSON for the client proxy).
+    public struct ArtistPlayCount: Sendable, Codable {
+        public var artist: String
+        public var count: Int
+        public init(artist: String, count: Int) { self.artist = artist; self.count = count }
+    }
+
+    /// Everything the taste-profile view needs in one payload, so a thin client
+    /// can pull it from the server with a single request instead of reading its
+    /// own (empty) `listening_history`.
+    public struct ListenSnapshot: Sendable, Codable {
+        public var total: Int
+        public var topArtists: [ArtistPlayCount]
+        public var recent: [ListenEntry]
+        public init(total: Int, topArtists: [ArtistPlayCount], recent: [ListenEntry]) {
+            self.total = total; self.topArtists = topArtists; self.recent = recent
+        }
+    }
+
+    /// Builds the combined taste-profile snapshot from `listening_history`.
+    public func listenSnapshot(topLimit: Int = 50, recentLimit: Int = 100) async throws -> ListenSnapshot {
+        async let total = totalListens()
+        async let top = topArtistsListened(limit: topLimit)
+        async let recent = recentListens(limit: recentLimit)
+        return try await ListenSnapshot(
+            total: total,
+            topArtists: top.map { ArtistPlayCount(artist: $0.artist, count: $0.count) },
+            recent: recent
+        )
     }
 
     public func recentListens(limit: Int = 50) async throws ->[ListenEntry] {

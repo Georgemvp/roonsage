@@ -5,7 +5,7 @@ import RoonSageCore
 public struct TasteProfileView: View {
     public init() {}
     @Environment(RoonClient.self) private var client
-    @State private var topArtists: [(artist: String, count: Int)] = []
+    @State private var topArtists: [DatabaseManager.ArtistPlayCount] = []
     @State private var recentListens: [DatabaseManager.ListenEntry] = []
     @State private var totalListens: Int = 0
     @State private var isLoaded = false
@@ -230,9 +230,16 @@ public struct TasteProfileView: View {
 
     private func load() {
         Task {
-            totalListens   = await client.totalListens()
-            topArtists     = await client.topArtistsListened(limit: 50)
-            recentListens  = await client.recentListens(limit: 100)
+            // One combined fetch — in thin-client mode this pulls the taste
+            // profile live from the server (the local DB has no history).
+            guard let snap = await client.tasteProfile(topLimit: 50, recentLimit: 100) else {
+                // Transient failure: keep last-known data, don't flash the empty
+                // state. The view reloads on the next zone change / poll.
+                return
+            }
+            totalListens   = snap.total
+            topArtists     = snap.topArtists
+            recentListens  = snap.recent
             isLoaded = true
         }
     }

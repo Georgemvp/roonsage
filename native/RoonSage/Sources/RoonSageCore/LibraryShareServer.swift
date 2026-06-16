@@ -7,6 +7,7 @@ import Network
 /// endpoint so client apps control Roon through this server (only this process
 /// registers a Roon extension).
 ///   GET  /library  → exportLibraryJSON()
+///   GET  /history  → ListenSnapshot (taste-profile totals/top-artists/recent)
 ///   GET  /settings → SyncableSettings
 ///   GET  /playback?zone=… → PlaybackSnapshot (live zones/now-playing/queue)
 ///   POST /command  → RemoteCommand (play/pause/volume/curate/…)
@@ -183,6 +184,13 @@ public final class LibraryShareServer: @unchecked Sendable {
                 return ("200 OK", body, "application/json")
             }
             return ("500 Internal Server Error", Data("export failed".utf8), "text/plain")
+        }
+        if path.hasPrefix("/history") {
+            if let snap = try? await database.listenSnapshot(),
+               let body = try? JSONEncoder().encode(snap) {
+                return ("200 OK", body, "application/json")
+            }
+            return ("500 Internal Server Error", Data("history failed".utf8), "text/plain")
         }
         if path.hasPrefix("/settings") {
             if let body = try? JSONEncoder().encode(SyncableSettings.exportCurrent()) {

@@ -36,6 +36,27 @@ extension RoonClient {
         return (try? await db.totalListens()) ?? 0
     }
 
+    /// Combined taste-profile data (total plays + top artists + recent listens).
+    /// In thin-client mode the local `client-library.db` has no listening history
+    /// (only `tracks`/`track_genres` are synced), so pull it live from the server.
+    /// Returns nil on a transient fetch failure so callers keep their last-known
+    /// data instead of flashing the empty state.
+    public func tasteProfile(topLimit: Int = 50, recentLimit: Int = 100) async -> DatabaseManager.ListenSnapshot? {
+        if isRemote {
+            guard let base = remoteBaseURL, let url = URL(string: "\(base)/history") else { return nil }
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 8
+            authorizeShareRequest(&req)
+            guard let (data, resp) = try? await URLSession.shared.data(for: req),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let snap = try? JSONDecoder().decode(DatabaseManager.ListenSnapshot.self, from: data)
+            else { return nil }
+            return snap
+        }
+        guard let db = database else { return nil }
+        return try? await db.listenSnapshot(topLimit: topLimit, recentLimit: recentLimit)
+    }
+
     public func imageURL(forKey key: String, size: Int = 200) -> URL? {
         guard let host = coreHost else { return nil }
         return URL(string: "http://\(host):\(corePort)/api/image/\(key)?width=\(size)&height=\(size)&scale=fit")
