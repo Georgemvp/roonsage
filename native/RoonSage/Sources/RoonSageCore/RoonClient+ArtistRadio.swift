@@ -70,6 +70,9 @@ extension RoonClient {
         }
         let index = await activeIndex(db)
         let stamp = Self.dayStamp()
+        // id → analyzed track, so we can summarise the sonic profile (tags,
+        // mood, energy, tempo) of the selection for the title prompt.
+        let byId = Dictionary(lib.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
         var out: [SonicRadioPlaylist] = []
         for radio in radios {
@@ -90,7 +93,8 @@ extension RoonClient {
                 maxPerArtist: Self.artistRadioMaxPerArtist)
             guard tracks.count >= 2 else { continue }
 
-            let meta = await aiTitleAndDescription(for: radio, sample: tracks)
+            let profile = Self.sonicProfileSummary(tracks.compactMap { byId[$0.id] })
+            let meta = await aiTitleAndDescription(for: radio, sample: tracks, profile: profile)
             out.append(SonicRadioPlaylist(
                 id: key, artist: radio.artist, title: meta.title, description: meta.description,
                 imageKey: radio.imageKey, tracks: tracks,
@@ -134,29 +138,69 @@ extension RoonClient {
 
     // MARK: AI title + description
 
-    private static func titleKey(_ id: String) -> String  { "artistradio.title.\(id)" }
-    private static func descKey(_ id: String) -> String   { "artistradio.desc.\(id)" }
+    // `v2`: the prompt now steers titles toward the sonic profile (genre / mood
+    // / energy) instead of abstract wordplay. Bumping the key regenerates the
+    // earlier vague titles on next build.
+    private static func titleKey(_ id: String) -> String  { "artistradio.title.v2.\(id)" }
+    private static func descKey(_ id: String) -> String   { "artistradio.desc.v2.\(id)" }
     static func qobuzIDKey(_ id: String) -> String        { "artistradio.qobuzid.\(id)" }
 
     /// Cached AI title/description for a radio (generated once so the Qobuz name
-    /// stays stable), generating + persisting them on first use.
-    func aiTitleAndDescription(for radio: SonicRadio, sample: [TrackRecord]) async -> (title: String, description: String) {
+    /// stays stable), generating + persisting them on first use. `profile` is the
+    /// sonic-profile summary used to steer the title.
+    func aiTitleAndDescription(for radio: SonicRadio, sample: [TrackRecord], profile: String) async -> (title: String, description: String) {
         let d = UserDefaults.standard
         if let t = d.string(forKey: Self.titleKey(radio.id)), !t.isEmpty,
            let desc = d.string(forKey: Self.descKey(radio.id)), !desc.isEmpty {
             return (t, desc)
         }
-        let meta = await Self.generateAIMeta(artist: radio.artist, sample: sample)
+        let meta = await Self.generateAIMeta(artist: radio.artist, sample: sample, profile: profile)
         d.set(meta.title, forKey: Self.titleKey(radio.id))
         d.set(meta.description, forKey: Self.descKey(radio.id))
         return meta
     }
 
-    /// Ask the configured LLM for a catchy Dutch title + short description, as
-    /// strict JSON. Falls back to a tidy default when the LLM isn't configured,
-    /// errors, or returns unparseable output.
-    nonisolated static func generateAIMeta(artist: String, sample: [TrackRecord]) async -> (title: String, description: String) {
-        let fallbackTitle = "Sonische reis met \(artist)"
+    /// A compact Dutch summary of the selection's sonic character — dominant
+    /// tags/genres, top moods, energy band and tempo — fed to the title prompt so
+    /// titles describe *what kind of music* it is, not just a clever phrase.
+    nonisolated static func sonicProfileSummary(_ tracks: [DatabaseManager.SonicTrack]) -> String {
+        guard !tracks.isEmpty else { return "" }
+        var parts: [String] = []
+
+        // Dominant tags / genres.
+        var tagCounts: [String: Int] = [:]
+        for t in tracks { for tag in t.tags { tagCounts[tag.lowercased(), default: 0] += 1 } }
+        let topTags = tagCounts.sorted { $0.value > $1.value }.prefix(4).map(\.key)
+        if !topTags.isEmpty { parts.append("genres/tags: \(topTags.joined(separator: ", "))") }
+
+        // Top moods (averaged cosine across the selection).
+        var moodSum: [String: Float] = [:]
+        for t in tracks { for (m, v) in t.moods { moodSum[m, default: 0] += v } }
+        let topMoods = moodSum.sorted { $0.value > $1.value }.prefix(2).map(\.key)
+        if !topMoods.isEmpty { parts.append("sfeer: \(topMoods.joined(separator: ", "))") }
+
+        // Energy band.
+        let energies = tracks.compactMap(\.energy)
+        if !energies.isEmpty {
+            let avg = energies.reduce(0, +) / Double(energies.count)
+            let band = avg < 0.4 ? "rustig" : (avg < 0.7 ? "gemiddeld" : "energiek")
+            parts.append("energie: \(band)")
+        }
+
+        // Tempo.
+        let bpms = tracks.compactMap(\.bpm).filter { $0 > 0 }
+        if !bpms.isEmpty {
+            let avg = Int((bpms.reduce(0, +) / Double(bpms.count)).rounded())
+            parts.append("±\(avg) BPM")
+        }
+        return parts.joined(separator: "; ")
+    }
+
+    /// Ask the configured LLM for a Dutch title that names the sonic profile +
+    /// a short description, as strict JSON. Falls back to a tidy default when the
+    /// LLM isn't configured, errors, or returns unparseable output.
+    nonisolated static func generateAIMeta(artist: String, sample: [TrackRecord], profile: String) async -> (title: String, description: String) {
+        let fallbackTitle = "Radio rond \(artist)"
         let fallbackDesc  = "Een eindeloze radio rond \(artist) en muzikaal verwante artiesten uit je bibliotheek."
 
         let examples = sample.prefix(8)
@@ -167,19 +211,25 @@ extension RoonClient {
             .prefix(6).joined(separator: ", ")
 
         let system = """
-        Je bent een muziekredacteur die pakkende Nederlandse playlist-titels schrijft. \
+        Je bent een muziekredacteur die pakkende, INFORMATIEVE Nederlandse playlist-titels schrijft. \
         Antwoord UITSLUITEND met strikt geldige JSON, exact in de vorm \
         {"title": "...", "description": "..."}. Geen uitleg, geen markdown, geen codeblok.
         """
         let user = """
-        Bedenk een titel en korte beschrijving voor een radio-playlist die draait om de artiest "\(artist)".
-        Voorbeeldtracks uit de selectie:
+        Maak een titel en korte beschrijving voor een radio-playlist rond de artiest "\(artist)".
+
+        Sonisch profiel van de selectie: \(profile.isEmpty ? "onbekend" : profile)
+        Voorbeeldtracks:
         \(examples)
         Verwante artiesten: \(others.isEmpty ? "diverse" : others)
 
-        Eisen:
-        - "title": pakkend en sfeervol, in het Nederlands, MAX 40 tekens. Vermijd het saaie "Radio: \(artist)".
-        - "description": 1 à 2 zinnen, Nederlands, beschrijft de sfeer/stijl van de radio.
+        Eisen voor "title":
+        - Maak METEEN duidelijk wat voor muziek/sfeer het is: noem het genre/stijl en/of de sfeer of energie (bv. "Melodieuze indie-rock", "Dromerige akoestische avond", "Energieke house").
+        - Mag de artiest noemen, maar dat hoeft niet. Vermijd vage woordgrappen die het genre niet verraden.
+        - Nederlands, pakkend, MAX 45 tekens. Niet het saaie "Radio: \(artist)".
+
+        Eisen voor "description":
+        - 1 à 2 zinnen, Nederlands, beschrijf de stijl/sfeer en noem een paar kenmerkende artiesten of het genre.
         """
 
         let config = LLMConfigStore.load()
