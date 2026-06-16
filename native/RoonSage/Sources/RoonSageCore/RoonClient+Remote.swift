@@ -178,7 +178,9 @@ extension RoonClient {
         if let z = selectedZoneID { comps?.queryItems = [URLQueryItem(name: "zone", value: z)] }
         guard let url = comps?.url else { return }
         var req = URLRequest(url: url)
-        req.timeoutInterval = 5
+        // Tolerant: a heavy generate (Ollama on the server) or a long curate
+        // queue-load can stall /playback well past a few seconds.
+        req.timeoutInterval = 12
         authorizeShareRequest(&req)
         let serverHost = URL(string: base)?.host
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
@@ -187,7 +189,7 @@ extension RoonClient {
             // Transient blip — keep last-known zones and only fall back to the
             // connect screen after several misses in a row.
             remotePollFailures += 1
-            if remotePollFailures >= 3 { connectionState = .disconnected }
+            if remotePollFailures >= 5 { connectionState = .disconnected }
             return
         }
 
@@ -210,7 +212,7 @@ extension RoonClient {
             // Server reachable but its Roon link is momentarily down — tolerate a
             // few before showing "connecting" so the UI doesn't flicker.
             remotePollFailures += 1
-            if remotePollFailures >= 3 {
+            if remotePollFailures >= 5 {
                 connectionState = .connecting(host: serverHost ?? "server")
             }
         }

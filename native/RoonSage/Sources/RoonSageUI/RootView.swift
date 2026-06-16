@@ -10,15 +10,43 @@ public struct ContentView: View {
 
     public var body: some View {
         Group {
-            if client.connectionState.isConnected {
+            // Stay on the main interface through transient poll blips once the
+            // session is live — only a cold start or a deliberate disconnect
+            // drops to the connect screen. Prevents a heavy generate stalling
+            // /playback from tearing down views and losing in-flight state.
+            if client.connectionState.isConnected || client.hasLiveSession {
                 RootView()
+                    .overlay(alignment: .top) { ReconnectingBanner() }
             } else {
                 ConnectView()
             }
         }
         .animation(Motion.standard, value: client.connectionState.isConnected)
+        .animation(Motion.standard, value: client.hasLiveSession)
         .overlay(alignment: .bottom) { ActionErrorToast() }
         .roonSageAppearance()
+    }
+}
+
+// MARK: - Reconnecting banner
+
+/// Thin top banner shown while the session is live but a poll blip has us
+/// momentarily off `.connected`. Keeps the user informed without dropping the
+/// whole UI to the connect screen (and discarding in-flight state).
+@MainActor
+struct ReconnectingBanner: View {
+    @Environment(RoonClient.self) private var client
+
+    var body: some View {
+        if !client.connectionState.isConnected {
+            Label(client.connectionState.label, systemImage: "arrow.clockwise")
+                .font(.caption.weight(.medium))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 }
 

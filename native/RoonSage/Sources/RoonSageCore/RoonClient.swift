@@ -55,7 +55,18 @@ public final class RoonClient {
 
     // MARK: - Observable state
 
-    public internal(set) var connectionState: ConnectionState = .disconnected
+    /// True once the session has reached `.connected` and the user hasn't
+    /// deliberately disconnected. The UI gate (`ContentView`) keeps the main
+    /// interface up while this is set, so a transient poll blip — e.g. a heavy
+    /// generate (Ollama on the server) or a long curate queue-load stalling
+    /// `/playback` — doesn't tear down live views and discard in-flight state
+    /// like a freshly generated playlist. Cleared only on an intentional
+    /// disconnect; the background poll loop keeps retrying meanwhile.
+    public internal(set) var hasLiveSession = false
+
+    public internal(set) var connectionState: ConnectionState = .disconnected {
+        didSet { if connectionState.isConnected { hasLiveSession = true } }
+    }
     public internal(set) var zones: [Zone] = []
 
     /// Last.fm historie-import voortgang (zie `RoonClient+Lastfm`).
@@ -317,9 +328,13 @@ public final class RoonClient {
 
     public func disconnect() async {
         intentionalDisconnect = true
+        hasLiveSession = false
         reconnectTask?.cancel()
         reconnectTask = nil
         syncTask?.cancel()
+        // In server mode the poll loop would otherwise revive the connection on
+        // its next tick — stop it so a deliberate disconnect actually sticks.
+        if isRemote { stopServerMode(); remoteBaseURL = nil }
         await transport.disconnect()
         transportService = nil
         browseService = nil
@@ -331,6 +346,7 @@ public final class RoonClient {
 
     public func clearAndReauthorize() async {
         intentionalDisconnect = true
+        hasLiveSession = false
         reconnectTask?.cancel()
         reconnectTask = nil
         RoonClientAuth.clearCredentials()
