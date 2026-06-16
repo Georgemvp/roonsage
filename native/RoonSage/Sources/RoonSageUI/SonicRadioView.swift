@@ -16,6 +16,7 @@ public struct SonicRadioView: View {
     @State private var qobuzLoaded = false
     @State private var isSyncing = false
     @State private var syncMessage: String?
+    @State private var detailPlaylist: RoonClient.SonicRadioPlaylist?
 
     private let columns = [GridItem(.adaptive(minimum: 150), spacing: Spacing.md)]
 
@@ -55,6 +56,7 @@ public struct SonicRadioView: View {
         }
         .task { await load(force: false) }
         .task { await loadQobuz(force: false) }
+        .sheet(item: $detailPlaylist) { playlistDetailSheet($0) }
     }
 
     // MARK: Sections
@@ -162,12 +164,15 @@ public struct SonicRadioView: View {
     private var qobuzSection: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             VStack(alignment: .leading, spacing: Spacing.xs) {
-                Label {
-                    Text("AI-radio's op Qobuz").font(.headline)
-                } icon: {
-                    Image(systemName: "square.stack.3d.up.fill").foregroundStyle(Color.roonGold)
+                HStack(spacing: Spacing.sm) {
+                    Label {
+                        Text("AI-radio's op Qobuz").font(.headline)
+                    } icon: {
+                        Image(systemName: "square.stack.3d.up.fill").foregroundStyle(Color.roonGold)
+                    }
+                    if isLoadingQobuz { ProgressView().controlSize(.small) }
                 }
-                Text("Zes artiesten-radio's met een AI-titel + beschrijving, als Qobuz-playlists die continu worden ververst.")
+                Text("Zes artiesten-radio's met een AI-titel + beschrijving, als Qobuz-playlists die continu worden ververst. Tik een kaart aan voor de tracklijst.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -225,33 +230,95 @@ public struct SonicRadioView: View {
     }
 
     private func qobuzCard(_ radio: RoonClient.SonicRadioPlaylist) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            ZStack(alignment: .topTrailing) {
-                AlbumArtView(imageKey: radio.imageKey, size: 150, cornerRadius: Radius.lg)
-                if radio.qobuzPlaylistID != nil {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.title3)
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, Color.roonGold)
-                        .shadow(radius: 3)
-                        .padding(Spacing.sm)
+        Button {
+            Haptics.tap()
+            detailPlaylist = radio
+        } label: {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                ZStack(alignment: .topTrailing) {
+                    AlbumArtView(imageKey: radio.imageKey, size: 150, cornerRadius: Radius.lg)
+                    if radio.qobuzPlaylistID != nil {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.title3)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color.roonGold)
+                            .shadow(radius: 3)
+                            .padding(Spacing.sm)
+                    }
+                }
+                Text(radio.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                Text(radio.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                Text("\(radio.artist) · \(radio.tracks.count) tracks · \(radio.qobuzPlaylistID != nil ? "op Qobuz" : "nog niet gesynct")")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Spacing.sm)
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.lg))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Detail sheet: the playlist's description, status, a "play now" action, and
+    /// the full numbered tracklist. (Card tracks carry no artwork, so the list is
+    /// number + title + artist — clean and scannable.)
+    private func playlistDetailSheet(_ pl: RoonClient.SonicRadioPlaylist) -> some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text(pl.description)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text("\(pl.artist) · \(pl.tracks.count) tracks · \(pl.qobuzPlaylistID != nil ? "op Qobuz" : "nog niet gesynct")")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    if client.selectedZone != nil {
+                        Button {
+                            guard let z = client.selectedZone?.id else { return }
+                            Haptics.tap()
+                            Task { await client.curateTracks(pl.tracks, zoneID: z) }
+                            detailPlaylist = nil
+                        } label: {
+                            Label("Speel nu", systemImage: "play.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color.roonGold)
+                    }
+                }
+                Section("Tracks") {
+                    ForEach(Array(pl.tracks.enumerated()), id: \.offset) { i, t in
+                        HStack(spacing: Spacing.sm) {
+                            Text("\(i + 1).")
+                                .foregroundStyle(.tertiary)
+                                .frame(width: 28, alignment: .trailing)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(t.title).lineLimit(1)
+                                if let a = t.artist {
+                                    Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                        }
+                        .font(.callout)
+                    }
                 }
             }
-            Text(radio.title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(2)
-            Text(radio.description)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
-            Text("\(radio.artist) · \(radio.tracks.count) tracks · \(radio.qobuzPlaylistID != nil ? "op Qobuz" : "nog niet gesynct")")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+            .navigationTitle(pl.title)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                Button("Klaar") { detailPlaylist = nil }
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Spacing.sm)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
+        .frame(minWidth: 440, minHeight: 540)
     }
 
     private func loadQobuz(force: Bool) async {
