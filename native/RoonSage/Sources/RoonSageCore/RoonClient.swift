@@ -105,6 +105,9 @@ public final class RoonClient {
     /// (see RoonClient+ArtistRadio). A stored property here because extensions
     /// can't add stored state.
     var artistRadioRefreshTask: Task<Void, Never>?
+    /// The last successfully synced set of AI artist radios. Served to client apps
+    /// via /artist-radios so iOS/macOS always show the same playlists as Qobuz.
+    var cachedArtistRadios: [SonicRadioPlaylist] = []
 
     // MARK: - Control mode (playback proxy)
     /// `.direct` = talk to Roon over the WebSocket (the server build).

@@ -41,7 +41,7 @@ extension RoonClient {
     // MARK: Model
 
     /// One AI artist radio prepared for (or already mirrored to) Qobuz.
-    public struct SonicRadioPlaylist: Sendable, Identifiable {
+    public struct SonicRadioPlaylist: Codable, Sendable, Identifiable {
         public let id: String          // == SonicRadio.id ("artist:<lower>") — the stable anchor
         public let artist: String      // seed artist (display name)
         public let title: String       // AI playlist title (cached, stable)
@@ -69,6 +69,11 @@ extension RoonClient {
     /// Pool per playlist: `artistRadioPoolLimit` (= 500) k-NN neighbours, daily-
     /// shuffled so the 30 selected tracks rotate every day within that wide pool.
     public func buildArtistRadioPlaylists() async -> [SonicRadioPlaylist] {
+        // Client apps (iOS / macOS thin client) fetch the server's already-synced
+        // set so they always show the same playlists as Qobuz.
+        if isRemote, let base = remoteBaseURL {
+            return await fetchArtistRadiosFromServer(base: base)
+        }
         guard let db = database else {
             Log.warning("Artiesten-radio's: geen database beschikbaar — overgeslagen", category: .roon)
             return []
@@ -510,7 +515,32 @@ extension RoonClient {
                             category: .network)
             }
         }
+        // Cache the synced set so /artist-radios can serve it to client apps.
+        if synced > 0 { cachedArtistRadios = playlists }
         return synced
+    }
+
+    /// JSON-encode the cached radio set for the share server's /artist-radios endpoint.
+    public func artistRadiosData() -> Data {
+        (try? JSONEncoder().encode(cachedArtistRadios)) ?? Data("[]".utf8)
+    }
+
+    // MARK: Remote fetch (client apps)
+
+    /// Fetch the server's current AI radio set over HTTP so client apps always
+    /// show the same playlists as Qobuz (instead of building independently).
+    private func fetchArtistRadiosFromServer(base: String) async -> [SonicRadioPlaylist] {
+        guard let url = URL(string: "\(base)/artist-radios") else { return [] }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 15
+        authorizeShareRequest(&req)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let radios = try? JSONDecoder().decode([SonicRadioPlaylist].self, from: data) else {
+            Log.warning("Artiesten-radio's ophalen van server mislukt", category: .network)
+            return []
+        }
+        return radios
     }
 
     // MARK: Auto-refresh (server build)

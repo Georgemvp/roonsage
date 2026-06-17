@@ -14,6 +14,7 @@ import Network
 ///   POST /command  → RemoteCommand (play/pause/volume/curate/…)
 ///   POST /track-feedback → TrackFeedback (like/dislike/clear a track)
 ///   GET  /feedback → [FeedbackEntry] (all like/dislike verdicts)
+///   GET  /artist-radios → [SonicRadioPlaylist] (last synced AI radios → Qobuz)
 ///   GET  /health   → {"tracks": n}
 public final class LibraryShareServer: @unchecked Sendable {
     public static let defaultPort: UInt16 = 5767   // 5766 is the analyzer
@@ -237,6 +238,10 @@ public final class LibraryShareServer: @unchecked Sendable {
                 return ("200 OK", body, "application/json")
             }
             return ("500 Internal Server Error", Data("export failed".utf8), "text/plain")
+        }
+        if path.hasPrefix("/artist-radios") {
+            let data = await RoonClient.shared.artistRadiosData()
+            return ("200 OK", data, "application/json")
         }
         if path.hasPrefix("/health") {
             let n = (try? await database.trackCount()) ?? 0
