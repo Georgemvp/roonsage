@@ -12,6 +12,11 @@ public struct TasteProfileView: View {
     @State private var analysis: DatabaseManager.TasteAnalysis?
     @State private var isLoaded = false
     @State private var selectedTab: Tab = .analyse
+    /// Throttle for the (now analyzer-tag-backed, heavier) profile fetch. `zones`
+    /// mutates every ~1.5s while playing — without this, every seek tick fired a
+    /// full /taste-analysis + /history reload, piling up in the server's reader
+    /// pool. onAppear and the refresh button bypass the throttle (force).
+    @State private var lastLoad: Date = .distantPast
 
     // Last.fm live top-lijsten
     @State private var lfPeriod: LastfmClient.Period = .overall
@@ -46,10 +51,10 @@ public struct TasteProfileView: View {
         }
         .navigationTitle("Smaakprofiel")
         .toolbar {
-            Button(action: load) { Image(systemName: "arrow.clockwise") }
+            Button { load(force: true) } label: { Image(systemName: "arrow.clockwise") }
                 .help("Ververs")
         }
-        .onAppear { load() }
+        .onAppear { load(force: true) }
         .onChange(of: client.zones) { _, _ in load() }
     }
 
@@ -346,7 +351,10 @@ public struct TasteProfileView: View {
 
     // MARK: - Helpers
 
-    private func load() {
+    private func load(force: Bool = false) {
+        // Throttle automatic (zones-driven) reloads; appear + refresh force through.
+        if !force, Date().timeIntervalSince(lastLoad) < 20 { return }
+        lastLoad = Date()
         Task {
             // One combined fetch — in thin-client mode this pulls the taste
             // profile live from the server (the local DB has no history).

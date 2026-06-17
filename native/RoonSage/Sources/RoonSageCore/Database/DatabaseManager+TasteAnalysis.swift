@@ -58,14 +58,23 @@ extension DatabaseManager {
                 TasteAnalysis.Count(label: "\($0["dec"] as Int? ?? 0)s", count: $0["cnt"] as Int? ?? 0)
             }
 
-            // Fine-grained style/mood tags from the analyzer: join listens → tracks
-            // (by the same content key) → their analyzed features, then unpack the
-            // JSON tag array. Far more varied than the broad Roon genres above.
+            // Fine-grained style/mood tags from the analyzer — far more varied than
+            // the broad Roon genres above. Pre-aggregate plays per distinct track
+            // FIRST (collapses 42k+ listens to a few thousand rows), THEN do the
+            // expensive json_each over that small set. Running json_each over every
+            // raw listen instead made this query CPU-heavy enough to pile up in the
+            // reader pool under concurrent polls (multi-second → timeouts).
             let tagRows = try Row.fetchAll(db, sql: """
-                SELECT tag.value AS label, COUNT(*) AS cnt
-                FROM listening_history lh
-                JOIN tracks t ON LOWER(t.title) = LOWER(lh.title) AND LOWER(t.artist) = LOWER(lh.artist)
-                JOIN track_audio_features taf ON taf.match_key = t.match_key
+                WITH played AS (
+                    SELECT t.match_key AS mk, COUNT(*) AS plays
+                    FROM listening_history lh
+                    JOIN tracks t ON LOWER(t.title) = LOWER(lh.title) AND LOWER(t.artist) = LOWER(lh.artist)
+                    WHERE t.match_key IS NOT NULL
+                    GROUP BY t.match_key
+                )
+                SELECT tag.value AS label, SUM(p.plays) AS cnt
+                FROM played p
+                JOIN track_audio_features taf ON taf.match_key = p.mk
                 JOIN json_each(taf.tags) tag
                 GROUP BY tag.value ORDER BY cnt DESC LIMIT 12
             """)
