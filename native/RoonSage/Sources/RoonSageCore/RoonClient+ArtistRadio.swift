@@ -93,11 +93,10 @@ extension RoonClient {
             topArtistKeys = ((try? await db.topArtistsListened(limit: 100)) ?? []).map { $0.artist.lowercased() }
         }
 
-        // Group analyzed tracks by lowercased artist, filter by minimum track count.
-        var byArtist: [String: [DatabaseManager.SonicTrack]] = [:]
-        for t in lib {
-            guard let a = t.artist, !a.isEmpty else { continue }
-            byArtist[a.lowercased(), default: []].append(t)
+        // Group analyzed tracks by lowercased artist.
+        let byArtist = lib.reduce(into: [String: [DatabaseManager.SonicTrack]]()) { dict, t in
+            guard let a = t.artist, !a.isEmpty else { return }
+            dict[a.lowercased(), default: []].append(t)
         }
 
         // Build the 6 seed artist keys: 2 top-played + 4 max-spread discovery.
