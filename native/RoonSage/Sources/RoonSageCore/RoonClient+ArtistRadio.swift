@@ -79,15 +79,18 @@ extension RoonClient {
         // id → analyzed track, so we can summarise the sonic profile (tags,
         // mood, energy, tempo) of the selection for the title prompt.
         let byId = Dictionary(lib.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        // Seed the neighbour shuffle on the current date so playlists rotate daily.
+        let stamp = Self.dayStamp()
 
         var out: [SonicRadioPlaylist] = []
         for radio in radios {
             let seedIds = radio.seedIds
             let key = radio.id
-            // Coherent, similarity-ordered candidates (nearest neighbours first),
-            // NOT the endless radio's shuffled 250-pool.
+            // Coherent candidates: seed artist's own tracks lead, then k-NN
+            // neighbours day-shuffled so the selected 20–30 rotate every day.
             let pool = await Task.detached {
-                Self.buildPlaylistCandidates(seedIds: seedIds, lib: lib, index: index, genres: genres, disliked: disliked)
+                Self.buildPlaylistCandidates(seedIds: seedIds, lib: lib, index: index,
+                                             genres: genres, disliked: disliked, daySeed: "\(stamp)|\(key)")
             }.value
             guard !pool.isEmpty else { continue }
 
@@ -157,20 +160,15 @@ extension RoonClient {
         return s.trimmingCharacters(in: .whitespaces)
     }
 
-    /// Similarity-ordered candidate list for a coherent artist PLAYLIST (distinct
-    /// from the endless radio's shuffled pool): the seed artist's own tracks first,
-    /// then the nearest sonic neighbours in descending similarity — NOT a random
-    /// sample of a wide net, so the result actually sounds like the seed artist.
-    ///
-    /// `genres` (Roon genre per track id) layers genre-affinity on top of CLAP
-    /// texture similarity: neighbours that SHARE a genre with the seed artist come
-    /// first (nearest within that group), then off-genre neighbours fill any
-    /// remaining slots. CLAP alone matches mood/texture and drifts across genres
-    /// (a mellow dance ballad near indie rock); the genre layer keeps it on-genre
-    /// without risking an under-filled playlist.
+    /// Candidate list for a coherent artist PLAYLIST. The seed artist's own
+    /// tracks lead; then the k-NN sonic neighbours follow (genre-layered: in-genre
+    /// first, off-genre after). A `daySeed` shuffles the neighbours portion so the
+    /// 20–30 tracks picked by `capForPlaylist` rotate daily while staying within
+    /// the same ~200-track sonically-close pool. Pass `""` for a stable (test)
+    /// order.
     nonisolated static func buildPlaylistCandidates(
         seedIds: [String], lib: [DatabaseManager.SonicTrack], index: VectorIndex?,
-        genres: [String: Set<String>] = [:], disliked: Set<String> = []
+        genres: [String: Set<String>] = [:], disliked: Set<String> = [], daySeed: String = ""
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
         // Don't seed on a disliked track.
@@ -178,9 +176,15 @@ extension RoonClient {
         guard !own.isEmpty else { return [] }
         // Disliked tracks aren't banned — down-sample them (much less often). The
         // embedding k-NN ranks against the whole index, so they can surface here.
-        let neighbours = applyFeedbackWeighting(
+        var neighbours = applyFeedbackWeighting(
             SonicEngine.nearest(toSeeds: own, in: lib, limit: 200, index: index).map(\.track),
-            disliked: disliked, salt: "playlist", matchKey: { $0.matchKey })
+            disliked: disliked, salt: daySeed.isEmpty ? "playlist" : daySeed,
+            matchKey: { $0.matchKey })
+
+        // Daily variety: shuffle the neighbour pool so different (but equally
+        // sonically close) tracks surface each day. The seed artist's own tracks
+        // are kept at the front and are unaffected.
+        if !daySeed.isEmpty { neighbours = dailyShuffled(neighbours, seed: daySeed) }
 
         var seedGenres = Set<String>()
         for id in seedIds { if let g = genres[id] { seedGenres.formUnion(g) } }
@@ -201,7 +205,8 @@ extension RoonClient {
             func sharesGenre(_ t: DatabaseManager.SonicTrack) -> Bool {
                 genres[t.id].map { !$0.isDisjoint(with: seedGenres) } ?? false
             }
-            // Both halves keep their similarity order.
+            // In-genre neighbours lead; off-genre fill remaining slots. Both
+            // halves are already day-shuffled so they rotate within their tier.
             ordered = own + neighbours.filter(sharesGenre) + neighbours.filter { !sharesGenre($0) }
         }
 
