@@ -191,6 +191,8 @@ private struct NowPlayingHero: View {
 
             featureRow
 
+            feedbackRow
+
             scrubber
 
             transport
@@ -206,6 +208,47 @@ private struct NowPlayingHero: View {
         .onChange(of: zone.nowPlaying?.title) { _, _ in refreshFeatures() }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             if zone.state == .playing, !isSeeking { displayPosition += 1 }
+        }
+        .task { await client.ensureFeedbackLoaded() }
+    }
+
+    // MARK: Like / dislike — teaches radios, fingerprint & recommendations
+
+    @ViewBuilder
+    private var feedbackRow: some View {
+        if let np = zone.nowPlaying {
+            let current = client.feedbackFor(title: np.title, artist: np.artist, album: np.album)
+            HStack(spacing: Spacing.xl) {
+                Button {
+                    Haptics.tap()
+                    Task { await client.setFeedback(.like, title: np.title, artist: np.artist, album: np.album, zoneID: zone.id) }
+                } label: {
+                    Image(systemName: current == .like ? "hand.thumbsup.fill" : "hand.thumbsup")
+                        .font(.title3)
+                        .foregroundStyle(current == .like ? Color.roonGold : .secondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Vind ik leuk")
+                .accessibilityAddTraits(current == .like ? .isSelected : [])
+                .help("Meer zoals dit in je radio's en aanbevelingen")
+
+                Button {
+                    Haptics.tap()
+                    Task { await client.setFeedback(.dislike, title: np.title, artist: np.artist, album: np.album, zoneID: zone.id) }
+                } label: {
+                    Image(systemName: current == .dislike ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                        .font(.title3)
+                        .foregroundStyle(current == .dislike ? Color.roonDanger : .secondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Vind ik niet leuk — sla over en leer ervan")
+                .accessibilityAddTraits(current == .dislike ? .isSelected : [])
+                .help("Sla over en sluit uit van toekomstige radio's en aanbevelingen")
+            }
         }
     }
 

@@ -251,9 +251,21 @@ public struct RecommendView: View {
         let system = """
         You recommend albums for a personal music library. From the numbered album list, \
         choose exactly \(count) albums that best match the request. Favor a variety of artists. \
+        Lean toward artists the listener has thumbed up and avoid those they have thumbed down \
+        (unless the request explicitly asks for them). \
         Return ONLY the album numbers separated by commas — no explanation. Example: 3, 11, 2, 8
         """
-        let user = "Request: \(request)\n\nAvailable albums:\n\(list)"
+        // Explicit like/dislike signal so recommendations reflect taste, not just
+        // the request text.
+        let hints = await client.feedbackArtistHints()
+        var taste = ""
+        if !hints.liked.isEmpty {
+            taste += "\n\nArtists the listener likes (favor similar): \(hints.liked.prefix(20).joined(separator: ", "))"
+        }
+        if !hints.disliked.isEmpty {
+            taste += "\nArtists the listener dislikes (avoid): \(hints.disliked.prefix(20).joined(separator: ", "))"
+        }
+        let user = "Request: \(request)\(taste)\n\nAvailable albums:\n\(list)"
 
         do {
             let resp = try await LLMClient.shared.complete(system: system, user: user, config: client.effectiveLLMConfig())

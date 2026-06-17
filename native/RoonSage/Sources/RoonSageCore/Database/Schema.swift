@@ -231,6 +231,22 @@ enum Schema {
             try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN map_y REAL")
         }
 
+        // Explicit like/dislike feedback on tracks, so radios, the Sonic
+        // Fingerprint and album recommendations learn the user's taste beyond
+        // implicit play counts. Keyed by content `match_key` (TrackIdentity) so a
+        // thumb survives library resyncs and joins the analyzed library — one row
+        // per track, latest verdict wins (re-tap toggles/clears it). Lives on the
+        // server-of-record; thin clients pull it over /feedback.
+        migrator.registerMigration("v16_track_feedback") { db in
+            try db.create(table: "track_feedback", ifNotExists: true) { t in
+                t.primaryKey("match_key", .text)
+                t.column("title",      .text)
+                t.column("artist",     .text)
+                t.column("kind",       .text).notNull()   // "like" | "dislike"
+                t.column("updated_at", .text).notNull()
+            }
+        }
+
         try migrator.migrate(db)
     }
 }

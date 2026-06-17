@@ -68,4 +68,17 @@ final class SonicRadioTests: XCTestCase {
         let out = RoonClient.buildRadioCandidates(seedIds: ["missing"], lib: lib, index: nil, seed: "day")
         XCTAssertTrue(out.isEmpty)
     }
+
+    func testBuildCandidatesExcludesDislikedNeighbours() {
+        let own = track("own", artist: "X", bpm: 120, camelot: "8A", energy: 0.5, tags: ["a"])
+        let good = track("good", artist: "Y", bpm: 121, camelot: "8A", energy: 0.5, tags: ["a"])
+        let bad = track("bad", artist: "Z", bpm: 119, camelot: "8B", energy: 0.5, tags: ["a"])
+        let lib = [own, good, bad]
+
+        // matchKey == id in the test helper, so disliking "bad" drops it.
+        let out = RoonClient.buildRadioCandidates(
+            seedIds: ["own"], lib: lib, index: nil, seed: "day", disliked: ["bad"])
+        XCTAssertFalse(out.contains { $0.id == "bad" }, "disliked neighbour is excluded")
+        XCTAssertTrue(out.contains { $0.id == "good" }, "other neighbours remain")
+    }
 }

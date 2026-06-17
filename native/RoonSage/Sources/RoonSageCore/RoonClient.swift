@@ -85,6 +85,14 @@ public final class RoonClient {
     /// Zone the queue is currently subscribed to (idempotent re-subscribe).
     var queueZoneID: String?
 
+    // MARK: - Track feedback (like / dislike — see RoonClient+Feedback)
+    /// In-memory verdicts keyed by content match_key, mirrored from the
+    /// server-of-record. Observed by Now Playing so a thumb lights up instantly;
+    /// read by the radio / fingerprint / recommendation builders so they learn.
+    public internal(set) var feedbackByMatchKey: [String: TrackFeedbackKind] = [:]
+    /// Whether `feedbackByMatchKey` has been populated this session.
+    var feedbackLoaded = false
+
     // MARK: - Sonic Radio (endless, artist-seeded — see RoonClient+Radio)
     /// The currently-running endless radio, if any. Drives the "playing" banner.
     public internal(set) var activeRadio: RadioStatus?

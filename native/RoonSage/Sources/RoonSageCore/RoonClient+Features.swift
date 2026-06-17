@@ -249,8 +249,9 @@ extension RoonClient {
     /// Heavy scan runs off the main actor.
     public func similarTracks(toMatchKey matchKey: String, limit: Int = 30) async -> [SonicEngine.Scored] {
         guard let db = database, !matchKey.isEmpty else { return [] }
-        let lib = await sonicCache.tracks(from: db)
+        let lib = await radioLibrary()
         let index = await activeIndex(db)
+        let disliked = dislikedMatchKeys
         // Prefer the seed as it appears in the analyzed library (it carries a
         // real track id, so the engine's id-based embedding k-NN can fire).
         // Fall back to a seed synthesized straight from track_audio_features
@@ -274,8 +275,12 @@ extension RoonClient {
                 // No embedding (or A/B off): rule-based scoring on bpm/key/energy/tags.
                 raw = SonicEngine.similar(to: seed, in: lib, limit: limit + 1, index: nil)
             }
-            // Never let the seed itself lead its own station.
-            return Array(raw.filter { $0.track.matchKey != seed.matchKey }.prefix(limit))
+            // Never let the seed itself lead its own station; honour dislikes
+            // (the embedding k-NN ranks against the whole index, not `lib`).
+            return Array(raw
+                .filter { $0.track.matchKey != seed.matchKey }
+                .filter { disliked.isEmpty || !disliked.contains($0.track.matchKey) }
+                .prefix(limit))
         }.value
     }
 
@@ -423,18 +428,28 @@ extension RoonClient {
     /// library recommendations closest to that taste. Computed off-main.
     public func sonicFingerprint(seedLimit: Int = 40, recommendCount: Int = 60) async -> Fingerprint? {
         guard let db = database else { return nil }
-        let lib = await sonicCache.tracks(from: db)
+        // radioLibrary() drops thumbed-down tracks, so they shape neither the DNA
+        // profile nor its recommendations.
+        let lib = await radioLibrary()
         let index = await activeIndex(db)
+        let disliked = dislikedMatchKeys
+        let liked = likedMatchKeys
         do {
             return try await Task.detached {
                 guard !lib.isEmpty else { return nil }
                 let top = try await db.topTracks(limit: seedLimit)
                 let byKey = Dictionary(lib.map { ($0.matchKey, $0) }, uniquingKeysWith: { a, _ in a })
-                let seeds = top.compactMap { $0.matchKey.flatMap { byKey[$0] } }
+                var seeds = top.compactMap { $0.matchKey.flatMap { byKey[$0] } }
+                // Thumbed-up tracks are explicit "this is me" signals — fold them
+                // into the seed set so the DNA leans toward them (dedup by id).
+                let likedSeeds = liked.compactMap { byKey[$0] }
+                let seenIds = Set(seeds.map(\.id))
+                seeds.append(contentsOf: likedSeeds.filter { !seenIds.contains($0.id) })
                 // Fall back to the loudest/most-typical slice if there's no play history yet.
                 let effectiveSeeds = seeds.isEmpty ? Array(lib.prefix(min(40, lib.count))) : seeds
                 let profile = SonicEngine.profile(of: effectiveSeeds)
                 let recs = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount, index: index)
+                    .filter { disliked.isEmpty || !disliked.contains($0.track.matchKey) }
                 return Fingerprint(profile: profile, recommendations: recs, seedCount: effectiveSeeds.count)
             }.value
         } catch {

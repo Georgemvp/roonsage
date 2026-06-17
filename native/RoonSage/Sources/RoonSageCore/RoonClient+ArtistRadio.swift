@@ -61,11 +61,13 @@ extension RoonClient {
             Log.warning("Artiesten-radio's: geen database beschikbaar — overgeslagen", category: .roon)
             return []
         }
-        let lib = await sonicCache.tracks(from: db)
+        // radioLibrary() drops thumbed-down tracks so they never reach a playlist.
+        let lib = await radioLibrary()
         guard !lib.isEmpty else {
             Log.warning("Artiesten-radio's: 0 geanalyseerde tracks (audio-features). Sync eerst de features naar dit apparaat.", category: .roon)
             return []
         }
+        let disliked = dislikedMatchKeys
         let radios = Array(await dailyRadios().prefix(Self.artistRadioCount))
         guard !radios.isEmpty else {
             Log.warning("Artiesten-radio's: geen seed-artiesten — lege luistergeschiedenis of te weinig geanalyseerde tracks per artiest.", category: .roon)
@@ -85,7 +87,7 @@ extension RoonClient {
             // Coherent, similarity-ordered candidates (nearest neighbours first),
             // NOT the endless radio's shuffled 250-pool.
             let pool = await Task.detached {
-                Self.buildPlaylistCandidates(seedIds: seedIds, lib: lib, index: index, genres: genres)
+                Self.buildPlaylistCandidates(seedIds: seedIds, lib: lib, index: index, genres: genres, disliked: disliked)
             }.value
             guard !pool.isEmpty else { continue }
 
@@ -168,12 +170,16 @@ extension RoonClient {
     /// without risking an under-filled playlist.
     nonisolated static func buildPlaylistCandidates(
         seedIds: [String], lib: [DatabaseManager.SonicTrack], index: VectorIndex?,
-        genres: [String: Set<String>] = [:]
+        genres: [String: Set<String>] = [:], disliked: Set<String> = []
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
         let own = lib.filter { seedSet.contains($0.id) }
         guard !own.isEmpty else { return [] }
-        let neighbours = SonicEngine.nearest(toSeeds: own, in: lib, limit: 200, index: index).map(\.track)
+        // The embedding k-NN ranks against the whole index (not `lib`), so filter
+        // disliked tracks out of the neighbours explicitly.
+        let neighbours = SonicEngine.nearest(toSeeds: own, in: lib, limit: 200, index: index)
+            .map(\.track)
+            .filter { disliked.isEmpty || !disliked.contains($0.matchKey) }
 
         var seedGenres = Set<String>()
         for id in seedIds { if let g = genres[id] { seedGenres.formUnion(g) } }

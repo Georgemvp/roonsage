@@ -63,18 +63,24 @@ extension RoonClient {
     /// enough analyzed tracks qualify; order rotates daily.
     public func dailyRadios() async -> [SonicRadio] {
         guard let db = database else { return [] }
-        let lib = await sonicCache.tracks(from: db)
+        // radioLibrary() drops thumbed-down tracks, so a disliked track is never a
+        // station seed and never colours a station's sound.
+        let lib = await radioLibrary()
         guard !lib.isEmpty else { return [] }
         // Top artists drive the seeds. The thin client's local `listening_history`
         // is empty (history lives on the server), so pull it from /history in
         // remote mode — otherwise radios never appear on the client apps.
-        let top: [(artist: String, count: Int)]
+        var top: [(artist: String, count: Int)]
         if isRemote {
             let snap = await tasteProfile(topLimit: 100, recentLimit: 1)
             top = (snap?.topArtists ?? []).map { (artist: $0.artist, count: $0.count) }
         } else {
             top = (try? await db.topArtistsListened(limit: 100)) ?? []
         }
+        // Thumbed-up artists earn a station too, even without heavy play history —
+        // a like is an explicit "more like this". Merge them in ahead of the
+        // play-count tail so they qualify as seeds (dedup, case-insensitive).
+        top = mergeLikedArtists(into: top, lib: lib)
         guard !top.isEmpty else { return [] }
 
         // Group analyzed tracks by lowercased artist for O(1) lookup.
@@ -107,14 +113,15 @@ extension RoonClient {
             reportError("Radio mislukt — geen bibliotheek beschikbaar.")
             return
         }
-        let lib = await sonicCache.tracks(from: db)
+        let lib = await radioLibrary()
         let index = await activeIndex(db)
         let seedIds = radio.seedIds
         let key = radio.id
         let stamp = Self.dayStamp()
+        let disliked = dislikedMatchKeys
         let pool = await Task.detached {
             Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
-                                      seed: "\(stamp)-\(key)-0")
+                                      seed: "\(stamp)-\(key)-0", disliked: disliked)
         }.value
         guard !pool.isEmpty else {
             reportError("Radio kon geen vergelijkbare tracks vinden — analyseer eerst meer muziek.")
@@ -185,15 +192,16 @@ extension RoonClient {
     /// station keeps finding new (yet on-theme) tracks instead of looping.
     private func regenerateRadioPool(_ state: inout RadioRunState) async {
         guard let db = database else { return }
-        let lib = await sonicCache.tracks(from: db)
+        let lib = await radioLibrary()
         let index = await activeIndex(db)
         let seedIds = state.seedIds
         let key = state.artistKey
         let nextGen = state.generation + 1
         let stamp = Self.dayStamp()
+        let disliked = dislikedMatchKeys
         let pool = await Task.detached {
             Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
-                                      seed: "\(stamp)-\(key)-\(nextGen)")
+                                      seed: "\(stamp)-\(key)-\(nextGen)", disliked: disliked)
         }.value
         state.pool = pool
         state.cursor = 0
@@ -208,14 +216,19 @@ extension RoonClient {
     /// the artist's own tracks so the station opens on-brand.
     nonisolated static func buildRadioCandidates(
         seedIds: [String], lib: [DatabaseManager.SonicTrack],
-        index: VectorIndex?, seed: String
+        index: VectorIndex?, seed: String, disliked: Set<String> = []
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
         let own = lib.filter { seedSet.contains($0.id) }
         guard !own.isEmpty else { return [] }
 
+        // The embedding k-NN ranks against the whole index (not `lib`), so
+        // disliked tracks can resurface here even though `lib` excludes them —
+        // filter them out of the neighbours explicitly.
         let neighbours = SonicEngine.nearest(
-            toSeeds: own, in: lib, limit: radioPoolSize, index: index).map(\.track)
+            toSeeds: own, in: lib, limit: radioPoolSize, index: index)
+            .map(\.track)
+            .filter { disliked.isEmpty || !disliked.contains($0.matchKey) }
 
         var seenIds = Set<String>()
         var combined: [DatabaseManager.SonicTrack] = []

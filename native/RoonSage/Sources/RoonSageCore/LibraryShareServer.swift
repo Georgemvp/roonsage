@@ -11,6 +11,8 @@ import Network
 ///   GET  /settings → SyncableSettings
 ///   GET  /playback?zone=… → PlaybackSnapshot (live zones/now-playing/queue)
 ///   POST /command  → RemoteCommand (play/pause/volume/curate/…)
+///   POST /track-feedback → TrackFeedback (like/dislike/clear a track)
+///   GET  /feedback → [FeedbackEntry] (all like/dislike verdicts)
 ///   GET  /health   → {"tracks": n}
 public final class LibraryShareServer: @unchecked Sendable {
     public static let defaultPort: UInt16 = 5767   // 5766 is the analyzer
@@ -173,6 +175,28 @@ public final class LibraryShareServer: @unchecked Sendable {
             let ok = await RoonClient.shared.runRemoteCommandData(body)
             return ok ? ("200 OK", Data("{\"ok\":true}".utf8), "application/json")
                       : ("400 Bad Request", Data("bad command".utf8), "text/plain")
+        }
+        if method == "POST", path.hasPrefix("/track-feedback") {
+            guard let fb = try? JSONDecoder().decode(TrackFeedback.self, from: body), !fb.matchKey.isEmpty else {
+                return ("400 Bad Request", Data("bad feedback".utf8), "text/plain")
+            }
+            do {
+                if let kind = fb.kind, !kind.isEmpty {
+                    try await database.setFeedback(matchKey: fb.matchKey, title: fb.title, artist: fb.artist, kind: kind)
+                } else {
+                    try await database.clearFeedback(matchKey: fb.matchKey)
+                }
+                return ("200 OK", Data("{\"ok\":true}".utf8), "application/json")
+            } catch {
+                return ("500 Internal Server Error", Data("feedback failed".utf8), "text/plain")
+            }
+        }
+        if path.hasPrefix("/feedback") {
+            if let entries = try? await database.allFeedback(),
+               let body = try? JSONEncoder().encode(entries) {
+                return ("200 OK", body, "application/json")
+            }
+            return ("500 Internal Server Error", Data("feedback failed".utf8), "text/plain")
         }
         if path.hasPrefix("/playback") {
             let zone = Self.queryValue("zone", in: target)
