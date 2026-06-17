@@ -173,13 +173,14 @@ extension RoonClient {
         genres: [String: Set<String>] = [:], disliked: Set<String> = []
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
-        let own = lib.filter { seedSet.contains($0.id) }
+        // Don't seed on a disliked track.
+        let own = lib.filter { seedSet.contains($0.id) && !disliked.contains($0.matchKey) }
         guard !own.isEmpty else { return [] }
-        // The embedding k-NN ranks against the whole index (not `lib`), so filter
-        // disliked tracks out of the neighbours explicitly.
-        let neighbours = SonicEngine.nearest(toSeeds: own, in: lib, limit: 200, index: index)
-            .map(\.track)
-            .filter { disliked.isEmpty || !disliked.contains($0.matchKey) }
+        // Disliked tracks aren't banned — down-sample them (much less often). The
+        // embedding k-NN ranks against the whole index, so they can surface here.
+        let neighbours = applyFeedbackWeighting(
+            SonicEngine.nearest(toSeeds: own, in: lib, limit: 200, index: index).map(\.track),
+            disliked: disliked, salt: "playlist", matchKey: { $0.matchKey })
 
         var seedGenres = Set<String>()
         for id in seedIds { if let g = genres[id] { seedGenres.formUnion(g) } }

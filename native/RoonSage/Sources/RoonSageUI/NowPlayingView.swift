@@ -221,7 +221,7 @@ private struct NowPlayingHero: View {
             HStack(spacing: Spacing.xl) {
                 Button {
                     Haptics.tap()
-                    Task { await client.setFeedback(.like, title: np.title, artist: np.artist, album: np.album, zoneID: zone.id) }
+                    Task { await client.setFeedback(.like, title: np.title, artist: np.artist, album: np.album) }
                 } label: {
                     Image(systemName: current == .like ? "hand.thumbsup.fill" : "hand.thumbsup")
                         .font(.title3)
@@ -236,7 +236,7 @@ private struct NowPlayingHero: View {
 
                 Button {
                     Haptics.tap()
-                    Task { await client.setFeedback(.dislike, title: np.title, artist: np.artist, album: np.album, zoneID: zone.id) }
+                    Task { await client.setFeedback(.dislike, title: np.title, artist: np.artist, album: np.album) }
                 } label: {
                     Image(systemName: current == .dislike ? "hand.thumbsdown.fill" : "hand.thumbsdown")
                         .font(.title3)

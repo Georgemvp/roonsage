@@ -69,16 +69,32 @@ final class SonicRadioTests: XCTestCase {
         XCTAssertTrue(out.isEmpty)
     }
 
-    func testBuildCandidatesExcludesDislikedNeighbours() {
+    func testDislikedNeverSeedsAStation() {
+        // A disliked track must not define the station centroid…
         let own = track("own", artist: "X", bpm: 120, camelot: "8A", energy: 0.5, tags: ["a"])
         let good = track("good", artist: "Y", bpm: 121, camelot: "8A", energy: 0.5, tags: ["a"])
-        let bad = track("bad", artist: "Z", bpm: 119, camelot: "8B", energy: 0.5, tags: ["a"])
-        let lib = [own, good, bad]
-
-        // matchKey == id in the test helper, so disliking "bad" drops it.
+        let lib = [own, good]
         let out = RoonClient.buildRadioCandidates(
-            seedIds: ["own"], lib: lib, index: nil, seed: "day", disliked: ["bad"])
-        XCTAssertFalse(out.contains { $0.id == "bad" }, "disliked neighbour is excluded")
-        XCTAssertTrue(out.contains { $0.id == "good" }, "other neighbours remain")
+            seedIds: ["own", "good"], lib: lib, index: nil, seed: "day", disliked: ["own"])
+        // …so "own" (disliked) is gone but "good" still seeds.
+        XCTAssertFalse(out.contains { $0.id == "own" }, "disliked track is not a seed")
+        XCTAssertTrue(out.contains { $0.id == "good" })
+    }
+
+    func testDislikedIsDownsampledNotBanned() {
+        // Soft weighting keeps roughly 1/keepEvery of disliked tracks (per salt),
+        // never zero across all salts — they're heard less, not banned.
+        let mk = "bad"
+        let survives = (0..<40).contains { RoonClient.keepDisliked(mk, salt: "s\($0)", keepEvery: 4) }
+        XCTAssertTrue(survives, "a disliked track resurfaces under some daily salt")
+        // And it's suppressed for most salts (much-less-often, not always).
+        let kept = (0..<40).filter { RoonClient.keepDisliked(mk, salt: "s\($0)", keepEvery: 4) }.count
+        XCTAssertLessThan(kept, 40, "disliked tracks are suppressed most of the time")
+
+        // applyFeedbackWeighting keeps every non-disliked item untouched.
+        let items = ["a", "b", "bad", "c"]
+        let out = RoonClient.applyFeedbackWeighting(
+            items, disliked: ["bad"], salt: "day", keepEvery: 4, matchKey: { $0 })
+        XCTAssertEqual(out.filter { $0 != "bad" }, ["a", "b", "c"], "neutral items always pass")
     }
 }

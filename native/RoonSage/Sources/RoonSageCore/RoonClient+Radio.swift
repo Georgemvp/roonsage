@@ -63,25 +63,18 @@ extension RoonClient {
     /// enough analyzed tracks qualify; order rotates daily.
     public func dailyRadios() async -> [SonicRadio] {
         guard let db = database else { return [] }
-        // radioLibrary() drops thumbed-down tracks, so a disliked track is never a
-        // station seed and never colours a station's sound.
         let lib = await radioLibrary()
         guard !lib.isEmpty else { return [] }
         // Top artists drive the seeds. The thin client's local `listening_history`
         // is empty (history lives on the server), so pull it from /history in
         // remote mode — otherwise radios never appear on the client apps.
-        var top: [(artist: String, count: Int)]
+        let top: [(artist: String, count: Int)]
         if isRemote {
             let snap = await tasteProfile(topLimit: 100, recentLimit: 1)
             top = (snap?.topArtists ?? []).map { (artist: $0.artist, count: $0.count) }
         } else {
             top = (try? await db.topArtistsListened(limit: 100)) ?? []
         }
-        // Thumbed-up artists earn a station too, even without heavy play history —
-        // a like is an explicit "more like this". Merge them in ahead of the
-        // play-count tail so they qualify as seeds (dedup, case-insensitive).
-        top = mergeLikedArtists(into: top, lib: lib)
-        guard !top.isEmpty else { return [] }
 
         // Group analyzed tracks by lowercased artist for O(1) lookup.
         var byArtist: [String: [DatabaseManager.SonicTrack]] = [:]
@@ -90,18 +83,41 @@ extension RoonClient {
             byArtist[a.lowercased(), default: []].append(t)
         }
 
-        var radios: [SonicRadio] = []
-        for entry in top {
-            let key = entry.artist.lowercased()
-            guard let tracks = byArtist[key], tracks.count >= Self.radioMinTracks else { continue }
-            let seeds = Array(tracks.prefix(Self.radioMaxSeeds))
+        let tallies = feedbackArtistTallies(lib: lib)
+        let disliked = dislikedMatchKeys
+        var playCount: [String: Int] = [:]
+        for e in top { playCount[e.artist.lowercased()] = e.count }
+
+        // Candidate artists = those we've played + those we've thumbed up (a like
+        // gives an unplayed artist a *chance* at a station, not a guaranteed one).
+        var candidateKeys = Set(top.map { $0.artist.lowercased() })
+        candidateKeys.formUnion(tallies.liked.keys)
+
+        // Affinity score: play history dominates; a like nudges an artist up, a
+        // dislike nudges it down — neither flips the ranking on its own.
+        let stamp = Self.dayStamp()
+        var scored: [(radio: SonicRadio, score: Double)] = []
+        for key in candidateKeys {
+            guard let tracks = byArtist[key] else { continue }
+            // Disliked tracks shouldn't define a station's sound: drop them from
+            // the seed set (they remain available as down-sampled candidates).
+            let seedPool = tracks.filter { !disliked.contains($0.matchKey) }
+            guard seedPool.count >= Self.radioMinTracks else { continue }
+            let seeds = Array(seedPool.prefix(Self.radioMaxSeeds))
+            let display = tracks.first(where: { ($0.artist?.isEmpty == false) })?.artist ?? key
             let img = tracks.first(where: { $0.imageKey?.isEmpty == false })?.imageKey
-            radios.append(SonicRadio(
-                id: "artist:\(key)", artist: entry.artist, imageKey: img,
-                trackCount: tracks.count, seedIds: seeds.map(\.id)))
+            let radio = SonicRadio(
+                id: "artist:\(key)", artist: display, imageKey: img,
+                trackCount: seedPool.count, seedIds: seeds.map(\.id))
+            let base = Double(playCount[key] ?? 0)
+            let bonus = 3.0 * Double(tallies.liked[key] ?? 0)
+            let penalty = 2.0 * Double(tallies.disliked[key] ?? 0)
+            // Daily jitter (≈0…4) keeps the order fresh each morning without
+            // overriding genuine play/like signal.
+            let jitter = Double(Self.seed64("\(stamp)\u{1f}\(key)") % 1000) / 250.0
+            scored.append((radio, base + bonus - penalty + jitter))
         }
-        // Rotate the card order daily so the screen feels fresh each morning.
-        return Self.dailyShuffled(radios, seed: Self.dayStamp())
+        return scored.sorted { $0.score > $1.score }.map(\.radio)
     }
 
     // MARK: Playback control
@@ -219,16 +235,16 @@ extension RoonClient {
         index: VectorIndex?, seed: String, disliked: Set<String> = []
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
-        let own = lib.filter { seedSet.contains($0.id) }
+        // Don't seed the station on a disliked track.
+        let own = lib.filter { seedSet.contains($0.id) && !disliked.contains($0.matchKey) }
         guard !own.isEmpty else { return [] }
 
-        // The embedding k-NN ranks against the whole index (not `lib`), so
-        // disliked tracks can resurface here even though `lib` excludes them —
-        // filter them out of the neighbours explicitly.
-        let neighbours = SonicEngine.nearest(
-            toSeeds: own, in: lib, limit: radioPoolSize, index: index)
-            .map(\.track)
-            .filter { disliked.isEmpty || !disliked.contains($0.matchKey) }
+        // Disliked tracks aren't banned — just heard much less often. Down-sample
+        // them in the neighbour pool (the embedding k-NN ranks against the whole
+        // index, so they can surface here even though they never seed).
+        let neighbours = applyFeedbackWeighting(
+            SonicEngine.nearest(toSeeds: own, in: lib, limit: radioPoolSize, index: index).map(\.track),
+            disliked: disliked, salt: seed, matchKey: { $0.matchKey })
 
         var seenIds = Set<String>()
         var combined: [DatabaseManager.SonicTrack] = []

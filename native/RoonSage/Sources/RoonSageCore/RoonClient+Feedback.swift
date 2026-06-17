@@ -36,9 +36,10 @@ extension RoonClient {
     }
 
     /// Record a verdict for a track (toggles off when the same thumb is re-tapped).
-    /// A dislike also skips the track immediately. Persists to the
-    /// server-of-record and updates the in-memory mirror so the UI reacts now.
-    public func setFeedback(_ kind: TrackFeedbackKind, title: String, artist: String?, album: String?, zoneID: String?) async {
+    /// A thumb is a *soft* taste signal — it doesn't change what's playing now;
+    /// it only nudges future radios / fingerprint / recommendations. Persists to
+    /// the server-of-record and updates the in-memory mirror so the UI reacts now.
+    public func setFeedback(_ kind: TrackFeedbackKind, title: String, artist: String?, album: String?) async {
         let matchKey = TrackIdentity.matchKey(artist: artist, album: album, title: title)
         guard !matchKey.isEmpty else { return }
         // Re-tapping the active thumb clears it.
@@ -48,9 +49,6 @@ extension RoonClient {
         else { feedbackByMatchKey[matchKey] = nil }
 
         await persistFeedback(matchKey: matchKey, title: title, artist: artist, kind: newKind)
-
-        // A fresh dislike means "not this, now" — move on.
-        if newKind == .dislike, let zoneID { await next(zoneID: zoneID) }
     }
 
     /// Write the verdict to the server-of-record (direct = local DB, server =
@@ -157,34 +155,53 @@ extension RoonClient {
         return (Array(liked).sorted(), Array(disliked).sorted())
     }
 
-    /// Merge thumbed-up artists into a top-artist seed list (case-insensitive
-    /// dedup) so a liked artist earns a station even with little play history.
-    func mergeLikedArtists(into top: [(artist: String, count: Int)],
-                           lib: [DatabaseManager.SonicTrack]) -> [(artist: String, count: Int)] {
-        let liked = likedMatchKeys
-        guard !liked.isEmpty else { return top }
+    /// Per-(lowercased)-artist like / dislike tallies, derived from the analyzed
+    /// library's match_key → artist mapping. Feeds the radio affinity score so a
+    /// thumb *nudges* an artist's ranking rather than forcing a station.
+    func feedbackArtistTallies(lib: [DatabaseManager.SonicTrack]) -> (liked: [String: Int], disliked: [String: Int]) {
+        guard !feedbackByMatchKey.isEmpty else { return ([:], [:]) }
         var artistByKey: [String: String] = [:]
         for t in lib where !t.matchKey.isEmpty {
-            if let a = t.artist, !a.isEmpty { artistByKey[t.matchKey] = a }
+            if let a = t.artist, !a.isEmpty { artistByKey[t.matchKey] = a.lowercased() }
         }
-        var present = Set(top.map { $0.artist.lowercased() })
-        var out = top
-        for mk in liked {
+        var liked: [String: Int] = [:], disliked: [String: Int] = [:]
+        for (mk, kind) in feedbackByMatchKey {
             guard let a = artistByKey[mk] else { continue }
-            if present.insert(a.lowercased()).inserted { out.append((artist: a, count: 2)) }
+            if kind == .like { liked[a, default: 0] += 1 } else { disliked[a, default: 0] += 1 }
         }
-        return out
+        return (liked, disliked)
     }
 
-    /// The analyzed library with thumbed-down tracks removed — the single point
-    /// every "learning" surface (radios, Sonic Fingerprint, similar) reads, so a
-    /// dislike is honoured everywhere. No-op when nothing is disliked.
+    /// The analyzed library, after ensuring the feedback mirror is loaded. Does
+    /// NOT remove disliked tracks — feedback is applied as a *soft* weight by the
+    /// candidate builders (disliked are down-sampled, not banned), so the library
+    /// itself stays whole.
     func radioLibrary() async -> [DatabaseManager.SonicTrack] {
         guard let db = database else { return [] }
         await ensureFeedbackLoaded()
-        let lib = await sonicCache.tracks(from: db)
-        let disliked = dislikedMatchKeys
-        guard !disliked.isEmpty else { return lib }
-        return lib.filter { !disliked.contains($0.matchKey) }
+        return await sonicCache.tracks(from: db)
+    }
+
+    // MARK: - Soft feedback weighting (pure, used by the off-main builders)
+
+    /// Deterministic gate for whether a thumbed-down track survives this round.
+    /// `salt` rotates the surviving subset (e.g. per day) so a disliked track is
+    /// heard roughly `1/keepEvery` as often — much less, but never banned.
+    nonisolated static func keepDisliked(_ matchKey: String, salt: String, keepEvery: Int) -> Bool {
+        guard keepEvery > 1 else { return true }
+        return seed64("\(salt)\u{1f}\(matchKey)") % UInt64(keepEvery) == 0
+    }
+
+    /// Down-sample disliked tracks in a candidate list (preserving order/identity
+    /// of the survivors). Liked and neutral tracks always pass.
+    nonisolated static func applyFeedbackWeighting<T>(
+        _ items: [T], disliked: Set<String>, salt: String, keepEvery: Int = 4,
+        matchKey: (T) -> String
+    ) -> [T] {
+        guard !disliked.isEmpty else { return items }
+        return items.filter {
+            let mk = matchKey($0)
+            return !disliked.contains(mk) || keepDisliked(mk, salt: salt, keepEvery: keepEvery)
+        }
     }
 }

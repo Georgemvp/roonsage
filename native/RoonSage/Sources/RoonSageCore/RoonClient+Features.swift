@@ -275,12 +275,12 @@ extension RoonClient {
                 // No embedding (or A/B off): rule-based scoring on bpm/key/energy/tags.
                 raw = SonicEngine.similar(to: seed, in: lib, limit: limit + 1, index: nil)
             }
-            // Never let the seed itself lead its own station; honour dislikes
-            // (the embedding k-NN ranks against the whole index, not `lib`).
-            return Array(raw
-                .filter { $0.track.matchKey != seed.matchKey }
-                .filter { disliked.isEmpty || !disliked.contains($0.track.matchKey) }
-                .prefix(limit))
+            // Never let the seed itself lead its own station; down-sample (not
+            // ban) disliked tracks so they surface much less often.
+            let pruned = raw.filter { $0.track.matchKey != seed.matchKey }
+            return Array(RoonClient.applyFeedbackWeighting(
+                pruned, disliked: disliked, salt: "similar\u{1f}\(seed.matchKey)",
+                matchKey: { $0.track.matchKey }).prefix(limit))
         }.value
     }
 
@@ -428,8 +428,6 @@ extension RoonClient {
     /// library recommendations closest to that taste. Computed off-main.
     public func sonicFingerprint(seedLimit: Int = 40, recommendCount: Int = 60) async -> Fingerprint? {
         guard let db = database else { return nil }
-        // radioLibrary() drops thumbed-down tracks, so they shape neither the DNA
-        // profile nor its recommendations.
         let lib = await radioLibrary()
         let index = await activeIndex(db)
         let disliked = dislikedMatchKeys
@@ -448,8 +446,10 @@ extension RoonClient {
                 // Fall back to the loudest/most-typical slice if there's no play history yet.
                 let effectiveSeeds = seeds.isEmpty ? Array(lib.prefix(min(40, lib.count))) : seeds
                 let profile = SonicEngine.profile(of: effectiveSeeds)
-                let recs = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount, index: index)
-                    .filter { disliked.isEmpty || !disliked.contains($0.track.matchKey) }
+                // Down-sample (not ban) disliked tracks in the recommendations.
+                let recs = RoonClient.applyFeedbackWeighting(
+                    SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount, index: index),
+                    disliked: disliked, salt: "fingerprint", matchKey: { $0.track.matchKey })
                 return Fingerprint(profile: profile, recommendations: recs, seedCount: effectiveSeeds.count)
             }.value
         } catch {
