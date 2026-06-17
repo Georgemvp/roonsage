@@ -199,33 +199,26 @@ private struct NowPlayingHero: View {
     @State private var startingRadio = false
 
     var body: some View {
-        // Deterministic layout: the artwork is sized from the available height so
-        // the whole control stack below always fits without overflow, and a
-        // bounded custom scrubber replaces the full-bleed system Slider.
-        GeometryReader { geo in
-            // EXPLICIT content width derived from the real geometry, capped for
-            // iPad. `min(geo.size.width, …)` can never exceed the screen, so the
-            // flexible bars (scrubber/volume) can't overflow and push the times,
-            // volume icon/number and like button off-screen — which is exactly
-            // what happened on iOS 26.6, where `.frame(maxWidth:)` on a greedy
-            // GeometryReader resolved too wide.
-            let contentW = min(geo.size.width, 560)
-            let artSide = max(140, min(contentW - Spacing.xl * 2, geo.size.height * 0.37))
-            VStack(spacing: Spacing.md) {
-                Spacer(minLength: 0)
-                art(side: artSide)
-                trackInfo
-                featureRow
-                scrubber
-                transport
-                volumeRow
-                footerRow
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, Spacing.xl)
-            .frame(width: contentW)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // NO top-level GeometryReader and NO finite maxWidth: a greedy
+        // GeometryReader wrapped in `.frame(maxWidth: 560)` rendered the whole
+        // stack ~560pt wide on iOS 26.6 (fine on 26.5), pushing the times, volume
+        // icon/number and like button off-screen. A plain VStack with only
+        // `.frame(maxWidth: .infinity)` can never exceed the screen width. The
+        // artwork shrinks via aspect-ratio to keep the controls on screen.
+        VStack(spacing: Spacing.md) {
+            Spacer(minLength: 0)
+            art
+            Spacer(minLength: 0)
+            trackInfo
+            featureRow
+            scrubber
+            transport
+            volumeRow
+            footerRow
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.bottom, Spacing.sm)
         .onAppear { setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
         .onChange(of: zone.id) { _, _ in setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
         .onChange(of: zone.seekPosition) { _, pos in if !isSeeking { setAnchor(pos ?? 0) } }
@@ -273,7 +266,7 @@ private struct NowPlayingHero: View {
 
     // MARK: Art — sized to fit; springs on track change, shrinks slightly when paused
 
-    private func art(side: CGFloat) -> some View {
+    private var art: some View {
         ZStack {
             if let key = zone.nowPlaying?.imageKey,
                let url = client.imageURL(forKey: key, size: 600) {
@@ -284,7 +277,10 @@ private struct NowPlayingHero: View {
                 artPlaceholder
             }
         }
-        .frame(width: side, height: side)
+        // Square, capped for large screens, and free to SHRINK to the space left
+        // after the controls — no fixed size, so no GeometryReader is needed.
+        .aspectRatio(1, contentMode: .fit)
+        .frame(maxWidth: 420, maxHeight: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
         .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
         .scaleEffect(zone.state == .playing || reduceMotion ? 1.0 : 0.96)
