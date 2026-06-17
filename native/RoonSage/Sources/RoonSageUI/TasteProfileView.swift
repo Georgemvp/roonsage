@@ -132,6 +132,12 @@ public struct TasteProfileView: View {
                         }
                     }
 
+                    if let tags = a.topTags, !tags.isEmpty {
+                        analysisCard("Stijlen & sferen", systemImage: "waveform") {
+                            barList(tags)
+                        }
+                    }
+
                     if !a.topDecades.isEmpty {
                         analysisCard("Tijdperken", systemImage: "calendar") {
                             barList(a.topDecades)

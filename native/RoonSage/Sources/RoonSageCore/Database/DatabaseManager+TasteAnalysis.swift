@@ -18,6 +18,10 @@ extension DatabaseManager {
         public var dislikeCount: Int
         public var topGenres: [Count]
         public var topDecades: [Count]
+        /// Fine-grained style/mood tags from the audio analyzer (e.g. "driving",
+        /// "atmospheric", "deep house") — far richer than Roon's ~21 broad genres.
+        /// Optional so a newer client tolerates an older server that omits it.
+        public var topTags: [Count]?
         public var partsOfDay: [Count]      // Ochtend / Middag / Avond / Nacht
         public var peakHour: Int            // 0…23, or -1 when there's no history
         public var topLikedArtists: [String]
@@ -54,6 +58,21 @@ extension DatabaseManager {
                 TasteAnalysis.Count(label: "\($0["dec"] as Int? ?? 0)s", count: $0["cnt"] as Int? ?? 0)
             }
 
+            // Fine-grained style/mood tags from the analyzer: join listens → tracks
+            // (by the same content key) → their analyzed features, then unpack the
+            // JSON tag array. Far more varied than the broad Roon genres above.
+            let tagRows = try Row.fetchAll(db, sql: """
+                SELECT tag.value AS label, COUNT(*) AS cnt
+                FROM listening_history lh
+                JOIN tracks t ON LOWER(t.title) = LOWER(lh.title) AND LOWER(t.artist) = LOWER(lh.artist)
+                JOIN track_audio_features taf ON taf.match_key = t.match_key
+                JOIN json_each(taf.tags) tag
+                GROUP BY tag.value ORDER BY cnt DESC LIMIT 12
+            """)
+            let topTags = tagRows.map {
+                TasteAnalysis.Count(label: $0["label"] as String? ?? "", count: $0["cnt"] as Int? ?? 0)
+            }
+
             // Plays per hour → parts of day + peak hour.
             var byHour = [Int](repeating: 0, count: 24)
             let hourRows = try Row.fetchAll(db, sql: """
@@ -82,7 +101,8 @@ extension DatabaseManager {
 
             return TasteAnalysis(
                 totalPlays: total, likeCount: likeCount, dislikeCount: dislikeCount,
-                topGenres: topGenres, topDecades: topDecades, partsOfDay: partsOfDay,
+                topGenres: topGenres, topDecades: topDecades, topTags: topTags,
+                partsOfDay: partsOfDay,
                 peakHour: peakHour,
                 topLikedArtists: try feedbackArtists("like"),
                 topDislikedArtists: try feedbackArtists("dislike"))
