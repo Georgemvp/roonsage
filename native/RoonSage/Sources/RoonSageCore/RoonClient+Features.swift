@@ -55,8 +55,10 @@ extension RoonClient {
     /// the endpoint simply yield no embeddings.
     private func pullEmbeddings(from baseURL: String) async {
         let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
-        guard let url = URL(string: "\(trimmed)/embeddings"),
-              let (data, resp) = try? await URLSession.shared.data(from: url),
+        guard let url = URL(string: "\(trimmed)/embeddings") else { return }
+        var req = URLRequest(url: url)
+        authorizeShareRequest(&req)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
         let db = database
         _ = await Task.detached { try? await db?.applyEmbeddingsBlob(data) }.value
@@ -80,8 +82,10 @@ extension RoonClient {
     /// Fetch + parse the analyzer `/features` JSON off the main actor.
     private func fetchFeaturePayload(from baseURL: String) async -> FeaturePayload? {
         let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
-        guard let url = URL(string: "\(trimmed)/features"),
-              let (data, resp) = try? await URLSession.shared.data(from: url),
+        guard let url = URL(string: "\(trimmed)/features") else { return nil }
+        var req = URLRequest(url: url)
+        authorizeShareRequest(&req)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return await Task.detached { () -> FeaturePayload? in
             guard let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
