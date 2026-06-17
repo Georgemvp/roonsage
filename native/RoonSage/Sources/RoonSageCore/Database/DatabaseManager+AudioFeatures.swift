@@ -144,6 +144,28 @@ extension DatabaseManager {
         }
     }
 
+    /// Backfill `tracks.year` from the analyzer's file-tag years, keyed by
+    /// match_key. Roon's Browse API doesn't expose the release year (album
+    /// subtitles carry only the artist), so the analyzer — which reads the file
+    /// tags — is the source. Only fills rows that lack a year so a Roon-provided
+    /// value (should one ever appear) isn't clobbered. Returns rows updated.
+    @discardableResult
+    public func applyTrackYears(_ pairs: [(matchKey: String, year: Int)]) async throws -> Int {
+        guard !pairs.isEmpty else { return 0 }
+        let outPairs = pairs
+        return try await pool.write { db -> Int in
+            var updated = 0
+            for p in outPairs {
+                try db.execute(sql: """
+                    UPDATE tracks SET year = ?
+                    WHERE match_key = ? AND (year IS NULL OR year = 0)
+                    """, arguments: [p.year, p.matchKey])
+                updated += db.changesCount
+            }
+            return updated
+        }
+    }
+
     /// Persist the PCA-2D Music Map coordinates (Track E5d) by match_key.
     public func updateMapCoords(_ coords: [(matchKey: String, x: Double, y: Double)]) async throws {
         guard !coords.isEmpty else { return }

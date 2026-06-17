@@ -41,7 +41,11 @@ extension RoonClient {
             try? await db?.upsertAudioFeatures(payload.features)
             // Fuzzy fallback rewrites tracks.match_key for confident matches so the
             // DJ/Sonic joins pick them up; apply on a real sync.
-            return try? await db?.reconcileFeatureMatches(payload.identities, apply: true)
+            let d = try? await db?.reconcileFeatureMatches(payload.identities, apply: true)
+            // Backfill tracks.year from the analyzer's file tags (Roon Browse has no
+            // year). After reconcile so fuzzy-rewritten match_keys also resolve.
+            try? await db?.applyTrackYears(payload.years)
+            return d
         }.value
         // Pull the 512-dim embeddings (binary bundle) after match_keys are
         // reconciled, so they attach to the right rows.
@@ -77,6 +81,9 @@ extension RoonClient {
     private struct FeaturePayload: Sendable {
         var features: [DatabaseManager.AudioFeatureRow]
         var identities: [DatabaseManager.FeatureIdentity]
+        // (match_key, year) from the analyzer's file tags — Roon's Browse API
+        // doesn't expose the release year, so we backfill tracks.year from here.
+        var years: [(matchKey: String, year: Int)]
     }
 
     /// Fetch + parse the analyzer `/features` JSON off the main actor.
@@ -91,6 +98,7 @@ extension RoonClient {
             guard let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
             var features: [DatabaseManager.AudioFeatureRow] = []
             var identities: [DatabaseManager.FeatureIdentity] = []
+            var years: [(matchKey: String, year: Int)] = []
             features.reserveCapacity(arr.count); identities.reserveCapacity(arr.count)
             for o in arr {
                 guard let mk = o["match_key"] as? String, !mk.isEmpty else { continue }
@@ -103,8 +111,9 @@ extension RoonClient {
                 ))
                 identities.append(DatabaseManager.FeatureIdentity(
                     matchKey: mk, artist: o["artist"] as? String, title: o["title"] as? String))
+                if let y = o["year"] as? Int, y > 1900 { years.append((mk, y)) }
             }
-            return FeaturePayload(features: features, identities: identities)
+            return FeaturePayload(features: features, identities: identities, years: years)
         }.value
     }
 

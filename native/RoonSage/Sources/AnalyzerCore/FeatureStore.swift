@@ -204,7 +204,7 @@ public final class FeatureStore {
     public func exportJSON(includeEmbedding: Bool = false) -> Data {
         let rows = (try? dbQueue.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT match_key, artist, title, album, bpm, camelot, key_root, key_mode, energy, duration,
+                SELECT match_key, artist, title, album, year, bpm, camelot, key_root, key_mode, energy, duration,
                        tags, moods, embedding_model\(includeEmbedding ? ", embedding" : "")
                 FROM track_features WHERE bpm IS NOT NULL
             """)
@@ -229,6 +229,7 @@ public final class FeatureStore {
                 "energy": r["energy"] as Double? ?? 0,
                 "duration": r["duration"] as Double? ?? 0,
             ]
+            if let year = r["year"] as Int?, year > 0 { obj["year"] = year }
             if let tags = r["tags"] as String? { obj["tags"] = tags }
             if let moods = r["moods"] as String? { obj["moods"] = moods }
             if let model = r["embedding_model"] as String? { obj["embedding_model"] = model }
