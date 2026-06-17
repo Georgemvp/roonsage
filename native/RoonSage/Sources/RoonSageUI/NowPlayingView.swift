@@ -21,10 +21,17 @@ public struct NowPlayingView: View {
             ZStack {
                 NowPlayingBackdrop(zone: zone)
                 VStack(spacing: 0) {
+                    // iOS hides the nav bar here, so the body carries the zone
+                    // switcher. A Menu (not a scrolling strip) never clips and is
+                    // immune to window/scene resizing. On macOS the toolbar
+                    // already provides the picker, so no in-body duplicate.
+                    #if os(iOS)
                     if client.zones.count > 1 {
-                        ZoneStrip(selectedID: zone.id)
+                        ZoneSelector(selectedID: zone.id)
                             .padding(.top, Spacing.sm)
+                            .padding(.bottom, Spacing.xs)
                     }
+                    #endif
                     NowPlayingHero(zone: zone)
                         .frame(maxWidth: 560)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -98,68 +105,49 @@ private struct NowPlayingBackdrop: View {
     }
 }
 
-// MARK: - Zone switcher strip
+// MARK: - Zone switcher
 
-/// Compact horizontal chips for switching zones without leaving the hero.
+/// Single dropdown pill for switching zones. A `Menu` (not a horizontal strip)
+/// can't clip a chip and is unaffected by window/scene resizing — the strip
+/// version mis-anchored its scroll offset when the size changed, leaving the
+/// active zone half cut off.
 @MainActor
-private struct ZoneStrip: View {
+private struct ZoneSelector: View {
     @Environment(RoonClient.self) private var client
     let selectedID: String
+    @AppStorage("lastZoneID") private var lastZoneID: String = ""
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Spacing.sm) {
-                    ForEach(client.zones) { zone in
-                        let isOn = zone.id == selectedID
-                        Button {
-                            withAnimation(Motion.standard) { client.selectZone(zone.id) }
-                        } label: {
-                            HStack(spacing: Spacing.xs + 2) {
-                                Image(systemName: zone.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker")
-                                    .font(.caption)
-                                Text(zone.displayName)
-                                    .font(.caption.weight(isOn ? .semibold : .regular))
-                                    .lineLimit(1)
-                            }
-                            .padding(.horizontal, Spacing.md)
-                            .padding(.vertical, Spacing.xs + 2)
-                            .background(
-                                isOn ? AnyShapeStyle(Color.roonGold) : AnyShapeStyle(.quaternary),
-                                in: Capsule())
-                            // Gold is light — black on gold for AA contrast.
-                            .foregroundStyle(isOn ? Color.black : Color.primary)
-                        }
-                        .buttonStyle(.plain)
-                        .id(zone.id)
-                        .accessibilityLabel("Wissel naar zone \(zone.displayName)")
-                        .accessibilityAddTraits(isOn ? .isSelected : [])
-                    }
+        let active = client.zones.first { $0.id == selectedID }
+        Menu {
+            ForEach(client.zones) { zone in
+                Button {
+                    client.selectZone(zone.id); lastZoneID = zone.id; Haptics.tap()
+                } label: {
+                    Label(zone.displayName,
+                          systemImage: zone.id == selectedID ? "checkmark"
+                              : (zone.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker"))
                 }
-                .padding(.horizontal, Spacing.lg)
             }
-            // Soft-fade the leading/trailing edges so chips that scroll off the
-            // screen taper out instead of looking abruptly chopped in half.
-            .mask {
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .black, location: 0.04),
-                        .init(color: .black, location: 0.96),
-                        .init(color: .clear, location: 1),
-                    ],
-                    startPoint: .leading, endPoint: .trailing)
+        } label: {
+            HStack(spacing: Spacing.xs + 2) {
+                Image(systemName: active?.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker")
+                    .font(.caption)
+                Text(active?.displayName ?? "Kies zone")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .opacity(0.7)
             }
-            // Keep the active zone fully on screen rather than half-clipped at an edge.
-            .onAppear { scrollToSelected(proxy) }
-            .onChange(of: selectedID) { _, _ in scrollToSelected(proxy) }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xs + 2)
+            .background(.quaternary, in: Capsule())
+            .foregroundStyle(.primary)
         }
-    }
-
-    private func scrollToSelected(_ proxy: ScrollViewProxy) {
-        // Anchor the active zone to the leading edge so it's always fully shown
-        // and no chip is left half-clipped *before* it.
-        withAnimation(Motion.standard) { proxy.scrollTo(selectedID, anchor: .leading) }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Zone: \(active?.displayName ?? "geen")")
+        .accessibilityHint("Tik om een andere zone te kiezen")
     }
 }
 
@@ -170,6 +158,16 @@ private struct NowPlayingHero: View {
     @Environment(RoonClient.self) private var client
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let zone: Zone
+
+    init(zone: Zone) {
+        self.zone = zone
+        // Seed from the zone so the very first frame shows the real position and
+        // volume (no flash from 0 / 50, and it renders correctly off-screen too).
+        let seek = zone.seekPosition ?? 0
+        _displayPosition = State(initialValue: seek)
+        _anchorPosition = State(initialValue: seek)
+        _volumeValue = State(initialValue: Double(zone.outputs.first?.volume?.value ?? 50))
+    }
 
     @State private var volumeValue: Double = 50
     @State private var displayPosition: Double = 0
