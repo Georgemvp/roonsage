@@ -337,20 +337,31 @@ public struct GenerateView: View {
             return s
         }.joined(separator: "\n")
 
+        // Taste signals: top-played artists (via tasteProfile so it also works in
+        // thin-client mode, where the local listening_history is empty) and
+        // explicit like/dislike feedback.
+        let topArtists = (await client.tasteProfile(topLimit: 30, recentLimit: 1))?.topArtists ?? []
+        let preferred = Set(topArtists.map { $0.artist.lowercased() })
+        let hints = await client.feedbackArtistHints()
+        let deprioritized = Set(recentlyGenerated)
+
         let system = """
         You are a music curator for a personal Roon music player. \
         Select exactly \(targetCount) tracks from the numbered list that best match the request. \
         Rules: max 2 tracks per artist, no two consecutive tracks by the same artist, ensure variety. \
+        Lean toward artists the listener favors and avoid those they dislike, unless the request \
+        explicitly asks for them. \
         Return ONLY the track numbers separated by commas — no explanation, no extra text. \
         Example: 3, 17, 42, 8, 91
         """
-        let user = "Request: \(request)\n\nAvailable tracks:\n\(list)"
-
-        // Soft curation signals: favour artists the user actually plays (empty on
-        // a thin client without history → no effect) and avoid repeating tracks
-        // from recent generations.
-        let preferred = Set((await client.topArtistsListened(limit: 30)).map { $0.artist.lowercased() })
-        let deprioritized = Set(recentlyGenerated)
+        var taste = ""
+        if !hints.liked.isEmpty {
+            taste += "\n\nArtists the listener likes (favor similar): \(hints.liked.prefix(20).joined(separator: ", "))"
+        }
+        if !hints.disliked.isEmpty {
+            taste += "\nArtists the listener dislikes (avoid unless asked): \(hints.disliked.prefix(20).joined(separator: ", "))"
+        }
+        let user = "Request: \(request)\(taste)\n\nAvailable tracks:\n\(list)"
 
         do {
             let response = try await LLMClient.shared.complete(system: system, user: user, config: config)

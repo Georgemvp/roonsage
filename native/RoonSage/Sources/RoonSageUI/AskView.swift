@@ -97,7 +97,14 @@ public struct AskView: View {
         opts.keywords = filters.keywords
         opts.excludeLive = true
         opts.limit = 600
-        let pool = await client.filterTracks(options: opts)
+        var pool = await client.filterTracks(options: opts)
+        // Taste: softly drop tracks by thumbed-down artists, but only while plenty
+        // of pool remains so a niche request still returns results.
+        let disliked = Set((await client.feedbackArtistHints()).disliked.map { $0.lowercased() })
+        if !disliked.isEmpty {
+            let filtered = pool.filter { !disliked.contains(($0.artist ?? "").lowercased()) }
+            if filtered.count >= 40 { pool = filtered }
+        }
         // Hybrid AI: rank the LLM-filtered pool by sonic closeness to the
         // request (CLAP). Falls back to a random pick when embeddings/analyzer
         // text model aren't available.
