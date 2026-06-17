@@ -275,9 +275,16 @@ extension RoonClient {
                 // No embedding (or A/B off): rule-based scoring on bpm/key/energy/tags.
                 raw = SonicEngine.similar(to: seed, in: lib, limit: limit + 1, index: nil)
             }
-            // Never let the seed itself lead its own station; down-sample (not
-            // ban) disliked tracks so they surface much less often.
-            let pruned = raw.filter { $0.track.matchKey != seed.matchKey }
+            // Drop the seed itself, then collapse duplicate copies of the same
+            // song (same content key on a different album / Roon id) so the
+            // station never queues a track twice.
+            var seen = Set<String>()
+            let pruned = raw.filter { s in
+                guard s.track.matchKey != seed.matchKey else { return false }
+                let k = s.track.matchKey
+                return k.isEmpty ? true : seen.insert(k).inserted
+            }
+            // Down-sample (not ban) disliked tracks so they surface much less often.
             return Array(RoonClient.applyFeedbackWeighting(
                 pruned, disliked: disliked, salt: "similar\u{1f}\(seed.matchKey)",
                 matchKey: { $0.track.matchKey }).prefix(limit))

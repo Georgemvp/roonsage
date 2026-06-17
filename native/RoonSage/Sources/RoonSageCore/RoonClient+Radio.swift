@@ -246,11 +246,15 @@ extension RoonClient {
             SonicEngine.nearest(toSeeds: own, in: lib, limit: radioPoolSize, index: index).map(\.track),
             disliked: disliked, salt: seed, matchKey: { $0.matchKey })
 
-        var seenIds = Set<String>()
+        // Dedup by CONTENT, not Roon id: the same song often has several library
+        // rows (soundtrack + compilation, duplicate albums) with different ids
+        // but one match_key — id-dedup would queue it twice.
+        var seen = Set<String>()
         var combined: [DatabaseManager.SonicTrack] = []
         combined.reserveCapacity(own.count + neighbours.count)
-        for t in own + neighbours where seenIds.insert(t.id).inserted {
-            combined.append(t)
+        for t in own + neighbours {
+            let key = t.matchKey.isEmpty ? t.id : t.matchKey
+            if seen.insert(key).inserted { combined.append(t) }
         }
 
         var shuffled = dailyShuffled(combined, seed: seed)

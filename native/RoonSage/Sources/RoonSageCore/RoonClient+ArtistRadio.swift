@@ -205,9 +205,14 @@ extension RoonClient {
             ordered = own + neighbours.filter(sharesGenre) + neighbours.filter { !sharesGenre($0) }
         }
 
+        // Dedup by CONTENT, not Roon id — the same song can have several library
+        // rows (different albums) with one match_key.
         var seen = Set<String>()
         var deduped: [DatabaseManager.SonicTrack] = []
-        for t in ordered where seen.insert(t.id).inserted { deduped.append(t) }
+        for t in ordered {
+            let key = t.matchKey.isEmpty ? t.id : t.matchKey
+            if seen.insert(key).inserted { deduped.append(t) }
+        }
         return deduped.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
     }
 

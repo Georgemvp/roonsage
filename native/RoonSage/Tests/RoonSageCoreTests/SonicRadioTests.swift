@@ -5,9 +5,9 @@ import XCTest
 final class SonicRadioTests: XCTestCase {
 
     private func track(_ id: String, artist: String, bpm: Double, camelot: String,
-                       energy: Double, tags: [String]) -> DatabaseManager.SonicTrack {
+                       energy: Double, tags: [String], matchKey: String? = nil) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: id, artist: artist, album: nil, imageKey: nil,
-                                   matchKey: id, bpm: bpm, camelot: camelot, energy: energy, tags: tags)
+                                   matchKey: matchKey ?? id, bpm: bpm, camelot: camelot, energy: energy, tags: tags)
     }
 
     // MARK: Deterministic hashing
@@ -79,6 +79,20 @@ final class SonicRadioTests: XCTestCase {
         // …so "own" (disliked) is gone but "good" still seeds.
         XCTAssertFalse(out.contains { $0.id == "own" }, "disliked track is not a seed")
         XCTAssertTrue(out.contains { $0.id == "good" })
+    }
+
+    func testCandidatesDedupeSameSongOnDifferentAlbums() {
+        // Same song, two library rows (soundtrack + compilation): same matchKey,
+        // different Roon id. The station must queue it only once.
+        let own = track("own", artist: "Knopfler", bpm: 100, camelot: "8A", energy: 0.5, tags: ["a"])
+        let dupA = track("nwtsg-album1", artist: "Illsley", bpm: 99, camelot: "8A", energy: 0.5, tags: ["a"],
+                         matchKey: "illsley\u{1f}no way to say goodbye")
+        let dupB = track("nwtsg-album2", artist: "Illsley", bpm: 99, camelot: "8A", energy: 0.5, tags: ["a"],
+                         matchKey: "illsley\u{1f}no way to say goodbye")
+        let out = RoonClient.buildRadioCandidates(
+            seedIds: ["own"], lib: [own, dupA, dupB], index: nil, seed: "day")
+        let nwtsg = out.filter { $0.id.hasPrefix("nwtsg") }
+        XCTAssertEqual(nwtsg.count, 1, "the same song appears at most once")
     }
 
     func testDislikedIsDownsampledNotBanned() {
