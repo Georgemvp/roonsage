@@ -108,6 +108,9 @@ public final class RoonClient {
     /// The last successfully synced set of AI artist radios. Served to client apps
     /// via /artist-radios so iOS/macOS always show the same playlists as Qobuz.
     var cachedArtistRadios: [SonicRadioPlaylist] = []
+    /// Periodic server-side ingest of analyzer features (tags/year/embeddings)
+    /// into library.db on the always-on build (see RoonClient+Features).
+    var serverFeatureSyncTask: Task<Void, Never>?
 
     // MARK: - Control mode (playback proxy)
     /// `.direct` = talk to Roon over the WebSocket (the server build).
