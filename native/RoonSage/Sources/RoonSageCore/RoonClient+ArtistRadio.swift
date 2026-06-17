@@ -364,14 +364,21 @@ extension RoonClient {
     /// sonic-profile summary used to steer the title.
     func aiTitleAndDescription(for radio: SonicRadio, sample: [TrackRecord], profile: String) async -> (title: String, description: String) {
         let d = UserDefaults.standard
-        if let t = d.string(forKey: Self.titleKey(radio.id)), !t.isEmpty,
+        let fallback = Self.fallbackMeta(artist: radio.artist)
+        // A cached *real* title is reused (keeps the Qobuz name stable). A cached
+        // bare fallback ("Radio rond X") is NOT trusted — it means an earlier LLM
+        // call failed (e.g. Ollama cold-start), so we retry generation now.
+        if let t = d.string(forKey: Self.titleKey(radio.id)), !t.isEmpty, t != fallback.title,
            let desc = d.string(forKey: Self.descKey(radio.id)), !desc.isEmpty {
             return (t, desc)
         }
-        let meta = await Self.generateAIMeta(artist: radio.artist, sample: sample, profile: profile)
-        d.set(meta.title, forKey: Self.titleKey(radio.id))
-        d.set(meta.description, forKey: Self.descKey(radio.id))
-        return meta
+        if let meta = await Self.generateAIMeta(artist: radio.artist, sample: sample, profile: profile) {
+            d.set(meta.title, forKey: Self.titleKey(radio.id))
+            d.set(meta.description, forKey: Self.descKey(radio.id))
+            return meta
+        }
+        // LLM unavailable this round — use the fallback but DON'T cache it.
+        return fallback
     }
 
     /// A compact Dutch summary of the selection's sonic character — dominant
@@ -410,10 +417,18 @@ extension RoonClient {
         return parts.joined(separator: "; ")
     }
 
+    /// The tidy default title/description used when the LLM can't produce one.
+    nonisolated static func fallbackMeta(artist: String) -> (title: String, description: String) {
+        ("Radio rond \(artist)",
+         "Een eindeloze radio rond \(artist) en muzikaal verwante artiesten uit je bibliotheek.")
+    }
+
     /// Ask the configured LLM for a Dutch title that names the sonic profile +
-    /// a short description, as strict JSON. Falls back to a tidy default when the
-    /// LLM isn't configured, errors, or returns unparseable output.
-    nonisolated static func generateAIMeta(artist: String, sample: [TrackRecord], profile: String) async -> (title: String, description: String) {
+    /// a short description, as strict JSON. Returns nil when the LLM call fails
+    /// (e.g. an Ollama cold-start timeout) or returns nothing usable — the caller
+    /// then uses a temporary fallback WITHOUT caching it, so a later build retries
+    /// instead of freezing the default name forever.
+    nonisolated static func generateAIMeta(artist: String, sample: [TrackRecord], profile: String) async -> (title: String, description: String)? {
         let fallbackTitle = "Radio rond \(artist)"
         let fallbackDesc  = "Een eindeloze radio rond \(artist) en muzikaal verwante artiesten uit je bibliotheek."
 
@@ -448,10 +463,21 @@ extension RoonClient {
         """
 
         let config = LLMConfigStore.load()
-        guard let raw = try? await LLMClient.shared.complete(system: system, user: user, config: config) else {
-            return (fallbackTitle, fallbackDesc)
+        let raw: String
+        do {
+            raw = try await LLMClient.shared.complete(system: system, user: user, config: config)
+        } catch {
+            Log.warning("AI radio-titel mislukt voor '\(artist)': \(error.localizedDescription) — tijdelijke standaardtitel, wordt later opnieuw geprobeerd", category: .network)
+            return nil
         }
-        return parseTitleJSON(raw, fallbackTitle: fallbackTitle, fallbackDesc: fallbackDesc)
+        let meta = parseTitleJSON(raw, fallbackTitle: fallbackTitle, fallbackDesc: fallbackDesc)
+        // The LLM answered but produced no usable title (parse fell all the way
+        // back). Treat as failure so it isn't cached and freezes the default.
+        guard meta.title != fallbackTitle else {
+            Log.warning("AI radio-titel onbruikbaar voor '\(artist)' (parse-fallback) — niet gecachet", category: .network)
+            return nil
+        }
+        return meta
     }
 
     /// Defensively extract `{title, description}` from a (possibly fenced /
@@ -504,8 +530,13 @@ extension RoonClient {
         for pl in playlists {
             let name = pl.qobuzName
             let pairs = pl.tracks.map { (title: $0.title, artist: $0.artist) }
+            // Pass the previously-stored Qobuz id so a changed title renames the
+            // existing playlist in place instead of orphaning it (a freshly
+            // generated AI title replaces an earlier "Radio rond X" fallback).
+            let knownID = UserDefaults.standard.string(forKey: Self.qobuzIDKey(pl.id))
             if let result = await QobuzClient.shared.syncPlaylist(
-                name: name, description: pl.description, tracks: pairs, email: email, password: pw) {
+                name: name, description: pl.description, tracks: pairs, email: email, password: pw,
+                knownPlaylistID: knownID) {
                 UserDefaults.standard.set(result.playlistID, forKey: Self.qobuzIDKey(pl.id))
                 synced += 1
                 Log.info("AI artiesten-radio gesynct naar Qobuz: '\(name)' (\(result.matched)/\(result.total) tracks)",

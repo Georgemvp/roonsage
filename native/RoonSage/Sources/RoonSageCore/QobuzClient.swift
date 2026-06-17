@@ -54,14 +54,22 @@ public actor QobuzClient {
         description: String,
         tracks: [(title: String, artist: String?)],
         email: String,
-        password: String
+        password: String,
+        knownPlaylistID: String? = nil
     ) async -> SaveResult? {
         guard let session = await login(email: email, password: password) else { return nil }
 
-        // 1. Find existing by exact (case-insensitive) name, else create fresh
-        //    with the AI description.
+        // 1. Resolve the target playlist. A caller-supplied `knownPlaylistID` (the
+        //    one we created on a previous sync) lets us update it IN PLACE even
+        //    when the title changed — renaming it instead of orphaning the old
+        //    name and creating a duplicate. Otherwise find by exact name, else
+        //    create fresh.
         let playlistID: String
-        if let existing = await findPlaylist(named: name, session: session) {
+        if let known = knownPlaylistID, !known.isEmpty {
+            playlistID = known
+            // Push the (possibly new) name + description onto our existing playlist.
+            await updatePlaylist(playlistID: playlistID, name: name, description: description, session: session)
+        } else if let existing = await findPlaylist(named: name, session: session) {
             playlistID = existing
             // Name is the anchor and unchanged, but the description may have been
             // regenerated — push it so the Qobuz card stays current.
