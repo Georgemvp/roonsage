@@ -185,30 +185,26 @@ private struct NowPlayingHero: View {
     @State private var startingRadio = false
 
     var body: some View {
-        VStack(spacing: Spacing.md) {
-            // Artwork absorbs the spare vertical space and shrinks on shorter
-            // screens, so every control below — scrubber, transport, volume and
-            // "Hierna" — stays fully on screen instead of being pushed off.
-            art
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            trackInfo
-
-            featureRow
-
-            feedbackRow
-
-            scrubber
-
-            transport
-
-            volumeRow
-
-            nextUpRow
+        // Deterministic layout: the artwork is sized from the available height so
+        // the whole control stack below always fits without overflow, and a
+        // bounded custom scrubber replaces the full-bleed system Slider.
+        GeometryReader { geo in
+            let artSide = max(140, min(geo.size.width - Spacing.xl * 2, geo.size.height * 0.37))
+            VStack(spacing: Spacing.md) {
+                Spacer(minLength: 0)
+                art(side: artSide)
+                trackInfo
+                featureRow
+                scrubber
+                transport
+                volumeRow
+                footerRow
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: 520)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, Spacing.xl)
         }
-        .padding(.horizontal, Spacing.xl)
-        .padding(.top, Spacing.sm)
-        .padding(.bottom, Spacing.md)
         .onAppear { setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
         .onChange(of: zone.id) { _, _ in setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
         .onChange(of: zone.seekPosition) { _, pos in if !isSeeking { setAnchor(pos ?? 0) } }
@@ -218,46 +214,6 @@ private struct NowPlayingHero: View {
         .onChange(of: zone.nowPlaying?.title) { _, _ in refreshFeatures() }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in tickPosition() }
         .task { await client.ensureFeedbackLoaded() }
-    }
-
-    // MARK: Like / dislike — teaches radios, fingerprint & recommendations
-
-    @ViewBuilder
-    private var feedbackRow: some View {
-        if let np = zone.nowPlaying {
-            let current = client.feedbackFor(title: np.title, artist: np.artist, album: np.album)
-            HStack(spacing: Spacing.xl) {
-                Button {
-                    Haptics.tap()
-                    Task { await client.setFeedback(.like, title: np.title, artist: np.artist, album: np.album) }
-                } label: {
-                    Image(systemName: current == .like ? "hand.thumbsup.fill" : "hand.thumbsup")
-                        .font(.title3)
-                        .foregroundStyle(current == .like ? Color.roonGold : .secondary)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .contentTransition(.symbolEffect(.replace))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Vind ik leuk")
-                .accessibilityAddTraits(current == .like ? .isSelected : [])
-                .help("Meer zoals dit in je radio's en aanbevelingen")
-
-                Button {
-                    Haptics.tap()
-                    Task { await client.setFeedback(.dislike, title: np.title, artist: np.artist, album: np.album) }
-                } label: {
-                    Image(systemName: current == .dislike ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                        .font(.title3)
-                        .foregroundStyle(current == .dislike ? Color.roonDanger : .secondary)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .contentTransition(.symbolEffect(.replace))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Vind ik niet leuk — sla over en leer ervan")
-                .accessibilityAddTraits(current == .dislike ? .isSelected : [])
-                .help("Sla over en sluit uit van toekomstige radio's en aanbevelingen")
-            }
-        }
     }
 
     // MARK: Track info
@@ -278,7 +234,7 @@ private struct NowPlayingHero: View {
                 }
                 if let album = np.album {
                     Text(album)
-                        .font(.callout)
+                        .font(.subheadline)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
@@ -291,12 +247,12 @@ private struct NowPlayingHero: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(.horizontal, Spacing.xl)
+        .frame(maxWidth: .infinity)
     }
 
-    // MARK: Art — large, springs on track change, shrinks slightly when paused
+    // MARK: Art — sized to fit; springs on track change, shrinks slightly when paused
 
-    private var art: some View {
+    private func art(side: CGFloat) -> some View {
         ZStack {
             if let key = zone.nowPlaying?.imageKey,
                let url = client.imageURL(forKey: key, size: 600) {
@@ -307,11 +263,10 @@ private struct NowPlayingHero: View {
                 artPlaceholder
             }
         }
-        .aspectRatio(1, contentMode: .fit)
-        .frame(maxWidth: 420)
+        .frame(width: side, height: side)
         .clipShape(RoundedRectangle(cornerRadius: Radius.xl))
         .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
-        .scaleEffect(zone.state == .playing || reduceMotion ? 1.0 : 0.94)
+        .scaleEffect(zone.state == .playing || reduceMotion ? 1.0 : 0.96)
         .animation(reduceMotion ? nil : Motion.spring, value: zone.state)
         .animation(reduceMotion ? nil : Motion.spring, value: zone.nowPlaying?.imageKey)
         .accessibilityHidden(true)
@@ -322,7 +277,7 @@ private struct NowPlayingHero: View {
             .fill(.quaternary)
             .overlay(
                 Image(systemName: "music.note")
-                    .font(.system(size: 64))
+                    .font(.system(size: 56))
                     .foregroundStyle(.tertiary)
             )
     }
@@ -337,7 +292,7 @@ private struct NowPlayingHero: View {
                     if f.bpm > 0 { Badge("\(Int(f.bpm)) BPM", tint: .roonGold) }
                     if !f.camelot.isEmpty { Badge(f.camelot, tint: .roonGold) }
                     if !f.tags.isEmpty {
-                        Text(f.tags.prefix(3).joined(separator: " · "))
+                        Text(f.tags.prefix(2).joined(separator: " · "))
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
@@ -363,87 +318,65 @@ private struct NowPlayingHero: View {
                 .accessibilityLabel("Start Sonic Radio")
                 .help("Speel een station met tracks die hier sonisch op lijken")
             }
+            .lineLimit(1)
         }
     }
 
-    // MARK: Scrubber
+    // MARK: Scrubber — custom, bounded progress bar (the system Slider rendered
+    // full-bleed here). Clear track, gold fill, draggable thumb, elapsed/remaining.
 
     @ViewBuilder
     private var scrubber: some View {
-        if let np = zone.nowPlaying {
-            let length = Double(np.length ?? 0)
-            let hasLength = length > 0
-            VStack(spacing: Spacing.xs) {
-                if hasLength {
-                    Slider(value: $displayPosition, in: 0...length) { editing in
-                        isSeeking = editing
-                        if !editing {
-                            Task { await client.seek(zoneID: zone.id, seconds: displayPosition) }
-                            // Hold the new position locally until the next poll
-                            // confirms it, so the thumb doesn't snap backwards.
-                            setAnchor(displayPosition)
+        let length = Double(zone.nowPlaying?.length ?? 0)
+        let hasLength = length > 0
+        VStack(spacing: Spacing.xs) {
+            GeometryReader { geo in
+                let w = geo.size.width
+                let frac = hasLength ? min(max(displayPosition / length, 0), 1) : 0
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.18))
+                        .frame(height: 5)
+                    Capsule().fill(Color.roonGold)
+                        .frame(width: max(0, w * frac), height: 5)
+                    if hasLength {
+                        Circle().fill(.white)
+                            .frame(width: 15, height: 15)
+                            .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                            .offset(x: min(max(w * frac - 7.5, 0), w - 15))
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .center)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { v in
+                            guard hasLength, w > 0 else { return }
+                            isSeeking = true
+                            displayPosition = min(max(v.location.x / w, 0), 1) * length
                         }
-                    }
-                    .tint(Color.roonGold)
-                    .accessibilityLabel("Afspeelpositie")
-                } else {
-                    // Length unknown (some streams report none): still draw a clear
-                    // start→end track so the bar has bounds instead of vanishing.
-                    Capsule()
-                        .fill(.quaternary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 4)
-                }
-                HStack {
-                    Text(formatTime(displayPosition))
-                    Spacer()
-                    Text(hasLength ? "−" + formatTime(length - displayPosition) : "--:--")
-                }
-                .font(.footnote.monospacedDigit())
-                .foregroundStyle(.secondary)
+                        .onEnded { v in
+                            guard hasLength, w > 0 else { return }
+                            let pos = min(max(v.location.x / w, 0), 1) * length
+                            displayPosition = pos
+                            setAnchor(pos)   // hold until the next poll confirms
+                            Task { await client.seek(zoneID: zone.id, seconds: pos) }
+                            isSeeking = false
+                        }
+                )
             }
+            .frame(height: 22)
+            .accessibilityElement()
+            .accessibilityLabel("Afspeelpositie")
+            .accessibilityValue(formatTime(displayPosition))
+
+            HStack {
+                Text(formatTime(displayPosition))
+                Spacer()
+                Text(hasLength ? "-" + formatTime(length - displayPosition) : "--:--")
+            }
+            .font(.footnote.monospacedDigit())
+            .foregroundStyle(.secondary)
         }
-    }
-
-    // MARK: Up next — the following queue item (queueItems[0] is the current track)
-
-    @ViewBuilder
-    private var nextUpRow: some View {
-        if let next = nextUpItem {
-            HStack(spacing: Spacing.sm) {
-                Image(systemName: "forward.end.alt.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                Text("Hierna")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                AlbumArtView(imageKey: next.imageKey, size: 28)
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(next.title).font(.caption).lineLimit(1)
-                    if let s = next.subtitle, !s.isEmpty {
-                        Text(s).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .background(.quaternary.opacity(0.5), in: Capsule())
-            .frame(maxWidth: 420)
-            .contentShape(Capsule())
-            .onTapGesture {
-                Haptics.tap()
-                Task { await client.next(zoneID: zone.id) }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Hierna: \(next.title)\(next.subtitle.map { " — \($0)" } ?? "")")
-            .accessibilityHint("Tik om door te spelen")
-        }
-    }
-
-    private var nextUpItem: RoonClient.QueueItem? {
-        client.queueItems.count > 1 ? client.queueItems[1] : nil
     }
 
     // MARK: Transport
@@ -453,7 +386,7 @@ private struct NowPlayingHero: View {
             Button {
                 Task { await client.previous(zoneID: zone.id) }
             } label: {
-                Image(systemName: "backward.fill").font(.title2)
+                Image(systemName: "backward.fill").font(.title)
             }
             .buttonStyle(.plain)
             .frame(minWidth: 44, minHeight: 44)
@@ -463,7 +396,7 @@ private struct NowPlayingHero: View {
                 Task { await client.playPause(zoneID: zone.id) }
             } label: {
                 Image(systemName: zone.state == .playing ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 56))
+                    .font(.system(size: 60))
                     .foregroundStyle(Color.roonGold)
                     .contentTransition(.symbolEffect(.replace))
             }
@@ -473,7 +406,7 @@ private struct NowPlayingHero: View {
             Button {
                 Task { await client.next(zoneID: zone.id) }
             } label: {
-                Image(systemName: "forward.fill").font(.title2)
+                Image(systemName: "forward.fill").font(.title)
             }
             .buttonStyle(.plain)
             .frame(minWidth: 44, minHeight: 44)
@@ -506,7 +439,7 @@ private struct NowPlayingHero: View {
                         Task { await client.setVolume(outputID: output.id, value: Int(volumeValue)) }
                     }
                 }
-                .frame(maxWidth: 260)
+                .tint(Color.roonGold)
                 .accessibilityLabel("Volume")
                 .onAppear { volumeValue = Double(vol.value) }
                 .onChange(of: vol.value) { _, v in volumeValue = Double(v) }
@@ -517,6 +450,78 @@ private struct NowPlayingHero: View {
                     .frame(width: 28, alignment: .trailing)
             }
         }
+    }
+
+    // MARK: Footer — like/dislike (teaches radios & recommendations) + up-next
+
+    @ViewBuilder
+    private var footerRow: some View {
+        if let np = zone.nowPlaying {
+            let current = client.feedbackFor(title: np.title, artist: np.artist, album: np.album)
+            HStack(spacing: Spacing.lg) {
+                Button {
+                    Haptics.tap()
+                    Task { await client.setFeedback(.like, title: np.title, artist: np.artist, album: np.album) }
+                } label: {
+                    Image(systemName: current == .like ? "hand.thumbsup.fill" : "hand.thumbsup")
+                        .font(.title3)
+                        .foregroundStyle(current == .like ? Color.roonGold : .secondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Vind ik leuk")
+                .accessibilityAddTraits(current == .like ? .isSelected : [])
+
+                Button {
+                    Haptics.tap()
+                    Task { await client.setFeedback(.dislike, title: np.title, artist: np.artist, album: np.album) }
+                } label: {
+                    Image(systemName: current == .dislike ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                        .font(.title3)
+                        .foregroundStyle(current == .dislike ? Color.roonDanger : .secondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Vind ik niet leuk — sla over en leer ervan")
+                .accessibilityAddTraits(current == .dislike ? .isSelected : [])
+
+                if let next = nextUpItem {
+                    Spacer(minLength: Spacing.sm)
+                    nextUpPill(next)
+                } else {
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    private func nextUpPill(_ next: RoonClient.QueueItem) -> some View {
+        HStack(spacing: Spacing.sm) {
+            VStack(alignment: .trailing, spacing: 1) {
+                Text("Hierna").font(.caption2).foregroundStyle(.tertiary)
+                Text(next.title).font(.caption.weight(.medium)).lineLimit(1)
+                if let s = next.subtitle, !s.isEmpty {
+                    Text(s).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            AlbumArtView(imageKey: next.imageKey, size: 36)
+            Image(systemName: "forward.end.fill")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            Haptics.tap()
+            Task { await client.next(zoneID: zone.id) }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Hierna: \(next.title)\(next.subtitle.map { " — \($0)" } ?? "")")
+        .accessibilityHint("Tik om door te spelen")
+    }
+
+    private var nextUpItem: RoonClient.QueueItem? {
+        client.queueItems.count > 1 ? client.queueItems[1] : nil
     }
 
     // MARK: Helpers
