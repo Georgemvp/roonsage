@@ -268,6 +268,18 @@ enum Schema {
             """)
         }
 
+        // The taste-analysis genre/decade queries join listening_history to tracks
+        // on LOWER(title)+LOWER(artist) — history has no stable track key, only
+        // strings. Without a matching expression index that join is a full cross
+        // scan (tens of thousands of genres × tens of thousands of listens) that
+        // grows with history and eventually blows past the client's request
+        // timeout (→ "Analyse nog niet beschikbaar"). An expression index on the
+        // exact LOWER(title),LOWER(artist) pair turns it into an index search
+        // (~250× faster on a 42k-listen / 76k-track library: >25s → ~0.1s).
+        migrator.registerMigration("v18_listen_join_index") { db in
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_tracks_lower_title_artist ON tracks(LOWER(title), LOWER(artist))")
+        }
+
         try migrator.migrate(db)
     }
 }

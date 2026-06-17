@@ -8,6 +8,7 @@ public struct TasteProfileView: View {
     @State private var topArtists: [DatabaseManager.ArtistPlayCount] = []
     @State private var recentListens: [DatabaseManager.ListenEntry] = []
     @State private var totalListens: Int = 0
+    @State private var distinctArtists: Int = 0
     @State private var analysis: DatabaseManager.TasteAnalysis?
     @State private var isLoaded = false
     @State private var selectedTab: Tab = .analyse
@@ -65,7 +66,7 @@ public struct TasteProfileView: View {
             }
             Divider().frame(height: 32)
             VStack(spacing: 2) {
-                Text("\(topArtists.count.formatted())")
+                Text("\(distinctArtists.formatted())")
                     .font(.title2.bold().monospacedDigit())
                 Text("Artiesten gehoord")
                     .font(.caption)
@@ -349,6 +350,9 @@ public struct TasteProfileView: View {
                 return
             }
             totalListens   = snap.total
+            // True distinct-artist count; fall back to the (capped) top list for
+            // an older server that didn't send it.
+            distinctArtists = snap.distinctArtists ?? snap.topArtists.count
             topArtists     = snap.topArtists
             recentListens  = snap.recent
             isLoaded = true

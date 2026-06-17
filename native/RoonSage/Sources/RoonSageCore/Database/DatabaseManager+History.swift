@@ -41,23 +41,37 @@ extension DatabaseManager {
     /// own (empty) `listening_history`.
     public struct ListenSnapshot: Sendable, Codable {
         public var total: Int
+        /// Total distinct artists heard — NOT `topArtists.count` (which is capped
+        /// at `topLimit`). Optional so a newer client tolerates an older server
+        /// that didn't send it (then falls back to the capped count).
+        public var distinctArtists: Int?
         public var topArtists: [ArtistPlayCount]
         public var recent: [ListenEntry]
-        public init(total: Int, topArtists: [ArtistPlayCount], recent: [ListenEntry]) {
-            self.total = total; self.topArtists = topArtists; self.recent = recent
+        public init(total: Int, distinctArtists: Int? = nil, topArtists: [ArtistPlayCount], recent: [ListenEntry]) {
+            self.total = total; self.distinctArtists = distinctArtists
+            self.topArtists = topArtists; self.recent = recent
         }
     }
 
     /// Builds the combined taste-profile snapshot from `listening_history`.
     public func listenSnapshot(topLimit: Int = 50, recentLimit: Int = 100) async throws -> ListenSnapshot {
         async let total = totalListens()
+        async let distinct = distinctArtistsListened()
         async let top = topArtistsListened(limit: topLimit)
         async let recent = recentListens(limit: recentLimit)
         return try await ListenSnapshot(
             total: total,
+            distinctArtists: distinct,
             topArtists: top.map { ArtistPlayCount(artist: $0.artist, count: $0.count) },
             recent: recent
         )
+    }
+
+    /// Count of distinct artists in the listening history.
+    public func distinctArtistsListened() async throws -> Int {
+        try await pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(DISTINCT artist) FROM listening_history WHERE artist IS NOT NULL AND artist <> ''") ?? 0
+        }
     }
 
     public func recentListens(limit: Int = 50) async throws ->[ListenEntry] {
