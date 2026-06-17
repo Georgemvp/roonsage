@@ -128,6 +128,16 @@ extension RoonClient {
                               trackCount: seeds.count, seedIds: seeds.map(\.id))
         }
 
+        // If any radio still needs a generated title, warm the (Ollama) model once
+        // up front so the first title call below doesn't eat a cold-start timeout
+        // and freeze on the "Radio rond X" fallback. No-op for cloud providers and
+        // when every title is already cached.
+        let needsTitle = radios.contains { r in
+            let t = UserDefaults.standard.string(forKey: Self.titleKey(r.id))
+            return (t?.isEmpty ?? true) || t == Self.fallbackMeta(artist: r.artist).title
+        }
+        if needsTitle { await LLMClient.shared.warmUp(config: LLMConfigStore.load()) }
+
         var out: [SonicRadioPlaylist] = []
         for radio in radios {
             let seedIds = radio.seedIds

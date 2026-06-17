@@ -77,6 +77,22 @@ public actor LLMClient {
         }
     }
 
+    /// Preload the model so the first real `complete` doesn't pay the cold-start
+    /// load cost (which can exceed the request timeout and silently fall back).
+    /// Only meaningful for local Ollama — cloud providers have no load step.
+    /// Best-effort: errors are swallowed; the real call surfaces any failure.
+    /// `keep_alive` keeps the model resident long enough for a burst of calls.
+    public func warmUp(config: LLMConfig) async {
+        guard config.provider == .ollama,
+              let url = URL(string: "\(config.baseURL)/api/generate") else { return }
+        let body: [String: Any] = ["model": config.model, "keep_alive": "10m"]
+        var req = URLRequest(url: url, timeoutInterval: 180)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
     // MARK: Ollama
 
     private func ollamaChat(system: String, user: String, config: LLMConfig) async throws -> String {
