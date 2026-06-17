@@ -107,35 +107,57 @@ private struct ZoneStrip: View {
     let selectedID: String
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Spacing.sm) {
-                ForEach(client.zones) { zone in
-                    let isOn = zone.id == selectedID
-                    Button {
-                        withAnimation(Motion.standard) { client.selectZone(zone.id) }
-                    } label: {
-                        HStack(spacing: Spacing.xs + 2) {
-                            Image(systemName: zone.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker")
-                                .font(.caption)
-                            Text(zone.displayName)
-                                .font(.caption.weight(isOn ? .semibold : .regular))
-                                .lineLimit(1)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.sm) {
+                    ForEach(client.zones) { zone in
+                        let isOn = zone.id == selectedID
+                        Button {
+                            withAnimation(Motion.standard) { client.selectZone(zone.id) }
+                        } label: {
+                            HStack(spacing: Spacing.xs + 2) {
+                                Image(systemName: zone.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker")
+                                    .font(.caption)
+                                Text(zone.displayName)
+                                    .font(.caption.weight(isOn ? .semibold : .regular))
+                                    .lineLimit(1)
+                            }
+                            .padding(.horizontal, Spacing.md)
+                            .padding(.vertical, Spacing.xs + 2)
+                            .background(
+                                isOn ? AnyShapeStyle(Color.roonGold) : AnyShapeStyle(.quaternary),
+                                in: Capsule())
+                            // Gold is light — black on gold for AA contrast.
+                            .foregroundStyle(isOn ? Color.black : Color.primary)
                         }
-                        .padding(.horizontal, Spacing.md)
-                        .padding(.vertical, Spacing.xs + 2)
-                        .background(
-                            isOn ? AnyShapeStyle(Color.roonGold) : AnyShapeStyle(.quaternary),
-                            in: Capsule())
-                        // Gold is light — black on gold for AA contrast.
-                        .foregroundStyle(isOn ? Color.black : Color.primary)
+                        .buttonStyle(.plain)
+                        .id(zone.id)
+                        .accessibilityLabel("Wissel naar zone \(zone.displayName)")
+                        .accessibilityAddTraits(isOn ? .isSelected : [])
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Wissel naar zone \(zone.displayName)")
-                    .accessibilityAddTraits(isOn ? .isSelected : [])
                 }
+                .padding(.horizontal, Spacing.lg)
             }
-            .padding(.horizontal, Spacing.lg)
+            // Soft-fade the leading/trailing edges so chips that scroll off the
+            // screen taper out instead of looking abruptly chopped in half.
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.04),
+                        .init(color: .black, location: 0.96),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .leading, endPoint: .trailing)
+            }
+            // Keep the active zone fully on screen rather than half-clipped at an edge.
+            .onAppear { scrollToSelected(proxy) }
+            .onChange(of: selectedID) { _, _ in scrollToSelected(proxy) }
         }
+    }
+
+    private func scrollToSelected(_ proxy: ScrollViewProxy) {
+        withAnimation(Motion.standard) { proxy.scrollTo(selectedID, anchor: .center) }
     }
 }
 
@@ -149,6 +171,13 @@ private struct NowPlayingHero: View {
 
     @State private var volumeValue: Double = 50
     @State private var displayPosition: Double = 0
+    // Position is interpolated from a wall-clock anchor instead of a blind
+    // "+1 every tick": each server poll re-anchors to the true position, and the
+    // displayed time is `anchorPosition + elapsed-since-anchor`. This keeps the
+    // clock accurate even when timer ticks aren't exactly 1.000 s apart or the
+    // poll lands mid-second (the old approach drifted a few seconds per track).
+    @State private var anchorPosition: Double = 0
+    @State private var anchorDate: Date = .init()
     @State private var isSeeking = false
     @State private var feat: (bpm: Double, camelot: String, tags: [String])?
     @State private var startingRadio = false
@@ -199,16 +228,19 @@ private struct NowPlayingHero: View {
 
             volumeRow
 
+            nextUpRow
+
             Spacer(minLength: Spacing.lg)
         }
         .padding(.horizontal, Spacing.xl)
-        .onAppear { displayPosition = zone.seekPosition ?? 0; refreshFeatures() }
-        .onChange(of: zone.id) { _, _ in displayPosition = zone.seekPosition ?? 0; refreshFeatures() }
-        .onChange(of: zone.seekPosition) { _, pos in displayPosition = pos ?? 0 }
+        .onAppear { setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
+        .onChange(of: zone.id) { _, _ in setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
+        .onChange(of: zone.seekPosition) { _, pos in if !isSeeking { setAnchor(pos ?? 0) } }
+        // Pause/resume: re-anchor at the frozen value so resuming continues from
+        // where the bar stopped instead of jumping by the paused interval.
+        .onChange(of: zone.state) { _, _ in setAnchor(displayPosition) }
         .onChange(of: zone.nowPlaying?.title) { _, _ in refreshFeatures() }
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
-            if zone.state == .playing, !isSeeking { displayPosition += 1 }
-        }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in tickPosition() }
         .task { await client.ensureFeedbackLoaded() }
     }
 
@@ -328,25 +360,82 @@ private struct NowPlayingHero: View {
 
     @ViewBuilder
     private var scrubber: some View {
-        if let np = zone.nowPlaying, let length = np.length, length > 0 {
+        if let np = zone.nowPlaying {
+            let length = Double(np.length ?? 0)
+            let hasLength = length > 0
             VStack(spacing: Spacing.xs) {
-                Slider(value: $displayPosition, in: 0...Double(length)) { editing in
-                    isSeeking = editing
-                    if !editing {
-                        Task { await client.seek(zoneID: zone.id, seconds: displayPosition) }
+                if hasLength {
+                    Slider(value: $displayPosition, in: 0...length) { editing in
+                        isSeeking = editing
+                        if !editing {
+                            Task { await client.seek(zoneID: zone.id, seconds: displayPosition) }
+                            // Hold the new position locally until the next poll
+                            // confirms it, so the thumb doesn't snap backwards.
+                            setAnchor(displayPosition)
+                        }
                     }
+                    .tint(Color.roonGold)
+                    .accessibilityLabel("Afspeelpositie")
+                } else {
+                    // Length unknown (some streams report none): still draw a clear
+                    // start→end track so the bar has bounds instead of vanishing.
+                    Capsule()
+                        .fill(.quaternary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 4)
                 }
-                .tint(Color.roonGold)
-                .accessibilityLabel("Afspeelpositie")
                 HStack {
                     Text(formatTime(displayPosition))
                     Spacer()
-                    Text("−" + formatTime(Double(length) - displayPosition))
+                    if hasLength {
+                        Text("−" + formatTime(length - displayPosition))
+                    }
                 }
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
             }
         }
+    }
+
+    // MARK: Up next — the following queue item (queueItems[0] is the current track)
+
+    @ViewBuilder
+    private var nextUpRow: some View {
+        if let next = nextUpItem {
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: "forward.end.alt.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Text("Hierna")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                AlbumArtView(imageKey: next.imageKey, size: 28)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(next.title).font(.caption).lineLimit(1)
+                    if let s = next.subtitle, !s.isEmpty {
+                        Text(s).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .background(.quaternary.opacity(0.5), in: Capsule())
+            .frame(maxWidth: 420)
+            .contentShape(Capsule())
+            .onTapGesture {
+                Haptics.tap()
+                Task { await client.next(zoneID: zone.id) }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Hierna: \(next.title)\(next.subtitle.map { " — \($0)" } ?? "")")
+            .accessibilityHint("Tik om door te spelen")
+        }
+    }
+
+    private var nextUpItem: RoonClient.QueueItem? {
+        client.queueItems.count > 1 ? client.queueItems[1] : nil
     }
 
     // MARK: Transport
@@ -427,6 +516,23 @@ private struct NowPlayingHero: View {
     private func formatTime(_ seconds: Double) -> String {
         let s = Int(max(0, seconds))
         return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    /// Pin the displayed position to a known-true value (server poll, seek, track
+    /// change) and stamp the wall clock so `tickPosition` can interpolate from it.
+    private func setAnchor(_ pos: Double) {
+        anchorPosition = max(0, pos)
+        anchorDate = Date()
+        displayPosition = anchorPosition
+    }
+
+    /// Advance the displayed position from real elapsed wall-clock time while
+    /// playing — accurate regardless of timer jitter; clamped to the track length.
+    private func tickPosition() {
+        guard zone.state == .playing, !isSeeking else { return }
+        var p = anchorPosition + Date().timeIntervalSince(anchorDate)
+        if let len = zone.nowPlaying?.length, len > 0 { p = min(p, Double(len)) }
+        displayPosition = p
     }
 
     private func refreshFeatures() {

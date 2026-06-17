@@ -280,9 +280,11 @@ struct RootView: View {
         TabView(selection: iOSTabSelection) {
             NavigationStack {
                 NowPlayingView()
-                    .navigationTitle("Nu speelt")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar { navToolbar }
+                    // Immersive: no toolbar here. The redundant zone picker +
+                    // mini-transport (useful on list screens) just compete with
+                    // the hero's own zone strip and large transport, so hide the
+                    // whole bar and let the artwork run to the top.
+                    .toolbar(.hidden, for: .navigationBar)
             }
             .tabItem { Label("Nu speelt", systemImage: "play.circle.fill") }
             .tag(SidebarItem.nowPlaying)
