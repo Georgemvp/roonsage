@@ -218,4 +218,45 @@ extension DatabaseManagerTests {
         let filtered = try await db.filterTracks(options: opts)
         XCTAssertEqual(filtered.map(\.id), ["c"])
     }
+
+    func testDedupedScrobblesSkipLocalRoonPlays() async throws {
+        // A local Roon play at a known time…
+        try await db.logListen(title: "This House", artist: "The Boxer Rebellion",
+                               album: "Union", zoneID: "z", zoneName: "Mac mini")
+        let recent = try await db.recentListens(limit: 1)
+        let roonTime = try XCTUnwrap(recent.first?.playedAt)
+        let roonUTS = Int(try XCTUnwrap(ISO8601DateFormatter().date(from: roonTime)).timeIntervalSince1970)
+        let iso = ISO8601DateFormatter()
+
+        let scrobbles = [
+            // Same track, 3 min later → Roon's own scrobble bouncing back: skip.
+            DatabaseManager.ImportedListen(title: "This House", artist: "The Boxer Rebellion", album: "Union",
+                playedAt: iso.string(from: Date(timeIntervalSince1970: Double(roonUTS + 180)))),
+            // A genuinely external play (ARC etc.) far from any local listen: keep.
+            DatabaseManager.ImportedListen(title: "Heaven Forbid", artist: "The Fray", album: nil,
+                playedAt: "2024-01-01T09:00:00Z"),
+        ]
+        try await db.appendDedupedScrobbles(scrobbles, source: "lastfm", zoneName: "Last.fm")
+
+        let lastfm = try await db.importedListenCount(source: "lastfm")
+        XCTAssertEqual(lastfm, 1, "the bounced-back Roon scrobble is dropped, the external one kept")
+        let total = try await db.totalListens()
+        XCTAssertEqual(total, 2, "one Roon listen + one external scrobble")
+    }
+
+    func testTasteAnalysisSummarisesHistoryAndFeedback() async throws {
+        try await db.upsertTracks([track("t1", "Song A", "Artist X", year: 1995)])
+        try await db.pool.write { try $0.execute(sql: "INSERT INTO track_genres (track_id, genre) VALUES ('t1','Indie')") }
+        try await db.logListen(title: "Song A", artist: "Artist X", album: "Album", zoneID: "z", zoneName: "Mac mini")
+        try await db.setFeedback(matchKey: "artist x|song a", title: "Song A", artist: "Artist X", kind: "like")
+
+        let a = try await db.tasteAnalysis()
+        XCTAssertEqual(a.totalPlays, 1)
+        XCTAssertEqual(a.likeCount, 1)
+        XCTAssertEqual(a.dislikeCount, 0)
+        XCTAssertEqual(a.topGenres.first?.label, "Indie")
+        XCTAssertEqual(a.topDecades.first?.label, "1990s")
+        XCTAssertEqual(a.topLikedArtists, ["Artist X"])
+        XCTAssertEqual(a.partsOfDay.map(\.label), ["Ochtend", "Middag", "Avond", "Nacht"])
+    }
 }

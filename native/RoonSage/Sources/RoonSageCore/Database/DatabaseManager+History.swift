@@ -129,6 +129,39 @@ extension DatabaseManager {
         }
     }
 
+    /// Append external scrobbles (e.g. Last.fm), skipping any that duplicate a
+    /// listen WE already logged locally for the same track within
+    /// `dedupeWindowSeconds`. Roon scrobbles its own plays to Last.fm, so a
+    /// straight import double-counts them (one "roon" row + one "lastfm" row a
+    /// few minutes apart); this keeps only genuinely-external plays (e.g. ARC,
+    /// other devices) that Roon's Extension API can't see. Also skips exact
+    /// re-imports of the same source row.
+    public func appendDedupedScrobbles(_ entries: [ImportedListen], source: String, zoneName: String,
+                                       dedupeWindowSeconds: Int = 600) async throws {
+        try await pool.write { db in
+            for e in entries {
+                try db.execute(sql: """
+                    INSERT INTO listening_history (title, artist, album, zone_id, zone_name, played_at, source)
+                    SELECT ?, ?, ?, NULL, ?, ?, ?
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM listening_history
+                        WHERE source = ? AND played_at = ? AND artist = ?
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM listening_history
+                        WHERE source <> ?
+                          AND LOWER(artist) = LOWER(?)
+                          AND LOWER(title)  = LOWER(?)
+                          AND ABS(CAST(strftime('%s', played_at) AS INTEGER)
+                                - CAST(strftime('%s', ?) AS INTEGER)) <= ?
+                    )
+                """, arguments: [e.title, e.artist, e.album, zoneName, e.playedAt, source,
+                                 source, e.playedAt, e.artist,
+                                 source, e.artist, e.title, e.playedAt, dedupeWindowSeconds])
+            }
+        }
+    }
+
     public func importedListenCount(source: String) async throws ->Int {
         try await pool.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM listening_history WHERE source = ?", arguments: [source]) ?? 0

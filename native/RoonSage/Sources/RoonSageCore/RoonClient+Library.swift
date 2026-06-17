@@ -63,6 +63,26 @@ extension RoonClient {
         return try? await db.listenSnapshot(topLimit: topLimit, recentLimit: recentLimit)
     }
 
+    /// Taste analysis (time-of-day, genres, decades + like/dislike summary).
+    /// Like `tasteProfile`, the thin client's history/feedback live on the
+    /// server, so pull it from there; the server build reads its own DB. Returns
+    /// nil on a transient failure so the view keeps its last-known data.
+    public func tasteAnalysis() async -> DatabaseManager.TasteAnalysis? {
+        if isRemote {
+            guard let base = remoteBaseURL, let url = URL(string: "\(base)/taste-analysis") else { return nil }
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 8
+            authorizeShareRequest(&req)
+            guard let (data, resp) = try? await URLSession.shared.data(for: req),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let analysis = try? JSONDecoder().decode(DatabaseManager.TasteAnalysis.self, from: data)
+            else { return nil }
+            return analysis
+        }
+        guard let db = database else { return nil }
+        return try? await db.tasteAnalysis()
+    }
+
     /// Year-in-review stats for the given year. Like `tasteProfile`, the thin
     /// client's local `listening_history` is empty, so pull it from the server;
     /// the macOS server reads its own DB. Returns nil on a transient failure so

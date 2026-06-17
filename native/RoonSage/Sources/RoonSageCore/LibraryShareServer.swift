@@ -8,6 +8,7 @@ import Network
 /// registers a Roon extension).
 ///   GET  /library  → exportLibraryJSON()
 ///   GET  /history  → ListenSnapshot (taste-profile totals/top-artists/recent)
+///   GET  /taste-analysis → TasteAnalysis (time/genre/decade + like/dislike summary)
 ///   GET  /settings → SyncableSettings
 ///   GET  /playback?zone=… → PlaybackSnapshot (live zones/now-playing/queue)
 ///   POST /command  → RemoteCommand (play/pause/volume/curate/…)
@@ -215,6 +216,13 @@ public final class LibraryShareServer: @unchecked Sendable {
                 return ("200 OK", body, "application/json")
             }
             return ("500 Internal Server Error", Data("history failed".utf8), "text/plain")
+        }
+        if path.hasPrefix("/taste-analysis") {
+            if let analysis = try? await database.tasteAnalysis(),
+               let body = try? JSONEncoder().encode(analysis) {
+                return ("200 OK", body, "application/json")
+            }
+            return ("500 Internal Server Error", Data("taste-analysis failed".utf8), "text/plain")
         }
         if path.hasPrefix("/year-review") {
             let year = Int(Self.queryValue("year", in: target) ?? "") ?? Calendar.current.component(.year, from: Date())

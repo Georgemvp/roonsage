@@ -247,6 +247,27 @@ enum Schema {
             }
         }
 
+        // One-time cleanup of double-counted scrobbles: Roon scrobbles its own
+        // plays to Last.fm, so older incremental syncs imported a "lastfm" row
+        // alongside the "roon" row we already logged locally (a few minutes
+        // apart). Drop the Last.fm copy when a same-track non-lastfm listen sits
+        // within a 10-minute window. (Future syncs avoid this via
+        // appendDedupedScrobbles.)
+        migrator.registerMigration("v17_dedupe_lastfm_vs_roon") { db in
+            try db.execute(sql: """
+                DELETE FROM listening_history
+                WHERE source = 'lastfm'
+                  AND EXISTS (
+                    SELECT 1 FROM listening_history r
+                    WHERE r.source <> 'lastfm'
+                      AND LOWER(r.artist) = LOWER(listening_history.artist)
+                      AND LOWER(r.title)  = LOWER(listening_history.title)
+                      AND ABS(CAST(strftime('%s', r.played_at) AS INTEGER)
+                            - CAST(strftime('%s', listening_history.played_at) AS INTEGER)) <= 600
+                  )
+            """)
+        }
+
         try migrator.migrate(db)
     }
 }

@@ -79,7 +79,9 @@ extension RoonClient {
                     title: s.track, artist: s.artist, album: s.album,
                     playedAt: iso.string(from: Date(timeIntervalSince1970: Double(s.uts))))
             }
-            try? await db.appendImportedListens(entries, source: "lastfm", zoneName: "Last.fm")
+            // Dedupe against our own local Roon listens — Roon scrobbles its plays
+            // to Last.fm, so importing them straight would double-count.
+            try? await db.appendDedupedScrobbles(entries, source: "lastfm", zoneName: "Last.fm")
             return (try? await db.importedListenCount(source: "lastfm")) ?? 0
         }.value
 

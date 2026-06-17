@@ -8,8 +8,9 @@ public struct TasteProfileView: View {
     @State private var topArtists: [DatabaseManager.ArtistPlayCount] = []
     @State private var recentListens: [DatabaseManager.ListenEntry] = []
     @State private var totalListens: Int = 0
+    @State private var analysis: DatabaseManager.TasteAnalysis?
     @State private var isLoaded = false
-    @State private var selectedTab: Tab = .topArtists
+    @State private var selectedTab: Tab = .analyse
 
     // Last.fm live top-lijsten
     @State private var lfPeriod: LastfmClient.Period = .overall
@@ -18,6 +19,7 @@ public struct TasteProfileView: View {
     @State private var lfLoading = false
 
     enum Tab: String, CaseIterable {
+        case analyse    = "Analyse"
         case topArtists = "Topartiesten"
         case recent     = "Recent gespeeld"
         case lastfm     = "Last.fm top"
@@ -92,9 +94,118 @@ public struct TasteProfileView: View {
     @ViewBuilder
     var tabContent: some View {
         switch selectedTab {
+        case .analyse:    analyseView
         case .topArtists: artistsList
         case .recent:     recentList
         case .lastfm:     lastfmTop
+        }
+    }
+
+    // MARK: - Analyse (taste fingerprint)
+
+    @ViewBuilder
+    var analyseView: some View {
+        if let a = analysis {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Spacing.lg) {
+                    // Likes / dislikes
+                    HStack(spacing: Spacing.md) {
+                        feedbackChip(icon: "hand.thumbsup.fill", tint: .roonGold,
+                                     value: a.likeCount, label: "Likes")
+                        feedbackChip(icon: "hand.thumbsdown.fill", tint: .roonDanger,
+                                     value: a.dislikeCount, label: "Dislikes")
+                    }
+
+                    if a.peakHour >= 0 {
+                        analysisCard("Wanneer je luistert", systemImage: "clock") {
+                            barList(a.partsOfDay)
+                            Text("Piekuur: rond \(a.peakHour):00")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .padding(.top, Spacing.xs)
+                        }
+                    }
+
+                    if !a.topGenres.isEmpty {
+                        analysisCard("Genres die je het meest hoort", systemImage: "guitars") {
+                            barList(a.topGenres)
+                        }
+                    }
+
+                    if !a.topDecades.isEmpty {
+                        analysisCard("Tijdperken", systemImage: "calendar") {
+                            barList(a.topDecades)
+                        }
+                    }
+
+                    if !a.topLikedArtists.isEmpty {
+                        analysisCard("Je likes wijzen naar", systemImage: "heart") {
+                            Text(a.topLikedArtists.joined(separator: " · "))
+                                .font(.callout)
+                        }
+                    }
+                    if !a.topDislikedArtists.isEmpty {
+                        analysisCard("Minder van", systemImage: "hand.thumbsdown") {
+                            Text(a.topDislikedArtists.joined(separator: " · "))
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(Spacing.lg)
+            }
+        } else if isLoaded {
+            ContentUnavailableView("Analyse nog niet beschikbaar", systemImage: "chart.pie",
+                                   description: Text("Speel meer muziek — je smaakprofiel groeit vanzelf."))
+        } else {
+            ProgressView().frame(maxWidth: .infinity, minHeight: 120)
+        }
+    }
+
+    private func feedbackChip(icon: String, tint: Color, value: Int, label: String) -> some View {
+        HStack(spacing: Spacing.sm) {
+            Image(systemName: icon).foregroundStyle(tint)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("\(value)").font(.title3.bold().monospacedDigit())
+                Text(label).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.lg))
+    }
+
+    private func analysisCard<Content: View>(_ title: String, systemImage: String,
+                                             @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+            content()
+        }
+        .padding(Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.lg))
+    }
+
+    /// Proportional bars for a labelled-count breakdown (largest = full width).
+    @ViewBuilder
+    private func barList(_ items: [DatabaseManager.TasteAnalysis.Count]) -> some View {
+        let maxCount = max(1, items.map(\.count).max() ?? 1)
+        VStack(spacing: Spacing.xs) {
+            ForEach(items) { item in
+                HStack(spacing: Spacing.sm) {
+                    Text(item.label).font(.caption).lineLimit(1)
+                        .frame(width: 88, alignment: .leading)
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.quaternary).frame(height: 8)
+                            Capsule().fill(Color.roonGold)
+                                .frame(width: max(4, geo.size.width * CGFloat(item.count) / CGFloat(maxCount)), height: 8)
+                        }
+                    }
+                    .frame(height: 8)
+                    Text("\(item.count)").font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+                }
+            }
         }
     }
 
@@ -241,6 +352,9 @@ public struct TasteProfileView: View {
             topArtists     = snap.topArtists
             recentListens  = snap.recent
             isLoaded = true
+        }
+        Task {
+            if let a = await client.tasteAnalysis() { analysis = a }
         }
     }
 
