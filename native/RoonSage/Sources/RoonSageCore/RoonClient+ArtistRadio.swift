@@ -1,3 +1,4 @@
+import Accelerate
 import Foundation
 
 // MARK: - AI Artist Radios → Qobuz
@@ -29,6 +30,11 @@ extension RoonClient {
     /// Cap on the seed artist's own tracks — anchors the playlist without turning
     /// it into a single-artist mix; the rest are nearest sonic neighbours.
     nonisolated static let artistRadioSeedCap = 10
+    /// How many of the 6 seeds are fixed top-played artists (familiar anchor).
+    /// The remainder are chosen by max-spread over artist centroids.
+    nonisolated static let artistRadioTopCount    = 2
+    /// k-NN candidate pool per playlist — larger → more daily variety.
+    nonisolated static let artistRadioPoolLimit   = 500
     /// Re-sync cadence on the always-on server build.
     nonisolated static let artistRadioRefreshInterval: UInt64 = 3 * 60 * 60 * 1_000_000_000
 
@@ -52,45 +58,81 @@ extension RoonClient {
 
     // MARK: Build
 
-    /// Build the ~6 AI artist radios: same seeds as the daily stations, each
-    /// capped to a 20–30 track playlist with an AI title + description. Pure
-    /// read — does not touch Qobuz. Safe to call from either build (server or a
-    /// client app rendering the cards).
+    /// Build the ~6 AI artist radios and mirror them to Qobuz.
+    ///
+    /// Seed strategy: `artistRadioTopCount` (= 2) fixed seeds from the most-played
+    /// artists (familiar anchors), then `artistRadioCount - 2` seeds chosen by
+    /// max-spread over artist centroids in embedding space — so the 6 playlists
+    /// cover maximally different sonic regions instead of all clustering around the
+    /// same favourite artists.
+    ///
+    /// Pool per playlist: `artistRadioPoolLimit` (= 500) k-NN neighbours, daily-
+    /// shuffled so the 30 selected tracks rotate every day within that wide pool.
     public func buildArtistRadioPlaylists() async -> [SonicRadioPlaylist] {
         guard let db = database else {
             Log.warning("Artiesten-radio's: geen database beschikbaar — overgeslagen", category: .roon)
             return []
         }
-        // radioLibrary() drops thumbed-down tracks so they never reach a playlist.
         let lib = await radioLibrary()
         guard !lib.isEmpty else {
-            Log.warning("Artiesten-radio's: 0 geanalyseerde tracks (audio-features). Sync eerst de features naar dit apparaat.", category: .roon)
+            Log.warning("Artiesten-radio's: 0 geanalyseerde tracks. Sync eerst de features.", category: .roon)
             return []
         }
         let disliked = dislikedMatchKeys
-        let radios = Array(await dailyRadios().prefix(Self.artistRadioCount))
-        guard !radios.isEmpty else {
-            Log.warning("Artiesten-radio's: geen seed-artiesten — lege luistergeschiedenis of te weinig geanalyseerde tracks per artiest.", category: .roon)
+        let index = await activeIndex(db)
+        let genres = (try? await db.genresByTrackID()) ?? [:]
+        let byId = Dictionary(lib.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let stamp = Self.dayStamp()
+
+        // Top artists by listening history (server reads local DB; client fetches /history).
+        let topArtistKeys: [String]
+        if isRemote {
+            let snap = await tasteProfile(topLimit: 100, recentLimit: 1)
+            topArtistKeys = (snap?.topArtists ?? []).map { $0.artist.lowercased() }
+        } else {
+            topArtistKeys = ((try? await db.topArtistsListened(limit: 100)) ?? []).map { $0.artist.lowercased() }
+        }
+
+        // Group analyzed tracks by lowercased artist, filter by minimum track count.
+        var byArtist: [String: [DatabaseManager.SonicTrack]] = [:]
+        for t in lib {
+            guard let a = t.artist, !a.isEmpty else { continue }
+            byArtist[a.lowercased(), default: []].append(t)
+        }
+
+        // Build the 6 seed artist keys: 2 top-played + 4 max-spread discovery.
+        let seedKeys = await Task.detached {
+            Self.maxSpreadArtistKeys(
+                byArtist: byArtist, index: index,
+                topArtistKeys: topArtistKeys, daySeed: stamp,
+                count: Self.artistRadioCount, topCount: Self.artistRadioTopCount)
+        }.value
+
+        guard !seedKeys.isEmpty else {
+            Log.warning("Artiesten-radio's: geen seed-artiesten gevonden.", category: .roon)
             return []
         }
-        let index = await activeIndex(db)
-        // Roon genres per track, for genre-affinity ranking of the neighbours.
-        let genres = (try? await db.genresByTrackID()) ?? [:]
-        // id → analyzed track, so we can summarise the sonic profile (tags,
-        // mood, energy, tempo) of the selection for the title prompt.
-        let byId = Dictionary(lib.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        // Seed the neighbour shuffle on the current date so playlists rotate daily.
-        let stamp = Self.dayStamp()
+
+        // Build a SonicRadio descriptor for each seed artist.
+        let radios: [SonicRadio] = seedKeys.compactMap { key in
+            guard let tracks = byArtist[key], !tracks.isEmpty else { return nil }
+            let display = tracks.first(where: { !($0.artist?.isEmpty ?? true) })?.artist ?? key
+            let img = tracks.first(where: { $0.imageKey?.isEmpty == false })?.imageKey
+            let seeds = tracks.filter { !disliked.contains($0.matchKey) }.prefix(Self.radioMaxSeeds)
+            guard seeds.count >= Self.radioMinTracks else { return nil }
+            return SonicRadio(id: "artist:\(key)", artist: display, imageKey: img,
+                              trackCount: seeds.count, seedIds: seeds.map(\.id))
+        }
 
         var out: [SonicRadioPlaylist] = []
         for radio in radios {
             let seedIds = radio.seedIds
             let key = radio.id
-            // Coherent candidates: seed artist's own tracks lead, then k-NN
-            // neighbours day-shuffled so the selected 20–30 rotate every day.
             let pool = await Task.detached {
-                Self.buildPlaylistCandidates(seedIds: seedIds, lib: lib, index: index,
-                                             genres: genres, disliked: disliked, daySeed: "\(stamp)|\(key)")
+                Self.buildPlaylistCandidates(
+                    seedIds: seedIds, lib: lib, index: index,
+                    genres: genres, disliked: disliked,
+                    daySeed: "\(stamp)|\(key)", limit: Self.artistRadioPoolLimit)
             }.value
             guard !pool.isEmpty else { continue }
 
@@ -111,6 +153,88 @@ extension RoonClient {
         }
         Log.info("Artiesten-radio's gebouwd: \(out.count) playlists (van \(radios.count) seeds, \(lib.count) geanalyseerde tracks)", category: .roon)
         return out
+    }
+
+    // MARK: Max-spread seed selection
+
+    /// Chooses `count` seed artist keys for the Qobuz playlists.
+    ///
+    /// The first `topCount` keys are the most-played qualifying artists (familiar
+    /// anchors). The remaining `count − topCount` are picked by farthest-first
+    /// max-spread over artist centroids in the CLAP embedding space, ensuring
+    /// the 6 playlists cover maximally different sonic regions.
+    ///
+    /// `daySeed` breaks centroid-distance ties differently each day so the
+    /// discovery selection shifts gradually, without the spread collapsing.
+    nonisolated static func maxSpreadArtistKeys(
+        byArtist: [String: [DatabaseManager.SonicTrack]],
+        index: VectorIndex?,
+        topArtistKeys: [String],
+        daySeed: String,
+        count: Int,
+        topCount: Int
+    ) -> [String] {
+        let qualifying = byArtist.filter { $0.value.count >= radioMinTracks }
+        guard !qualifying.isEmpty else { return [] }
+
+        let fixedKeys = topArtistKeys.filter { qualifying[$0] != nil }.prefix(topCount).map { $0 }
+        let fixedSet  = Set(fixedKeys)
+
+        guard let idx = index else {
+            // No embedding index — fall back to top-played order.
+            return Array(topArtistKeys.filter { qualifying[$0] != nil }.prefix(count))
+        }
+
+        // Compute L2-normalized centroid per qualifying artist.
+        struct ArtistCentroid {
+            let key: String
+            let centroid: [Float]
+        }
+        var allCentroids: [ArtistCentroid] = []
+        allCentroids.reserveCapacity(qualifying.count)
+        for (key, tracks) in qualifying {
+            if let c = idx.centroid(ofIds: tracks.map(\.id)) {
+                allCentroids.append(ArtistCentroid(key: key, centroid: c))
+            }
+        }
+
+        // Fixed seeds are the already-selected centroids.
+        var selected = allCentroids.filter { fixedSet.contains($0.key) }
+        // Remaining candidates: daily-shuffled so ties break differently each day.
+        var candidates = dailyShuffled(
+            allCentroids.filter { !fixedSet.contains($0.key) },
+            seed: daySeed)
+
+        // Farthest-first: add the candidate whose centroid is maximally far from
+        // every already-selected centroid (cosine distance = 1 − dot product).
+        var picks: [String] = fixedKeys
+        let dim = allCentroids.first?.centroid.count ?? 0
+
+        for _ in 0..<(count - fixedKeys.count) {
+            guard !candidates.isEmpty else { break }
+
+            if selected.isEmpty || dim == 0 {
+                picks.append(candidates.removeFirst().key)
+                continue
+            }
+            var bestIdx = 0
+            var bestMinDist: Float = -Float.infinity
+            for (i, cand) in candidates.enumerated() {
+                var minDist = Float.infinity
+                for sel in selected {
+                    var d: Float = 0
+                    vDSP_dotpr(cand.centroid, 1, sel.centroid, 1, &d,
+                               vDSP_Length(min(cand.centroid.count, sel.centroid.count)))
+                    let dist = 1 - d   // cosine distance (higher = more different)
+                    if dist < minDist { minDist = dist }
+                }
+                if minDist > bestMinDist { bestMinDist = minDist; bestIdx = i }
+            }
+            let next = candidates.remove(at: bestIdx)
+            picks.append(next.key)
+            selected.append(next)
+        }
+        return picks
     }
 
     /// Cap the (similarity-ordered) candidate pool to a playlist of
@@ -168,7 +292,8 @@ extension RoonClient {
     /// order.
     nonisolated static func buildPlaylistCandidates(
         seedIds: [String], lib: [DatabaseManager.SonicTrack], index: VectorIndex?,
-        genres: [String: Set<String>] = [:], disliked: Set<String> = [], daySeed: String = ""
+        genres: [String: Set<String>] = [:], disliked: Set<String> = [],
+        daySeed: String = "", limit: Int = 500
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
         // Don't seed on a disliked track.
@@ -177,7 +302,7 @@ extension RoonClient {
         // Disliked tracks aren't banned — down-sample them (much less often). The
         // embedding k-NN ranks against the whole index, so they can surface here.
         var neighbours = applyFeedbackWeighting(
-            SonicEngine.nearest(toSeeds: own, in: lib, limit: 200, index: index).map(\.track),
+            SonicEngine.nearest(toSeeds: own, in: lib, limit: limit, index: index).map(\.track),
             disliked: disliked, salt: daySeed.isEmpty ? "playlist" : daySeed,
             matchKey: { $0.matchKey })
 
