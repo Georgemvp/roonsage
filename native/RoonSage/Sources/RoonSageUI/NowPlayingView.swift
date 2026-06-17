@@ -1,5 +1,8 @@
 import SwiftUI
 import RoonSageCore
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Immersive Now Playing: the selected zone is the showpiece — full-bleed
 /// blurred-art backdrop, large springy album art, generous scrubber and gold
@@ -198,13 +201,31 @@ private struct NowPlayingHero: View {
     @State private var feat: (bpm: Double, camelot: String, tags: [String])?
     @State private var startingRadio = false
 
+    /// The real width to bound the hero to. On iOS we read the active window's
+    /// width directly (capped for iPad) instead of trusting the layout proposal,
+    /// which iOS 26.6 inflates beyond the screen for hidden-bar NavigationStack
+    /// content. On macOS the window is correctly sized, so a plain cap suffices.
+    private var maxContentWidth: CGFloat {
+        #if canImport(UIKit)
+        let windowWidth = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.bounds.width }
+            .first ?? UIScreen.main.bounds.width
+        return min(windowWidth > 0 ? windowWidth : 560, 560)
+        #else
+        return 560
+        #endif
+    }
+
     var body: some View {
-        // NO top-level GeometryReader and NO finite maxWidth: a greedy
-        // GeometryReader wrapped in `.frame(maxWidth: 560)` rendered the whole
-        // stack ~560pt wide on iOS 26.6 (fine on 26.5), pushing the times, volume
-        // icon/number and like button off-screen. A plain VStack with only
-        // `.frame(maxWidth: .infinity)` can never exceed the screen width. The
-        // artwork shrinks via aspect-ratio to keep the controls on screen.
+        // iOS 26.6 proposes an OVER-WIDE layout region to this NavigationStack
+        // content with a hidden bar — ~560pt on a 390pt iPhone 13 (fine on 26.5).
+        // So neither a greedy GeometryReader (it READS 560) nor `.frame(maxWidth:
+        // .infinity)` (it CLAMPS to 560) can keep the content on screen: the
+        // title overflowed both edges and the controls were pushed off. Fix:
+        // bound the stack to the TRUE screen/window width (read from UIKit, not
+        // from the bad proposal) and centre it in the over-wide region — since
+        // the region is centred on the screen, content at the real width lands
+        // correctly. No GeometryReader, so nothing can read the inflated width.
         VStack(spacing: Spacing.md) {
             Spacer(minLength: 0)
             art
@@ -216,8 +237,9 @@ private struct NowPlayingHero: View {
             volumeRow
             footerRow
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, Spacing.xl)
+        .frame(width: maxContentWidth)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.bottom, Spacing.sm)
         .onAppear { setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
         .onChange(of: zone.id) { _, _ in setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
