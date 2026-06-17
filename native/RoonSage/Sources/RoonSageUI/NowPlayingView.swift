@@ -332,16 +332,16 @@ private struct NowPlayingHero: View {
                 let w = geo.size.width
                 let frac = hasLength ? min(max(displayPosition / length, 0), 1) : 0
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.18))
-                        .frame(height: 5)
+                    Capsule().fill(Color.white.opacity(0.28))
+                        .frame(height: 6)
                     Capsule().fill(Color.roonGold)
-                        .frame(width: max(0, w * frac), height: 5)
-                    if hasLength {
-                        Circle().fill(.white)
-                            .frame(width: 15, height: 15)
-                            .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
-                            .offset(x: min(max(w * frac - 7.5, 0), w - 15))
-                    }
+                        .frame(width: max(0, w * frac), height: 6)
+                    // Always show the knob (even at 0:00) so the bar clearly reads
+                    // as a scrubber rather than a flat line.
+                    Circle().fill(.white)
+                        .frame(width: 16, height: 16)
+                        .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+                        .offset(x: min(max(w * frac - 8, 0), w - 16))
                 }
                 .frame(maxHeight: .infinity, alignment: .center)
                 .contentShape(Rectangle())
@@ -372,8 +372,8 @@ private struct NowPlayingHero: View {
                 Spacer()
                 Text(hasLength ? "-" + formatTime(length - displayPosition) : "--:--")
             }
-            .font(.footnote.monospacedDigit())
-            .foregroundStyle(.secondary)
+            .font(.footnote.weight(.medium).monospacedDigit())
+            .foregroundStyle(.primary)
         }
     }
 
@@ -437,7 +437,10 @@ private struct NowPlayingHero: View {
                         Task { await client.setVolume(outputID: output.id, value: Int(volumeValue)) }
                     }
                 }
-                .tint(Color.roonGold)
+                // Neutral tint (not gold) so the volume reads as a separate
+                // control and isn't mistaken for a second progress bar.
+                .tint(.white.opacity(0.55))
+                .controlSize(.small)
                 .accessibilityLabel("Volume")
                 .onAppear { volumeValue = Double(vol.value) }
                 .onChange(of: vol.value) { _, v in volumeValue = Double(v) }
@@ -463,7 +466,7 @@ private struct NowPlayingHero: View {
                 } label: {
                     Image(systemName: current == .like ? "hand.thumbsup.fill" : "hand.thumbsup")
                         .font(.title3)
-                        .foregroundStyle(current == .like ? Color.roonGold : .secondary)
+                        .foregroundStyle(current == .like ? Color.roonGold : .primary)
                         .frame(minWidth: 44, minHeight: 44)
                         .contentTransition(.symbolEffect(.replace))
                 }
@@ -477,7 +480,7 @@ private struct NowPlayingHero: View {
                 } label: {
                     Image(systemName: current == .dislike ? "hand.thumbsdown.fill" : "hand.thumbsdown")
                         .font(.title3)
-                        .foregroundStyle(current == .dislike ? Color.roonDanger : .secondary)
+                        .foregroundStyle(current == .dislike ? Color.roonDanger : .primary)
                         .frame(minWidth: 44, minHeight: 44)
                         .contentTransition(.symbolEffect(.replace))
                 }
@@ -487,7 +490,9 @@ private struct NowPlayingHero: View {
 
                 if let next = nextUpItem {
                     Spacer(minLength: Spacing.sm)
-                    nextUpPill(next)
+                    // Lower layout priority so a long "up next" title never
+                    // squeezes the like/dislike buttons off the leading edge.
+                    nextUpPill(next).layoutPriority(-1)
                 } else {
                     Spacer(minLength: 0)
                 }
@@ -498,7 +503,7 @@ private struct NowPlayingHero: View {
     private func nextUpPill(_ next: RoonClient.QueueItem) -> some View {
         HStack(spacing: Spacing.sm) {
             VStack(alignment: .trailing, spacing: 1) {
-                Text("Hierna").font(.caption2).foregroundStyle(.tertiary)
+                Text("Hierna").font(.caption2).foregroundStyle(.secondary)
                 Text(next.title).font(.caption.weight(.medium)).lineLimit(1)
                 if let s = next.subtitle, !s.isEmpty {
                     Text(s).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
