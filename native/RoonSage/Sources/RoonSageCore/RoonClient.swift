@@ -264,11 +264,24 @@ public final class RoonClient {
 
     // MARK: - Connection
 
+    /// Reduce free-form user/saved input to a bare host. People paste
+    /// `http://10.0.0.5`, `https://host/`, or `host:5767`; in server mode we then
+    /// build `http://<host>:5767` ourselves, so a leftover scheme/port/path would
+    /// produce a broken URL (`http://http://…`) and silently fail to connect.
+    public nonisolated static func normalizeHost(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let r = s.range(of: "://") { s = String(s[r.upperBound...]) }   // drop scheme
+        if let slash = s.firstIndex(of: "/") { s = String(s[..<slash]) }   // drop path
+        // Drop a trailing :port (but never inside an IPv6 literal like [::1]).
+        if !s.contains("["), let colon = s.lastIndex(of: ":") { s = String(s[..<colon]) }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     public func connect(host rawHost: String, port: UInt16 = 9330) async {
         // Server mode: no Roon socket. Treat the host (saved/typed) as the
         // RoonSage server address on the share port; empty host → auto-discover.
         if isRemote {
-            let h = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
+            let h = Self.normalizeHost(rawHost)
             if !h.isEmpty { remoteBaseURL = "http://\(h):\(LibraryShareServer.defaultPort)" }
             await startServerMode(); return
         }
@@ -381,7 +394,7 @@ public final class RoonClient {
         return p > 0 ? UInt16(p) : 9330
     }
     func persistHost(_ host: String, port: UInt16) {
-        UserDefaults.standard.set(host, forKey: "lastRoonHost")
+        UserDefaults.standard.set(Self.normalizeHost(host), forKey: "lastRoonHost")
         UserDefaults.standard.set(Int(port), forKey: "lastRoonPort")
     }
 

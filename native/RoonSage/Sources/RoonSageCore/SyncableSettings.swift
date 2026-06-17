@@ -77,9 +77,12 @@ public struct SyncableSettings: Codable, Sendable {
     public func apply() {
         let d = UserDefaults.standard
 
-        if let host = roonHost, !host.isEmpty {
-            d.set(host, forKey: "lastRoonHost")
-            if let port = roonPort, port > 0 { d.set(port, forKey: "lastRoonPort") }
+        if let host = roonHost {
+            let clean = RoonClient.normalizeHost(host)   // never store a scheme/port in the host
+            if !clean.isEmpty {
+                d.set(clean, forKey: "lastRoonHost")
+                if let port = roonPort, port > 0 { d.set(port, forKey: "lastRoonPort") }
+            }
         }
 
         if let providerRaw = llmProvider,

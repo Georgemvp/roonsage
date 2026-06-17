@@ -123,10 +123,11 @@ extension RoonClient {
     public func discoverShareServer() async -> String? {
         var hosts: [String] = []
         func addHost(fromURL s: String?) {
-            guard let s, let h = URL(string: s.trimmingCharacters(in: .whitespaces))?.host else { return }
-            hosts.append(h)
+            guard let s else { return }
+            let h = RoonClient.normalizeHost(s)
+            if !h.isEmpty { hosts.append(h) }
         }
-        if let h = savedHost { hosts.append(h) }
+        if let h = savedHost { addHost(fromURL: h) }
         addHost(fromURL: analyzerURL)
         addHost(fromURL: LLMConfigStore.load().baseURL)
         addHost(fromURL: UserDefaults.standard.string(forKey: "library_import_url"))
