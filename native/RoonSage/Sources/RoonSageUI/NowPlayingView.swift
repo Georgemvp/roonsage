@@ -33,7 +33,6 @@ public struct NowPlayingView: View {
                     }
                     #endif
                     NowPlayingHero(zone: zone)
-                        .frame(maxWidth: 560)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -204,7 +203,14 @@ private struct NowPlayingHero: View {
         // the whole control stack below always fits without overflow, and a
         // bounded custom scrubber replaces the full-bleed system Slider.
         GeometryReader { geo in
-            let artSide = max(140, min(geo.size.width - Spacing.xl * 2, geo.size.height * 0.37))
+            // EXPLICIT content width derived from the real geometry, capped for
+            // iPad. `min(geo.size.width, …)` can never exceed the screen, so the
+            // flexible bars (scrubber/volume) can't overflow and push the times,
+            // volume icon/number and like button off-screen — which is exactly
+            // what happened on iOS 26.6, where `.frame(maxWidth:)` on a greedy
+            // GeometryReader resolved too wide.
+            let contentW = min(geo.size.width, 560)
+            let artSide = max(140, min(contentW - Spacing.xl * 2, geo.size.height * 0.37))
             VStack(spacing: Spacing.md) {
                 Spacer(minLength: 0)
                 art(side: artSide)
@@ -216,9 +222,9 @@ private struct NowPlayingHero: View {
                 footerRow
                 Spacer(minLength: 0)
             }
-            .frame(maxWidth: 520)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, Spacing.xl)
+            .frame(width: contentW)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear { setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
         .onChange(of: zone.id) { _, _ in setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
