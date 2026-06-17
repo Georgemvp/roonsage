@@ -181,6 +181,12 @@ public final class RoonClient {
     var genreTask: Task<Void, Never>?
     var genreSyncService: LibrarySyncService?
     var lastNowPlaying: [String: String] = [:]  // zoneID → title (dedup guard)
+    /// Live per-second playback position from Roon's `zones_seek_changed` frames.
+    /// Kept OUT of the observable `zones` array on purpose: re-publishing `zones`
+    /// every second would re-invalidate the whole Now Playing UI. Instead the
+    /// server overlays this onto each zone when it builds a `/playback` snapshot,
+    /// so remote clients get a fresh seek position without any per-second churn.
+    @ObservationIgnored var liveSeek: [String: Double] = [:]  // zoneID → seconds
 
     // Reconnect state
     var intentionalDisconnect = false
@@ -571,11 +577,20 @@ public final class RoonClient {
         let toRemove = body["zones_removed"] as? [String] ?? []
 
         // Roon emits `zones_seek_changed` roughly once per second per playing
-        // zone. We don't consume those frames (the progress bar advances via a
-        // local timer in the view), so a seek-only update carries no structural
-        // change. Returning early avoids rebuilding and reassigning the
-        // observable `zones` array every second, which would otherwise
-        // re-invalidate the whole Now Playing list on every tick.
+        // zone. We don't rebuild the observable `zones` array for these (that
+        // would re-invalidate the whole Now Playing UI every tick), but we DO
+        // record the fresh position in `liveSeek` so `/playback` snapshots stay
+        // accurate for remote clients (whose own poll is too coarse to track it).
+        if let seeks = body["zones_seek_changed"] as? [[String: Any]] {
+            for s in seeks {
+                guard let zid = s["zone_id"] as? String else { continue }
+                if let pos = s["seek_position"] as? Double { liveSeek[zid] = pos }
+                else if let pos = s["seek_position"] as? Int { liveSeek[zid] = Double(pos) }
+            }
+        }
+
+        // A seek-only frame carries no structural change — returning early avoids
+        // reassigning the observable `zones` array on every tick.
         if toUpdate.isEmpty && toRemove.isEmpty { return }
 
         for dict in toUpdate {
@@ -599,10 +614,15 @@ public final class RoonClient {
             }
 
             zoneMap[zone.id] = zone
+            // Re-sync the live seek to this structural position (track change /
+            // play-pause), so a snapshot doesn't briefly overlay the previous
+            // track's position before the next per-second frame arrives.
+            liveSeek[zone.id] = zone.seekPosition ?? 0
         }
         for id in toRemove {
             lastNowPlaying.removeValue(forKey: id)
             zoneMap.removeValue(forKey: id)
+            liveSeek.removeValue(forKey: id)
             Task { await scrobbler.zoneRemoved(id) }
         }
         zones = Array(zoneMap.values).sorted { $0.displayName < $1.displayName }

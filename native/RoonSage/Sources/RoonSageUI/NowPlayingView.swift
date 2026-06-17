@@ -157,7 +157,9 @@ private struct ZoneStrip: View {
     }
 
     private func scrollToSelected(_ proxy: ScrollViewProxy) {
-        withAnimation(Motion.standard) { proxy.scrollTo(selectedID, anchor: .center) }
+        // Anchor the active zone to the leading edge so it's always fully shown
+        // and no chip is left half-clipped *before* it.
+        withAnimation(Motion.standard) { proxy.scrollTo(selectedID, anchor: .leading) }
     }
 }
 
@@ -183,40 +185,14 @@ private struct NowPlayingHero: View {
     @State private var startingRadio = false
 
     var body: some View {
-        VStack(spacing: Spacing.lg) {
-            Spacer(minLength: Spacing.sm)
-
+        VStack(spacing: Spacing.md) {
+            // Artwork absorbs the spare vertical space and shrinks on shorter
+            // screens, so every control below — scrubber, transport, volume and
+            // "Hierna" — stays fully on screen instead of being pushed off.
             art
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Track info
-            VStack(spacing: Spacing.xs) {
-                if let np = zone.nowPlaying {
-                    Text(np.title)
-                        .font(.title2.bold())
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                    if let artist = np.artist {
-                        Text(artist)
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    if let album = np.album {
-                        Text(album)
-                            .font(.callout)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                } else {
-                    Text("Er speelt niets")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                    Text(zone.displayName)
-                        .font(.callout)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(.horizontal, Spacing.xl)
+            trackInfo
 
             featureRow
 
@@ -229,10 +205,10 @@ private struct NowPlayingHero: View {
             volumeRow
 
             nextUpRow
-
-            Spacer(minLength: Spacing.lg)
         }
         .padding(.horizontal, Spacing.xl)
+        .padding(.top, Spacing.sm)
+        .padding(.bottom, Spacing.md)
         .onAppear { setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
         .onChange(of: zone.id) { _, _ in setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
         .onChange(of: zone.seekPosition) { _, pos in if !isSeeking { setAnchor(pos ?? 0) } }
@@ -282,6 +258,40 @@ private struct NowPlayingHero: View {
                 .help("Sla over en sluit uit van toekomstige radio's en aanbevelingen")
             }
         }
+    }
+
+    // MARK: Track info
+
+    @ViewBuilder
+    private var trackInfo: some View {
+        VStack(spacing: Spacing.xs) {
+            if let np = zone.nowPlaying {
+                Text(np.title)
+                    .font(.title2.bold())
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                if let artist = np.artist {
+                    Text(artist)
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if let album = np.album {
+                    Text(album)
+                        .font(.callout)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            } else {
+                Text("Er speelt niets")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                Text(zone.displayName)
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, Spacing.xl)
     }
 
     // MARK: Art — large, springs on track change, shrinks slightly when paused
@@ -387,11 +397,9 @@ private struct NowPlayingHero: View {
                 HStack {
                     Text(formatTime(displayPosition))
                     Spacer()
-                    if hasLength {
-                        Text("−" + formatTime(length - displayPosition))
-                    }
+                    Text(hasLength ? "−" + formatTime(length - displayPosition) : "--:--")
                 }
-                .font(.caption.monospacedDigit())
+                .font(.footnote.monospacedDigit())
                 .foregroundStyle(.secondary)
             }
         }

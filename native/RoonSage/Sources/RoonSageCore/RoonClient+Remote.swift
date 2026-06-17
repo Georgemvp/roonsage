@@ -68,8 +68,17 @@ extension RoonClient {
         // stalled this MainActor path. It changes when analyses change, so
         // remotes auto-re-pull features/embeddings even if the Roon library
         // itself didn't change.
+        // Overlay the live per-second seek (kept out of the observable `zones`)
+        // so remote clients see an accurate, advancing position instead of the
+        // last structural value frozen until the next track change.
+        let freshZones = zones.map { zone -> Zone in
+            guard let live = liveSeek[zone.id], zone.nowPlaying != nil else { return zone }
+            var z = zone
+            z.seekPosition = live
+            return z
+        }
         return PlaybackSnapshot(
-            zones: zones,
+            zones: freshZones,
             queueItems: queueItems,
             roonConnected: connectionState.isConnected,
             coreName: coreName,
