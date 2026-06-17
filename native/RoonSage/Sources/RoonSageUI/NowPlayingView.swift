@@ -37,6 +37,10 @@ public struct NowPlayingView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            // Immersive media screen: always light foreground over the darkened
+            // art backdrop, regardless of the app's light/dark theme — otherwise
+            // a light theme would render black controls invisible on the scrim.
+            .environment(\.colorScheme, .dark)
             // Meaningful bar title: the playing track (or the zone when idle) —
             // not the redundant "Nu speelt" (the tab bar already labels this).
             .navigationTitle(zone.nowPlaying?.title ?? zone.displayName)
@@ -77,16 +81,7 @@ private struct NowPlayingBackdrop: View {
 
     var body: some View {
         ZStack {
-            if let key = zone.nowPlaying?.imageKey,
-               let url = client.imageURL(forKey: key, size: 300) {
-                CachedArtImage(url: url) { Color.clear }
-                    .id(key)
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
-                    .blur(radius: 60, opaque: true)
-                    .transition(.opacity)
-            }
+            blurredArt
             Rectangle().fill(.regularMaterial)
             if let artColor {
                 LinearGradient(
@@ -94,6 +89,14 @@ private struct NowPlayingBackdrop: View {
                     startPoint: .top, endPoint: .bottom
                 )
             }
+            // Dark scrim so the white foreground (track title, scrubber, volume,
+            // like/dislike) always has contrast — a bright album cover would
+            // otherwise wash it all out. Heaviest toward the bottom, where the
+            // controls sit; the artwork up top stays vibrant.
+            LinearGradient(
+                colors: [.black.opacity(0.15), .black.opacity(0.35), .black.opacity(0.7)],
+                startPoint: .top, endPoint: .bottom
+            )
         }
         .ignoresSafeArea()
         .animation(Motion.ambient, value: artColor)
@@ -101,6 +104,20 @@ private struct NowPlayingBackdrop: View {
             guard let key = zone.nowPlaying?.imageKey,
                   let url = client.imageURL(forKey: key, size: 64) else { artColor = nil; return }
             artColor = await ImageCache.shared.dominantColor(for: url)
+        }
+    }
+
+    @ViewBuilder
+    private var blurredArt: some View {
+        if let key = zone.nowPlaying?.imageKey,
+           let url = client.imageURL(forKey: key, size: 300) {
+            CachedArtImage(url: url) { Color.clear }
+                .id(key)
+                .scaledToFill()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .blur(radius: 60, opaque: true)
+                .transition(.opacity)
         }
     }
 }

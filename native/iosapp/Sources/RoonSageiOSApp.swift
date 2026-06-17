@@ -27,11 +27,34 @@ struct RoonSageiOSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .tint(.roonGold)
-                .withHandoff()
-                .environment(client)
-                .onAppear {
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["RS_PREVIEW"] == "1" {
+                NowPlayingPreviewHost()
+                    .tint(.roonGold)
+                    .environment(client)
+            } else {
+                mainScene
+            }
+            #else
+            mainScene
+            #endif
+        }
+        // Lifecycle-safe background refresh: BGTaskScheduler registration happens
+        // before any scene connects when declared here (not in .onAppear).
+        // BGTaskSchedulerPermittedIdentifiers must also list this ID in Info.plist.
+        .backgroundTask(.appRefresh("com.roonsage.ios.refresh")) {
+            await MainActor.run { scheduleNextBackgroundRefresh() }
+            _ = await client.ensureConnected(timeout: 8)
+            await MainActor.run { syncSystemSurfaces() }
+        }
+    }
+
+    private var mainScene: some View {
+        ContentView()
+            .tint(.roonGold)
+            .withHandoff()
+            .environment(client)
+            .onAppear {
                     nowPlayingCenter.configure(client: client)
                     // Prime the scheduler so the first refresh fires ~15 min later.
                     scheduleNextBackgroundRefresh()
@@ -91,15 +114,6 @@ struct RoonSageiOSApp: App {
                         }
                     }
                 }
-        }
-        // Lifecycle-safe background refresh: BGTaskScheduler registration happens
-        // before any scene connects when declared here (not in .onAppear).
-        // BGTaskSchedulerPermittedIdentifiers must also list this ID in Info.plist.
-        .backgroundTask(.appRefresh("com.roonsage.ios.refresh")) {
-            await MainActor.run { scheduleNextBackgroundRefresh() }
-            _ = await client.ensureConnected(timeout: 8)
-            await MainActor.run { syncSystemSurfaces() }
-        }
     }
 
     // MARK: - Background refresh (BGTaskScheduler)
