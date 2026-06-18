@@ -101,8 +101,12 @@ extension RoonClient {
     ) -> RadioBucket? {
         let usable = tracks.filter { !disliked.contains($0.matchKey) }
         guard usable.count >= categoryRadioMinTracks else { return nil }
-        let seeds = Array(dailyShuffled(usable, seed: "\(daySeed)|\(id)").prefix(radioMaxSeeds))
-        let img = usable.first(where: { $0.imageKey?.isEmpty == false })?.imageKey
+        // Daily-shuffle once; both the seeds AND the cover come from that order, so
+        // the artwork is representative of THIS bucket (not the library's first row)
+        // and rotates daily — neighbouring buckets no longer share a single cover.
+        let shuffled = dailyShuffled(usable, seed: "\(daySeed)|\(id)")
+        let seeds = Array(shuffled.prefix(radioMaxSeeds))
+        let img = shuffled.first(where: { $0.imageKey?.isEmpty == false })?.imageKey
         return RadioBucket(id: id, label: label, imageKey: img,
                            seedIds: seeds.map(\.id), trackCount: usable.count)
     }
@@ -113,32 +117,24 @@ extension RoonClient {
         lib: [DatabaseManager.SonicTrack], genres: [String: Set<String>],
         disliked: Set<String>, daySeed: String
     ) -> [RadioBucket] {
-        // Combine Roon genres (by track id) with the analyzer's tags. Key on the
-        // lowercased form; keep the nicest display label seen for that key.
+        // Roon's `track_genres` ONLY — the analyzer's free-text `tags`
+        // ("peak-time", "warmup", "high-energy", "atmospheric", …) are energy/DJ
+        // descriptors, not genres, and would otherwise drown out the real genres.
+        // Key on the lowercased form; keep Roon's properly-cased label.
         var byGenre: [String: [DatabaseManager.SonicTrack]] = [:]
         var labelFor: [String: String] = [:]
         for t in lib {
-            var labels = Set<String>()
-            if let g = genres[t.id] { labels.formUnion(g) }
-            labels.formUnion(t.tags)
-            for raw in labels {
+            guard let gs = genres[t.id] else { continue }
+            for raw in gs {
                 let key = raw.lowercased().trimmingCharacters(in: .whitespaces)
                 guard !key.isEmpty else { continue }
                 byGenre[key, default: []].append(t)
-                // Prefer a properly-cased Roon label over a lowercased tag.
-                if labelFor[key] == nil || (raw.first?.isUppercase == true && labelFor[key]?.first?.isUppercase != true) {
-                    labelFor[key] = raw.first?.isUppercase == true ? raw : raw.capitalized
-                }
+                if labelFor[key] == nil { labelFor[key] = raw }
             }
         }
-        // Drop "umbrella" genres that sit on a huge share of the library (e.g.
-        // Roon's "Pop/Rock"): they match almost everything, so they're not a useful
-        // station theme.
-        let total = max(1, lib.count)
         let buckets = byGenre.compactMap { (key, tracks) -> RadioBucket? in
-            guard Double(tracks.count) / Double(total) <= 0.45 else { return nil }
-            return makeBucket(id: "genre:\(key)", label: labelFor[key] ?? key.capitalized,
-                              tracks: tracks, disliked: disliked, daySeed: daySeed)
+            makeBucket(id: "genre:\(key)", label: labelFor[key] ?? key.capitalized,
+                       tracks: tracks, disliked: disliked, daySeed: daySeed)
         }
         return Array(buckets.sorted { $0.trackCount > $1.trackCount }.prefix(categoryRadioMax))
     }
@@ -156,6 +152,7 @@ extension RoonClient {
             "tender": "Teder", "epic": "Episch", "dreamy": "Dromerig",
             "hopeful": "Hoopvol", "angry": "Woedend", "peaceful": "Vredig",
             "groovy": "Groovy", "dramatic": "Dramatisch", "warm": "Warm",
+            "danceable": "Dansbaar",
         ]
         return map[key.lowercased()] ?? key.capitalized
     }
@@ -163,12 +160,15 @@ extension RoonClient {
     private nonisolated static func moodBuckets(
         lib: [DatabaseManager.SonicTrack], disliked: Set<String>, daySeed: String
     ) -> [RadioBucket] {
-        let threshold: Float = 0.5
+        // Assign each track to its DOMINANT mood (argmax). The analyzer's mood
+        // scores rarely cross an absolute 0.5, so a fixed threshold left the buckets
+        // nearly empty; argmax gives clean, non-overlapping stations. A small floor
+        // skips tracks with no mood that stands out.
+        let floor: Float = 0.3
         var byMood: [String: [DatabaseManager.SonicTrack]] = [:]
         for t in lib {
-            for (mood, score) in t.moods where score >= threshold {
-                byMood[mood.lowercased(), default: []].append(t)
-            }
+            guard let top = t.moods.max(by: { $0.value < $1.value }), top.value >= floor else { continue }
+            byMood[top.key.lowercased(), default: []].append(t)
         }
         let buckets = byMood.compactMap { (key, tracks) -> RadioBucket? in
             makeBucket(id: "mood:\(key)", label: moodLabel(key),

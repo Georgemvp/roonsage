@@ -17,35 +17,40 @@ final class RadioCategoryTests: XCTestCase {
 
     // MARK: Genre
 
-    func testGenreBucketsDropUnderfilledAndUmbrella() {
+    func testGenreBucketsUseRoonGenresAndFloor() {
         var lib: [DatabaseManager.SonicTrack] = []
-        lib += (0..<10).map { st($0, tags: ["rock"]) }          // qualifies
-        lib += (100..<109).map { st($0, tags: ["jazz"]) }       // qualifies (9)
-        lib += (200..<205).map { st($0, tags: ["pop"]) }        // below the 8-track floor
-        lib += (300..<312).map { st($0) }                       // untagged filler
+        var genres: [String: Set<String>] = [:]
+        for i in 0..<10  { lib.append(st(i)); genres["t\(i)"] = ["Rock"] }            // qualifies
+        for i in 100..<109 { lib.append(st(i)); genres["t\(i)"] = ["Jazz"] }          // qualifies (9)
+        for i in 200..<205 { lib.append(st(i)); genres["t\(i)"] = ["Pop"] }           // below the 8-track floor
+        // Analyzer tags must NOT create genre buckets — only Roon genres count.
+        for i in 300..<312 { lib.append(st(i, tags: ["peak-time", "high-energy"])) }
 
         let buckets = RoonClient.buildBuckets(
-            category: .genre, lib: lib, genres: [:], years: [:], disliked: [], daySeed: "test")
+            category: .genre, lib: lib, genres: genres, years: [:], disliked: [], daySeed: "test")
 
         XCTAssertEqual(Set(buckets.map(\.label)), ["Rock", "Jazz"])
         let rock = buckets.first { $0.label == "Rock" }
         XCTAssertEqual(rock?.trackCount, 10)
         XCTAssertFalse(rock?.seedIds.isEmpty ?? true)
-        XCTAssertTrue(rock?.id == "genre:rock")
+        XCTAssertEqual(rock?.id, "genre:rock")
     }
 
     // MARK: Mood
 
-    func testMoodBucketsKeepStrongMoodsOnly() {
+    func testMoodBucketsByDominantMood() {
         var lib: [DatabaseManager.SonicTrack] = []
-        lib += (0..<10).map { st($0, moods: ["happy": 0.8]) }
-        lib += (100..<109).map { st($0, moods: ["energetic": 0.6]) }
-        lib += (200..<208).map { st($0, moods: ["sad": 0.3]) }   // below the 0.5 threshold
+        // Each track lands in its strongest mood (argmax), even though scores stay
+        // well under an absolute 0.5 — mirroring the analyzer's real distribution.
+        lib += (0..<10).map { st($0, moods: ["happy": 0.42, "sad": 0.1]) }
+        lib += (100..<109).map { st($0, moods: ["party": 0.38, "relaxed": 0.2]) }
+        // No mood clears the 0.3 floor → excluded entirely.
+        lib += (200..<208).map { st($0, moods: ["sad": 0.2, "happy": 0.15]) }
 
         let buckets = RoonClient.buildBuckets(
             category: .mood, lib: lib, genres: [:], years: [:], disliked: [], daySeed: "test")
 
-        XCTAssertEqual(Set(buckets.map(\.label)), ["Vrolijk", "Energiek"])
+        XCTAssertEqual(Set(buckets.map(\.label)), ["Vrolijk", "Feestelijk"])
     }
 
     // MARK: Activity
