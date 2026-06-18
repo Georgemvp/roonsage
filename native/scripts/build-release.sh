@@ -13,7 +13,9 @@
 # also handles certificate import before calling this script.
 set -euo pipefail
 
-VERSION="${1:-$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")}"
+# Match the app's own `vX.Y.Z` tags only — an unfiltered `git describe` picks
+# up the interleaved `analyzer-v*` / `ios-v*` tags and stamps the wrong version.
+VERSION="${1:-$(git describe --tags --abbrev=0 --match='v[0-9]*' 2>/dev/null || echo "0.0.0")}"
 VERSION="${VERSION#v}"   # strip leading 'v'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

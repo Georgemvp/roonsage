@@ -3,7 +3,10 @@
 #   cd native && ./scripts/build-analyzer-release.sh [version]
 set -euo pipefail
 
-VERSION="${1:-$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")}"
+# Default to the latest *analyzer* tag only — an unfiltered `git describe`
+# picks up the interleaved macOS-app `v*` tags (that's how it once stamped the
+# analyzer as 1.10.39 instead of its real analyzer-v version).
+VERSION="${1:-$(git describe --tags --abbrev=0 --match='analyzer-v[0-9]*' 2>/dev/null || echo "0.0.0")}"
 VERSION="${VERSION#analyzer-v}"
 VERSION="${VERSION#v}"
 
