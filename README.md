@@ -57,19 +57,22 @@ Design principles:
 - **Lock Screen / Control Center / CarPlay / AirPods** controls on iOS (`MPNowPlayingInfoCenter` + remote command center), plus **Live Activities** (lock screen + Dynamic Island) and **Siri Shortcuts**.
 
 ### AI curation & search
-- **Generate** — describe a mood/genre/era; the LLM analyses it into filters, picks tracks from your library, and plays or saves the result.
+- **Generate** — describe a mood/genre/era; the LLM analyses it into filters (sub-styles are mapped onto Roon's coarse genres), picks tracks from your library, and stops at a finished playlist with an **AI title + description**, auto-saved locally — you then pick a zone and play. Warns when a genre intent couldn't be honoured by the library.
 - **Ask** — a lightweight vibe prompt → one LLM call → instantly-playable results (play now / queue next / play all).
 - **Recommend** — album recommendations grounded in your library.
 - **Save to Qobuz** — push a curated set to a real Qobuz playlist.
-- LLM providers: **Anthropic**, **OpenAI**, and **Ollama** (local).
+- LLM providers: **Anthropic**, **OpenAI**, **Ollama** (local), and any **OpenAI-compatible** custom endpoint.
 
-### Sonic intelligence (from audio features)
-- **Sonic Fingerprint** — your musical DNA as a radar chart, computed from your most-played tracks, used to surface similar (and undiscovered) library tracks.
-- **Music Map** — a native, ML-free 2D scatter of every analyzed track (X = tempo, Y = energy, colour = Camelot key); tap a point to play it.
-- **Song Paths** — the smoothest sonic bridge between two tracks (nearest-neighbour walk / graph search).
-- **Song Alchemy** — add/subtract vector math over the feature space to blend or steer a selection.
+### Sonic intelligence (CLAP embeddings)
+The sonic features run over **CLAP sonic embeddings** (512-dim vectors the analyzer extracts per track via Core ML), with a rule-based BPM/Camelot/energy/tag fallback before a track is analyzed.
+- **Sonic Fingerprint** — your musical DNA as a radar chart (energy, tempo, major-key share, tempo spread, tag richness) computed from your most-played tracks; recommendations are ranked by cosine similarity in the embedding space.
+- **Sonic Search** — free-text query ("dreamy ambient piano", "energetic funk with horns") → CLAP text encoder → cosine match against your library's embeddings.
+- **Music Map** — a 2D scatter of every analyzed track: X/Y are a **PCA-2D projection of the CLAP embeddings** (falls back to tempo × energy before analysis), colour = Camelot key; tap a point to play it.
+- **Song Paths** — the smoothest sonic bridge between two tracks (nearest-neighbour walk / graph search over the embedding space).
+- **Song Alchemy** — add/subtract vector math over the embedding space to blend or steer a selection.
+- **Sonic Radio** — daily, endless artist-seeded stations that refill as they drain, plus a handful of **AI artist radios** saved as stable, auto-refreshed Qobuz playlists (AI-generated titles, genre-coherent ordering).
 - **Taste Profile** — top artists, genres, tags, and listening stats combining local history with ListenBrainz/Last.fm.
-- **Year in Review** — a recap of your listening.
+- **Year in Review** — a recap of your listening (works on thin clients too — pulled from the server).
 
 ### DJ tools
 - **DJ Set** — beatmatched, Camelot-compatible sets with a BPM curve, a fixed-scale energy arc, and a harmonic-transition strip (harmonic / same-key / tempo-only), plus an "X/Y harmonic transitions" summary.
@@ -78,6 +81,7 @@ Design principles:
 
 ### Scrobbling & history
 - Per-zone listening monitor with a gated scrobble coordinator → **ListenBrainz** + **Last.fm** (now-playing + listen submission), local `listening_history`, and a backfill path.
+- **Automatic Last.fm sync** — the server build pulls new scrobbles every 15 minutes, capturing plays from ARC and other sources the Roon Extension API can't observe.
 
 ### Design
 - System/Light/Dark themes, an accent picker (Roon gold default), album-art-driven dynamic colour, skeleton loaders, empty states, and haptics on iOS.
@@ -95,8 +99,8 @@ native/
 │       ├── RoonSageCore/         #   RoonClient, GRDB database, sync, browse, playback,
 │       │                         #   LLM/Qobuz/ListenBrainz/Last.fm clients, share/proxy server
 │       ├── RoonSageUI/           #   all SwiftUI views (shared by Mac + iOS), Theme, Appearance
-│       ├── AudioAnalysis/        #   BPM, key→Camelot, FFT, metadata, fuzzy track matching
-│       ├── AnalyzerCore/         #   analyzer library walk, feature store, HTTP /features server
+│       ├── AudioAnalysis/        #   BPM, key→Camelot, FFT, metadata, fuzzy matching, CLAP (Core ML)
+│       ├── AnalyzerCore/         #   analyzer library walk, feature/embedding store, HTTP server
 │       ├── RoonSageAnalyzer/     #   roonsage-analyzer CLI (analyze / validate)
 │       ├── RoonSageAnalyzerApp/  #   the standalone Analyzer macOS app
 │       ├── RoonSageMCP/          #   roonsage-mcp — MCP server for Claude Desktop (stdio)
@@ -118,10 +122,14 @@ Only one device registers a Roon extension. RoonClient runs in one of two modes 
   - `GET /settings` — synced settings
   - `GET /playback?zone=…` — live zones / now-playing / queue
   - `POST /command` — play / pause / volume / curate / … (the **playback proxy**)
+  - `GET /history` — listening history (so thin clients render history, radios, and taste)
+  - `GET /year-review?year=…` — Year in Review stats
   - `GET /health`
 - **`server`** — the **Mac/iOS client apps**: no Roon extension on the device; they pull the library and settings, show live playback, and proxy every transport/curation command through the server. Playback still happens per-device-targeted Roon zones.
 
-The analyzer is the **server of record** for sync, settings, and audio analyses; the Mac and iOS apps are thin clients that pull everything. (Discovery on iOS uses ZeroTier + a saved host, since SOOD multicast needs Apple's multicast entitlement.)
+The **analyzer** runs its own HTTP server (`AnalyzerCore`, port `5766`) that the apps pull audio analysis from: `GET /features` (BPM/key/scalars), `GET /embeddings` (binary CLAP vectors), `GET /text-embed?q=…` (CLAP text encoder for Sonic Search), and `GET /health`.
+
+The analyzer is the **server of record** for sync, settings, and audio analyses; the Mac and iOS apps are thin clients that pull everything (library, settings, history, features, and embeddings). (Discovery on iOS uses ZeroTier + a saved host, since SOOD multicast needs Apple's multicast entitlement.)
 
 ---
 
@@ -157,7 +165,7 @@ Architecture audit: [`docs/NATIVE_APP_AUDIT.md`](docs/NATIVE_APP_AUDIT.md).
 
 The `roonsage-mcp` executable is a small **MCP server** (stdio JSON-RPC) that lets Claude Desktop control RoonSage. It talks to the RoonSage server build and exposes tools such as:
 
-`roon_zones` · `roon_play_pause` · `roon_next` / `roon_previous` · `roon_set_volume` · `roon_adjust_volume` · `roon_mute` · `roon_set_shuffle` · `roon_set_repeat` · `roon_transfer_zone` · `roon_search_library` · `get_library_stats` · `get_albums` · `filter_tracks` → `curate_and_play` · `validate_playlist` · `play_album` · `get_listening_history` · `get_top_artists` · `get_taste_profile` · `sync_library`
+`roon_zones` · `roon_play_pause` · `roon_next` / `roon_previous` · `roon_set_volume` · `roon_adjust_volume` · `roon_mute` · `roon_set_shuffle` · `roon_set_repeat` · `roon_transfer_zone` · `roon_search_library` · `search_qobuz` · `get_library_stats` · `get_albums` · `filter_tracks` → `curate_and_play` · `validate_playlist` · `play_album` · `save_playlist` / `list_playlists` / `play_playlist` / `delete_playlist` · `get_listening_history` · `get_top_artists` · `get_taste_profile` · `sync_library`
 
 Build it with `swift build` (target `roonsage-mcp`) and point your `claude_desktop_config.json` at the resulting binary.
 
@@ -165,8 +173,9 @@ Build it with `swift build` (target `roonsage-mcp`) and point your `claude_deskt
 
 ## Audio Analyzer
 
-The analyzer (CLI `roonsage-analyzer` + the `RoonSageAnalyzerApp` macOS app) walks your music files, extracts **BPM** and **musical key → Camelot**, and serves the results over HTTP (`/features`) so the Mac and iOS apps join them onto the synced library for the DJ/Sonic features. It's all native Swift (`AudioAnalysis`) — no librosa, no Python.
+The analyzer (CLI `roonsage-analyzer` + the `RoonSageAnalyzerApp` macOS app) walks your music files, extracts **BPM**, **musical key → Camelot**, and a **512-dim CLAP sonic embedding** per track, then serves them over HTTP (port `5766`: `/features`, `/embeddings`, `/text-embed`) so the Mac and iOS apps join them onto the synced library for the DJ and Sonic features. It's all native Swift — DSP in `AudioAnalysis`, CLAP inference via **Core ML** — no librosa, no Python at runtime.
 
+- **CLAP embeddings** power Sonic Search, Music Map, Similar, Song Paths, Song Alchemy, and Sonic Radio. The Core ML conversion uses an exact bicubic mel-resize matched to the PyTorch reference (cosine parity 1.0000) and averages multiple windows across the track body so the vector represents the whole song. The embedding model version is tracked so a bump re-embeds without recomputing scalars.
 - **Track matching** uses a durable `TrackIdentity.matchKey` (`artist|title` with position-prefix / featured-artist / remaster-edition normalisation) plus a primary-artist reducer and a same-artist fuzzy fallback, so Roon's metadata joins onto file tags despite classical-title truncation and "feat." differences.
 - **Accuracy** uses parabolic autocorrelation-peak interpolation for sub-frame BPM and per-frame chroma normalisation with silent-frame gating for key detection. A `validate <musicdir> --reference <csv>` harness reports BPM/key accuracy against a labelled sample.
 

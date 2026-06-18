@@ -54,7 +54,23 @@ extension RoonClient {
         public var qobuzName: String { RoonClient.qobuzPlaylistName(for: title) }
     }
 
-    nonisolated static func qobuzPlaylistName(for title: String) -> String { "RoonSage · \(title)" }
+    /// Shared namespace prefix for our Qobuz playlists — also the marker orphan
+    /// reconciliation uses to recognise (and prune) stale radio playlists.
+    nonisolated static let qobuzNamePrefix = "RoonSage · "
+    nonisolated static func qobuzPlaylistName(for title: String) -> String { "\(qobuzNamePrefix)\(title)" }
+
+    // MARK: Stable seed set
+    //
+    // The 6 seed artists are chosen ONCE and persisted, so every refresh updates
+    // the SAME 6 Qobuz playlists. Earlier the seed set was recomputed each build
+    // (max-spread over a pool that shifts as the library is analyzed, plus a daily
+    // tie-break shuffle), so a refresh could pick different artists → new radio
+    // ids → new playlist names → a fresh Qobuz playlist each time, orphaning the
+    // old one. That piled up duplicates. Persisting the seeds anchors identity;
+    // a seed is only replaced when it stops qualifying (too few analyzed tracks).
+    private static let seedKeysKey = "artistradio.seeds.v1"
+    static func loadSeedKeys() -> [String] { UserDefaults.standard.stringArray(forKey: seedKeysKey) ?? [] }
+    static func saveSeedKeys(_ keys: [String]) { UserDefaults.standard.set(keys, forKey: seedKeysKey) }
 
     // MARK: Build
 
@@ -104,18 +120,34 @@ extension RoonClient {
             dict[a.lowercased(), default: []].append(t)
         }
 
-        // Build the 6 seed artist keys: 2 top-played + 4 max-spread discovery.
-        let seedKeys = await Task.detached {
-            Self.maxSpreadArtistKeys(
-                byArtist: byArtist, index: index,
-                topArtistKeys: topArtistKeys, daySeed: stamp,
-                count: Self.artistRadioCount, topCount: Self.artistRadioTopCount)
-        }.value
+        // Build the 6 seed artist keys. Reuse the PERSISTED seeds so identity is
+        // stable across refreshes; only refill slots whose seed no longer qualifies
+        // (dropped below the analyzed-track threshold). First run (no persisted
+        // seeds) uses the original 2 top-played + 4 max-spread discovery pick.
+        func qualifies(_ key: String) -> Bool { (byArtist[key]?.count ?? 0) >= Self.radioMinTracks }
+        let kept = Self.loadSeedKeys().filter(qualifies)
+        let seedKeys: [String]
+        if kept.count >= Self.artistRadioCount {
+            seedKeys = Array(kept.prefix(Self.artistRadioCount))
+        } else {
+            // Pin the survivors (or, on first run, the top-played anchors) and fill
+            // the freed slots by max-spread over the remaining artists.
+            let pinned      = kept.isEmpty ? topArtistKeys : kept
+            let pinnedCount = kept.isEmpty ? Self.artistRadioTopCount : kept.count
+            seedKeys = await Task.detached {
+                Self.maxSpreadArtistKeys(
+                    byArtist: byArtist, index: index,
+                    topArtistKeys: pinned, daySeed: stamp,
+                    count: Self.artistRadioCount, topCount: pinnedCount)
+            }.value
+        }
 
         guard !seedKeys.isEmpty else {
             Log.warning("Artiesten-radio's: geen seed-artiesten gevonden.", category: .roon)
             return []
         }
+        // Persist immediately so the very next refresh reuses exactly these seeds.
+        Self.saveSeedKeys(seedKeys)
 
         // Build a SonicRadio descriptor for each seed artist.
         let radios: [SonicRadio] = seedKeys.compactMap { key in
@@ -558,7 +590,43 @@ extension RoonClient {
         }
         // Cache the synced set so /artist-radios can serve it to client apps.
         if synced > 0 { cachedArtistRadios = playlists }
+
+        // Reconcile Qobuz + caches back to the current stable set. The 6 seeds are
+        // persisted (see buildArtistRadioPlaylists); any "RoonSage · …" playlist
+        // outside that set is a leftover from older seed-drift and is removed so
+        // duplicates don't pile up. Keep = the names we just synced PLUS the cached
+        // titles of every persisted seed (protects a seed that didn't rebuild this
+        // round from being wrongly deleted).
+        let seedIds = Set(Self.loadSeedKeys())
+        var keepNames = Set(playlists.map(\.qobuzName))
+        for id in seedIds {
+            if let t = UserDefaults.standard.string(forKey: Self.titleKey(id)), !t.isEmpty {
+                keepNames.insert(Self.qobuzPlaylistName(for: t))
+            }
+        }
+        let removed = await QobuzClient.shared.deleteRadioOrphans(
+            keep: keepNames, namePrefix: Self.qobuzNamePrefix, email: email, password: pw)
+        if removed > 0 {
+            Log.info("AI artiesten-radio's: \(removed) verouderde duplicaat-playlist(s) van Qobuz opgeruimd", category: .network)
+        }
+        // Drop caches for radios no longer in the seed set so a returning artist
+        // starts fresh instead of reusing a now-deleted Qobuz playlist id.
+        Self.pruneRadioCaches(keepIds: seedIds)
         return synced
+    }
+
+    /// Remove the per-radio UserDefaults caches (Qobuz id, AI title, description)
+    /// for any radio id NOT in `keepIds` (the current persisted seed set).
+    static func pruneRadioCaches(keepIds: Set<String>) {
+        let d = UserDefaults.standard
+        let prefix = "artistradio.qobuzid."
+        for key in d.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+            let id = String(key.dropFirst(prefix.count))
+            guard !keepIds.contains(id) else { continue }
+            d.removeObject(forKey: qobuzIDKey(id))
+            d.removeObject(forKey: titleKey(id))
+            d.removeObject(forKey: descKey(id))
+        }
     }
 
     /// JSON-encode the cached radio set for the share server's /artist-radios endpoint.

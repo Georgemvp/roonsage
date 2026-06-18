@@ -8,12 +8,57 @@ RoonSage is now a native Swift/SwiftUI product. Per-release notes are published
 on **[GitHub Releases](https://github.com/Georgemvp/roonsage/releases)** (the
 in-app updater consumes the same feed), across three independent tag tracks:
 
-- **macOS** — `vX.Y.Z`
-- **iOS** — `ios-vX.Y.Z`
-- **Analyzer** — `analyzer-vX.Y.Z`
+- **macOS** — `vX.Y.Z` (current: `v1.10.14`)
+- **iOS** — `ios-vX.Y.Z` (current: `ios-v1.6.60`)
+- **Analyzer** — `analyzer-vX.Y.Z` (current: `analyzer-v1.1.17`)
 
-The entries below document the **deprecated** Docker/Python web app
-(`legacy-docker/`), kept for historical reference only.
+The per-tag notes on GitHub are authoritative; the themed highlights below
+summarise the major native milestones. (The `legacy-docker/` entries further
+down document the **deprecated** Docker/Python web app, kept for reference only.)
+
+### Native highlights
+
+**Sonic embeddings (CLAP).** The whole sonic suite — Sonic Fingerprint, Music
+Map, Similar, Song Paths, Song Alchemy, and Sonic Radio — was rewired onto
+**512-dim CLAP embeddings** that the analyzer extracts per track via Core ML,
+with a rule-based BPM/Camelot/energy/tag fallback before analysis. A brute-force
+cosine `VectorIndex` powers k-NN; Music Map switched to a PCA-2D projection of
+the embeddings; and a new **Sonic Search** view matches free-text queries through
+the analyzer's CLAP **text encoder** (`/text-embed`). The Core ML conversion was
+hardened to exact bicubic mel-resize (cosine parity 0.94 → **1.0000**) with
+multi-window embedding across the track body; the embedding model version is
+tracked so a bump re-embeds without recomputing scalars.
+
+**Sonic Radio.** Daily, endless artist-seeded stations that refill as they drain,
+plus a handful of **AI artist radios** persisted as stable, auto-refreshed Qobuz
+playlists — AI-generated titles (cached so the playlist identity stays stable),
+nearest-first genre-coherent ordering, and clickable cards with a tracklist sheet.
+Refresh/sync runs on the server build; thin clients seed from the server's top
+artists.
+
+**Generate → playlist.** The Generate flow now stops at a finished playlist with
+an AI title + description and auto-saves it locally; you then pick a zone and play.
+Genre sub-styles are mapped onto Roon's coarse genres, with a warning when an
+intent can't be honoured by the library.
+
+**Server / thin-client architecture.** One device registers the Roon extension
+(`direct` server build) and exposes `LibraryShareServer` (port 5767:
+`/library`, `/settings`, `/playback`, `/command`, `/history`, `/year-review`,
+`/health`); the analyzer serves `/features`, `/embeddings`, and `/text-embed`
+(port 5766). The Mac/iOS apps run as thin clients (`server` mode) pulling
+everything and proxying commands. Year in Review and Taste now work on thin
+clients by reading from the server. Token-gated HTTP servers.
+
+**Automatic Last.fm sync.** The server build pulls new scrobbles every 15 minutes,
+capturing plays from ARC and other sources the Roon Extension API can't observe.
+
+**Async database layer.** `DatabaseManager` was migrated to a fully async GRDB
+pool (sync/history/filter/discovery/tracks/audio-features/share), removing the
+`Task.detached` wrappers and tightening error propagation.
+
+**Claude Desktop (MCP).** `roonsage-mcp` (stdio) exposes ~26 tools — transport,
+zones, library/Qobuz search, filter → curate, playlist save/list/play/delete,
+albums, history, taste, and sync.
 
 ---
 

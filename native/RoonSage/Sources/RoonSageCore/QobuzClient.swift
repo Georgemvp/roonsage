@@ -100,6 +100,31 @@ public actor QobuzClient {
         return SaveResult(matched: ids.count, total: tracks.count, playlistID: playlistID)
     }
 
+    /// Delete every "RoonSage · …" playlist whose exact name is NOT in `keep`.
+    ///
+    /// The AI artist-radio set is meant to be a STABLE 6 playlists that refreshes
+    /// in place. Earlier builds let the seed set drift (so a refresh created a new
+    /// playlist under a new name and orphaned the old one), piling up duplicates.
+    /// This reconciles Qobuz back to the current set: list the user's playlists,
+    /// and delete any in our `namePrefix` namespace that the caller no longer
+    /// recognises. Returns the number deleted.
+    public func deleteRadioOrphans(
+        keep: Set<String>,
+        namePrefix: String,
+        email: String,
+        password: String
+    ) async -> Int {
+        guard let session = await login(email: email, password: password) else { return 0 }
+        let keepLower = Set(keep.map { $0.lowercased() })
+        let mine = await listUserPlaylists(session: session)
+        var deleted = 0
+        for p in mine where p.name.hasPrefix(namePrefix) && !keepLower.contains(p.name.lowercased()) {
+            await deletePlaylist(playlistID: p.id, session: session)
+            deleted += 1
+        }
+        return deleted
+    }
+
     /// Verify credentials and return the account display name, or nil.
     public func verify(email: String, password: String) async -> String? {
         guard await login(email: email, password: password) != nil else { return nil }
@@ -212,6 +237,32 @@ public actor QobuzClient {
             if let id = p["id"] as? String { return id }
         }
         return nil
+    }
+
+    /// All of the user's playlists as `(id, name)`. Used by orphan reconciliation.
+    private func listUserPlaylists(session: Session) async -> [(id: String, name: String)] {
+        var comps = URLComponents(string: "\(base)/playlist/getUserPlaylists")!
+        comps.queryItems = [.init(name: "limit", value: "500"), .init(name: "offset", value: "0")]
+        guard let url = comps.url,
+              let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = (json["playlists"] as? [String: Any])?["items"] as? [[String: Any]] else { return [] }
+        return items.compactMap { p in
+            let name = p["name"] as? String ?? ""
+            let id: String? = (p["id"] as? Int).map(String.init) ?? (p["id"] as? String)
+            guard let id, !name.isEmpty else { return nil }
+            return (id, name)
+        }
+    }
+
+    /// Delete an entire playlist (not just its tracks).
+    private func deletePlaylist(playlistID: String, session: Session) async {
+        guard let url = URL(string: "\(base)/playlist/delete") else { return }
+        var req = authedRequest(url, session: session)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        req.httpBody = form(["playlist_id": playlistID])
+        _ = try? await URLSession.shared.data(for: req)
     }
 
     private func updatePlaylist(playlistID: String, name: String, description: String, session: Session) async {
