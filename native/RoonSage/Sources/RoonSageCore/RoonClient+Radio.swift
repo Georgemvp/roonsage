@@ -58,6 +58,19 @@ extension RoonClient {
 
     // MARK: Daily radios
 
+    /// Build today's stations for `category`. Artist radios use the play-history
+    /// scoring below; the other categories are bucketed by `radioBuckets(_:)`
+    /// (genre/mood/activity/decade) and ordered as that builder returns them.
+    public func dailyRadios(category: RadioCategory) async -> [SonicRadio] {
+        guard category == .artist else {
+            return await radioBuckets(category).map {
+                SonicRadio(id: $0.id, artist: $0.label, imageKey: $0.imageKey,
+                           trackCount: $0.trackCount, seedIds: $0.seedIds)
+            }
+        }
+        return await dailyRadios()
+    }
+
     /// Build today's stations from the most-played artists (Roon + imported
     /// Last.fm history, since `listening_history` holds both). Only artists with
     /// enough analyzed tracks qualify; order rotates daily.

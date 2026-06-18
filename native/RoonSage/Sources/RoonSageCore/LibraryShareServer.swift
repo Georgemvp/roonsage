@@ -282,7 +282,8 @@ public final class LibraryShareServer: @unchecked Sendable {
             return ("500 Internal Server Error", Data("export failed".utf8), "text/plain")
         }
         if path.hasPrefix("/artist-radios") {
-            let data = await RoonClient.shared.artistRadiosData()
+            let category = RoonClient.RadioCategory(rawValue: Self.queryValue("category", in: target) ?? "artist") ?? .artist
+            let data = await RoonClient.shared.artistRadiosData(category: category)
             return ("200 OK", data, "application/json")
         }
         if path.hasPrefix("/health") {

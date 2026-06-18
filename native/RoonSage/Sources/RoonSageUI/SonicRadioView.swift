@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 public struct SonicRadioView: View {
     @Environment(RoonClient.self) private var client
+    @State private var category: RoonClient.RadioCategory = .artist
     @State private var radios: [RoonClient.SonicRadio] = []
     @State private var isLoading = false
     @State private var loaded = false
@@ -28,6 +29,8 @@ public struct SonicRadioView: View {
                 if let radio = client.activeRadio { activeBanner(radio) }
 
                 header
+
+                categoryPicker
 
                 if !radios.isEmpty {
                     LazyVGrid(columns: columns, spacing: Spacing.md) {
@@ -56,7 +59,22 @@ public struct SonicRadioView: View {
         }
         .task { await load(force: false) }
         .task { await loadQobuz(force: false) }
+        .onChange(of: category) {
+            syncMessage = nil
+            Task { await load(force: true); await loadQobuz(force: true) }
+        }
         .sheet(item: $detailPlaylist) { playlistDetailSheet($0) }
+    }
+
+    /// Switches both sections between Artiest · Genre · Sfeer · Activiteit · Decennium.
+    private var categoryPicker: some View {
+        Picker("Categorie", selection: $category) {
+            ForEach(RoonClient.RadioCategory.allCases) { c in
+                Text(c.label).tag(c)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
     }
 
     // MARK: Sections
@@ -68,9 +86,19 @@ public struct SonicRadioView: View {
             } icon: {
                 Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(Color.roonGold)
             }
-            Text("Elke dag verse, eindeloze stations rond de artiesten die je het meest luistert.")
+            Text(headerSubtitle)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var headerSubtitle: String {
+        switch category {
+        case .artist:   return "Elke dag verse, eindeloze stations rond de artiesten die je het meest luistert."
+        case .genre:    return "Eindeloze stations per genre uit je bibliotheek."
+        case .mood:     return "Eindeloze stations per sfeer — gekozen op de stemming van je muziek."
+        case .activity: return "Eindeloze stations voor wat je aan het doen bent: workout, focus, chillen en meer."
+        case .decade:   return "Eindeloze stations per decennium, op basis van het releasejaar."
         }
     }
 
@@ -150,7 +178,7 @@ public struct SonicRadioView: View {
         guard force || !loaded else { return }
         isLoading = true
         defer { isLoading = false; loaded = true }
-        radios = await client.dailyRadios()
+        radios = await client.dailyRadios(category: category)
     }
 
     // MARK: AI artist radios → Qobuz
@@ -172,7 +200,7 @@ public struct SonicRadioView: View {
                     }
                     if isLoadingQobuz { ProgressView().controlSize(.small) }
                 }
-                Text("Zes artiesten-radio's met een AI-titel + beschrijving, als Qobuz-playlists die continu worden ververst. Tik een kaart aan voor de tracklijst.")
+                Text("\(category.label)-radio's met een AI-titel + beschrijving, als Qobuz-playlists die continu worden ververst. Tik een kaart aan voor de tracklijst.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -188,7 +216,7 @@ public struct SonicRadioView: View {
                 Button {
                     Task { await sync() }
                 } label: {
-                    Label(isSyncing ? "Synchroniseren…" : "Sync alle radio's naar Qobuz",
+                    Label(isSyncing ? "Synchroniseren…" : "Sync \(category.label)-radio's naar Qobuz",
                           systemImage: "arrow.triangle.2.circlepath")
                 }
                 .buttonStyle(.borderedProminent)
@@ -325,7 +353,7 @@ public struct SonicRadioView: View {
         guard force || !qobuzLoaded else { return }
         isLoadingQobuz = true
         defer { isLoadingQobuz = false; qobuzLoaded = true }
-        qobuzRadios = await client.buildArtistRadioPlaylists()
+        qobuzRadios = await client.buildRadioPlaylists(category: category)
     }
 
     private func sync() async {
@@ -334,9 +362,9 @@ public struct SonicRadioView: View {
         isSyncing = true
         syncMessage = nil
         defer { isSyncing = false }
-        let count = await client.syncArtistRadiosToQobuz()
+        let count = await client.syncRadiosToQobuz(category: category)
         // Re-read so cards reflect their new "op Qobuz" status.
-        qobuzRadios = await client.buildArtistRadioPlaylists()
+        qobuzRadios = await client.buildRadioPlaylists(category: category)
         qobuzLoaded = true
         if count > 0 {
             syncMessage = "\(count) radio('s) gesynchroniseerd naar Qobuz."

@@ -84,19 +84,33 @@ extension RoonClient {
     ///
     /// Pool per playlist: `artistRadioPoolLimit` (= 500) k-NN neighbours, daily-
     /// shuffled so the 30 selected tracks rotate every day within that wide pool.
+    /// Back-compat wrapper: the artist category (the original behaviour).
     public func buildArtistRadioPlaylists() async -> [SonicRadioPlaylist] {
+        await buildRadioPlaylists(category: .artist)
+    }
+
+    /// Build the ~6 AI radios for `category` and prepare them for Qobuz. Artist
+    /// radios use the stable-seed + max-spread selection; the other categories take
+    /// their seeds from `radioBuckets(_:)`. The per-radio playlist build (candidate
+    /// pool → cap → AI title) is shared across all categories.
+    ///
+    /// `restrictKeys` (non-artist only) limits + orders the buckets to those bucket
+    /// keys — used by the daypart-aware auto-sync to mirror only a small, time-of-
+    /// day-appropriate slice to Qobuz (e.g. a calm set of activities in the morning).
+    /// The in-app daily radios and the manual sync pass nil → all buckets.
+    public func buildRadioPlaylists(category: RadioCategory, restrictKeys: [String]? = nil) async -> [SonicRadioPlaylist] {
         // Client apps (iOS / macOS thin client) fetch the server's already-synced
         // set so they always show the same playlists as Qobuz.
         if isRemote, let base = remoteBaseURL {
-            return await fetchArtistRadiosFromServer(base: base)
+            return await fetchRadiosFromServer(base: base, category: category)
         }
         guard let db = database else {
-            Log.warning("Artiesten-radio's: geen database beschikbaar — overgeslagen", category: .roon)
+            Log.warning("Radio's (\(category.rawValue)): geen database beschikbaar — overgeslagen", category: .roon)
             return []
         }
         let lib = await radioLibrary()
         guard !lib.isEmpty else {
-            Log.warning("Artiesten-radio's: 0 geanalyseerde tracks. Sync eerst de features.", category: .roon)
+            Log.warning("Radio's (\(category.rawValue)): 0 geanalyseerde tracks. Sync eerst de features.", category: .roon)
             return []
         }
         let disliked = dislikedMatchKeys
@@ -105,68 +119,39 @@ extension RoonClient {
         let byId = Dictionary(lib.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let stamp = Self.dayStamp()
 
-        // Top artists by listening history (server reads local DB; client fetches /history).
-        let topArtistKeys: [String]
-        if isRemote {
-            let snap = await tasteProfile(topLimit: 100, recentLimit: 1)
-            topArtistKeys = (snap?.topArtists ?? []).map { $0.artist.lowercased() }
+        // Seed radios: artist keeps its stable-seed logic; the others come from the
+        // category buckets (whose ids we persist for orphan-safe reconciliation).
+        let radios: [SonicRadio]
+        if category == .artist {
+            radios = await artistSeedRadios(db: db, lib: lib, index: index, disliked: disliked, stamp: stamp)
         } else {
-            topArtistKeys = ((try? await db.topArtistsListened(limit: 100)) ?? []).map { $0.artist.lowercased() }
+            var buckets = await radioBuckets(category)
+            // Daypart filter: keep only the requested bucket keys, in that order.
+            // Fall back to the default set if none of them currently qualify.
+            if let restrictKeys, !restrictKeys.isEmpty {
+                let picked = restrictKeys.compactMap { k in
+                    buckets.first { $0.id == "\(category.idPrefix)\(k)" }
+                }
+                if !picked.isEmpty { buckets = picked }
+            }
+            let chosen = Array(buckets.prefix(Self.artistRadioCount))
+            Self.saveRadioIDs(chosen.map(\.id), category: category)
+            radios = chosen.map {
+                SonicRadio(id: $0.id, artist: $0.label, imageKey: $0.imageKey,
+                           trackCount: $0.trackCount, seedIds: $0.seedIds)
+            }
         }
-
-        // Group analyzed tracks by lowercased artist.
-        let byArtist = lib.reduce(into: [String: [DatabaseManager.SonicTrack]]()) { dict, t in
-            guard let a = t.artist, !a.isEmpty else { return }
-            dict[a.lowercased(), default: []].append(t)
-        }
-
-        // Build the 6 seed artist keys. Reuse the PERSISTED seeds so identity is
-        // stable across refreshes; only refill slots whose seed no longer qualifies
-        // (dropped below the analyzed-track threshold). First run (no persisted
-        // seeds) uses the original 2 top-played + 4 max-spread discovery pick.
-        func qualifies(_ key: String) -> Bool { (byArtist[key]?.count ?? 0) >= Self.radioMinTracks }
-        let kept = Self.loadSeedKeys().filter(qualifies)
-        let seedKeys: [String]
-        if kept.count >= Self.artistRadioCount {
-            seedKeys = Array(kept.prefix(Self.artistRadioCount))
-        } else {
-            // Pin the survivors (or, on first run, the top-played anchors) and fill
-            // the freed slots by max-spread over the remaining artists.
-            let pinned      = kept.isEmpty ? topArtistKeys : kept
-            let pinnedCount = kept.isEmpty ? Self.artistRadioTopCount : kept.count
-            seedKeys = await Task.detached {
-                Self.maxSpreadArtistKeys(
-                    byArtist: byArtist, index: index,
-                    topArtistKeys: pinned, daySeed: stamp,
-                    count: Self.artistRadioCount, topCount: pinnedCount)
-            }.value
-        }
-
-        guard !seedKeys.isEmpty else {
-            Log.warning("Artiesten-radio's: geen seed-artiesten gevonden.", category: .roon)
+        guard !radios.isEmpty else {
+            Log.warning("Radio's (\(category.rawValue)): geen seeds gevonden.", category: .roon)
             return []
-        }
-        // Persist immediately so the very next refresh reuses exactly these seeds.
-        Self.saveSeedKeys(seedKeys)
-
-        // Build a SonicRadio descriptor for each seed artist.
-        let radios: [SonicRadio] = seedKeys.compactMap { key in
-            guard let tracks = byArtist[key], !tracks.isEmpty else { return nil }
-            let display = tracks.first(where: { !($0.artist?.isEmpty ?? true) })?.artist ?? key
-            let img = tracks.first(where: { $0.imageKey?.isEmpty == false })?.imageKey
-            let seeds = tracks.filter { !disliked.contains($0.matchKey) }.prefix(Self.radioMaxSeeds)
-            guard seeds.count >= Self.radioMinTracks else { return nil }
-            return SonicRadio(id: "artist:\(key)", artist: display, imageKey: img,
-                              trackCount: seeds.count, seedIds: seeds.map(\.id))
         }
 
         // If any radio still needs a generated title, warm the (Ollama) model once
         // up front so the first title call below doesn't eat a cold-start timeout
-        // and freeze on the "Radio rond X" fallback. No-op for cloud providers and
-        // when every title is already cached.
+        // and freeze on the fallback. No-op for cloud providers / when all cached.
         let needsTitle = radios.contains { r in
             let t = UserDefaults.standard.string(forKey: Self.titleKey(r.id))
-            return (t?.isEmpty ?? true) || t == Self.fallbackMeta(artist: r.artist).title
+            return (t?.isEmpty ?? true) || t == Self.fallbackMeta(category: category, label: r.artist).title
         }
         if needsTitle { await LLMClient.shared.warmUp(config: LLMConfigStore.load()) }
 
@@ -182,23 +167,78 @@ extension RoonClient {
             }.value
             guard !pool.isEmpty else { continue }
 
+            // For non-artist categories there's no single "seed artist" to anchor —
+            // cap every artist equally so the station spreads across the bucket.
             let tracks = Self.capForPlaylist(
-                pool, seedArtist: radio.artist,
+                pool, seedArtist: category == .artist ? radio.artist : "",
                 minTracks: Self.artistRadioMinTracks,
                 maxTracks: Self.artistRadioMaxTracks,
                 maxPerArtist: Self.artistRadioMaxPerArtist,
-                seedCap: Self.artistRadioSeedCap)
+                seedCap: category == .artist ? Self.artistRadioSeedCap : Self.artistRadioMaxPerArtist)
             guard tracks.count >= 2 else { continue }
 
             let profile = Self.sonicProfileSummary(tracks.compactMap { byId[$0.id] })
-            let meta = await aiTitleAndDescription(for: radio, sample: tracks, profile: profile)
+            let meta = await aiTitleAndDescription(for: radio, category: category, sample: tracks, profile: profile)
             out.append(SonicRadioPlaylist(
                 id: key, artist: radio.artist, title: meta.title, description: meta.description,
                 imageKey: radio.imageKey, tracks: tracks,
                 qobuzPlaylistID: UserDefaults.standard.string(forKey: Self.qobuzIDKey(key))))
         }
-        Log.info("Artiesten-radio's gebouwd: \(out.count) playlists (van \(radios.count) seeds, \(lib.count) geanalyseerde tracks)", category: .roon)
+        Log.info("Radio's (\(category.rawValue)) gebouwd: \(out.count) playlists (van \(radios.count) seeds, \(lib.count) geanalyseerde tracks)", category: .roon)
         return out
+    }
+
+    /// The stable artist seed radios (top-played anchors + max-spread discovery),
+    /// persisting the chosen seed keys so every refresh updates the same playlists.
+    private func artistSeedRadios(
+        db: DatabaseManager, lib: [DatabaseManager.SonicTrack],
+        index: VectorIndex?, disliked: Set<String>, stamp: String
+    ) async -> [SonicRadio] {
+        // Top artists by listening history (server reads local DB; client fetches /history).
+        let topArtistKeys: [String]
+        if isRemote {
+            let snap = await tasteProfile(topLimit: 100, recentLimit: 1)
+            topArtistKeys = (snap?.topArtists ?? []).map { $0.artist.lowercased() }
+        } else {
+            topArtistKeys = ((try? await db.topArtistsListened(limit: 100)) ?? []).map { $0.artist.lowercased() }
+        }
+
+        // Group analyzed tracks by lowercased artist.
+        let byArtist = lib.reduce(into: [String: [DatabaseManager.SonicTrack]]()) { dict, t in
+            guard let a = t.artist, !a.isEmpty else { return }
+            dict[a.lowercased(), default: []].append(t)
+        }
+
+        // Reuse the PERSISTED seeds so identity is stable across refreshes; only
+        // refill slots whose seed no longer qualifies. First run (no persisted
+        // seeds) uses the original 2 top-played + 4 max-spread discovery pick.
+        func qualifies(_ key: String) -> Bool { (byArtist[key]?.count ?? 0) >= Self.radioMinTracks }
+        let kept = Self.loadSeedKeys().filter(qualifies)
+        let seedKeys: [String]
+        if kept.count >= Self.artistRadioCount {
+            seedKeys = Array(kept.prefix(Self.artistRadioCount))
+        } else {
+            let pinned      = kept.isEmpty ? topArtistKeys : kept
+            let pinnedCount = kept.isEmpty ? Self.artistRadioTopCount : kept.count
+            seedKeys = await Task.detached {
+                Self.maxSpreadArtistKeys(
+                    byArtist: byArtist, index: index,
+                    topArtistKeys: pinned, daySeed: stamp,
+                    count: Self.artistRadioCount, topCount: pinnedCount)
+            }.value
+        }
+        guard !seedKeys.isEmpty else { return [] }
+        Self.saveSeedKeys(seedKeys)
+
+        return seedKeys.compactMap { key in
+            guard let tracks = byArtist[key], !tracks.isEmpty else { return nil }
+            let display = tracks.first(where: { !($0.artist?.isEmpty ?? true) })?.artist ?? key
+            let img = tracks.first(where: { $0.imageKey?.isEmpty == false })?.imageKey
+            let seeds = tracks.filter { !disliked.contains($0.matchKey) }.prefix(Self.radioMaxSeeds)
+            guard seeds.count >= Self.radioMinTracks else { return nil }
+            return SonicRadio(id: "artist:\(key)", artist: display, imageKey: img,
+                              trackCount: seeds.count, seedIds: seeds.map(\.id))
+        }
     }
 
     // MARK: Max-spread seed selection
@@ -404,17 +444,17 @@ extension RoonClient {
     /// Cached AI title/description for a radio (generated once so the Qobuz name
     /// stays stable), generating + persisting them on first use. `profile` is the
     /// sonic-profile summary used to steer the title.
-    func aiTitleAndDescription(for radio: SonicRadio, sample: [TrackRecord], profile: String) async -> (title: String, description: String) {
+    func aiTitleAndDescription(for radio: SonicRadio, category: RadioCategory, sample: [TrackRecord], profile: String) async -> (title: String, description: String) {
         let d = UserDefaults.standard
-        let fallback = Self.fallbackMeta(artist: radio.artist)
+        let fallback = Self.fallbackMeta(category: category, label: radio.artist)
         // A cached *real* title is reused (keeps the Qobuz name stable). A cached
-        // bare fallback ("Radio rond X") is NOT trusted — it means an earlier LLM
-        // call failed (e.g. Ollama cold-start), so we retry generation now.
+        // bare fallback is NOT trusted — it means an earlier LLM call failed (e.g.
+        // Ollama cold-start), so we retry generation now.
         if let t = d.string(forKey: Self.titleKey(radio.id)), !t.isEmpty, t != fallback.title,
            let desc = d.string(forKey: Self.descKey(radio.id)), !desc.isEmpty {
             return (t, desc)
         }
-        if let meta = await Self.generateAIMeta(artist: radio.artist, sample: sample, profile: profile) {
+        if let meta = await Self.generateAIMeta(category: category, label: radio.artist, sample: sample, profile: profile) {
             d.set(meta.title, forKey: Self.titleKey(radio.id))
             d.set(meta.description, forKey: Self.descKey(radio.id))
             return meta
@@ -459,10 +499,27 @@ extension RoonClient {
         return parts.joined(separator: "; ")
     }
 
-    /// The tidy default title/description used when the LLM can't produce one.
-    nonisolated static func fallbackMeta(artist: String) -> (title: String, description: String) {
-        ("Radio rond \(artist)",
-         "Een eindeloze radio rond \(artist) en muzikaal verwante artiesten uit je bibliotheek.")
+    /// The tidy default title/description used when the LLM can't produce one,
+    /// phrased per category. For `.artist` the title is exactly "Radio rond X" so
+    /// the cached-fallback detection in `aiTitleAndDescription` keeps working.
+    nonisolated static func fallbackMeta(category: RadioCategory, label: String) -> (title: String, description: String) {
+        switch category {
+        case .artist:
+            return ("Radio rond \(label)",
+                    "Een eindeloze radio rond \(label) en muzikaal verwante artiesten uit je bibliotheek.")
+        case .genre:
+            return ("\(label)-radio",
+                    "Een eindeloze radio vol \(label) uit je bibliotheek.")
+        case .mood:
+            return ("Sfeer: \(label)",
+                    "Een eindeloze radio rond de sfeer ‘\(label.lowercased())’ uit je bibliotheek.")
+        case .activity:
+            return (label,
+                    "Een eindeloze radio voor \(label.lowercased()) uit je bibliotheek.")
+        case .decade:
+            return (label,
+                    "Een eindeloze radio met muziek uit de \(label.lowercased()) uit je bibliotheek.")
+        }
     }
 
     /// Ask the configured LLM for a Dutch title that names the sonic profile +
@@ -470,15 +527,26 @@ extension RoonClient {
     /// (e.g. an Ollama cold-start timeout) or returns nothing usable — the caller
     /// then uses a temporary fallback WITHOUT caching it, so a later build retries
     /// instead of freezing the default name forever.
-    nonisolated static func generateAIMeta(artist: String, sample: [TrackRecord], profile: String) async -> (title: String, description: String)? {
-        let fallbackTitle = "Radio rond \(artist)"
-        let fallbackDesc  = "Een eindeloze radio rond \(artist) en muzikaal verwante artiesten uit je bibliotheek."
+    nonisolated static func generateAIMeta(category: RadioCategory, label: String, sample: [TrackRecord], profile: String) async -> (title: String, description: String)? {
+        let fallback = fallbackMeta(category: category, label: label)
+        let fallbackTitle = fallback.title
+        let fallbackDesc  = fallback.description
+
+        // What the station is built around, phrased per category for the prompt.
+        let subject: String
+        switch category {
+        case .artist:   subject = "rond de artiest \"\(label)\""
+        case .genre:    subject = "rond het genre \"\(label)\""
+        case .mood:     subject = "met de sfeer \"\(label)\""
+        case .activity: subject = "voor de activiteit \"\(label)\""
+        case .decade:   subject = "met muziek uit de \(label.lowercased())"
+        }
 
         let examples = sample.prefix(8)
             .map { "• \($0.title) — \($0.artist ?? "onbekend")" }
             .joined(separator: "\n")
         let others = Array(Set(sample.compactMap { $0.artist }
-            .filter { $0.lowercased() != artist.lowercased() }))
+            .filter { $0.lowercased() != label.lowercased() }))
             .prefix(6).joined(separator: ", ")
 
         let system = """
@@ -487,18 +555,18 @@ extension RoonClient {
         {"title": "...", "description": "..."}. Geen uitleg, geen markdown, geen codeblok.
         """
         let user = """
-        Maak een titel en korte beschrijving voor een radio-playlist rond de artiest "\(artist)".
+        Maak een titel en korte beschrijving voor een radio-playlist \(subject).
 
         Sonisch profiel van de selectie: \(profile.isEmpty ? "onbekend" : profile)
         Voorbeeldtracks:
         \(examples)
-        Verwante artiesten: \(others.isEmpty ? "diverse" : others)
+        Kenmerkende artiesten: \(others.isEmpty ? "diverse" : others)
 
         Eisen voor "title":
         - Maak METEEN duidelijk wat voor muziek/sfeer het is: noem het genre/stijl en/of de sfeer of energie (bv. "Melodieuze indie-rock", "Dromerige akoestische avond", "Energieke house").
-        - Mag de artiest noemen, maar dat hoeft niet. Vermijd vage woordgrappen die het genre niet verraden.
+        - Sluit aan op het thema \(subject). Vermijd vage woordgrappen die het genre niet verraden.
         - Gebruik UITSLUITEND bestaande, correct gespelde Nederlandse woorden (Engelse genrenamen mogen). Verzin GEEN woorden.
-        - Kort en krachtig: MAX 45 tekens, het liefst korter. Niet het saaie "Radio: \(artist)".
+        - Kort en krachtig: MAX 45 tekens, het liefst korter.
 
         Eisen voor "description":
         - 1 à 2 korte zinnen, vlot en correct Nederlands. Beschrijf de stijl/sfeer en noem een paar kenmerkende artiesten of het genre. Verzin geen woorden.
@@ -509,14 +577,14 @@ extension RoonClient {
         do {
             raw = try await LLMClient.shared.complete(system: system, user: user, config: config)
         } catch {
-            Log.warning("AI radio-titel mislukt voor '\(artist)': \(error.localizedDescription) — tijdelijke standaardtitel, wordt later opnieuw geprobeerd", category: .network)
+            Log.warning("AI radio-titel mislukt voor '\(label)': \(error.localizedDescription) — tijdelijke standaardtitel, wordt later opnieuw geprobeerd", category: .network)
             return nil
         }
         let meta = parseTitleJSON(raw, fallbackTitle: fallbackTitle, fallbackDesc: fallbackDesc)
         // The LLM answered but produced no usable title (parse fell all the way
         // back). Treat as failure so it isn't cached and freezes the default.
         guard meta.title != fallbackTitle else {
-            Log.warning("AI radio-titel onbruikbaar voor '\(artist)' (parse-fallback) — niet gecachet", category: .network)
+            Log.warning("AI radio-titel onbruikbaar voor '\(label)' (parse-fallback) — niet gecachet", category: .network)
             return nil
         }
         return meta
@@ -551,20 +619,31 @@ extension RoonClient {
 
     // MARK: Qobuz sync
 
-    /// Build the AI artist radios and mirror each to its stable Qobuz playlist
-    /// (find-or-create by name, replace contents, push AI description). Returns
-    /// the number of playlists successfully synced. Surfaces a toast (and returns
-    /// 0) when Qobuz isn't configured or there's nothing to build.
+    /// Back-compat wrapper: sync the artist category to Qobuz.
     @discardableResult
     public func syncArtistRadiosToQobuz() async -> Int {
+        await syncRadiosToQobuz(category: .artist)
+    }
+
+    /// Build the AI radios for `category` and mirror each to its stable Qobuz
+    /// playlist (find-or-create by name, replace contents, push AI description).
+    /// Returns the number of playlists successfully synced. Surfaces a toast (and
+    /// returns 0) when Qobuz isn't configured or there's nothing to build.
+    ///
+    /// `restrictKeys` narrows the buckets (daypart auto-sync). `reconcile` runs the
+    /// orphan cleanup keeping ALL categories — used by the manual button so syncing
+    /// one category never deletes another's playlists. The daypart auto-sync passes
+    /// `reconcile: false` and runs a single scoped reconciliation itself.
+    @discardableResult
+    public func syncRadiosToQobuz(category: RadioCategory, restrictKeys: [String]? = nil, reconcile: Bool = true) async -> Int {
         guard let email = KeychainStore.load(key: "qobuz_email"), !email.isEmpty,
               let pw = KeychainStore.load(key: "qobuz_password"), !pw.isEmpty else {
             reportError("Qobuz is niet ingesteld — vul je inloggegevens in bij Instellingen.")
             return 0
         }
-        let playlists = await buildArtistRadioPlaylists()
+        let playlists = await buildRadioPlaylists(category: category, restrictKeys: restrictKeys)
         guard !playlists.isEmpty else {
-            reportError("Geen artiesten-radio's om te synchroniseren — analyseer eerst meer muziek.")
+            reportError("Geen \(category.label.lowercased())-radio's om te synchroniseren — analyseer eerst meer muziek.")
             return 0
         }
 
@@ -574,82 +653,147 @@ extension RoonClient {
             let pairs = pl.tracks.map { (title: $0.title, artist: $0.artist) }
             // Pass the previously-stored Qobuz id so a changed title renames the
             // existing playlist in place instead of orphaning it (a freshly
-            // generated AI title replaces an earlier "Radio rond X" fallback).
+            // generated AI title replaces an earlier fallback).
             let knownID = UserDefaults.standard.string(forKey: Self.qobuzIDKey(pl.id))
             if let result = await QobuzClient.shared.syncPlaylist(
                 name: name, description: pl.description, tracks: pairs, email: email, password: pw,
                 knownPlaylistID: knownID) {
                 UserDefaults.standard.set(result.playlistID, forKey: Self.qobuzIDKey(pl.id))
                 synced += 1
-                Log.info("AI artiesten-radio gesynct naar Qobuz: '\(name)' (\(result.matched)/\(result.total) tracks)",
+                Log.info("AI radio (\(category.rawValue)) gesynct naar Qobuz: '\(name)' (\(result.matched)/\(result.total) tracks)",
                          category: .network)
             } else {
-                Log.warning("AI artiesten-radio sync mislukt voor '\(name)' (Qobuz-login of -aanmaak faalde)",
+                Log.warning("AI radio (\(category.rawValue)) sync mislukt voor '\(name)' (Qobuz-login of -aanmaak faalde)",
                             category: .network)
             }
         }
-        // Cache the synced set so /artist-radios can serve it to client apps.
-        if synced > 0 { cachedArtistRadios = playlists }
+        // Cache the synced set per category so /artist-radios can serve it to clients.
+        if synced > 0 { cachedArtistRadios[category.rawValue] = playlists }
 
-        // Reconcile Qobuz + caches back to the current stable set. The 6 seeds are
-        // persisted (see buildArtistRadioPlaylists); any "RoonSage · …" playlist
-        // outside that set is a leftover from older seed-drift and is removed so
-        // duplicates don't pile up. Keep = the names we just synced PLUS the cached
-        // titles of every persisted seed (protects a seed that didn't rebuild this
-        // round from being wrongly deleted).
-        let seedIds = Set(Self.loadSeedKeys())
-        var keepNames = Set(playlists.map(\.qobuzName))
-        for id in seedIds {
-            if let t = UserDefaults.standard.string(forKey: Self.titleKey(id)), !t.isEmpty {
-                keepNames.insert(Self.qobuzPlaylistName(for: t))
-            }
+        // Manual sync: keep every category's playlists (scoped reconcile = nil).
+        if reconcile {
+            await reconcileQobuzRadios(keepCategories: nil, email: email, password: pw)
         }
-        let removed = await QobuzClient.shared.deleteRadioOrphans(
-            keep: keepNames, namePrefix: Self.qobuzNamePrefix, email: email, password: pw)
-        if removed > 0 {
-            Log.info("AI artiesten-radio's: \(removed) verouderde duplicaat-playlist(s) van Qobuz opgeruimd", category: .network)
-        }
-        // Drop caches for radios no longer in the seed set so a returning artist
-        // starts fresh instead of reusing a now-deleted Qobuz playlist id.
-        Self.pruneRadioCaches(keepIds: seedIds)
         return synced
     }
 
-    /// Remove the per-radio UserDefaults caches (Qobuz id, AI title, description)
-    /// for any radio id NOT in `keepIds` (the current persisted seed set).
-    static func pruneRadioCaches(keepIds: Set<String>) {
+    /// Reconcile the "RoonSage · …" playlists on Qobuz back to a keep-set.
+    ///
+    /// `keepCategories == nil` keeps every category (manual sync — never deletes a
+    /// category you didn't touch). A non-nil set keeps ONLY those categories and
+    /// removes the rest — this is how the daypart auto-sync rotates: only artist +
+    /// the current daypart's category stay mirrored; the others are deleted (and
+    /// their stale Qobuz ids cleared) until their daypart comes round again. Cached
+    /// AI titles are kept, so a returning category reuses its stable name.
+    func reconcileQobuzRadios(keepCategories: Set<RadioCategory>?, email: String, password: String) async {
+        let keepCats = keepCategories ?? Set(RadioCategory.allCases)
+        var keepNames = Set<String>()
+        var keepIds = Set<String>()
+        for cat in keepCats {
+            let ids = Self.liveRadioIDs(cat)
+            keepIds.formUnion(ids)
+            // Names we last synced for this category (covers fallback-titled radios
+            // whose title isn't cached) plus the cached AI title of each live id.
+            keepNames.formUnion((cachedArtistRadios[cat.rawValue] ?? []).map(\.qobuzName))
+            for id in ids {
+                if let t = UserDefaults.standard.string(forKey: Self.titleKey(id)), !t.isEmpty {
+                    keepNames.insert(Self.qobuzPlaylistName(for: t))
+                }
+            }
+        }
+        let removed = await QobuzClient.shared.deleteRadioOrphans(
+            keep: keepNames, namePrefix: Self.qobuzNamePrefix, email: email, password: password)
+        if removed > 0 {
+            Log.info("AI radio's: \(removed) verouderde/uit-dagdeel playlist(s) van Qobuz opgeruimd", category: .network)
+        }
+        // Forget the Qobuz ids of every radio NOT kept (their playlists are gone),
+        // and drop the now-stale cached set so client apps don't show vanished
+        // playlists. Titles are intentionally preserved for stable names on return.
+        Self.clearQobuzIDs(notIn: keepIds)
+        for cat in RadioCategory.allCases where !keepCats.contains(cat) {
+            cachedArtistRadios[cat.rawValue] = []
+        }
+    }
+
+    /// The persisted radio ids currently considered live for one category.
+    static func liveRadioIDs(_ category: RadioCategory) -> Set<String> {
+        category == .artist ? Set(loadSeedKeys().map { "artist:\($0)" }) : Set(loadRadioIDs(category))
+    }
+
+    /// Forget the cached Qobuz playlist id of every radio whose id is NOT in
+    /// `keepIds`, so a returning radio creates a fresh playlist instead of trying to
+    /// update a deleted one. The AI title/description caches are left intact.
+    static func clearQobuzIDs(notIn keepIds: Set<String>) {
         let d = UserDefaults.standard
         let prefix = "artistradio.qobuzid."
         for key in d.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
             let id = String(key.dropFirst(prefix.count))
-            guard !keepIds.contains(id) else { continue }
-            d.removeObject(forKey: qobuzIDKey(id))
-            d.removeObject(forKey: titleKey(id))
-            d.removeObject(forKey: descKey(id))
+            if !keepIds.contains(id) { d.removeObject(forKey: qobuzIDKey(id)) }
         }
     }
 
-    /// JSON-encode the cached radio set for the share server's /artist-radios endpoint.
-    public func artistRadiosData() -> Data {
-        (try? JSONEncoder().encode(cachedArtistRadios)) ?? Data("[]".utf8)
+    /// JSON-encode the cached radio set for `category` for the share server's
+    /// /artist-radios endpoint.
+    public func artistRadiosData(category: RadioCategory = .artist) -> Data {
+        (try? JSONEncoder().encode(cachedArtistRadios[category.rawValue] ?? [])) ?? Data("[]".utf8)
     }
 
     // MARK: Remote fetch (client apps)
 
-    /// Fetch the server's current AI radio set over HTTP so client apps always
-    /// show the same playlists as Qobuz (instead of building independently).
-    private func fetchArtistRadiosFromServer(base: String) async -> [SonicRadioPlaylist] {
-        guard let url = URL(string: "\(base)/artist-radios") else { return [] }
+    /// Fetch the server's current AI radio set for `category` over HTTP so client
+    /// apps always show the same playlists as Qobuz (instead of building locally).
+    private func fetchRadiosFromServer(base: String, category: RadioCategory) async -> [SonicRadioPlaylist] {
+        guard let url = URL(string: "\(base)/artist-radios?category=\(category.rawValue)") else { return [] }
         var req = URLRequest(url: url)
         req.timeoutInterval = 15
         authorizeShareRequest(&req)
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let radios = try? JSONDecoder().decode([SonicRadioPlaylist].self, from: data) else {
-            Log.warning("Artiesten-radio's ophalen van server mislukt", category: .network)
+            Log.warning("Radio's (\(category.rawValue)) ophalen van server mislukt", category: .network)
             return []
         }
         return radios
+    }
+
+    // MARK: Daypart rotation
+    //
+    // To keep the Qobuz mirror small, the server only syncs ARTIST (always) plus
+    // ONE category that fits the current part of the day — the others are removed
+    // and return when their daypart comes round. The in-app daily radios still
+    // build every category locally, so nothing is lost there; only the Qobuz copy
+    // rotates. (Morning is deliberately calm — see `daypartRestrictKeys`.)
+
+    enum Daypart: String, Sendable { case ochtend, middag, avond, nacht }
+
+    /// 4 dayparts by local hour: ochtend 06–12, middag 12–18, avond 18–24, nacht 00–06.
+    nonisolated static func currentDaypart(hour: Int) -> Daypart {
+        switch hour {
+        case 6..<12:  return .ochtend
+        case 12..<18: return .middag
+        case 18..<24: return .avond
+        default:      return .nacht
+        }
+    }
+
+    /// The rotating category mirrored alongside artist for a daypart.
+    nonisolated static func daypartCategory(_ d: Daypart) -> RadioCategory {
+        switch d {
+        case .ochtend: return .activity
+        case .middag:  return .genre
+        case .avond:   return .mood
+        case .nacht:   return .decade
+        }
+    }
+
+    /// Optional bucket-key whitelist for the rotating category. Only the morning is
+    /// shaped: a calm set of activities (no workout/energiek). Other dayparts use
+    /// the category's default (largest / chronological) buckets.
+    nonisolated static func daypartRestrictKeys(_ d: Daypart) -> [String]? {
+        switch d {
+        case .ochtend: return ["focus", "lounge", "chillen"]
+        default:       return nil
+        }
     }
 
     // MARK: Auto-refresh (server build)
@@ -666,11 +810,25 @@ extension RoonClient {
                 guard let self else { return }
                 var didSync = false
                 if self.qobuzConfigured {
-                    let n = await self.syncArtistRadiosToQobuz()
-                    didSync = n > 0
-                    Log.info("Artiesten-radio auto-sync: \(n) playlist(s) naar Qobuz gezet", category: .network)
+                    // Mirror only ARTIST + the current daypart's category. Sync both
+                    // without per-call reconcile, then run ONE scoped reconciliation
+                    // that removes the out-of-daypart categories from Qobuz.
+                    let hour = Calendar.current.component(.hour, from: Date())
+                    let daypart = Self.currentDaypart(hour: hour)
+                    let rotating = Self.daypartCategory(daypart)
+                    let restrict = Self.daypartRestrictKeys(daypart)
+
+                    var total = await self.syncRadiosToQobuz(category: .artist, reconcile: false)
+                    total += await self.syncRadiosToQobuz(category: rotating, restrictKeys: restrict, reconcile: false)
+
+                    if let email = KeychainStore.load(key: "qobuz_email"), !email.isEmpty,
+                       let pw = KeychainStore.load(key: "qobuz_password"), !pw.isEmpty {
+                        await self.reconcileQobuzRadios(keepCategories: [.artist, rotating], email: email, password: pw)
+                    }
+                    didSync = total > 0
+                    Log.info("AI radio auto-sync (\(daypart.rawValue)): \(total) playlist(s) — artiest + \(rotating.rawValue) — naar Qobuz", category: .network)
                 } else {
-                    Log.warning("Artiesten-radio auto-sync overgeslagen — Qobuz is niet ingesteld op de server (Instellingen → Server).", category: .network)
+                    Log.warning("AI radio auto-sync overgeslagen — Qobuz is niet ingesteld op de server (Instellingen → Server).", category: .network)
                 }
                 // Re-sync on the full cadence once it's working; retry sooner while
                 // still warming up (library/features not ready yet, or no Qobuz).
@@ -678,7 +836,7 @@ extension RoonClient {
                 try? await Task.sleep(nanoseconds: wait)
             }
         }
-        Log.info("AI artiesten-radio auto-sync gestart (eerste poging na 20s, daarna elke 3 uur)", category: .roon)
+        Log.info("AI radio auto-sync gestart (eerste poging na 20s, daarna elke 3 uur; artiest + dagdeel-categorie)", category: .roon)
     }
 
     public func stopArtistRadioRefresh() {
