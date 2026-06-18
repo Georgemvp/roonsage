@@ -14,6 +14,10 @@ import Network
 ///   POST /command  → RemoteCommand (play/pause/volume/curate/…)
 ///   POST /track-feedback → TrackFeedback (like/dislike/clear a track)
 ///   GET  /feedback → [FeedbackEntry] (all like/dislike verdicts)
+///   GET  /playlists → [PlaylistSummary] (all saved playlists)
+///   POST /playlists → SavePlaylistRequest → {"id": n} (save a new playlist)
+///   DELETE /playlists?id=n → delete a saved playlist
+///   GET  /playlist-tracks?id=n → [TrackRecord] (stored tracks of a playlist)
 ///   GET  /artist-radios → [SonicRadioPlaylist] (last synced AI radios → Qobuz)
 ///   GET  /health   → {"tracks": n}
 public final class LibraryShareServer: @unchecked Sendable {
@@ -199,6 +203,44 @@ public final class LibraryShareServer: @unchecked Sendable {
                 return ("200 OK", body, "application/json")
             }
             return ("500 Internal Server Error", Data("feedback failed".utf8), "text/plain")
+        }
+        // Saved playlists live on the server-of-record so every client app sees
+        // the same set (was client-local — each device kept its own).
+        if method == "POST", path == "/playlists" {
+            guard let req = try? JSONDecoder().decode(SavePlaylistRequest.self, from: body),
+                  !req.name.isEmpty else {
+                return ("400 Bad Request", Data("bad playlist".utf8), "text/plain")
+            }
+            if let id = try? await database.savePlaylist(name: req.name, tracks: req.tracks) {
+                return ("200 OK", Data("{\"id\":\(id)}".utf8), "application/json")
+            }
+            return ("500 Internal Server Error", Data("save failed".utf8), "text/plain")
+        }
+        if method == "DELETE", path == "/playlists" {
+            guard let id = Int64(Self.queryValue("id", in: target) ?? "") else {
+                return ("400 Bad Request", Data("bad id".utf8), "text/plain")
+            }
+            if (try? await database.deletePlaylist(id: id)) != nil {
+                return ("200 OK", Data("{\"ok\":true}".utf8), "application/json")
+            }
+            return ("500 Internal Server Error", Data("delete failed".utf8), "text/plain")
+        }
+        if method == "GET", path == "/playlists" {
+            if let summaries = try? await database.listPlaylists(),
+               let body = try? JSONEncoder().encode(summaries) {
+                return ("200 OK", body, "application/json")
+            }
+            return ("500 Internal Server Error", Data("playlists failed".utf8), "text/plain")
+        }
+        if path.hasPrefix("/playlist-tracks") {
+            guard let id = Int64(Self.queryValue("id", in: target) ?? "") else {
+                return ("400 Bad Request", Data("bad id".utf8), "text/plain")
+            }
+            if let tracks = try? await database.playlistTracks(id: id),
+               let body = try? JSONEncoder().encode(tracks) {
+                return ("200 OK", body, "application/json")
+            }
+            return ("500 Internal Server Error", Data("playlist tracks failed".utf8), "text/plain")
         }
         if path.hasPrefix("/playback") {
             let zone = Self.queryValue("zone", in: target)

@@ -63,7 +63,7 @@ extension DatabaseManager {
 
     // MARK: - Playlists
 
-    public struct PlaylistSummary: Sendable {
+    public struct PlaylistSummary: Sendable, Codable {
         public var id: Int64
         public var name: String
         public var trackCount: Int
