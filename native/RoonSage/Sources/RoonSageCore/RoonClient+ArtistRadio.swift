@@ -674,7 +674,17 @@ extension RoonClient {
             }
         }
         // Cache the synced set per category so /artist-radios can serve it to clients.
-        if synced > 0 { cachedArtistRadios[category.rawValue] = playlists }
+        // Re-read each playlist's Qobuz id from UserDefaults first: the built objects
+        // carry the id as it was BEFORE this sync (nil for a first-time mirror), so a
+        // freshly-created playlist would otherwise be cached as "not on Qobuz" and get
+        // filtered out of mirroredRadios().
+        if synced > 0 {
+            cachedArtistRadios[category.rawValue] = playlists.map { pl in
+                var p = pl
+                p.qobuzPlaylistID = UserDefaults.standard.string(forKey: Self.qobuzIDKey(pl.id))
+                return p
+            }
+        }
 
         // Manual sync: keep every category's playlists (scoped reconcile = nil).
         if reconcile {
