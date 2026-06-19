@@ -15,8 +15,28 @@ public actor SonicLibraryCache {
     private var inFlight: Task<[DatabaseManager.SonicTrack], Never>?
     private var cachedIndex: VectorIndex?
     private var indexBuilt = false
+    private var cachedClusters: [SonicClusters.Cluster]?
+    private var clustersBuilt = false
 
     public init() {}
+
+    /// Sonic neighborhoods (k-means over the CLAP embeddings), built off the
+    /// cached library + index and memoized on first use. `[]` when too few
+    /// embeddings exist. Cleared by `invalidate()`.
+    public func clusters(from db: DatabaseManager) async -> [SonicClusters.Cluster] {
+        if clustersBuilt { return cachedClusters ?? [] }
+        let tracks = await tracks(from: db)
+        guard let idx = await vectorIndex(from: db) else {
+            clustersBuilt = true; cachedClusters = []; return []
+        }
+        let genres = (try? await db.genresByTrackID()) ?? [:]
+        let result = await Task.detached {
+            SonicClusters.compute(tracks: tracks, index: idx, genresById: genres)
+        }.value
+        cachedClusters = result
+        clustersBuilt = true
+        return result
+    }
 
     /// The CLAP k-NN index over the analyzed library, built (off the cached
     /// tracks) and memoized on first use. nil when too few tracks carry an
@@ -52,6 +72,8 @@ public actor SonicLibraryCache {
         inFlight = nil
         cachedIndex = nil
         indexBuilt = false
+        cachedClusters = nil
+        clustersBuilt = false
     }
 
     /// All cached tracks (loads from `db` on first call). Equivalent to

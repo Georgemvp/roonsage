@@ -200,6 +200,7 @@ private struct NowPlayingHero: View {
     @State private var isSeeking = false
     @State private var feat: (bpm: Double, camelot: String, tags: [String])?
     @State private var startingRadio = false
+    @State private var startingAdventure = false
 
     /// The real width to bound the hero to. On iOS we read the active window's
     /// width directly (capped for iPad) instead of trusting the layout proposal,
@@ -356,6 +357,25 @@ private struct NowPlayingHero: View {
                 .disabled(startingRadio)
                 .accessibilityLabel("Start Sonic Radio")
                 .help("Speel een station met tracks die hier sonisch op lijken")
+
+                Button {
+                    startingAdventure = true
+                    Task {
+                        await client.playSonicAdventure(title: np.title, artist: np.artist, album: np.album, zoneID: zone.id)
+                        startingAdventure = false
+                    }
+                } label: {
+                    if startingAdventure {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Reis", systemImage: "map").font(.caption)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(startingAdventure)
+                .accessibilityLabel("Start een sonische reis")
+                .help("Een sonische reis die vanaf deze track wegdrijft naar een heel ander klankgebied")
             }
             .lineLimit(1)
         }

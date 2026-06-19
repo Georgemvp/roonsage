@@ -21,7 +21,7 @@ extension RoonClient {
 
     /// One way to slice the library into radios. `artist` is the legacy default.
     public enum RadioCategory: String, CaseIterable, Sendable, Identifiable {
-        case artist, genre, mood, activity, decade
+        case artist, genre, mood, activity, decade, sonic
         public var id: String { rawValue }
         var idPrefix: String { "\(rawValue):" }
 
@@ -41,6 +41,7 @@ extension RoonClient {
             case .mood:     return "Sfeer"
             case .activity: return "Activiteit"
             case .decade:   return "Decennium"
+            case .sonic:    return "Buurten"
             }
         }
     }
@@ -72,6 +73,23 @@ extension RoonClient {
         let stamp = Self.dayStamp()
         let disliked = dislikedMatchKeys
 
+        // Sonic neighborhoods are discovered by clustering the CLAP embeddings, so
+        // they need the index (cached). Each cluster becomes a station via the same
+        // makeBucket machinery as the metadata categories.
+        if category == .sonic {
+            guard useSonicEmbeddings else { return [] }
+            let clusters = await sonicCache.clusters(from: db)
+            guard !clusters.isEmpty else { return [] }
+            let byId = Dictionary(lib.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            return await Task.detached {
+                clusters.prefix(RoonClient.categoryRadioMax).compactMap { cl -> RadioBucket? in
+                    let tracks = cl.memberIds.compactMap { byId[$0] }
+                    return RoonClient.makeBucket(id: "sonic:\(cl.id)", label: cl.label,
+                                                 tracks: tracks, disliked: disliked, daySeed: stamp)
+                }
+            }.value
+        }
+
         let genres = category == .genre ? ((try? await db.genresByTrackID()) ?? [:]) : [:]
         let years  = category == .decade ? ((try? await db.yearByMatchKey()) ?? [:]) : [:]
 
@@ -97,6 +115,7 @@ extension RoonClient {
         case .mood:     return moodBuckets(lib: lib, disliked: disliked, daySeed: daySeed)
         case .activity: return activityBuckets(lib: lib, disliked: disliked, daySeed: daySeed)
         case .decade:   return decadeBuckets(lib: lib, years: years, disliked: disliked, daySeed: daySeed)
+        case .sonic:    return []   // needs the embedding index — built in radioBuckets(_:)
         }
     }
 

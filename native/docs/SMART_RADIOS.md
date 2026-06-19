@@ -79,23 +79,25 @@ Shipped first because it works on **existing** embeddings (no re-analysis needed
 | A | RadioSequencer flow ordering | ✅ shipped |
 | A | Adventurousness dial + hard-ban UI | ✅ shipped |
 | A | Recency-weighted personal taste vector | ✅ shipped |
+| B | Per-track **reason** surfaced in the UI (Fingerprint recs) | ✅ shipped |
+| B | **Sonic neighborhoods** — k-means over CLAP → `.sonic` discovered stations | ✅ shipped |
+| B | **Sonic Adventure** — A→far journey via `SongPaths`, "Reis" on Now Playing | ✅ shipped |
+| B | **Live re-steering** — a thumb mid-station rebuilds the upcoming pool | ✅ shipped |
+| B | **Analyzer tuning UI** — dial + hard-ban in the server's radio settings | ✅ shipped |
+
+Notes on the "online taste model": the recency-weighted **taste vector** (likes +
+plays, minus dislikes via the query push) IS the learned taste representation. A
+separate logistic classifier over the (sparse) like/dislike labels was considered
+and skipped — it would overfit and largely duplicate the taste vector. Revisit if
+feedback volume grows.
 
 Next (also on existing data):
 
-- **Surface the per-track reason** in the UI (now-playing + radio cards) — the
-  reasons are already computed in `RadioEngine`, just not displayed yet.
-- **Sonic neighborhoods (clustering).** k-means over the CLAP embeddings →
-  auto-discovered named stations ("je Late-Night Ambient-hoek") + cross-cluster
-  diversity. Needs a new radio category surface.
-- **Sonic Adventure mode.** An endless A→B journey through sonic space — reuse
-  `SongPaths` (already embedding-aware) made continuous.
-- **Online taste model.** A tiny logistic classifier in CLAP space over
-  like/dislike labels → a per-track "you-score" blended into ranking.
-- **Live re-steering.** A thumb *during* a station re-biases the *current* pool
-  (today feedback only affects future stations).
 - **ListenBrainz read-back** into `listening_history` (currently write-only).
 - **Offline eval harness** — hold out liked tracks, measure recall@k; extend the
   `useSonicEmbeddings` A/B flag to score radio quality.
+- **Endless Sonic Adventure** — today it's a one-shot ~40-track voyage; make it
+  re-path to a new far region as it drains.
 
 Richer analysis (pays off after the next analyzer pass — the library lives on a
 slow external drive, so this is gated on a scan the user controls):

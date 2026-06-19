@@ -252,6 +252,19 @@ extension RoonClient {
         state.queuedKeys = []
     }
 
+    /// Live re-steer: after a thumb during a running station, rebuild the upcoming
+    /// pool with the latest like/dislike (and refreshed taste vector) so the next
+    /// top-ups adapt within a few tracks. The current track keeps playing — a thumb
+    /// never interrupts playback (see RoonClient+Feedback) — only what comes next
+    /// shifts toward "more like this" / away from "less like this".
+    func resteerActiveRadio() async {
+        guard var state = radioState else { return }
+        await regenerateRadioPool(&state)
+        guard !state.pool.isEmpty else { return }
+        radioState = state
+        Log.info("Radio live bijgestuurd op nieuwe feedback: \(state.artist)", category: .roon)
+    }
+
     // MARK: Candidate building (pure, off-main)
 
     /// The ordered station pool: the artist's own tracks plus their sonic

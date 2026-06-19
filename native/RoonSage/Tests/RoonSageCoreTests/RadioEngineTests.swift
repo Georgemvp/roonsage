@@ -123,3 +123,38 @@ final class RadioSequencerTests: XCTestCase {
         XCTAssertEqual(out.first?.id, "b", "opens on the preferred (highest-energy) seed track")
     }
 }
+
+/// Sonic neighborhoods: k-means over the embeddings discovers coherent rooms,
+/// deterministically.
+final class SonicClustersTests: XCTestCase {
+
+    private func t(_ id: String, _ e: [Float]) -> DatabaseManager.SonicTrack {
+        DatabaseManager.SonicTrack(id: id, title: id, artist: id, album: nil, imageKey: nil,
+                                   matchKey: id, bpm: 120, camelot: "8A", energy: 0.5, tags: [], embedding: e)
+    }
+
+    private func twoGroupLib() -> [DatabaseManager.SonicTrack] {
+        var lib: [DatabaseManager.SonicTrack] = []
+        for i in 0..<12 { lib.append(t("a\(i)", [1, Float(i) * 0.01, 0, 0])) }   // group near +x
+        for i in 0..<12 { lib.append(t("b\(i)", [0, 1, Float(i) * 0.01, 0])) }   // group near +y
+        return lib
+    }
+
+    func testTwoGroupsNeverShareANeighborhood() {
+        let lib = twoGroupLib()
+        let clusters = SonicClusters.compute(tracks: lib, index: VectorIndex(tracks: lib)!, genresById: [:])
+        XCTAssertGreaterThanOrEqual(clusters.count, 2)
+        let clusterOf = Dictionary(uniqueKeysWithValues: clusters.flatMap { c in c.memberIds.map { ($0, c.id) } })
+        let aClusters = Set((0..<12).compactMap { clusterOf["a\($0)"] })
+        let bClusters = Set((0..<12).compactMap { clusterOf["b\($0)"] })
+        XCTAssertTrue(aClusters.isDisjoint(with: bClusters),
+                      "sonically-distant groups land in different neighborhoods")
+    }
+
+    func testClusteringIsDeterministic() {
+        let lib = twoGroupLib()
+        let a = SonicClusters.compute(tracks: lib, index: VectorIndex(tracks: lib)!, genresById: [:])
+        let b = SonicClusters.compute(tracks: lib, index: VectorIndex(tracks: lib)!, genresById: [:])
+        XCTAssertEqual(a.map { $0.memberIds }, b.map { $0.memberIds }, "same library → same neighborhoods")
+    }
+}

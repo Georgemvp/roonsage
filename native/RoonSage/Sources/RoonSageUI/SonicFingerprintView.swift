@@ -159,6 +159,12 @@ public struct SonicFingerprintView: View {
                         Text(scored.track.title).font(.callout).lineLimit(1)
                         Text(scored.track.artist ?? "Onbekend")
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        if let reason = scored.reason {
+                            Label(reason.text, systemImage: reasonIcon(reason.kind))
+                                .font(.caption2)
+                                .foregroundStyle(Color.roonGold.opacity(0.9))
+                                .lineLimit(1)
+                        }
                     }
                     Spacer()
                     Text(percent(scored.similarity))
@@ -188,6 +194,16 @@ public struct SonicFingerprintView: View {
     }
 
     private func percent(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
+
+    /// SF Symbol for a recommendation reason.
+    private func reasonIcon(_ kind: RadioEngine.Reason.Kind) -> String {
+        switch kind {
+        case .similar:   return "waveform"
+        case .favorite:  return "hand.thumbsup.fill"
+        case .genre:     return "guitars"
+        case .discovery: return "sparkles"
+        }
+    }
 
     private func play(_ action: @escaping (String) async -> Void) {
         guard let zone = client.selectedZone else { return }

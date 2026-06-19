@@ -49,6 +49,10 @@ extension RoonClient {
         else { feedbackByMatchKey[matchKey] = nil }
 
         await persistFeedback(matchKey: matchKey, title: title, artist: artist, kind: newKind)
+
+        // Live re-steer: if a sonic station is playing, fold the thumb into the
+        // upcoming pool right away (the current track is left untouched).
+        if radioState != nil { await resteerActiveRadio() }
     }
 
     /// Write the verdict to the server-of-record (direct = local DB, server =

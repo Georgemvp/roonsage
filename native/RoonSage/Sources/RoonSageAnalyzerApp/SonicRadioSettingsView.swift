@@ -16,12 +16,38 @@ struct SonicRadioSettingsView: View {
     @State private var syncing = false
     @State private var status = ""
 
+    // Smart-radio tuning for THIS (server-of-record) build — the analyzer builds
+    // the Qobuz radios, so the dial must live here too, not only in the client app.
+    @State private var adventurousness: Double = RoonClient.defaultAdventurousness
+    @State private var hardBan = false
+
     var body: some View {
         Form {
             Section {
                 Toggle("Synchroniseer sonische radio's naar Qobuz", isOn: $enabled)
                     .onChange(of: enabled) { _, new in client.radioSyncEnabled = new }
                 Text("Aan: de server houdt de aangevinkte radio's automatisch up-to-date op Qobuz (elke 3 uur). Uit: er wordt niets naar Qobuz geschreven.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Afstemming") {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Avontuurlijkheid")
+                        Spacer()
+                        Text(adventureLabel).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Slider(value: $adventurousness, in: 0...1, step: 0.05)
+                        .onChange(of: adventurousness) { _, new in client.radioAdventurousness = new }
+                    HStack {
+                        Text("Vertrouwd").font(.caption2).foregroundStyle(.tertiary)
+                        Spacer()
+                        Text("Op ontdekking").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                Toggle("Verberg tracks met duim-omlaag volledig", isOn: $hardBan)
+                    .onChange(of: hardBan) { _, new in client.radioHardBanDisliked = new }
+                Text("Bepaalt hoe ver de door de server gebouwde radio's (incl. de Qobuz-mirror) van je vertrouwde muziek durven afdwalen, en of afgekeurde tracks helemaal verdwijnen.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -98,9 +124,20 @@ struct SonicRadioSettingsView: View {
             })
     }
 
+    private var adventureLabel: String {
+        switch adventurousness {
+        case ..<0.2:  return "Vooral bekend"
+        case ..<0.45: return "Lichte verkenning"
+        case ..<0.7:  return "Verkennend"
+        default:      return "Op ontdekking"
+        }
+    }
+
     private func load() async {
         enabled = client.radioSyncEnabled
         selected = client.currentRadioSelection()
+        adventurousness = client.radioAdventurousness
+        hardBan = client.radioHardBanDisliked
         loading = true
         var map: [RoonClient.RadioCategory: [RoonClient.RadioDescriptor]] = [:]
         for cat in RoonClient.RadioCategory.allCases {

@@ -384,7 +384,7 @@ extension RoonClient {
                     seeds: [seed], library: lib, index: index, options: opts,
                     disliked: disliked, likedKeys: liked, knownArtists: known,
                     salt: "similar\u{1f}\(seed.matchKey)")
-                    .map { SonicEngine.Scored(track: $0.track, similarity: min(1, max(0, $0.score))) }
+                    .map { SonicEngine.Scored(track: $0.track, similarity: min(1, max(0, $0.score)), reason: $0.reason) }
             } else if seedInLib {
                 raw = SonicEngine.similar(to: seed, in: lib, limit: limit + 1, index: index)
             } else if let index, let emb = seed.embedding, !emb.isEmpty {
@@ -590,7 +590,7 @@ extension RoonClient {
                         disliked: disliked, likedKeys: liked, knownArtists: known, salt: "fingerprint")
                         // RadioEngine.score carries novelty/discovery bonuses (can exceed
                         // 1) — clamp to a 0…1 similarity for the radar UI's match %.
-                        .map { SonicEngine.Scored(track: $0.track, similarity: min(1, max(0, $0.score))) }
+                        .map { SonicEngine.Scored(track: $0.track, similarity: min(1, max(0, $0.score)), reason: $0.reason) }
                 } else {
                     recRaw = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount, index: index)
                 }

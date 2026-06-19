@@ -8,7 +8,13 @@ public enum SonicEngine {
     public struct Scored: Sendable, Identifiable {
         public var track: DatabaseManager.SonicTrack
         public var similarity: Double   // 0…1, higher = closer
+        /// Why this track is here ("klinkt als…", "ontdekking", …). Set by the
+        /// smart `RadioEngine` paths; nil for the rule-based fallback.
+        public var reason: RadioEngine.Reason?
         public var id: String { track.id }
+        public init(track: DatabaseManager.SonicTrack, similarity: Double, reason: RadioEngine.Reason? = nil) {
+            self.track = track; self.similarity = similarity; self.reason = reason
+        }
     }
 
     static func feature(_ t: DatabaseManager.SonicTrack) -> SonicSimilarity.Feature {

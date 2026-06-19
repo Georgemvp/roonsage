@@ -561,6 +561,9 @@ extension RoonClient {
         case .decade:
             return (label,
                     "Een eindeloze radio met muziek uit de \(label.lowercased()) uit je bibliotheek.")
+        case .sonic:
+            return (label,
+                    "Een eindeloze radio rond de sonische buurt ‘\(label)’ — tracks die op klank bij elkaar horen.")
         }
     }
 
@@ -582,6 +585,7 @@ extension RoonClient {
         case .mood:     subject = "met de sfeer \"\(label)\""
         case .activity: subject = "voor de activiteit \"\(label)\""
         case .decade:   subject = "met muziek uit de \(label.lowercased())"
+        case .sonic:    subject = "rond de sonische buurt \"\(label)\""
         }
 
         let examples = sample.prefix(8)
