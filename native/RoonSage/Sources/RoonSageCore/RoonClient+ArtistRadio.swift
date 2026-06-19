@@ -766,8 +766,21 @@ extension RoonClient {
 
     /// JSON-encode the cached radio set for `category` for the share server's
     /// /artist-radios endpoint.
-    public func artistRadiosData(category: RadioCategory = .artist) -> Data {
-        (try? JSONEncoder().encode(cachedArtistRadios[category.rawValue] ?? [])) ?? Data("[]".utf8)
+    ///
+    /// `cachedArtistRadios` is an in-memory side-effect of the last sync, so it's
+    /// empty after a server restart (until the first auto-sync) and for any
+    /// category the daypart rotation has reconciled away — leaving client apps
+    /// with "nog geen radio's" even though the playlists are live on Qobuz. When
+    /// the cache is empty we rebuild from persisted state: cached AI titles and
+    /// the stored Qobuz ids make `buildRadioPlaylists` reconstruct the same set,
+    /// so the endpoint always reflects what the server mirrored.
+    public func artistRadiosData(category: RadioCategory = .artist) async -> Data {
+        var radios = cachedArtistRadios[category.rawValue] ?? []
+        if radios.isEmpty {
+            radios = await buildRadioPlaylists(category: category)
+            if !radios.isEmpty { cachedArtistRadios[category.rawValue] = radios }
+        }
+        return (try? JSONEncoder().encode(radios)) ?? Data("[]".utf8)
     }
 
     // MARK: Remote fetch (client apps)
