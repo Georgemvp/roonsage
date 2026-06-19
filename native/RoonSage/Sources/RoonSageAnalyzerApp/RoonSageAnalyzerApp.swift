@@ -28,6 +28,7 @@ struct RoonSageAnalyzerApp: App {
             .frame(minWidth: 860, minHeight: 640)
             .task { await updater.checkOnLaunch() }
             .task { model.autoStartIfEnabled() }
+            .task { model.loadCLAPIfNeeded() }   // start loading CLAP immediately — clapReady gates backfill
             .task { model.startServingIfNeeded() }
             // This app IS the server: connect to Roon on launch so the library
             // sync can run and the share server (5767) serves a populated DB.

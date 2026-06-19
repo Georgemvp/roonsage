@@ -85,13 +85,45 @@ final class AnalyzerModel {
 
     func cancelTag() { tagger?.cancel() }
 
+    // MARK: - CLAP model lifecycle
+
+    enum CLAPLoadState { case idle, loading, ready, failed }
+    private(set) var clapLoadState: CLAPLoadState = .idle
+
+    /// Whether the CLAP text model is loaded (needed to compute attribute probes).
+    var clapReady: Bool {
+        if case .ready = clapLoadState { return true }
+        return false
+    }
+
+    /// Load the CLAP model if not already loaded or loading.
+    /// Safe to call multiple times; only the first call does work.
+    /// Loading happens on the main actor (CoreML requirement) but the method
+    /// returns immediately — watch `clapLoadState` / `clapReady` for completion.
+    func loadCLAPIfNeeded() {
+        guard case .idle = clapLoadState else { return }
+        clapLoadState = .loading
+        Task { @MainActor in
+            let loaded = CLAPModel.load()
+            let note = "loaded=\(loaded != nil) canEmbedText=\(loaded?.canEmbedText ?? false) at=\(Date())"
+            if let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                try? note.write(to: dir.appendingPathComponent("RoonSageAnalyzer/clap_status.txt"),
+                                atomically: true, encoding: .utf8)
+            }
+            self.clap = loaded
+            self.server?.attachCLAP(loaded)
+            self.clapLoadState = loaded != nil ? .ready : .failed
+            if self.isServing, let p = UInt16(self.port) {
+                self.status = "Serving on \(p)" + (loaded?.canEmbedText == true ? " — text search ready." : " (text model unavailable).")
+            }
+        }
+    }
+
     // MARK: - Attribute backfill (derive valence/danceability/… from stored embeddings)
 
     private(set) var isBackfilling = false
     /// Embedded rows still missing the CLAP attribute axes.
     var missingAttributes: Int { store?.missingAttributesCount() ?? 0 }
-    /// Whether the CLAP text model is loaded (needed to compute attribute probes).
-    var clapReady: Bool { clap != nil }
 
     /// Derive attributes for already-embedded rows — no audio re-read, no re-scan.
     func startAttributeBackfill() {
@@ -133,7 +165,7 @@ final class AnalyzerModel {
             try s.start()
             server = s
             isServing = true
-            status = clap == nil ? "Serving on \(p) — loading text model…" : "Serving on \(p)."
+            status = clapReady ? "Serving on \(p)." : "Serving on \(p) — loading text model…"
             // Publish a cached feature/embedding signature (one-time COUNTs, not
             // per-poll) so remotes auto-re-pull when analyses change.
             RoonClient.shared.featuresRevision = "\(store.count())/\(store.embeddedCount())"
@@ -145,22 +177,9 @@ final class AnalyzerModel {
             status = "Serve failed: \(error.localizedDescription)"
             return
         }
-        if clap == nil {
-            // Load on the main actor: CoreML models must be created and used
-            // consistently — loading off-main led to prediction failures on the
-            // server queue. The NWListener serves /features + /embeddings on its
-            // own queue while this loads, so only the (headless) UI pauses.
-            Task { @MainActor in
-                let loaded = CLAPModel.load()
-                let note = "loaded=\(loaded != nil) canEmbedText=\(loaded?.canEmbedText ?? false) at=\(Date())"
-                if let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-                    try? note.write(to: dir.appendingPathComponent("RoonSageAnalyzer/clap_status.txt"),
-                                    atomically: true, encoding: .utf8)
-                }
-                self.clap = loaded
-                self.server?.attachCLAP(loaded)
-                self.status = "Serving on \(p)" + (loaded?.canEmbedText == true ? " — text search ready." : " (text model unavailable).")
-            }
-        }
+        // Kick off CLAP loading (no-op if already loading/loaded).
+        // loadCLAPIfNeeded() updates status + attaches the model to the server
+        // once it finishes; the server starts immediately so /features is up fast.
+        loadCLAPIfNeeded()
     }
 }

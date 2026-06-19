@@ -84,15 +84,33 @@ struct AnalyzerView: View {
                                 model.startAttributeBackfill()
                             }
                             .disabled(!model.clapReady || model.isBackfilling || model.isAnalyzing || model.missingAttributes == 0)
-                            if model.isBackfilling { ProgressView().controlSize(.small) }
+                            if model.isBackfilling {
+                                ProgressView().controlSize(.small)
+                            } else if case .loading = model.clapLoadState {
+                                ProgressView().controlSize(.small)
+                                Text("Tekstmodel laden…").font(.caption).foregroundStyle(.secondary)
+                            }
                             Spacer()
                             Text("\(model.missingAttributes) zonder kenmerken")
                                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         }
-                        Text(model.clapReady
-                             ? "Leidt valence / dansbaarheid / akoestisch / instrumentaal af uit de bestaande embeddings — geen her-analyse nodig."
-                             : "Wacht tot het CLAP-tekstmodel geladen is (zie Serve).")
-                            .font(.caption).foregroundStyle(.secondary)
+                        Group {
+                            switch model.clapLoadState {
+                            case .idle, .loading:
+                                Text("CLAP-tekstmodel wordt geladen — even geduld…")
+                            case .failed:
+                                Label("CLAP-model kon niet worden geladen. Controleer of de modellen geïnstalleerd zijn (scripts/setup_clap_models.sh).",
+                                      systemImage: "exclamationmark.triangle")
+                                    .foregroundStyle(.orange)
+                            case .ready:
+                                if model.missingAttributes == 0 {
+                                    Text("Alle tracks hebben al kenmerken.")
+                                } else {
+                                    Text("Leidt valence / dansbaarheid / akoestisch / instrumentaal af uit de bestaande embeddings — geen her-analyse nodig.")
+                                }
+                            }
+                        }
+                        .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(6)
                 }
