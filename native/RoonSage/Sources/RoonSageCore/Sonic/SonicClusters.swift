@@ -13,7 +13,7 @@ import Foundation
 public enum SonicClusters {
 
     public struct Cluster: Sendable {
-        public let id: Int
+        public let id: String          // stable medoid-derived key, not the volatile k-means index
         public let label: String
         public let memberIds: [String]
         public var size: Int { memberIds.count }
@@ -62,35 +62,42 @@ public enum SonicClusters {
             seedRows.append(best)
         }
         var centroids: [[Float]] = seedRows.map { pts[$0].vec }
+        // Farthest-first can return FEWER than k seeds when the library has fewer
+        // distinct sonic directions than k (a small/homogeneous library, or exact-
+        // duplicate embeddings from remasters/reissues that survive the title+artist
+        // dedup). Cluster into the seeds we actually found — never index past
+        // centroids.count, which previously trapped on these libraries.
+        let kActual = centroids.count
+        guard kActual >= 2 else { return [] }
 
         var assign = [Int](repeating: -1, count: n)
         for _ in 0..<maxIters {
-            // B (dim×k): B[d*k + c] = centroids[c][d]; scores = M·B (n×k).
-            var B = [Float](repeating: 0, count: dim * k)
-            for c in 0..<k {
+            // B (dim×kActual): B[d*kActual + c] = centroids[c][d]; scores = M·B (n×kActual).
+            var B = [Float](repeating: 0, count: dim * kActual)
+            for c in 0..<kActual {
                 let cen = centroids[c]
-                for d in 0..<dim { B[d * k + c] = cen[d] }
+                for d in 0..<dim { B[d * kActual + c] = cen[d] }
             }
-            var scores = [Float](repeating: 0, count: n * k)
+            var scores = [Float](repeating: 0, count: n * kActual)
             M.withUnsafeBufferPointer { mp in
                 B.withUnsafeBufferPointer { bp in
                     scores.withUnsafeMutableBufferPointer { sp in
                         vDSP_mmul(mp.baseAddress!, 1, bp.baseAddress!, 1, sp.baseAddress!, 1,
-                                  vDSP_Length(n), vDSP_Length(k), vDSP_Length(dim))
+                                  vDSP_Length(n), vDSP_Length(kActual), vDSP_Length(dim))
                     }
                 }
             }
             var changed = false
             for i in 0..<n {
-                let base = i * k
+                let base = i * kActual
                 var best = 0; var bestS = -Float.greatestFiniteMagnitude
-                for c in 0..<k where scores[base + c] > bestS { bestS = scores[base + c]; best = c }
+                for c in 0..<kActual where scores[base + c] > bestS { bestS = scores[base + c]; best = c }
                 if assign[i] != best { assign[i] = best; changed = true }
             }
             if !changed { break }
             // Recompute centroids = L2-normalized mean of members; keep old if empty.
-            var sums = [[Float]](repeating: [Float](repeating: 0, count: dim), count: k)
-            var counts = [Int](repeating: 0, count: k)
+            var sums = [[Float]](repeating: [Float](repeating: 0, count: dim), count: kActual)
+            var counts = [Int](repeating: 0, count: kActual)
             for i in 0..<n {
                 let c = assign[i]; counts[c] += 1
                 sums[c].withUnsafeMutableBufferPointer { sp in
@@ -99,16 +106,26 @@ public enum SonicClusters {
                     }
                 }
             }
-            for c in 0..<k where counts[c] > 0 { centroids[c] = VectorIndex.normalized(sums[c]) }
+            for c in 0..<kActual where counts[c] > 0 { centroids[c] = VectorIndex.normalized(sums[c]) }
         }
 
-        var membersByC = [[Int]](repeating: [], count: k)
+        var membersByC = [[Int]](repeating: [], count: kActual)
         for i in 0..<n where assign[i] >= 0 { membersByC[assign[i]].append(i) }
 
         var out: [Cluster] = []
-        for c in 0..<k where !membersByC[c].isEmpty {
-            let members = membersByC[c].map { pts[$0].track }
-            out.append(Cluster(id: c, label: label(for: members, genresById: genresById, index: c),
+        for c in 0..<kActual where !membersByC[c].isEmpty {
+            let memberRows = membersByC[c]
+            let members = memberRows.map { pts[$0].track }
+            // Stable id from the cluster medoid (the member nearest the centroid).
+            // The raw k-means index shifts as the library grows — keying the bucket
+            // (and its persisted Qobuz selection) on that would silently break; the
+            // medoid track is a far steadier anchor for "this neighborhood".
+            let cen = centroids[c]
+            let medoidRow = memberRows.max { dot(pts[$0].vec, cen) < dot(pts[$1].vec, cen) } ?? memberRows[0]
+            let mt = pts[medoidRow].track
+            let anchor = mt.matchKey.isEmpty ? mt.id : mt.matchKey
+            out.append(Cluster(id: String(fnv1a(anchor) % 1_000_000),
+                               label: label(for: members, genresById: genresById, index: c),
                                memberIds: members.map(\.id)))
         }
         return out.sorted { $0.size > $1.size }
@@ -172,5 +189,13 @@ public enum SonicClusters {
         var d: Float = 0
         vDSP_dotpr(a, 1, b, 1, &d, vDSP_Length(min(a.count, b.count)))
         return d
+    }
+
+    /// FNV-1a 64-bit — a stable string hash for the medoid-derived cluster id
+    /// (`String.hashValue` is per-process salted and would reshuffle every launch).
+    private static func fnv1a(_ s: String) -> UInt64 {
+        var h: UInt64 = 0xcbf29ce484222325
+        for b in s.utf8 { h = (h ^ UInt64(b)) &* 0x100000001b3 }
+        return h
     }
 }

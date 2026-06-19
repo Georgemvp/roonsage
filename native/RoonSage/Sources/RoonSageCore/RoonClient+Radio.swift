@@ -207,7 +207,12 @@ extension RoonClient {
     private func appendNextRadioBatch() async {
         guard var state = radioState else { return }
         if state.cursor >= state.pool.count {
+            // Single-flight: don't regenerate if a re-steer (or another top-up) is
+            // already rebuilding the pool — its result will land in radioState.
+            guard !radioRegenerating else { return }
+            radioRegenerating = true
             await regenerateRadioPool(&state)
+            radioRegenerating = false
             guard !state.pool.isEmpty else { radioState = state; return }
         }
         let end = min(state.cursor + Self.radioBatchSize, state.pool.count)
@@ -226,7 +231,11 @@ extension RoonClient {
 
     /// Rebuild a fresh candidate pool with a new generation salt so the endless
     /// station keeps finding new (yet on-theme) tracks instead of looping.
-    private func regenerateRadioPool(_ state: inout RadioRunState) async {
+    /// `preserveQueuedKeys` keeps the session's already-queued set (live re-steer):
+    /// without it the next top-up would re-queue tracks still sitting in the Roon
+    /// queue. The exhaustion path leaves it false — by then the old tracks have
+    /// drained, so a clean reset is correct.
+    private func regenerateRadioPool(_ state: inout RadioRunState, preserveQueuedKeys: Bool = false) async {
         guard let db = database else { return }
         let lib = await radioLibrary()
         let index = await activeIndex(db)
@@ -249,7 +258,7 @@ extension RoonClient {
         state.pool = pool
         state.cursor = 0
         state.generation = nextGen
-        state.queuedKeys = []
+        if !preserveQueuedKeys { state.queuedKeys = [] }
     }
 
     /// Live re-steer: after a thumb during a running station, rebuild the upcoming
@@ -258,8 +267,14 @@ extension RoonClient {
     /// never interrupts playback (see RoonClient+Feedback) — only what comes next
     /// shifts toward "more like this" / away from "less like this".
     func resteerActiveRadio() async {
-        guard var state = radioState else { return }
-        await regenerateRadioPool(&state)
+        // Single-flight: skip if a regeneration is already running (the in-flight
+        // build reads the now-current feedback anyway).
+        guard !radioRegenerating, var state = radioState else { return }
+        radioRegenerating = true
+        // Keep the already-queued set so we don't re-queue tracks still in the Roon
+        // queue; only the not-yet-played tail adapts to the new thumb.
+        await regenerateRadioPool(&state, preserveQueuedKeys: true)
+        radioRegenerating = false
         guard !state.pool.isEmpty else { return }
         radioState = state
         Log.info("Radio live bijgestuurd op nieuwe feedback: \(state.artist)", category: .roon)

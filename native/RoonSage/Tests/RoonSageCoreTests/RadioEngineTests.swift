@@ -157,4 +157,22 @@ final class SonicClustersTests: XCTestCase {
         let b = SonicClusters.compute(tracks: lib, index: VectorIndex(tracks: lib)!, genresById: [:])
         XCTAssertEqual(a.map { $0.memberIds }, b.map { $0.memberIds }, "same library → same neighborhoods")
     }
+
+    /// Regression: a homogeneous library (fewer distinct directions than k) used to
+    /// crash with an index-out-of-range. Must return cleanly instead.
+    func testIdenticalEmbeddingsDoNotCrash() {
+        let lib = (0..<20).map { t("same\($0)", [1, 0, 0, 0]) }   // 20 identical directions
+        let clusters = SonicClusters.compute(tracks: lib, index: VectorIndex(tracks: lib)!, genresById: [:])
+        XCTAssertTrue(clusters.isEmpty, "one direction → fewer than 2 seeds → no neighborhoods, no crash")
+    }
+
+    func testFewDistinctDirectionsDoNotCrash() {
+        // 18 tracks spanning only 3 orthogonal directions (< the k floor of 6).
+        var lib: [DatabaseManager.SonicTrack] = []
+        let dirs: [[Float]] = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]]
+        for i in 0..<18 { lib.append(t("d\(i)", dirs[i % 3])) }
+        let clusters = SonicClusters.compute(tracks: lib, index: VectorIndex(tracks: lib)!, genresById: [:])
+        XCTAssertLessThanOrEqual(clusters.count, 3, "clusters never exceed the distinct directions")
+        XCTAssertFalse(clusters.isEmpty, "still produces neighborhoods without crashing")
+    }
 }

@@ -99,6 +99,10 @@ public final class RoonClient {
     /// Internal run state of the active radio (candidate pool + cursor). Not
     /// observed by the UI; only `activeRadio` is.
     var radioState: RadioRunState?
+    /// Single-flight guard: a pool regeneration (top-up exhaustion OR a live
+    /// re-steer) is in flight. Prevents the 3s monitor and a thumb-driven re-steer
+    /// from interleaving their read-modify-write of `radioState` across awaits.
+    var radioRegenerating = false
     /// Polls the queue depth and tops the station up when it runs low.
     var radioMonitorTask: Task<Void, Never>?
     /// Periodic "AI artist radios → Qobuz" sync on the always-on server build
