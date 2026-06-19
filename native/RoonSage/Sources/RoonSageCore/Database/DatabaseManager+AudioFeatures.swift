@@ -8,6 +8,7 @@ extension DatabaseManager {
     public struct AudioFeatureRow: Sendable {
         public var matchKey: String
         public var bpm: Double?
+        public var bpmConfidence: Double?
         public var camelot: String?
         public var keyRoot: String?
         public var keyMode: String?
@@ -17,10 +18,10 @@ extension DatabaseManager {
         public var moods: String?     // JSON {"happy":0.4,…}, from the analyzer
         public init(matchKey: String, bpm: Double?, camelot: String?, keyRoot: String?,
                     keyMode: String?, energy: Double?, duration: Double?, tags: String?,
-                    moods: String? = nil) {
+                    moods: String? = nil, bpmConfidence: Double? = nil) {
             self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot; self.keyRoot = keyRoot
             self.keyMode = keyMode; self.energy = energy; self.duration = duration; self.tags = tags
-            self.moods = moods
+            self.moods = moods; self.bpmConfidence = bpmConfidence
         }
     }
 
@@ -75,26 +76,28 @@ extension DatabaseManager {
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) async throws {
         guard !rows.isEmpty else { return }
         let iso = Self.isoFormatter.string(from: Date())
-        let chunk = Self.rowsPerChunk(columns: 10)
+        let chunk = Self.rowsPerChunk(columns: 11)
         try await pool.write { db in
             var start = 0
             while start < rows.count {
                 let slice = rows[start..<min(start + chunk, rows.count)]
-                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
                 var args: [DatabaseValueConvertible?] = []
-                args.reserveCapacity(slice.count * 10)
+                args.reserveCapacity(slice.count * 11)
                 for r in slice {
                     args.append(contentsOf: [r.matchKey, r.bpm, r.camelot, r.keyRoot,
-                                             r.keyMode, r.energy, r.duration, r.tags, r.moods, iso] as [DatabaseValueConvertible?])
+                                             r.keyMode, r.energy, r.duration, r.tags, r.moods,
+                                             r.bpmConfidence, iso] as [DatabaseValueConvertible?])
                 }
                 try db.execute(sql: """
                     INSERT INTO track_audio_features
-                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, synced_at)
+                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, synced_at)
                     VALUES \(placeholders)
                     ON CONFLICT(match_key) DO UPDATE SET
                       bpm=excluded.bpm, camelot=excluded.camelot, key_root=excluded.key_root,
                       key_mode=excluded.key_mode, energy=excluded.energy, duration=excluded.duration,
-                      tags=excluded.tags, moods=excluded.moods, synced_at=excluded.synced_at
+                      tags=excluded.tags, moods=excluded.moods, bpm_confidence=excluded.bpm_confidence,
+                      synced_at=excluded.synced_at
                 """, arguments: StatementArguments(args))
                 start += chunk
             }
@@ -331,6 +334,7 @@ extension DatabaseManager {
         public var imageKey: String?
         public var matchKey: String
         public var bpm: Double?
+        public var bpmConfidence: Double?    // 0…1 from the analyzer's tempo detector
         public var camelot: String
         public var energy: Double?
         public var tags: [String]
@@ -342,11 +346,11 @@ extension DatabaseManager {
         public init(id: String, title: String, artist: String?, album: String?, imageKey: String?,
                     matchKey: String, bpm: Double?, camelot: String, energy: Double?, tags: [String],
                     embedding: [Float]? = nil, moods: [String: Float] = [:],
-                    mapX: Double? = nil, mapY: Double? = nil) {
+                    mapX: Double? = nil, mapY: Double? = nil, bpmConfidence: Double? = nil) {
             self.id = id; self.title = title; self.artist = artist; self.album = album
             self.imageKey = imageKey; self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot
             self.energy = energy; self.tags = tags; self.embedding = embedding; self.moods = moods
-            self.mapX = mapX; self.mapY = mapY
+            self.mapX = mapX; self.mapY = mapY; self.bpmConfidence = bpmConfidence
         }
     }
 
@@ -356,7 +360,7 @@ extension DatabaseManager {
         try await pool.read { db in
             var sql = """
                 SELECT t.id, t.title, t.artist, t.album, t.image_key, t.match_key,
-                       f.bpm, f.camelot, f.energy, f.tags, f.embedding, f.moods, f.map_x, f.map_y
+                       f.bpm, f.bpm_confidence, f.camelot, f.energy, f.tags, f.embedding, f.moods, f.map_x, f.map_y
                 FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
                 WHERE f.match_key IS NOT NULL
             """
@@ -385,7 +389,8 @@ extension DatabaseManager {
                     id: r["id"] ?? "", title: title, artist: artist, album: r["album"],
                     imageKey: r["image_key"], matchKey: r["match_key"] ?? "",
                     bpm: r["bpm"], camelot: r["camelot"] ?? "", energy: r["energy"], tags: tags,
-                    embedding: embedding, moods: moods, mapX: r["map_x"], mapY: r["map_y"]
+                    embedding: embedding, moods: moods, mapX: r["map_x"], mapY: r["map_y"],
+                    bpmConfidence: r["bpm_confidence"]
                 ))
             }
             return out

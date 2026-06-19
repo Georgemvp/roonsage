@@ -60,13 +60,15 @@ public enum RadioSequencer {
             let prep: SonicSimilarity.Prepared
             let emb: [Float]?
             let energy: Double
+            let bpmConfidence: Double   // 1 when unknown — trust it fully
         }
         let nodes = tracks.map { t -> Node in
             Node(track: t,
                  prep: SonicSimilarity.Prepared(SonicSimilarity.Feature(
                     bpm: t.bpm, camelot: t.camelot, energy: t.energy, tags: t.tags)),
                  emb: (t.embedding?.isEmpty == false) ? VectorIndex.normalized(t.embedding!) : nil,
-                 energy: t.energy ?? 0.5)
+                 energy: t.energy ?? 0.5,
+                 bpmConfidence: t.bpmConfidence.map { max(0, min(1, $0)) } ?? 1)
         }
 
         let baseEnergy = nodes.map(\.energy).reduce(0, +) / Double(nodes.count)
@@ -109,7 +111,10 @@ public enum RadioSequencer {
                 let dBpm = SonicSimilarity.tempoDistance(current.track.bpm, cand.track.bpm)
                 let dKey = SonicSimilarity.keyDistance(current.track.camelot, cand.track.camelot)
                 let dEnergy = abs(cand.energy - targetEnergy)
-                let cost = weights.embedding * dEmb + weights.bpm * dBpm
+                // A low-confidence BPM is unreliable, so let it steer the flow less
+                // (the embedding/key terms carry it instead).
+                let bpmTrust = min(current.bpmConfidence, cand.bpmConfidence)
+                let cost = weights.embedding * dEmb + weights.bpm * bpmTrust * dBpm
                          + weights.key * dKey + weights.energy * dEnergy
                 if cost < bestCost { bestCost = cost; bestIdx = i }
             }

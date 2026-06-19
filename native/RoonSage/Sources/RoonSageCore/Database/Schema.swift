@@ -280,6 +280,13 @@ enum Schema {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_tracks_lower_title_artist ON tracks(LOWER(title), LOWER(artist))")
         }
 
+        // BPM detection confidence from the analyzer's TempoAnalyzer (already stored
+        // analyzer-side; just wasn't propagated). Lets the flow sequencer trust an
+        // uncertain tempo less. Backfills on the next feature sync — no re-analysis.
+        migrator.registerMigration("v19_bpm_confidence") { db in
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN bpm_confidence REAL")
+        }
+
         try migrator.migrate(db)
     }
 }
