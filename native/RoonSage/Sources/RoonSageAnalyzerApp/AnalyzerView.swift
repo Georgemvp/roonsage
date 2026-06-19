@@ -114,6 +114,7 @@ struct AnalyzerView: View {
         .fileImporter(isPresented: $showPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result { model.musicPath = url.path }
         }
+        .navigationTitle("Analyzer")
     }
 
     private var header: some View {

@@ -18,18 +18,14 @@ struct RoonSageAnalyzerApp: App {
 
     var body: some Scene {
         Window("RoonSage Analyzer", id: "main") {
-            TabView {
-                AnalyzerView()
-                    .tabItem { Label("Analyzer", systemImage: "waveform.path.ecg") }
-                // The server's full config surface — this is the single place to
-                // configure Roon, LLM, Last.fm, ListenBrainz, Qobuz, analyzer.
-                NavigationStack { SettingsView(role: .server) }
-                    .tabItem { Label("Server", systemImage: "gearshape") }
-            }
+            // Sidebar navigation: Dashboard · Analyzer · Radio's · Server. The
+            // server's full config (Roon, LLM, Last.fm, Qobuz, analyzer) lives under
+            // the Server item; the new Radio's item controls the Qobuz radio mirror.
+            AnalyzerRootView()
             .environment(model)
             .environment(updater)
             .environment(client)
-            .frame(minWidth: 560, minHeight: 640)
+            .frame(minWidth: 860, minHeight: 640)
             .task { await updater.checkOnLaunch() }
             .task { model.autoStartIfEnabled() }
             .task { model.startServingIfNeeded() }

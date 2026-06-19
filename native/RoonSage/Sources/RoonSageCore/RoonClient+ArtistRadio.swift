@@ -190,7 +190,8 @@ extension RoonClient {
 
     /// The stable artist seed radios (top-played anchors + max-spread discovery),
     /// persisting the chosen seed keys so every refresh updates the same playlists.
-    private func artistSeedRadios(
+    /// (Internal, not file-private, so the radio-sync settings can enumerate them.)
+    func artistSeedRadios(
         db: DatabaseManager, lib: [DatabaseManager.SonicTrack],
         index: VectorIndex?, disliked: Set<String>, stamp: String
     ) async -> [SonicRadio] {
@@ -634,14 +635,19 @@ extension RoonClient {
     /// orphan cleanup keeping ALL categories — used by the manual button so syncing
     /// one category never deletes another's playlists. The daypart auto-sync passes
     /// `reconcile: false` and runs a single scoped reconciliation itself.
+    ///
+    /// `restrictIDs` (optional) narrows the built playlists to exactly those radio
+    /// ids before syncing — used by the per-radio selection so artist radios (which
+    /// ignore `restrictKeys`) can also be filtered down to the chosen ones.
     @discardableResult
-    public func syncRadiosToQobuz(category: RadioCategory, restrictKeys: [String]? = nil, reconcile: Bool = true) async -> Int {
+    public func syncRadiosToQobuz(category: RadioCategory, restrictKeys: [String]? = nil, restrictIDs: Set<String>? = nil, reconcile: Bool = true) async -> Int {
         guard let email = KeychainStore.load(key: "qobuz_email"), !email.isEmpty,
               let pw = KeychainStore.load(key: "qobuz_password"), !pw.isEmpty else {
             reportError("Qobuz is niet ingesteld — vul je inloggegevens in bij Instellingen.")
             return 0
         }
-        let playlists = await buildRadioPlaylists(category: category, restrictKeys: restrictKeys)
+        var playlists = await buildRadioPlaylists(category: category, restrictKeys: restrictKeys)
+        if let restrictIDs { playlists = playlists.filter { restrictIDs.contains($0.id) } }
         guard !playlists.isEmpty else {
             reportError("Geen \(category.label.lowercased())-radio's om te synchroniseren — analyseer eerst meer muziek.")
             return 0
@@ -712,6 +718,32 @@ extension RoonClient {
         Self.clearQobuzIDs(notIn: keepIds)
         for cat in RadioCategory.allCases where !keepCats.contains(cat) {
             cachedArtistRadios[cat.rawValue] = []
+        }
+    }
+
+    /// Reconcile the "RoonSage · …" playlists on Qobuz to EXACTLY `keepIDs` — used by
+    /// the per-radio selection sync. Every RoonSage playlist whose radio id isn't in
+    /// the set is removed; cached AI titles are preserved so a re-selected radio
+    /// reuses its stable name.
+    func reconcileQobuzRadios(keepIDs: Set<String>, email: String, password: String) async {
+        var keepNames = Set<String>()
+        for id in keepIDs {
+            if let t = UserDefaults.standard.string(forKey: Self.titleKey(id)), !t.isEmpty {
+                keepNames.insert(Self.qobuzPlaylistName(for: t))
+            }
+        }
+        // Names from the freshly-cached sync set (covers fallback-titled radios).
+        for (_, pls) in cachedArtistRadios {
+            for pl in pls where keepIDs.contains(pl.id) { keepNames.insert(pl.qobuzName) }
+        }
+        let removed = await QobuzClient.shared.deleteRadioOrphans(
+            keep: keepNames, namePrefix: Self.qobuzNamePrefix, email: email, password: password)
+        if removed > 0 {
+            Log.info("AI radio's: \(removed) niet-geselecteerde playlist(s) van Qobuz opgeruimd", category: .network)
+        }
+        Self.clearQobuzIDs(notIn: keepIDs)
+        for cat in RadioCategory.allCases {
+            cachedArtistRadios[cat.rawValue] = (cachedArtistRadios[cat.rawValue] ?? []).filter { keepIDs.contains($0.id) }
         }
     }
 
@@ -809,10 +841,29 @@ extension RoonClient {
             while !Task.isCancelled {
                 guard let self else { return }
                 var didSync = false
-                if self.qobuzConfigured {
-                    // Mirror only ARTIST + the current daypart's category. Sync both
-                    // without per-call reconcile, then run ONE scoped reconciliation
-                    // that removes the out-of-daypart categories from Qobuz.
+                if !self.radioSyncEnabled {
+                    Log.info("AI radio auto-sync staat uit (Instellingen → Radio's).", category: .network)
+                } else if !self.qobuzConfigured {
+                    Log.warning("AI radio auto-sync overgeslagen — Qobuz is niet ingesteld op de server (Instellingen → Server).", category: .network)
+                } else if let selection = self.radioSyncSelection {
+                    // Explicit per-radio selection: mirror exactly those radios; no
+                    // daypart rotation. An empty selection clears our Qobuz mirror.
+                    if selection.isEmpty {
+                        if let email = KeychainStore.load(key: "qobuz_email"), !email.isEmpty,
+                           let pw = KeychainStore.load(key: "qobuz_password"), !pw.isEmpty {
+                            await self.reconcileQobuzRadios(keepIDs: [], email: email, password: pw)
+                        }
+                        Log.info("AI radio auto-sync: geen radio's geselecteerd — Qobuz-mirror leeggemaakt.", category: .network)
+                        didSync = true
+                    } else {
+                        let total = await self.syncSelectedRadiosToQobuz(selection)
+                        didSync = total > 0
+                        Log.info("AI radio auto-sync (selectie): \(total)/\(selection.count) geselecteerde radio('s) naar Qobuz", category: .network)
+                    }
+                } else {
+                    // Legacy default (no selection saved yet): daypart rotation —
+                    // ARTIST + the current daypart's category. Sync both without a
+                    // per-call reconcile, then ONE scoped reconcile prunes the rest.
                     let hour = Calendar.current.component(.hour, from: Date())
                     let daypart = Self.currentDaypart(hour: hour)
                     let rotating = Self.daypartCategory(daypart)
@@ -827,8 +878,6 @@ extension RoonClient {
                     }
                     didSync = total > 0
                     Log.info("AI radio auto-sync (\(daypart.rawValue)): \(total) playlist(s) — artiest + \(rotating.rawValue) — naar Qobuz", category: .network)
-                } else {
-                    Log.warning("AI radio auto-sync overgeslagen — Qobuz is niet ingesteld op de server (Instellingen → Server).", category: .network)
                 }
                 // Re-sync on the full cadence once it's working; retry sooner while
                 // still warming up (library/features not ready yet, or no Qobuz).
