@@ -409,6 +409,30 @@ extension DatabaseManager {
         }
     }
 
+    /// (matchKey, playCount, lastPlayedISO) for tracks the user has actually
+    /// played, joining `listening_history` to `tracks` on LOWER(title)+LOWER(artist)
+    /// — the v18 expression index keeps this fast. Powers the recency-weighted
+    /// personal taste vector that biases every station toward the user's taste.
+    public func playStatsByMatchKey() async throws -> [(matchKey: String, count: Int, lastPlayed: String)] {
+        try await pool.read { db in
+            // COUNT(DISTINCT h.id): the same song often has several `tracks` rows
+            // (soundtrack + compilation + duplicate albums) sharing one match_key, so
+            // the title+artist join fans one play out across them — COUNT(*) would
+            // multiply the true play count by the number of duplicate rows.
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT t.match_key AS mk, COUNT(DISTINCT h.id) AS c, MAX(h.played_at) AS last
+                FROM listening_history h
+                JOIN tracks t ON LOWER(t.title) = LOWER(h.title) AND LOWER(t.artist) = LOWER(h.artist)
+                WHERE t.match_key IS NOT NULL AND t.match_key <> ''
+                GROUP BY t.match_key
+            """)
+            return rows.compactMap { r in
+                guard let mk = r["mk"] as String?, let c = r["c"] as Int? else { return nil }
+                return (mk, c, (r["last"] as String?) ?? "")
+            }
+        }
+    }
+
     /// Cheap signature of the audio-feature / embedding state — folded into the
     /// library revision so remotes auto-re-pull when features or embeddings
     /// change (not only when the Roon library itself changes).

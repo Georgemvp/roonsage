@@ -11,6 +11,10 @@ public struct SonicRadioView: View {
     @State private var isLoading = false
     @State private var loaded = false
 
+    // Smart-radio tuner (the "dial").
+    @State private var adventurousness: Double = RoonClient.defaultAdventurousness
+    @State private var hardBan = false
+
     // AI artist radios → Qobuz
     @State private var qobuzRadios: [RoonClient.SonicRadioPlaylist] = []
     @State private var isLoadingQobuz = false
@@ -29,6 +33,8 @@ public struct SonicRadioView: View {
                 if let radio = client.activeRadio { activeBanner(radio) }
 
                 header
+
+                adventurousnessTuner
 
                 categoryPicker
 
@@ -59,6 +65,10 @@ public struct SonicRadioView: View {
         }
         .task { await load(force: false) }
         .task { await loadQobuz(force: false) }
+        .onAppear {
+            adventurousness = client.radioAdventurousness
+            hardBan = client.radioHardBanDisliked
+        }
         .onChange(of: category) {
             // Only the daily radios above follow the picker; the Qobuz section shows
             // the full mirror across all categories, so it isn't reloaded here.
@@ -100,6 +110,43 @@ public struct SonicRadioView: View {
         case .mood:     return "Eindeloze stations per sfeer — gekozen op de stemming van je muziek."
         case .activity: return "Eindeloze stations voor wat je aan het doen bent: workout, focus, chillen en meer."
         case .decade:   return "Eindeloze stations per decennium, op basis van het releasejaar."
+        }
+    }
+
+    /// The "dial" that turns every station from a cosy deep-cut hour into a
+    /// voyage — biases the engine toward novelty/diversity and (optionally) hides
+    /// thumbed-down tracks entirely. Applies to the next station you start.
+    private var adventurousnessTuner: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack {
+                Label("Avontuurlijkheid", systemImage: "slider.horizontal.3")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(adventureLabel).font(.caption).foregroundStyle(Color.roonGold)
+            }
+            Slider(value: $adventurousness, in: 0...1, step: 0.05)
+                .tint(Color.roonGold)
+                .onChange(of: adventurousness) { client.radioAdventurousness = adventurousness }
+            HStack {
+                Text("Vertrouwd").font(.caption2).foregroundStyle(.tertiary)
+                Spacer()
+                Text("Op ontdekking").font(.caption2).foregroundStyle(.tertiary)
+            }
+            Toggle(isOn: $hardBan) {
+                Text("Verberg tracks met duim-omlaag volledig").font(.caption)
+            }
+            .toggleStyle(.switch)
+            .onChange(of: hardBan) { client.radioHardBanDisliked = hardBan }
+        }
+        .cardStyle()
+    }
+
+    private var adventureLabel: String {
+        switch adventurousness {
+        case ..<0.2:  return "Vooral bekend"
+        case ..<0.45: return "Lichte verkenning"
+        case ..<0.7:  return "Verkennend"
+        default:      return "Op ontdekking"
         }
     }
 

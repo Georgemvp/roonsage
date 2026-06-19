@@ -114,7 +114,12 @@ extension RoonClient {
             return []
         }
         let disliked = dislikedMatchKeys
+        let liked = likedMatchKeys
+        let known = await knownArtistKeys(lib: lib)
+        let adv = radioAdventurousness
+        let hardBan = radioHardBanDisliked
         let index = await activeIndex(db)
+        let taste = await personalTasteVector(lib: lib, index: index)
         let genres = (try? await db.genresByTrackID()) ?? [:]
         let byId = Dictionary(lib.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let stamp = Self.dayStamp()
@@ -163,19 +168,34 @@ extension RoonClient {
                 Self.buildPlaylistCandidates(
                     seedIds: seedIds, lib: lib, index: index,
                     genres: genres, disliked: disliked,
-                    daySeed: "\(stamp)|\(key)", limit: Self.artistRadioPoolLimit)
+                    daySeed: "\(stamp)|\(key)", limit: Self.artistRadioPoolLimit,
+                    likedKeys: liked, knownArtists: known, adventurousness: adv, hardBan: hardBan,
+                    tasteVector: taste)
             }.value
             guard !pool.isEmpty else { continue }
 
             // For non-artist categories there's no single "seed artist" to anchor —
             // cap every artist equally so the station spreads across the bucket.
-            let tracks = Self.capForPlaylist(
+            let capped = Self.capForPlaylist(
                 pool, seedArtist: category == .artist ? radio.artist : "",
                 minTracks: Self.artistRadioMinTracks,
                 maxTracks: Self.artistRadioMaxTracks,
                 maxPerArtist: Self.artistRadioMaxPerArtist,
                 seedCap: category == .artist ? Self.artistRadioSeedCap : Self.artistRadioMaxPerArtist)
-            guard tracks.count >= 2 else { continue }
+            guard capped.count >= 2 else { continue }
+
+            // Flow-sequence the final 20–30 into a gentle arc so the Qobuz playlist
+            // plays like a designed set, not a relevance dump. Needs embeddings
+            // (resolve the capped TrackRecords back to their SonicTracks).
+            let tracks: [TrackRecord]
+            if index != nil {
+                let sts = capped.compactMap { byId[$0.id] }
+                if sts.count == capped.count {
+                    tracks = RadioSequencer.order(sts, arc: .gentleRise).map {
+                        TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album)
+                    }
+                } else { tracks = capped }
+            } else { tracks = capped }
 
             let profile = Self.sonicProfileSummary(tracks.compactMap { byId[$0.id] })
             let meta = await aiTitleAndDescription(for: radio, category: category, sample: tracks, profile: profile)
@@ -380,23 +400,44 @@ extension RoonClient {
     nonisolated static func buildPlaylistCandidates(
         seedIds: [String], lib: [DatabaseManager.SonicTrack], index: VectorIndex?,
         genres: [String: Set<String>] = [:], disliked: Set<String> = [],
-        daySeed: String = "", limit: Int = 500
+        daySeed: String = "", limit: Int = 500,
+        likedKeys: Set<String> = [], knownArtists: Set<String> = [],
+        adventurousness: Double = defaultAdventurousness, hardBan: Bool = false,
+        tasteVector: [Float]? = nil
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
         // Don't seed on a disliked track.
         let own = lib.filter { seedSet.contains($0.id) && !disliked.contains($0.matchKey) }
         guard !own.isEmpty else { return [] }
-        // Disliked tracks aren't banned — down-sample them (much less often). The
-        // embedding k-NN ranks against the whole index, so they can surface here.
-        var neighbours = applyFeedbackWeighting(
-            SonicEngine.nearest(toSeeds: own, in: lib, limit: limit, index: index).map(\.track),
-            disliked: disliked, salt: daySeed.isEmpty ? "playlist" : daySeed,
-            matchKey: { $0.matchKey })
+        let salt = daySeed.isEmpty ? "playlist" : daySeed
 
-        // Daily variety: shuffle the neighbour pool so different (but equally
-        // sonically close) tracks surface each day. The seed artist's own tracks
-        // are kept at the front and are unaffected.
-        if !daySeed.isEmpty { neighbours = dailyShuffled(neighbours, seed: daySeed) }
+        // Smart path (embeddings present): RadioEngine relevance + dial + MMR. The
+        // daily salt rotates the selection, so no extra shuffle. The genre layering
+        // below and `capForPlaylist` then shape it into a 20–30 track playlist;
+        // `buildRadioPlaylists` flow-sequences the final set. Rule-based fallback
+        // keeps the original nearest + daily-shuffle behaviour.
+        let useEmb = index != nil && own.contains { index!.embedding(forId: $0.id) != nil }
+        var neighbours: [DatabaseManager.SonicTrack]
+        if useEmb, let index {
+            let opts = RadioEngine.Options(
+                adventurousness: adventurousness, poolLimit: limit,
+                hardBanDisliked: hardBan, sequence: false)
+            let ranked = RadioEngine.rank(
+                seeds: own, library: lib, index: index, options: opts,
+                disliked: disliked, likedKeys: likedKeys, knownArtists: knownArtists,
+                tasteVector: tasteVector, salt: salt)
+            neighbours = applyFeedbackWeighting(
+                ranked.map(\.track), disliked: disliked, salt: salt, matchKey: { $0.matchKey })
+        } else {
+            // Disliked tracks aren't banned — down-sample them (much less often).
+            neighbours = applyFeedbackWeighting(
+                SonicEngine.nearest(toSeeds: own, in: lib, limit: limit, index: index).map(\.track),
+                disliked: disliked, salt: salt, matchKey: { $0.matchKey })
+            // Daily variety: shuffle the neighbour pool so different (but equally
+            // sonically close) tracks surface each day. The seed artist's own tracks
+            // are kept at the front and are unaffected.
+            if !daySeed.isEmpty { neighbours = dailyShuffled(neighbours, seed: daySeed) }
+        }
 
         var seedGenres = Set<String>()
         for id in seedIds { if let g = genres[id] { seedGenres.formUnion(g) } }

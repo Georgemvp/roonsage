@@ -148,9 +148,16 @@ extension RoonClient {
         let key = radio.id
         let stamp = Self.dayStamp()
         let disliked = dislikedMatchKeys
+        let liked = likedMatchKeys
+        let known = await knownArtistKeys(lib: lib)
+        let adv = radioAdventurousness
+        let hardBan = radioHardBanDisliked
+        let taste = await personalTasteVector(lib: lib, index: index)
         let pool = await Task.detached {
             Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
-                                      seed: "\(stamp)-\(key)-0", disliked: disliked)
+                                      seed: "\(stamp)-\(key)-0", disliked: disliked,
+                                      likedKeys: liked, knownArtists: known,
+                                      adventurousness: adv, hardBan: hardBan, tasteVector: taste)
         }.value
         guard !pool.isEmpty else {
             reportError("Radio kon geen vergelijkbare tracks vinden — analyseer eerst meer muziek.")
@@ -228,9 +235,16 @@ extension RoonClient {
         let nextGen = state.generation + 1
         let stamp = Self.dayStamp()
         let disliked = dislikedMatchKeys
+        let liked = likedMatchKeys
+        let known = await knownArtistKeys(lib: lib)
+        let adv = radioAdventurousness
+        let hardBan = radioHardBanDisliked
+        let taste = await personalTasteVector(lib: lib, index: index)
         let pool = await Task.detached {
             Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
-                                      seed: "\(stamp)-\(key)-\(nextGen)", disliked: disliked)
+                                      seed: "\(stamp)-\(key)-\(nextGen)", disliked: disliked,
+                                      likedKeys: liked, knownArtists: known,
+                                      adventurousness: adv, hardBan: hardBan, tasteVector: taste)
         }.value
         state.pool = pool
         state.cursor = 0
@@ -245,19 +259,38 @@ extension RoonClient {
     /// the artist's own tracks so the station opens on-brand.
     nonisolated static func buildRadioCandidates(
         seedIds: [String], lib: [DatabaseManager.SonicTrack],
-        index: VectorIndex?, seed: String, disliked: Set<String> = []
+        index: VectorIndex?, seed: String, disliked: Set<String> = [],
+        likedKeys: Set<String> = [], knownArtists: Set<String> = [],
+        adventurousness: Double = defaultAdventurousness, hardBan: Bool = false,
+        tasteVector: [Float]? = nil
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
         // Don't seed the station on a disliked track.
         let own = lib.filter { seedSet.contains($0.id) && !disliked.contains($0.matchKey) }
         guard !own.isEmpty else { return [] }
 
-        // Disliked tracks aren't banned — just heard much less often. Down-sample
-        // them in the neighbour pool (the embedding k-NN ranks against the whole
-        // index, so they can surface here even though they never seed).
-        let neighbours = applyFeedbackWeighting(
-            SonicEngine.nearest(toSeeds: own, in: lib, limit: radioPoolSize, index: index).map(\.track),
-            disliked: disliked, salt: seed, matchKey: { $0.matchKey })
+        // Smart path (embeddings present): RadioEngine adds multi-anchor relevance,
+        // the adventurousness dial (novelty + MMR diversity), like/dislike vector
+        // steering, and a flow-ordered sequence. Rule-based path is the documented
+        // fallback (and what the unit tests exercise via index: nil).
+        let useEmb = index != nil && own.contains { index!.embedding(forId: $0.id) != nil }
+        let neighbours: [DatabaseManager.SonicTrack]
+        if useEmb, let index {
+            let opts = RadioEngine.Options(
+                adventurousness: adventurousness, poolLimit: radioPoolSize,
+                hardBanDisliked: hardBan, sequence: true, arc: .smooth)
+            let ranked = RadioEngine.rank(
+                seeds: own, library: lib, index: index, options: opts,
+                disliked: disliked, likedKeys: likedKeys, knownArtists: knownArtists,
+                tasteVector: tasteVector, salt: seed)
+            neighbours = applyFeedbackWeighting(
+                ranked.map(\.track), disliked: disliked, salt: seed, matchKey: { $0.matchKey })
+        } else {
+            // Disliked tracks aren't banned — just heard much less often.
+            neighbours = applyFeedbackWeighting(
+                SonicEngine.nearest(toSeeds: own, in: lib, limit: radioPoolSize, index: index).map(\.track),
+                disliked: disliked, salt: seed, matchKey: { $0.matchKey })
+        }
 
         // Dedup by CONTENT, not Roon id: the same song often has several library
         // rows (soundtrack + compilation, duplicate albums) with different ids
@@ -268,6 +301,17 @@ extension RoonClient {
         for t in own + neighbours {
             let key = t.matchKey.isEmpty ? t.id : t.matchKey
             if seen.insert(key).inserted { combined.append(t) }
+        }
+
+        if useEmb {
+            // RadioEngine already flow-sequenced the neighbours and the daily salt
+            // already rotated the selection — keep that order and just lead on a
+            // seed-artist track so the station opens on-brand. No daily reshuffle
+            // (it would undo the flow).
+            if let leadIdx = combined.firstIndex(where: { seedSet.contains($0.id) }), leadIdx != 0 {
+                combined.swapAt(0, leadIdx)
+            }
+            return combined.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
         }
 
         var shuffled = dailyShuffled(combined, seed: seed)

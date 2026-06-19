@@ -26,6 +26,58 @@ extension RoonClient {
         useSonicEmbeddings ? await sonicCache.vectorIndex(from: db) : nil
     }
 
+    /// Default radio adventurousness (familiar ↔ explorative), 0…1.
+    public nonisolated static let defaultAdventurousness = 0.35
+
+    /// How adventurous the smart radios are: 0 = vertrouwd (dicht + bekend),
+    /// 1 = avontuurlijk (ver + nieuw). Drives the novelty bias and MMR diversity
+    /// in `RadioEngine`. The one knob that turns a station from a cosy deep-cut
+    /// hour into a voyage. Default 0.35.
+    public var radioAdventurousness: Double {
+        get { (UserDefaults.standard.object(forKey: "radio_adventurousness") as? Double) ?? Self.defaultAdventurousness }
+        set { UserDefaults.standard.set(min(1, max(0, newValue)), forKey: "radio_adventurousness") }
+    }
+
+    /// Hard-ban thumbed-down tracks from radios entirely, instead of the default
+    /// soft down-sampling (≈1/4 as often). Default false.
+    public var radioHardBanDisliked: Bool {
+        get { UserDefaults.standard.bool(forKey: "radio_hard_ban_disliked") }
+        set { UserDefaults.standard.set(newValue, forKey: "radio_hard_ban_disliked") }
+    }
+
+    /// Lowercased artist names the user actually engages with — those they play
+    /// most (Roon + Last.fm history) plus those they've thumbed up. The "familiar"
+    /// set the smart radios lean toward at low adventurousness (and away from when
+    /// you crank the dial). Empty on a fresh client with no history yet.
+    func knownArtistKeys(lib: [DatabaseManager.SonicTrack]) async -> Set<String> {
+        var known = Set<String>()
+        if isRemote {
+            let snap = await tasteProfile(topLimit: 200, recentLimit: 1)
+            for a in (snap?.topArtists ?? []) { known.insert(a.artist.lowercased()) }
+        } else if let db = database {
+            for e in ((try? await db.topArtistsListened(limit: 200)) ?? []) {
+                known.insert(e.artist.lowercased())
+            }
+        }
+        known.formUnion(feedbackArtistTallies(lib: lib).liked.keys)
+        return known
+    }
+
+    /// The user's recency-weighted taste vector in CLAP space, used to bias every
+    /// station toward what they actually love. Computed from local
+    /// `listening_history` + likes, so it's available on the always-on server
+    /// build (`.direct`); on thin clients (history lives server-side) it's nil and
+    /// the station simply leans on its seeds + the artist-level signals instead.
+    func personalTasteVector(lib: [DatabaseManager.SonicTrack], index: VectorIndex?) async -> [Float]? {
+        guard let index, let db = database, !isRemote else { return nil }
+        let stats = (try? await db.playStatsByMatchKey()) ?? []
+        let liked = likedMatchKeys
+        guard !stats.isEmpty || !liked.isEmpty else { return nil }
+        return await Task.detached {
+            TasteVector.compute(stats: stats, likedKeys: liked, index: index)
+        }.value
+    }
+
     public func audioFeaturesStats() async -> (total: Int, matched: Int) {
         guard let db = database else { return (0, 0) }
         return (try? await db.audioFeaturesStats()) ?? (0, 0)
@@ -308,6 +360,9 @@ extension RoonClient {
         let lib = await radioLibrary()
         let index = await activeIndex(db)
         let disliked = dislikedMatchKeys
+        let liked = likedMatchKeys
+        let known = await knownArtistKeys(lib: lib)
+        let adv = radioAdventurousness
         // Prefer the seed as it appears in the analyzed library (it carries a
         // real track id, so the engine's id-based embedding k-NN can fire).
         // Fall back to a seed synthesized straight from track_audio_features
@@ -320,7 +375,17 @@ extension RoonClient {
         let seedInLib = inLib != nil
         return await Task.detached {
             let raw: [SonicEngine.Scored]
-            if seedInLib {
+            if seedInLib, let index, index.embedding(forId: seed.id) != nil {
+                // Smart "more like this": multi-anchor relevance + the adventurousness
+                // dial + a flow-ordered result. Ask for a margin to survive the
+                // seed-prune + dedup below.
+                let opts = RadioEngine.Options(adventurousness: adv, poolLimit: limit + 6, sequence: true)
+                raw = RadioEngine.rank(
+                    seeds: [seed], library: lib, index: index, options: opts,
+                    disliked: disliked, likedKeys: liked, knownArtists: known,
+                    salt: "similar\u{1f}\(seed.matchKey)")
+                    .map { SonicEngine.Scored(track: $0.track, similarity: min(1, max(0, $0.score))) }
+            } else if seedInLib {
                 raw = SonicEngine.similar(to: seed, in: lib, limit: limit + 1, index: index)
             } else if let index, let emb = seed.embedding, !emb.isEmpty {
                 // Synthesized seed has no id in the index — drive the embedding
@@ -495,6 +560,8 @@ extension RoonClient {
         let index = await activeIndex(db)
         let disliked = dislikedMatchKeys
         let liked = likedMatchKeys
+        let known = await knownArtistKeys(lib: lib)
+        let adv = radioAdventurousness
         do {
             return try await Task.detached {
                 guard !lib.isEmpty else { return nil }
@@ -509,10 +576,27 @@ extension RoonClient {
                 // Fall back to the loudest/most-typical slice if there's no play history yet.
                 let effectiveSeeds = seeds.isEmpty ? Array(lib.prefix(min(40, lib.count))) : seeds
                 let profile = SonicEngine.profile(of: effectiveSeeds)
+                // Recommendations via the smart engine (multi-anchor + dial + MMR)
+                // when embeddings exist; rule-based otherwise.
+                let recRaw: [SonicEngine.Scored]
+                // Only take the smart path when a seed actually carries an embedding
+                // (RadioEngine needs a seed centroid); otherwise fall through to
+                // SonicEngine.nearest, which still rule-based-ranks when seeds aren't
+                // embedded — so a partially-analyzed library never shows zero recs.
+                if let index, effectiveSeeds.contains(where: { index.embedding(forId: $0.id) != nil }) {
+                    let opts = RadioEngine.Options(adventurousness: adv, poolLimit: recommendCount, sequence: false)
+                    recRaw = RadioEngine.rank(
+                        seeds: effectiveSeeds, library: lib, index: index, options: opts,
+                        disliked: disliked, likedKeys: liked, knownArtists: known, salt: "fingerprint")
+                        // RadioEngine.score carries novelty/discovery bonuses (can exceed
+                        // 1) — clamp to a 0…1 similarity for the radar UI's match %.
+                        .map { SonicEngine.Scored(track: $0.track, similarity: min(1, max(0, $0.score))) }
+                } else {
+                    recRaw = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount, index: index)
+                }
                 // Down-sample (not ban) disliked tracks in the recommendations.
                 let recs = RoonClient.applyFeedbackWeighting(
-                    SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount, index: index),
-                    disliked: disliked, salt: "fingerprint", matchKey: { $0.track.matchKey })
+                    recRaw, disliked: disliked, salt: "fingerprint", matchKey: { $0.track.matchKey })
                 return Fingerprint(profile: profile, recommendations: recs, seedCount: effectiveSeeds.count)
             }.value
         } catch {
