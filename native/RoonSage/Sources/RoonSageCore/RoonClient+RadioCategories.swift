@@ -25,6 +25,14 @@ extension RoonClient {
         public var id: String { rawValue }
         var idPrefix: String { "\(rawValue):" }
 
+        /// Recover the category from a stable radio id ("genre:house" → .genre),
+        /// so a mixed radio set can be grouped back by category in the UI.
+        public init?(radioID: String) {
+            guard let prefix = radioID.split(separator: ":", maxSplits: 1).first.map(String.init),
+                  let c = RadioCategory(rawValue: prefix) else { return nil }
+            self = c
+        }
+
         /// Dutch label for the segmented picker.
         public var label: String {
             switch self {

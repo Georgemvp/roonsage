@@ -282,7 +282,12 @@ public final class LibraryShareServer: @unchecked Sendable {
             return ("500 Internal Server Error", Data("export failed".utf8), "text/plain")
         }
         if path.hasPrefix("/artist-radios") {
-            let category = RoonClient.RadioCategory(rawValue: Self.queryValue("category", in: target) ?? "artist") ?? .artist
+            let raw = Self.queryValue("category", in: target) ?? "artist"
+            // "all" → every radio currently mirrored to Qobuz, across all categories.
+            if raw == "all" {
+                return ("200 OK", await RoonClient.shared.mirroredRadiosData(), "application/json")
+            }
+            let category = RoonClient.RadioCategory(rawValue: raw) ?? .artist
             let data = await RoonClient.shared.artistRadiosData(category: category)
             return ("200 OK", data, "application/json")
         }

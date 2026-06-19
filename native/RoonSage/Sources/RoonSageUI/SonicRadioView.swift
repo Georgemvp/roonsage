@@ -60,8 +60,9 @@ public struct SonicRadioView: View {
         .task { await load(force: false) }
         .task { await loadQobuz(force: false) }
         .onChange(of: category) {
-            syncMessage = nil
-            Task { await load(force: true); await loadQobuz(force: true) }
+            // Only the daily radios above follow the picker; the Qobuz section shows
+            // the full mirror across all categories, so it isn't reloaded here.
+            Task { await load(force: true) }
         }
         .sheet(item: $detailPlaylist) { playlistDetailSheet($0) }
     }
@@ -200,7 +201,7 @@ public struct SonicRadioView: View {
                     }
                     if isLoadingQobuz { ProgressView().controlSize(.small) }
                 }
-                Text("\(category.label)-radio's met een AI-titel + beschrijving, als Qobuz-playlists die continu worden ververst. Tik een kaart aan voor de tracklijst.")
+                Text("Alle radio's met een AI-titel + beschrijving die nu als Qobuz-playlists staan, over alle categorieën heen — continu ververst. Tik een kaart aan voor de tracklijst.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -233,16 +234,40 @@ public struct SonicRadioView: View {
             }
 
             if !qobuzRadios.isEmpty {
-                LazyVGrid(columns: columns, spacing: Spacing.md) {
-                    ForEach(qobuzRadios) { qobuzCard($0) }
+                // Grouped by category (Artiest / Genre / …) so the full Qobuz mirror
+                // is visible at once — no need to know the top category picker also
+                // drove this section.
+                ForEach(qobuzGroups, id: \.0) { cat, radios in
+                    VStack(alignment: .leading, spacing: Spacing.sm) {
+                        Text(cat.label)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        LazyVGrid(columns: columns, spacing: Spacing.md) {
+                            ForEach(radios) { qobuzCard($0) }
+                        }
+                    }
                 }
             } else if isLoadingQobuz {
                 ProgressView().frame(maxWidth: .infinity).padding(.top, Spacing.md)
             } else if qobuzLoaded {
-                Text("Nog geen AI-radio's — zorg dat je bibliotheek geanalyseerd is.")
+                Text("Nog geen AI-radio's op Qobuz — zorg dat je bibliotheek geanalyseerd is en synchroniseer een selectie (Analyzer → Instellingen → Radio's).")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// The mirrored radios bucketed by category, in the canonical category order,
+    /// skipping empties — drives the grouped Qobuz grid.
+    private var qobuzGroups: [(RoonClient.RadioCategory, [RoonClient.SonicRadioPlaylist])] {
+        var byCat: [RoonClient.RadioCategory: [RoonClient.SonicRadioPlaylist]] = [:]
+        for r in qobuzRadios {
+            let cat = RoonClient.RadioCategory(radioID: r.id) ?? .artist
+            byCat[cat, default: []].append(r)
+        }
+        return RoonClient.RadioCategory.allCases.compactMap { cat in
+            guard let rs = byCat[cat], !rs.isEmpty else { return nil }
+            return (cat, rs)
         }
     }
 
@@ -353,7 +378,7 @@ public struct SonicRadioView: View {
         guard force || !qobuzLoaded else { return }
         isLoadingQobuz = true
         defer { isLoadingQobuz = false; qobuzLoaded = true }
-        qobuzRadios = await client.buildRadioPlaylists(category: category)
+        qobuzRadios = await client.mirroredRadios()
     }
 
     private func sync() async {
@@ -363,8 +388,8 @@ public struct SonicRadioView: View {
         syncMessage = nil
         defer { isSyncing = false }
         let count = await client.syncRadiosToQobuz(category: category)
-        // Re-read so cards reflect their new "op Qobuz" status.
-        qobuzRadios = await client.buildRadioPlaylists(category: category)
+        // Re-read the full mirror so cards reflect their new "op Qobuz" status.
+        qobuzRadios = await client.mirroredRadios()
         qobuzLoaded = true
         if count > 0 {
             syncMessage = "\(count) radio('s) gesynchroniseerd naar Qobuz."

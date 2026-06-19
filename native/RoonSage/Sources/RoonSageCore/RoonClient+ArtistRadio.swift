@@ -102,7 +102,7 @@ extension RoonClient {
         // Client apps (iOS / macOS thin client) fetch the server's already-synced
         // set so they always show the same playlists as Qobuz.
         if isRemote, let base = remoteBaseURL {
-            return await fetchRadiosFromServer(base: base, category: category)
+            return await fetchRadiosFromServer(base: base, categoryParam: category.rawValue)
         }
         guard let db = database else {
             Log.warning("Radio's (\(category.rawValue)): geen database beschikbaar — overgeslagen", category: .roon)
@@ -783,19 +783,49 @@ extension RoonClient {
         return (try? JSONEncoder().encode(radios)) ?? Data("[]".utf8)
     }
 
+    /// Every radio currently mirrored to Qobuz, across ALL categories — backs the
+    /// client's unified "AI-radio's op Qobuz" view so it no longer depends on the
+    /// (far-away) category picker. Client apps fetch the server's set; the server
+    /// and analyzer GUI build locally, rebuilding only the categories that actually
+    /// have a radio on Qobuz (a stored Qobuz id) and keeping the mirrored ones.
+    public func mirroredRadios() async -> [SonicRadioPlaylist] {
+        if isRemote, let base = remoteBaseURL {
+            return await fetchRadiosFromServer(base: base, categoryParam: "all")
+        }
+        var out: [SonicRadioPlaylist] = []
+        for cat in RadioCategory.allCases {
+            let ids = Self.liveRadioIDs(cat)
+            guard ids.contains(where: { UserDefaults.standard.string(forKey: Self.qobuzIDKey($0)) != nil })
+            else { continue }
+            var radios = cachedArtistRadios[cat.rawValue] ?? []
+            if radios.isEmpty {
+                radios = await buildRadioPlaylists(category: cat)
+                if !radios.isEmpty { cachedArtistRadios[cat.rawValue] = radios }
+            }
+            out.append(contentsOf: radios.filter { $0.qobuzPlaylistID != nil })
+        }
+        return out
+    }
+
+    /// JSON for the share server's `/artist-radios?category=all` endpoint.
+    public func mirroredRadiosData() async -> Data {
+        (try? JSONEncoder().encode(await mirroredRadios())) ?? Data("[]".utf8)
+    }
+
     // MARK: Remote fetch (client apps)
 
-    /// Fetch the server's current AI radio set for `category` over HTTP so client
-    /// apps always show the same playlists as Qobuz (instead of building locally).
-    private func fetchRadiosFromServer(base: String, category: RadioCategory) async -> [SonicRadioPlaylist] {
-        guard let url = URL(string: "\(base)/artist-radios?category=\(category.rawValue)") else { return [] }
+    /// Fetch the server's current AI radio set for a category (or "all") over HTTP
+    /// so client apps always show the same playlists as Qobuz (instead of building
+    /// locally).
+    private func fetchRadiosFromServer(base: String, categoryParam: String) async -> [SonicRadioPlaylist] {
+        guard let url = URL(string: "\(base)/artist-radios?category=\(categoryParam)") else { return [] }
         var req = URLRequest(url: url)
         req.timeoutInterval = 15
         authorizeShareRequest(&req)
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let radios = try? JSONDecoder().decode([SonicRadioPlaylist].self, from: data) else {
-            Log.warning("Radio's (\(category.rawValue)) ophalen van server mislukt", category: .network)
+            Log.warning("Radio's (\(categoryParam)) ophalen van server mislukt", category: .network)
             return []
         }
         return radios
