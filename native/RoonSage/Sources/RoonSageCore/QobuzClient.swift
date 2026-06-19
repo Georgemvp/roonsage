@@ -1,3 +1,4 @@
+import AudioAnalysis
 import Foundation
 import CryptoKit
 
@@ -22,11 +23,13 @@ public actor QobuzClient {
 
     // MARK: - Public entry point
 
-    /// Log in, create a playlist, resolve each (title, artist) to a Qobuz track,
-    /// and add the matches. Returns nil only on login/create failure.
+    /// Log in, create a playlist, resolve each (title, artist, album) to a Qobuz
+    /// track, and add the matches. Returns nil only on login/create failure.
+    /// Resolved ids are deduped (preserving order) so two of our tracks that map
+    /// to the same Qobuz catalog id don't appear twice.
     public func savePlaylist(
         name: String,
-        tracks: [(title: String, artist: String?)],
+        tracks: [(title: String, artist: String?, album: String?)],
         email: String,
         password: String
     ) async -> SaveResult? {
@@ -35,11 +38,11 @@ public actor QobuzClient {
 
         var ids: [Int] = []
         for t in tracks {
-            let query = [t.artist, t.title].compactMap { $0 }.joined(separator: " ").trimmingCharacters(in: .whitespaces)
-            if let id = await resolveTrackID(query: query, wantTitle: t.title, wantArtist: t.artist, session: session) {
+            if let id = await resolveTrackID(wantTitle: t.title, wantArtist: t.artist, wantAlbum: t.album, session: session) {
                 ids.append(id)
             }
         }
+        ids = Self.dedupePreservingOrder(ids)
         if !ids.isEmpty { await addTracks(playlistID: playlistID, trackIDs: ids, session: session) }
         return SaveResult(matched: ids.count, total: tracks.count, playlistID: playlistID)
     }
@@ -52,51 +55,74 @@ public actor QobuzClient {
     public func syncPlaylist(
         name: String,
         description: String,
-        tracks: [(title: String, artist: String?)],
+        tracks: [(title: String, artist: String?, album: String?)],
         email: String,
         password: String,
         knownPlaylistID: String? = nil
     ) async -> SaveResult? {
         guard let session = await login(email: email, password: password) else { return nil }
 
-        // 1. Resolve the target playlist. A caller-supplied `knownPlaylistID` (the
+        // 1. Resolve the fresh set FIRST — before touching the existing playlist —
+        //    so a transient Qobuz search failure can never gut a good playlist.
+        //    Dedup the resolved ids (two of our tracks can map to one catalog id).
+        var ids: [Int] = []
+        for t in tracks {
+            if let id = await resolveTrackID(wantTitle: t.title, wantArtist: t.artist, wantAlbum: t.album, session: session) {
+                ids.append(id)
+            }
+        }
+        ids = Self.dedupePreservingOrder(ids)
+        guard !ids.isEmpty else {
+            // Never clear/create an empty playlist — leave whatever exists intact.
+            return nil
+        }
+
+        // 2. Resolve the target playlist. A caller-supplied `knownPlaylistID` (the
         //    one we created on a previous sync) lets us update it IN PLACE even
         //    when the title changed — renaming it instead of orphaning the old
-        //    name and creating a duplicate. Otherwise find by exact name, else
-        //    create fresh.
-        let playlistID: String
+        //    name and creating a duplicate. Otherwise find by exact name.
+        var existingID: String?
         if let known = knownPlaylistID, !known.isEmpty {
-            playlistID = known
-            // Push the (possibly new) name + description onto our existing playlist.
-            await updatePlaylist(playlistID: playlistID, name: name, description: description, session: session)
-        } else if let existing = await findPlaylist(named: name, session: session) {
-            playlistID = existing
-            // Name is the anchor and unchanged, but the description may have been
-            // regenerated — push it so the Qobuz card stays current.
-            await updatePlaylist(playlistID: playlistID, name: name, description: description, session: session)
+            existingID = known
+        } else {
+            existingID = await findPlaylist(named: name, session: session)
+        }
+
+        // 3. Catastrophic-shrink guard: if we'd replace a populated playlist with
+        //    fewer than HALF its current tracks, that's the signature of a transient
+        //    matching failure (Qobuz search hiccup), not a real change — skip the
+        //    destructive replace and keep the good playlist. Persistent low-match
+        //    libraries still update (new ≈ current is not a cliff). Refresh only the
+        //    NAME (the stable identity) — NOT the description, which now describes a
+        //    tracklist we deliberately didn't install — then bail.
+        if let pid = existingID {
+            let current = await playlistTrackCount(playlistID: pid, session: session)
+            if current > 4, ids.count * 2 < current {
+                await updatePlaylist(playlistID: pid, name: name, description: nil, session: session)
+                return nil
+            }
+        }
+
+        // 4. Ensure the playlist exists (find/known → update meta; else create).
+        let playlistID: String
+        if let pid = existingID {
+            playlistID = pid
+            await updatePlaylist(playlistID: pid, name: name, description: description, session: session)
         } else if let created = await createPlaylist(name: name, description: description, session: session) {
             playlistID = created
         } else {
             return nil
         }
 
-        // 2. Clear the current contents. Qobuz `deleteTracks` takes positional
-        //    IDs and may shift positions per pass, so loop until empty (bounded).
+        // 5. Replace contents. Qobuz `deleteTracks` takes positional IDs and may
+        //    shift positions per pass, so loop until empty (bounded), then add the
+        //    fresh set in our flow-sequenced order.
         for _ in 0..<4 {
             let count = await playlistTrackCount(playlistID: playlistID, session: session)
             if count == 0 { break }
             await deletePlaylistTracks(playlistID: playlistID, count: count, session: session)
         }
-
-        // 3. Resolve + add the fresh set.
-        var ids: [Int] = []
-        for t in tracks {
-            let query = [t.artist, t.title].compactMap { $0 }.joined(separator: " ").trimmingCharacters(in: .whitespaces)
-            if let id = await resolveTrackID(query: query, wantTitle: t.title, wantArtist: t.artist, session: session) {
-                ids.append(id)
-            }
-        }
-        if !ids.isEmpty { await addTracks(playlistID: playlistID, trackIDs: ids, session: session) }
+        await addTracks(playlistID: playlistID, trackIDs: ids, session: session)
         return SaveResult(matched: ids.count, total: tracks.count, playlistID: playlistID)
     }
 
@@ -179,30 +205,242 @@ public actor QobuzClient {
         return req
     }
 
-    private func resolveTrackID(query: String, wantTitle: String, wantArtist: String?, session: Session) async -> Int? {
+    /// Resolve one of our library tracks to a Qobuz catalog id.
+    ///
+    /// A curated playlist is only as good as this lookup: the old version accepted a
+    /// title-only substring match with NO artist confirmation, so covers / karaoke /
+    /// same-title-different-artist tracks silently replaced the real ones, and a
+    /// single narrow query dropped anything it didn't surface. This version:
+    ///   • normalises both sides (diacritics, "&", "The ", feat/remaster) via
+    ///     `TrackIdentity` so Qobuz's catalog spelling lines up with Roon's,
+    ///   • tries a tier of widening queries (full → cleaned → title-only),
+    ///   • REQUIRES the artist to be confirmed when we know it (no wrong-artist
+    ///     matches), falling back to an exact-title rule only when artist is unknown,
+    ///   • prefers the canonical recording (penalises live/karaoke/remix/… unless we
+    ///     actually asked for that version), with album as a soft tiebreak.
+    private func resolveTrackID(wantTitle: String, wantArtist: String?, wantAlbum: String? = nil, session: Session) async -> Int? {
+        let queries = Self.candidateQueries(title: wantTitle, artist: wantArtist)
+        // We "know" the artist when it survives as non-empty in EITHER the ASCII
+        // form or the raw (non-latin) form — so the confirmation gate still applies
+        // to CJK/Cyrillic/… artists, not just latin ones.
+        let hasArtist = !Self.rawCollapsed(TrackIdentity.primaryArtist(wantArtist)).isEmpty
+
+        var bestID: Int?
+        var bestScore = Int.min
+        var bestExact = false
+        var foundCanonical = false
+        // Recovery pool: a known-artist track whose Qobuz performer can't confirm
+        // the artist (classical = composer vs orchestra/conductor; compilations =
+        // "Various Artists"; remix = remixer credit). Accept the best EXACT-title +
+        // matching-album candidate ONLY as a last resort — a wrong-artist cover
+        // almost never shares both an exact title AND the album.
+        var recoveryID: Int?
+        var recoveryScore = Int.min
+
+        for q in queries {
+            guard let items = await searchTracks(query: q, session: session) else { continue }
+            for item in items {
+                let qTitle = item["title"] as? String ?? ""
+                // Qobuz puts the credited artist under "performer", but some catalog
+                // rows only carry it under "album.artist"/"artist" — fall back so the
+                // artist-confirmation gate isn't starved (matches the legacy client),
+                // and so the classical composer (album.artist) can confirm.
+                let qPerformer = (item["performer"] as? [String: Any])?["name"] as? String
+                    ?? (item["artist"] as? [String: Any])?["name"] as? String
+                    ?? ((item["album"] as? [String: Any])?["artist"] as? [String: Any])?["name"] as? String
+                let qAlbum = (item["album"] as? [String: Any])?["title"] as? String
+                let m = Self.scoreCandidate(
+                    qobuzTitle: qTitle, qobuzPerformer: qPerformer, qobuzAlbum: qAlbum,
+                    wantTitle: wantTitle, wantArtist: wantArtist, wantAlbum: wantAlbum)
+                guard m.titleScore >= 1, let id = Self.itemID(item) else { continue }
+
+                if hasArtist {
+                    if m.artistConfirmed {
+                        // Prefer higher total; on a tie prefer the EXACT-artist hit.
+                        if m.total > bestScore || (m.total == bestScore && m.artistExact && !bestExact) {
+                            bestScore = m.total; bestID = id; bestExact = m.artistExact
+                        }
+                        if m.titleScore == 4, m.artistExact, m.total >= 7 { foundCanonical = true }
+                    } else if m.titleScore == 4, m.albumConfirmed, m.total > recoveryScore {
+                        recoveryScore = m.total; recoveryID = id
+                    }
+                } else if m.titleScore >= 4, m.total > bestScore {
+                    // Unknown artist: only an exact title is safe.
+                    bestScore = m.total; bestID = id
+                }
+            }
+            // A confident canonical hit (exact title + EXACT artist, no net penalty)
+            // can't be beaten — stop widening.
+            if foundCanonical { break }
+        }
+        return bestID ?? recoveryID
+    }
+
+    /// Run one Qobuz `track/search` and return the raw item dictionaries (limit 10
+    /// — wider than before so the right edition isn't pushed off a 5-row window).
+    private func searchTracks(query: String, session: Session) async -> [[String: Any]]? {
         var comps = URLComponents(string: "\(base)/track/search")!
-        comps.queryItems = [.init(name: "query", value: query), .init(name: "limit", value: "5")]
-        guard let url = comps.url else { return nil }
-        guard let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
+        comps.queryItems = [.init(name: "query", value: query), .init(name: "limit", value: "10")]
+        guard let url = comps.url,
+              let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let items = (json["tracks"] as? [String: Any])?["items"] as? [[String: Any]],
               !items.isEmpty else { return nil }
+        return items
+    }
 
-        let wt = wantTitle.lowercased()
-        let wa = wantArtist?.lowercased()
-        func score(_ item: [String: Any]) -> Int {
-            var s = 0
-            let title = (item["title"] as? String ?? "").lowercased()
-            if title == wt { s += 3 } else if title.contains(wt) || wt.contains(title) { s += 1 }
-            if let wa, let perf = (item["performer"] as? [String: Any])?["name"] as? String,
-               perf.lowercased().contains(wa) || wa.contains(perf.lowercased()) { s += 2 }
-            return s
-        }
-        let best = items.map { ($0, score($0)) }.max { $0.1 < $1.1 }
-        guard let (item, s) = best, s >= 1 else { return nil }
+    private static func itemID(_ item: [String: Any]) -> Int? {
         if let id = item["id"] as? Int { return id }
         if let idStr = item["id"] as? String { return Int(idStr) }
         return nil
+    }
+
+    // MARK: - Matching (pure, unit-tested in QobuzClientTests)
+
+    /// Tiered search queries, most specific → broadest, deduped. Tier 1 keeps the
+    /// original strings (catches exact catalog spellings); tier 2 cleans feat/
+    /// remaster noise and reduces to the primary artist; tier 3 is title-only (the
+    /// safety net for catalog artist-name divergence — acceptance still confirms
+    /// the artist when we know it).
+    nonisolated static func candidateQueries(title: String, artist: String?) -> [String] {
+        var qs: [String] = []
+        func add(_ s: String) {
+            let t = s.trimmingCharacters(in: .whitespaces)
+            if !t.isEmpty, !qs.contains(t) { qs.append(t) }
+        }
+        let cleanTitle = TrackIdentity.cleanTitle(title)
+        let primary = TrackIdentity.primaryArtist(artist)
+        add([artist, title].compactMap { $0 }.joined(separator: " "))
+        add([primary, cleanTitle].filter { !$0.isEmpty }.joined(separator: " "))
+        add(cleanTitle)
+        return qs
+    }
+
+    /// Lowercase + width-fold + collapse whitespace, but PRESERVE letters of every
+    /// script. `TrackIdentity.normalise` keeps only ASCII [a-z0-9], which wipes a
+    /// CJK/Cyrillic/Greek title to "" — so we fall back to this for non-latin text
+    /// (both sides run the same fold, so an exact non-latin match still resolves).
+    nonisolated static func rawCollapsed(_ s: String?) -> String {
+        guard let s, !s.isEmpty else { return "" }
+        let folded = s.folding(options: [.widthInsensitive], locale: Locale(identifier: "en_US")).lowercased()
+        return folded.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    /// Comparable (full, clean) title forms — ASCII-normalised, or raw-collapsed
+    /// when normalisation empties a non-latin title.
+    private nonisolated static func titleForms(_ s: String) -> (full: String, clean: String) {
+        let n = TrackIdentity.normalise(s)
+        let nc = TrackIdentity.normalise(TrackIdentity.cleanTitle(s))
+        if n.isEmpty, nc.isEmpty { return (rawCollapsed(s), rawCollapsed(TrackIdentity.cleanTitle(s))) }
+        return (n, nc)
+    }
+
+    /// Comparable primary-artist form — ASCII-normalised, raw-collapsed for
+    /// non-latin names.
+    private nonisolated static func artistForm(_ s: String?) -> String {
+        let n = TrackIdentity.normalise(TrackIdentity.primaryArtist(s))
+        return n.isEmpty ? rawCollapsed(TrackIdentity.primaryArtist(s)) : n
+    }
+
+    /// Substring confirmation needs a substantial shared string so a single shared
+    /// leading token can't false-confirm ("Simon" ← "Simon & Garfunkel" must NOT
+    /// match "Simon Says"); short names must match exactly.
+    private nonisolated static let minSubstringArtist = 6
+    private nonisolated static let minSubstringText = 3
+
+    /// Score a Qobuz candidate against the track we want. Returns the total (album
+    /// bonus & version penalties applied), the raw `titleScore` (4 = exact, 1 =
+    /// substantial substring, 0 = none), whether the artist was confirmed (exactly
+    /// or by a substantial substring), and whether the album matched. The caller
+    /// gates acceptance on these.
+    nonisolated static func scoreCandidate(
+        qobuzTitle: String, qobuzPerformer: String?, qobuzAlbum: String?,
+        wantTitle: String, wantArtist: String?, wantAlbum: String?
+    ) -> (total: Int, titleScore: Int, artistConfirmed: Bool, artistExact: Bool, albumConfirmed: Bool) {
+        let want = titleForms(wantTitle)
+        let cand = titleForms(qobuzTitle)
+        var titleScore = 0
+        if !cand.full.isEmpty, cand.full == want.full || cand.clean == want.clean {
+            titleScore = 4
+        } else if !want.clean.isEmpty, !cand.clean.isEmpty,
+                  min(want.clean.count, cand.clean.count) >= minSubstringText,
+                  cand.clean.contains(want.clean) || want.clean.contains(cand.clean) {
+            titleScore = 1
+        }
+
+        var artistScore = 0
+        var artistConfirmed = false
+        var artistExact = false
+        let wantA = artistForm(wantArtist)
+        let candA = artistForm(qobuzPerformer)
+        if !wantA.isEmpty, !candA.isEmpty {
+            if candA == wantA {
+                artistScore = 3; artistConfirmed = true; artistExact = true
+            } else if min(candA.count, wantA.count) >= minSubstringArtist,
+                      candA.contains(wantA) || wantA.contains(candA) {
+                artistScore = 2; artistConfirmed = true
+            }
+        }
+
+        var albumConfirmed = false
+        let wantAlb = TrackIdentity.normalise(wantAlbum)
+        if !wantAlb.isEmpty {
+            let candAlb = TrackIdentity.normalise(qobuzAlbum)
+            if !candAlb.isEmpty,
+               candAlb == wantAlb ||
+               (min(candAlb.count, wantAlb.count) >= minSubstringText &&
+                (candAlb.contains(wantAlb) || wantAlb.contains(candAlb))) {
+                albumConfirmed = true
+            }
+        }
+        let albumBonus = albumConfirmed ? 1 : 0
+
+        // Penalise a different-recording marker in EITHER the title or the performer
+        // (so "… (Karaoke)" and a "… Tribute Band" performer both fall below the
+        // canonical), unless the user actually asked for that edition/credit.
+        let penalty = versionPenalty(candidateTitle: qobuzTitle, wantTitle: wantTitle)
+            + versionPenalty(candidateTitle: qobuzPerformer ?? "", wantTitle: wantArtist ?? "")
+        return (titleScore + artistScore + albumBonus - penalty, titleScore, artistConfirmed, artistExact, albumConfirmed)
+    }
+
+    /// Words that mark a DIFFERENT recording (live, karaoke, …). Each one present in
+    /// the Qobuz title but NOT in what we asked for costs `versionPenaltyWeight`, so
+    /// the canonical studio take outranks a live/karaoke/remix edition — unless the
+    /// user's own track is that edition (then it's not penalised).
+    nonisolated static let versionMarkers: [String] = [
+        "live", "karaoke", "acoustic", "unplugged", "instrumental", "cover",
+        "remix", "nightcore", "demo", "rehearsal", "reprise", "acapella",
+        "a cappella", "sped up", "slowed", "8d audio", "made famous by", "tribute",
+    ]
+    nonisolated static let versionPenaltyWeight = 3
+
+    nonisolated static func versionPenalty(candidateTitle: String, wantTitle: String) -> Int {
+        let cand = TrackIdentity.normalise(candidateTitle)
+        let want = TrackIdentity.normalise(wantTitle)
+        guard !cand.isEmpty else { return 0 }
+        let candTokens = Set(cand.split(separator: " ").map(String.init))
+        let wantTokens = Set(want.split(separator: " ").map(String.init))
+        var penalty = 0
+        for marker in versionMarkers {
+            let present: Bool
+            let wanted: Bool
+            if marker.contains(" ") {
+                present = cand.contains(marker); wanted = want.contains(marker)
+            } else {
+                present = candTokens.contains(marker); wanted = wantTokens.contains(marker)
+            }
+            if present && !wanted { penalty += versionPenaltyWeight }
+        }
+        return penalty
+    }
+
+    /// Dedup ids while preserving first-seen order (so flow-sequencing survives).
+    nonisolated static func dedupePreservingOrder(_ ids: [Int]) -> [Int] {
+        var seen = Set<Int>()
+        var out: [Int] = []
+        out.reserveCapacity(ids.count)
+        for id in ids where seen.insert(id).inserted { out.append(id) }
+        return out
     }
 
     private func createPlaylist(name: String, description: String = "Created by RoonSage", session: Session) async -> String? {
@@ -265,12 +503,17 @@ public actor QobuzClient {
         _ = try? await URLSession.shared.data(for: req)
     }
 
-    private func updatePlaylist(playlistID: String, name: String, description: String, session: Session) async {
+    /// Update a playlist's name and, when `description` is non-nil, its description.
+    /// Passing nil leaves the existing Qobuz description untouched (the shrink-guard
+    /// path uses this so it never writes a description for tracks it didn't install).
+    private func updatePlaylist(playlistID: String, name: String, description: String?, session: Session) async {
         guard let url = URL(string: "\(base)/playlist/update") else { return }
         var req = authedRequest(url, session: session)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.httpBody = form(["playlist_id": playlistID, "name": name, "description": description])
+        var params = ["playlist_id": playlistID, "name": name]
+        if let description { params["description"] = description }
+        req.httpBody = form(params)
         _ = try? await URLSession.shared.data(for: req)
     }
 

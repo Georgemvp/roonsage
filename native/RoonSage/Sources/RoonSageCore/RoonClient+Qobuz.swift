@@ -30,7 +30,7 @@ extension RoonClient {
     public func saveToQobuz(name: String, tracks: [TrackRecord]) async -> QobuzClient.SaveResult? {
         guard let email = KeychainStore.load(key: "qobuz_email"), !email.isEmpty,
               let pw = KeychainStore.load(key: "qobuz_password"), !pw.isEmpty else { return nil }
-        let pairs = tracks.map { (title: $0.title, artist: $0.artist) }
+        let pairs = tracks.map { (title: $0.title, artist: $0.artist, album: $0.album) }
         return await QobuzClient.shared.savePlaylist(name: name, tracks: pairs, email: email, password: pw)
     }
 

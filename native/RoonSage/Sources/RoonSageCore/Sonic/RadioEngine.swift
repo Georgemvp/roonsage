@@ -177,8 +177,10 @@ public enum RadioEngine {
         scored.sort { $0.score > $1.score }
 
         // MMR diversification: λ from the dial — adventurous stations tolerate
-        // (indeed want) more spread, cosy ones stay tightly on-theme.
-        let lambda = 1 - 0.4 * adv
+        // (indeed want) more spread, cosy ones stay tightly on-theme. At the
+        // default dial (0.35) this gives λ≈0.82: relevance-led but with enough
+        // spread that a playlist isn't five near-identical tracks in a row.
+        let lambda = 1 - 0.5 * adv
         let picked = mmr(scored.map { ($0.track, $0.emb, $0.score) },
                          limit: min(options.poolLimit, scored.count), lambda: lambda)
 

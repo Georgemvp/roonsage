@@ -28,8 +28,10 @@ extension RoonClient {
     /// neighbour).
     nonisolated static let artistRadioMaxPerArtist = 3
     /// Cap on the seed artist's own tracks — anchors the playlist without turning
-    /// it into a single-artist mix; the rest are nearest sonic neighbours.
-    nonisolated static let artistRadioSeedCap = 10
+    /// it into a single-artist mix; the rest are nearest sonic neighbours. Kept to
+    /// ~20-25% of a 20–30 track playlist so the station is a *radio* (the seed plus
+    /// discoveries) rather than a seed-artist greatest-hits.
+    nonisolated static let artistRadioSeedCap = 6
     /// How many of the 6 seeds are fixed top-played artists (familiar anchor).
     /// The remainder are chosen by max-spread over artist centroids.
     nonisolated static let artistRadioTopCount    = 2
@@ -184,14 +186,21 @@ extension RoonClient {
                 seedCap: category == .artist ? Self.artistRadioSeedCap : Self.artistRadioMaxPerArtist)
             guard capped.count >= 2 else { continue }
 
-            // Flow-sequence the final 20–30 into a gentle arc so the Qobuz playlist
-            // plays like a designed set, not a relevance dump. Needs embeddings
-            // (resolve the capped TrackRecords back to their SonicTracks).
+            // Flow-sequence the final 20–30 into an arc so the Qobuz playlist plays
+            // like a designed set, not a relevance dump. `.peak` rises to a mid-set
+            // high then eases — the right shape for a bounded saved playlist (vs the
+            // endless in-app radio's `.smooth`). For an ARTIST station we open on the
+            // seed artist's most energetic track so the playlist's identity is clear
+            // from track one. Needs embeddings (resolve the capped TrackRecords back
+            // to their SonicTracks).
             let tracks: [TrackRecord]
             if index != nil {
                 let sts = capped.compactMap { byId[$0.id] }
                 if sts.count == capped.count {
-                    tracks = RadioSequencer.order(sts, arc: .gentleRise).map {
+                    let preferredStart: Set<String> = category == .artist
+                        ? Set(sts.filter { ($0.artist ?? "").lowercased() == radio.artist.lowercased() }.map(\.id))
+                        : []
+                    tracks = RadioSequencer.order(sts, preferredStartIds: preferredStart, arc: .peak).map {
                         TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album)
                     }
                 } else { tracks = capped }
@@ -354,29 +363,65 @@ extension RoonClient {
         minTracks: Int, maxTracks: Int, maxPerArtist: Int, seedCap: Int = .max
     ) -> [TrackRecord] {
         let seedKey = seedArtist.lowercased()
+        func cap(for artist: String) -> Int { artist == seedKey ? seedCap : maxPerArtist }
+
+        // Group the (relevance-ordered) pool by artist, preserving within-artist
+        // order and each artist's first-appearance position. The pool arrives
+        // MMR-diversified; iterating it straight through and capping per-artist
+        // would re-cluster it (two A tracks, then a B), undoing that work. So we
+        // round-robin across artists instead — one track from each before any
+        // artist's second — which both honours the cap and keeps the selection
+        // spread. The set is flow-sequenced afterwards, so only WHICH tracks are
+        // chosen matters here, not their order.
+        var groups: [String: [TrackRecord]] = [:]
+        var artistOrder: [String] = []
+        for t in pool {
+            let a = (t.artist ?? "").lowercased()
+            if groups[a] == nil { groups[a] = []; artistOrder.append(a) }
+            groups[a]?.append(t)
+        }
+
+        var cursor: [String: Int] = [:]
         var perArtist: [String: Int] = [:]
         var seenTitles = Set<String>()   // collapse "song", "song (Remix)", "song (feat…)"
+        var pickedIds = Set<String>()
         var picked: [TrackRecord] = []
-        var skipped: [TrackRecord] = []
-        for t in pool {
-            if picked.count >= maxTracks { break }
-            let a = (t.artist ?? "").lowercased()
-            let titleKey = "\(a)|\(titleDedupKey(t.title))"
-            if seenTitles.contains(titleKey) { continue }   // drop near-duplicate versions
-            let cap = a == seedKey ? seedCap : maxPerArtist
-            if perArtist[a, default: 0] < cap {
-                perArtist[a, default: 0] += 1
-                seenTitles.insert(titleKey)
-                picked.append(t)
-            } else {
-                skipped.append(t)
+
+        roundRobin: while picked.count < maxTracks {
+            var progressed = false
+            for a in artistOrder {
+                if picked.count >= maxTracks { break roundRobin }
+                guard perArtist[a, default: 0] < cap(for: a) else { continue }
+                guard let tracks = groups[a] else { continue }
+                // Take this artist's next track that isn't a near-duplicate version.
+                var i = cursor[a, default: 0]
+                while i < tracks.count {
+                    let t = tracks[i]; i += 1
+                    let titleKey = "\(a)|\(titleDedupKey(t.title))"
+                    if seenTitles.contains(titleKey) { continue }   // dup version → skip
+                    perArtist[a, default: 0] += 1
+                    seenTitles.insert(titleKey)
+                    pickedIds.insert(t.id)
+                    picked.append(t)
+                    progressed = true
+                    break
+                }
+                cursor[a] = i
             }
+            if !progressed { break }   // a full sweep added nothing → exhausted
         }
+
+        // Top up to minTracks from what the per-artist caps left behind, in
+        // relevance (pool) order, still collapsing duplicate versions.
         if picked.count < minTracks {
-            for t in skipped {
+            for t in pool {
                 if picked.count >= min(minTracks, maxTracks) { break }
+                if pickedIds.contains(t.id) { continue }
                 let titleKey = "\((t.artist ?? "").lowercased())|\(titleDedupKey(t.title))"
-                if seenTitles.insert(titleKey).inserted { picked.append(t) }
+                if seenTitles.insert(titleKey).inserted {
+                    pickedIds.insert(t.id)
+                    picked.append(t)
+                }
             }
         }
         return picked
@@ -482,7 +527,17 @@ extension RoonClient {
     // earlier vague titles on next build.
     private static func titleKey(_ id: String) -> String  { "artistradio.title.v2.\(id)" }
     private static func descKey(_ id: String) -> String   { "artistradio.desc.v2.\(id)" }
+    private static func descSigKey(_ id: String) -> String { "artistradio.descsig.v2.\(id)" }
     static func qobuzIDKey(_ id: String) -> String        { "artistradio.qobuzid.\(id)" }
+
+    /// A stable signature of a track selection (content, order-independent) used to
+    /// detect when a radio's tracklist actually changed, so the description can be
+    /// regenerated to match while the title (the Qobuz identity) stays cached.
+    nonisolated static func trackSetSignature(_ tracks: [TrackRecord]) -> String {
+        let joined = tracks.map { "\(($0.artist ?? "").lowercased())|\($0.title.lowercased())" }
+            .sorted().joined(separator: "\u{1f}")
+        return String(seed64(joined))
+    }
 
     /// Cached AI title/description for a radio (generated once so the Qobuz name
     /// stays stable), generating + persisting them on first use. `profile` is the
@@ -490,20 +545,33 @@ extension RoonClient {
     func aiTitleAndDescription(for radio: SonicRadio, category: RadioCategory, sample: [TrackRecord], profile: String) async -> (title: String, description: String) {
         let d = UserDefaults.standard
         let fallback = Self.fallbackMeta(category: category, label: radio.artist)
-        // A cached *real* title is reused (keeps the Qobuz name stable). A cached
-        // bare fallback is NOT trusted — it means an earlier LLM call failed (e.g.
-        // Ollama cold-start), so we retry generation now.
-        if let t = d.string(forKey: Self.titleKey(radio.id)), !t.isEmpty, t != fallback.title,
-           let desc = d.string(forKey: Self.descKey(radio.id)), !desc.isEmpty {
+        let cachedTitle = d.string(forKey: Self.titleKey(radio.id))
+        let cachedDesc = d.string(forKey: Self.descKey(radio.id))
+        let hasRealTitle = (cachedTitle?.isEmpty == false) && cachedTitle != fallback.title
+        let sig = Self.trackSetSignature(sample)
+
+        // A cached *real* title is reused — it's the stable Qobuz identity. The
+        // description, however, is regenerated when the tracklist changed (the
+        // signature differs) so it keeps describing what's actually in the playlist
+        // instead of a frozen first-build sample. A cached bare fallback title is
+        // NOT trusted — it means an earlier LLM call failed (e.g. Ollama cold-start)
+        // — so we retry generation now.
+        let descFresh = d.string(forKey: Self.descSigKey(radio.id)) == sig
+        if hasRealTitle, let t = cachedTitle, let desc = cachedDesc, !desc.isEmpty, descFresh {
             return (t, desc)
         }
         if let meta = await Self.generateAIMeta(category: category, label: radio.artist, sample: sample, profile: profile) {
-            d.set(meta.title, forKey: Self.titleKey(radio.id))
+            // Keep the title stable once we have a real one; only refresh the desc.
+            let title = hasRealTitle ? (cachedTitle ?? meta.title) : meta.title
+            d.set(title, forKey: Self.titleKey(radio.id))
             d.set(meta.description, forKey: Self.descKey(radio.id))
-            return meta
+            d.set(sig, forKey: Self.descSigKey(radio.id))
+            return (title, meta.description)
         }
-        // LLM unavailable this round — use the fallback but DON'T cache it.
-        return fallback
+        // LLM unavailable this round — reuse whatever we have, else the fallback.
+        // Don't cache the fallback (so a later build retries).
+        return (hasRealTitle ? (cachedTitle ?? fallback.title) : fallback.title,
+                (cachedDesc?.isEmpty == false) ? cachedDesc! : fallback.description)
     }
 
     /// A compact Dutch summary of the selection's sonic character — dominant
@@ -724,7 +792,7 @@ extension RoonClient {
         var synced = 0
         for pl in playlists {
             let name = pl.qobuzName
-            let pairs = pl.tracks.map { (title: $0.title, artist: $0.artist) }
+            let pairs = pl.tracks.map { (title: $0.title, artist: $0.artist, album: $0.album) }
             // Pass the previously-stored Qobuz id so a changed title renames the
             // existing playlist in place instead of orphaning it (a freshly
             // generated AI title replaces an earlier fallback).
@@ -737,21 +805,28 @@ extension RoonClient {
                 Log.info("AI radio (\(category.rawValue)) gesynct naar Qobuz: '\(name)' (\(result.matched)/\(result.total) tracks)",
                          category: .network)
             } else {
-                Log.warning("AI radio (\(category.rawValue)) sync mislukt voor '\(name)' (Qobuz-login of -aanmaak faalde)",
+                // nil ≠ login failure: it's also a deliberate skip — 0 tracks
+                // resolved, or the catastrophic-shrink guard kept the existing
+                // playlist intact. Don't assert a hard failure.
+                Log.warning("AI radio (\(category.rawValue)) sync overgeslagen of mislukt voor '\(name)' (geen match, beschermd, of Qobuz-fout)",
                             category: .network)
             }
         }
-        // Cache the synced set per category so /artist-radios can serve it to clients.
-        // Re-read each playlist's Qobuz id from UserDefaults first: the built objects
-        // carry the id as it was BEFORE this sync (nil for a first-time mirror), so a
-        // freshly-created playlist would otherwise be cached as "not on Qobuz" and get
-        // filtered out of mirroredRadios().
-        if synced > 0 {
-            cachedArtistRadios[category.rawValue] = playlists.map { pl in
-                var p = pl
-                p.qobuzPlaylistID = UserDefaults.standard.string(forKey: Self.qobuzIDKey(pl.id))
-                return p
-            }
+        // Cache the per-category set so /artist-radios serves it to clients AND so
+        // reconciliation keeps the right playlists. Crucially this runs even when
+        // `synced == 0`: a radio the shrink-guard left intact returns nil (not
+        // counted as synced), but its playlist is STILL live on Qobuz — keep only
+        // entries with a persisted Qobuz id so their name reaches the reconcile
+        // keep-set (else the orphan sweep would delete the very playlist we
+        // protected) while never caching a playlist that was never created.
+        let refreshed: [SonicRadioPlaylist] = playlists.compactMap { pl in
+            guard let qid = UserDefaults.standard.string(forKey: Self.qobuzIDKey(pl.id)) else { return nil }
+            var p = pl
+            p.qobuzPlaylistID = qid
+            return p
+        }
+        if !refreshed.isEmpty {
+            cachedArtistRadios[category.rawValue] = refreshed
         }
 
         // Manual sync: keep every category's playlists (scoped reconcile = nil).
