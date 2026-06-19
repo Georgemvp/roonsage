@@ -32,7 +32,7 @@ public final class LibraryWalker {
     private enum Mode: Sendable { case full, embeddingOnly }
     private enum WalkResult: Sendable {
         case full(TrackFeatureRow)
-        case embeddingOnly(path: String, mtime: Double, embedding: [Float]?, model: String, moods: String?)
+        case embeddingOnly(path: String, mtime: Double, embedding: [Float]?, model: String, moods: String?, attributes: String?)
         case failed
     }
 
@@ -61,8 +61,8 @@ public final class LibraryWalker {
                 inFlight -= 1
                 switch result {
                 case .full(let row): try? store.upsert(row); done += 1
-                case .embeddingOnly(let p, let m, let e, let mv, let mo):
-                    try? store.setEmbedding(path: p, mtime: m, embedding: e, model: mv, moods: mo); done += 1
+                case .embeddingOnly(let p, let m, let e, let mv, let mo, let at):
+                    try? store.setEmbedding(path: p, mtime: m, embedding: e, model: mv, moods: mo, attributes: at); done += 1
                 case .failed: failed += 1
                 }
                 let processed = done + failed
@@ -109,10 +109,12 @@ public final class LibraryWalker {
             guard let clap else { return .failed }
             if let emb = try? clap.embed(url: url) {
                 return .embeddingOnly(path: url.path, mtime: mtime, embedding: emb,
-                                      model: clap.modelVersion, moods: encodeMoods(clap.moods(forEmbedding: emb)))
+                                      model: clap.modelVersion,
+                                      moods: encodeFloatMap(clap.moods(forEmbedding: emb)),
+                                      attributes: encodeFloatMap(clap.attributes(forEmbedding: emb)))
             }
             return .embeddingOnly(path: url.path, mtime: mtime, embedding: nil,
-                                  model: clap.modelVersion, moods: nil)
+                                  model: clap.modelVersion, moods: nil, attributes: nil)
         case .full:
             let meta = MetadataReader.read(url: url)
             guard let f = try? AudioAnalyzer.analyze(url: url, clap: clap) else { return .failed }
@@ -129,14 +131,40 @@ public final class LibraryWalker {
                 // failed embed) so the file isn't re-tried every walk; nil when
                 // CLAP is disabled so enabling it later triggers an embed pass.
                 embeddingModel: clap.map { $0.modelVersion },
-                moods: f.moods.isEmpty ? nil : encodeMoods(f.moods)
+                moods: f.moods.isEmpty ? nil : encodeFloatMap(f.moods),
+                attributes: f.attributes.isEmpty ? nil : encodeFloatMap(f.attributes)
             ))
         }
     }
 
-    private static func encodeMoods(_ moods: [String: Float]) -> String? {
-        guard !moods.isEmpty, let data = try? JSONEncoder().encode(moods) else { return nil }
+    private static func encodeFloatMap(_ m: [String: Float]) -> String? {
+        guard !m.isEmpty, let data = try? JSONEncoder().encode(m) else { return nil }
         return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Backfill attributes for rows that already have an embedding but no
+    /// attributes — derived from the STORED vector, no audio re-read. Lets an
+    /// existing analyzed library gain the new axes without a full re-scan.
+    /// Returns the number of rows updated.
+    @discardableResult
+    public func backfillAttributes(batch: Int = 200,
+                                   onProgress: (@Sendable (Int) -> Void)? = nil) async -> Int {
+        guard let clap else { return 0 }
+        cancelled = false
+        var total = 0
+        while !cancelled {
+            let rows = store.attributeBackfillRows(limit: batch)
+            if rows.isEmpty { break }
+            for r in rows {
+                // Storing "{}" when probes are unavailable marks the row done so it
+                // isn't re-selected (avoids an infinite loop).
+                let json = Self.encodeFloatMap(clap.attributes(forEmbedding: r.embedding)) ?? "{}"
+                try? store.setAttributes(path: r.path, mtime: r.mtime, attributes: json)
+                total += 1
+            }
+            onProgress?(total)
+        }
+        return total
     }
 
     public static func mtime(_ url: URL) -> Double? {

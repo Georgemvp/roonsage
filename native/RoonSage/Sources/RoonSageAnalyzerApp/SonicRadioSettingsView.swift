@@ -20,6 +20,7 @@ struct SonicRadioSettingsView: View {
     // the Qobuz radios, so the dial must live here too, not only in the client app.
     @State private var adventurousness: Double = RoonClient.defaultAdventurousness
     @State private var hardBan = false
+    @State private var attributesEnabled = false
 
     var body: some View {
         Form {
@@ -47,7 +48,9 @@ struct SonicRadioSettingsView: View {
                 }
                 Toggle("Verberg tracks met duim-omlaag volledig", isOn: $hardBan)
                     .onChange(of: hardBan) { _, new in client.radioHardBanDisliked = new }
-                Text("Bepaalt hoe ver de door de server gebouwde radio's (incl. de Qobuz-mirror) van je vertrouwde muziek durven afdwalen, en of afgekeurde tracks helemaal verdwijnen.")
+                Toggle("Laat sonische kenmerken de radio's beïnvloeden", isOn: $attributesEnabled)
+                    .onChange(of: attributesEnabled) { _, new in client.radioAttributesEnabled = new }
+                Text("Bepaalt hoe ver de door de server gebouwde radio's (incl. de Qobuz-mirror) van je vertrouwde muziek durven afdwalen, en of afgekeurde tracks helemaal verdwijnen. De laatste optie laat valence/dansbaarheid/akoestisch/instrumentaal (CLAP-kenmerken) meetellen in de AI-titels — zet aan zodra je de waarden gecontroleerd hebt.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -138,6 +141,7 @@ struct SonicRadioSettingsView: View {
         selected = client.currentRadioSelection()
         adventurousness = client.radioAdventurousness
         hardBan = client.radioHardBanDisliked
+        attributesEnabled = client.radioAttributesEnabled
         loading = true
         var map: [RoonClient.RadioCategory: [RoonClient.RadioDescriptor]] = [:]
         for cat in RoonClient.RadioCategory.allCases {

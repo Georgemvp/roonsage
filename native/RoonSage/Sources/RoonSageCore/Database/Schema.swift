@@ -287,6 +287,14 @@ enum Schema {
             try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN bpm_confidence REAL")
         }
 
+        // CLAP zero-shot attribute axes (valence/danceability/acousticness/
+        // instrumentalness) as a JSON map, kept separate from `moods` so it never
+        // pollutes the Music Map / mood buckets. Populates on the next feature sync
+        // once the analyzer has computed them (analysis or the embedding backfill).
+        migrator.registerMigration("v20_attributes") { db in
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN attributes TEXT")
+        }
+
         try migrator.migrate(db)
     }
 }

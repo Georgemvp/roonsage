@@ -33,18 +33,21 @@ public struct TrackFeatureRow: Sendable {
     public var embedding: [Float]?
     public var embeddingModel: String?
     public var moods: String?        // JSON: {"happy":0.4,…}
+    public var attributes: String?   // JSON: {"valence":0.6,"danceability":0.4,…}
 
     public init(matchKey: String, artist: String?, title: String?, album: String?, year: Int?,
                 filePath: String, fileMtime: Double, bpm: Double, bpmConfidence: Double,
                 keyRoot: String, keyMode: String, camelot: String, energy: Double, duration: Double,
                 tags: String?, analyzedAt: String,
-                embedding: [Float]? = nil, embeddingModel: String? = nil, moods: String? = nil) {
+                embedding: [Float]? = nil, embeddingModel: String? = nil, moods: String? = nil,
+                attributes: String? = nil) {
         self.matchKey = matchKey; self.artist = artist; self.title = title; self.album = album
         self.year = year; self.filePath = filePath; self.fileMtime = fileMtime; self.bpm = bpm
         self.bpmConfidence = bpmConfidence; self.keyRoot = keyRoot; self.keyMode = keyMode
         self.camelot = camelot; self.energy = energy; self.duration = duration; self.tags = tags
         self.analyzedAt = analyzedAt
         self.embedding = embedding; self.embeddingModel = embeddingModel; self.moods = moods
+        self.attributes = attributes
     }
 }
 
@@ -95,6 +98,7 @@ public final class FeatureStore {
             try addColumn("moods", "TEXT")
             try addColumn("map_x", "REAL")
             try addColumn("map_y", "REAL")
+            try addColumn("attributes", "TEXT")
         }
     }
 
@@ -127,13 +131,43 @@ public final class FeatureStore {
     /// Update only the embedding columns for an existing row — used when scalars
     /// are already present and just the embedding needs (re)computing.
     public func setEmbedding(path: String, mtime: Double,
-                             embedding: [Float]?, model: String, moods: String?) throws {
+                             embedding: [Float]?, model: String, moods: String?,
+                             attributes: String? = nil) throws {
         try dbQueue.write { db in
             try db.execute(sql: """
-                UPDATE track_features SET embedding = ?, embedding_model = ?, moods = ?
+                UPDATE track_features SET embedding = ?, embedding_model = ?, moods = ?, attributes = ?
                 WHERE file_path = ? AND file_mtime = ?
-                """, arguments: [embedding.map(Self.blob), model, moods, path, mtime])
+                """, arguments: [embedding.map(Self.blob), model, moods, attributes, path, mtime])
         }
+    }
+
+    /// Rows that have an embedding but no attributes yet — the no-re-scan backfill
+    /// set. Returns (path, mtime, embedding) so attributes can be derived from the
+    /// stored vector without touching the audio file.
+    public func attributeBackfillRows(limit: Int) -> [(path: String, mtime: Double, embedding: [Float])] {
+        (try? dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT file_path, file_mtime, embedding FROM track_features
+                WHERE embedding IS NOT NULL AND attributes IS NULL LIMIT ?
+                """, arguments: [limit])
+        })?.compactMap { r in
+            guard let blob = r["embedding"] as Data? else { return nil }
+            return (r["file_path"] ?? "", r["file_mtime"] ?? 0, Self.floats(blob))
+        } ?? []
+    }
+
+    public func setAttributes(path: String, mtime: Double, attributes: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE track_features SET attributes = ? WHERE file_path = ? AND file_mtime = ?",
+                           arguments: [attributes, path, mtime])
+        }
+    }
+
+    /// Count of embedded rows still missing attributes (drives the backfill UI).
+    public func missingAttributesCount() -> Int {
+        (try? dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_features WHERE embedding IS NOT NULL AND attributes IS NULL") ?? 0
+        }) ?? 0
     }
 
     public func upsert(_ r: TrackFeatureRow) throws {
@@ -142,19 +176,20 @@ public final class FeatureStore {
                 INSERT INTO track_features
                   (match_key, artist, title, album, year, file_path, file_mtime,
                    bpm, bpm_confidence, key_root, key_mode, camelot, energy, duration, tags, analyzed_at,
-                   embedding, embedding_model, moods)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   embedding, embedding_model, moods, attributes)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(match_key) DO UPDATE SET
                   artist=excluded.artist, title=excluded.title, album=excluded.album, year=excluded.year,
                   file_path=excluded.file_path, file_mtime=excluded.file_mtime,
                   bpm=excluded.bpm, bpm_confidence=excluded.bpm_confidence,
                   key_root=excluded.key_root, key_mode=excluded.key_mode, camelot=excluded.camelot,
                   energy=excluded.energy, duration=excluded.duration, analyzed_at=excluded.analyzed_at,
-                  embedding=excluded.embedding, embedding_model=excluded.embedding_model, moods=excluded.moods
+                  embedding=excluded.embedding, embedding_model=excluded.embedding_model, moods=excluded.moods,
+                  attributes=excluded.attributes
             """, arguments: [
                 r.matchKey, r.artist, r.title, r.album, r.year, r.filePath, r.fileMtime,
                 r.bpm, r.bpmConfidence, r.keyRoot, r.keyMode, r.camelot, r.energy, r.duration, r.tags, r.analyzedAt,
-                r.embedding.map(Self.blob), r.embeddingModel, r.moods,
+                r.embedding.map(Self.blob), r.embeddingModel, r.moods, r.attributes,
             ])
         }
     }
@@ -205,7 +240,7 @@ public final class FeatureStore {
         let rows = (try? dbQueue.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT match_key, artist, title, album, year, bpm, bpm_confidence, camelot, key_root, key_mode, energy, duration,
-                       tags, moods, embedding_model\(includeEmbedding ? ", embedding" : "")
+                       tags, moods, attributes, embedding_model\(includeEmbedding ? ", embedding" : "")
                 FROM track_features WHERE bpm IS NOT NULL
             """)
         }) ?? []
@@ -233,6 +268,7 @@ public final class FeatureStore {
             if let year = r["year"] as Int?, year > 0 { obj["year"] = year }
             if let tags = r["tags"] as String? { obj["tags"] = tags }
             if let moods = r["moods"] as String? { obj["moods"] = moods }
+            if let attributes = r["attributes"] as String? { obj["attributes"] = attributes }
             if let model = r["embedding_model"] as String? { obj["embedding_model"] = model }
             if includeEmbedding, let blob = r["embedding"] as Data? {
                 obj["embedding"] = blob.base64EncodedString()
@@ -284,7 +320,7 @@ public final class FeatureStore {
             keyRoot: r["key_root"] ?? "", keyMode: r["key_mode"] ?? "", camelot: r["camelot"] ?? "",
             energy: r["energy"] ?? 0, duration: r["duration"] ?? 0, tags: r["tags"], analyzedAt: r["analyzed_at"] ?? "",
             embedding: (r["embedding"] as Data?).map(FeatureStore.floats),
-            embeddingModel: r["embedding_model"], moods: r["moods"]
+            embeddingModel: r["embedding_model"], moods: r["moods"], attributes: r["attributes"]
         )
     }
 }

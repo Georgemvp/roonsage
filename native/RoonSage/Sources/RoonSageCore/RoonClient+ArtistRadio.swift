@@ -197,7 +197,8 @@ extension RoonClient {
                 } else { tracks = capped }
             } else { tracks = capped }
 
-            let profile = Self.sonicProfileSummary(tracks.compactMap { byId[$0.id] })
+            let profile = Self.sonicProfileSummary(tracks.compactMap { byId[$0.id] },
+                                                   includeAttributes: radioAttributesEnabled)
             let meta = await aiTitleAndDescription(for: radio, category: category, sample: tracks, profile: profile)
             out.append(SonicRadioPlaylist(
                 id: key, artist: radio.artist, title: meta.title, description: meta.description,
@@ -508,9 +509,31 @@ extension RoonClient {
     /// A compact Dutch summary of the selection's sonic character — dominant
     /// tags/genres, top moods, energy band and tempo — fed to the title prompt so
     /// titles describe *what kind of music* it is, not just a clever phrase.
-    nonisolated static func sonicProfileSummary(_ tracks: [DatabaseManager.SonicTrack]) -> String {
+    nonisolated static func sonicProfileSummary(_ tracks: [DatabaseManager.SonicTrack],
+                                                includeAttributes: Bool = false) -> String {
         guard !tracks.isEmpty else { return "" }
         var parts: [String] = []
+
+        // CLAP attribute axes (opt-in): average the per-track scores and name the
+        // ones that clearly lean one way, so the AI title can reflect e.g. a
+        // danceable, acoustic, or instrumental character.
+        if includeAttributes {
+            var sum: [String: Float] = [:]; var cnt: [String: Int] = [:]
+            for t in tracks { for (k, v) in t.attributes { sum[k, default: 0] += v; cnt[k, default: 0] += 1 } }
+            let labels: [(key: String, high: String, low: String)] = [
+                ("valence", "vrolijk", "melancholisch"),
+                ("danceability", "dansbaar", "ingetogen ritme"),
+                ("acousticness", "akoestisch", "elektronisch"),
+                ("instrumentalness", "instrumentaal", "met zang"),
+            ]
+            var attrParts: [String] = []
+            for l in labels {
+                guard let c = cnt[l.key], c > 0 else { continue }
+                let avg = sum[l.key]! / Float(c)
+                if avg >= 0.62 { attrParts.append(l.high) } else if avg <= 0.38 { attrParts.append(l.low) }
+            }
+            if !attrParts.isEmpty { parts.append("kenmerken: \(attrParts.joined(separator: ", "))") }
+        }
 
         // Dominant tags / genres.
         var tagCounts: [String: Int] = [:]

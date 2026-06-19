@@ -338,6 +338,11 @@ private struct NowPlayingHero: View {
                             .lineLimit(1)
                     }
                 }
+                // CLAP attribute axes (when analyzed) — the "meer meta" the engine
+                // can use; shown here so you can eyeball the values per track.
+                ForEach(Self.attributeBadges(client.attributesFor(title: np.title, artist: np.artist, album: np.album)), id: \.self) { label in
+                    Badge(label, tint: .secondary)
+                }
                 Button {
                     startingRadio = true
                     Task {
@@ -379,6 +384,25 @@ private struct NowPlayingHero: View {
             }
             .lineLimit(1)
         }
+    }
+
+    /// Compact Dutch labels for the strong attribute axes (max 2) — the eyeball UI.
+    static func attributeBadges(_ attrs: [String: Float]) -> [String] {
+        guard !attrs.isEmpty else { return [] }
+        let rules: [(key: String, high: String, low: String)] = [
+            ("valence", "Vrolijk", "Melancholisch"),
+            ("danceability", "Dansbaar", ""),
+            ("acousticness", "Akoestisch", "Elektronisch"),
+            ("instrumentalness", "Instrumentaal", ""),
+        ]
+        var out: [String] = []
+        for r in rules {
+            guard let v = attrs[r.key] else { continue }
+            if v >= 0.62, !r.high.isEmpty { out.append(r.high) }
+            else if v <= 0.38, !r.low.isEmpty { out.append(r.low) }
+            if out.count >= 2 { break }
+        }
+        return out
     }
 
     // MARK: Scrubber — custom, bounded progress bar (the system Slider rendered

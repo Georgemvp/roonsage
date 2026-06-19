@@ -50,8 +50,11 @@ public final class CLAPModel: @unchecked Sendable {
             NSLog("[CLAP] no model directory found — embeddings disabled")
             return nil
         }
-        do { return try CLAPModel(dir: dir) }
-        catch {
+        do {
+            let model = try CLAPModel(dir: dir)
+            model.prepareProbes()   // build attribute probes once (best-effort)
+            return model
+        } catch {
             NSLog("[CLAP] failed to load model: \(error) — embeddings disabled")
             return nil
         }
@@ -140,6 +143,65 @@ public final class CLAPModel: @unchecked Sendable {
         var result = [String: Float](minimumCapacity: moodLabels.count)
         for (i, label) in moodLabels.enumerated() {
             result[label] = Self.dot(e, moodEmbeds[i])
+        }
+        return result
+    }
+
+    // MARK: - Attribute axes (zero-shot text probes)
+
+    /// One interpretable 0…1 axis defined by contrasting text prompts, scored from
+    /// the audio embedding via CLAP's shared space — "Spotify-style" meta for free,
+    /// no extra model. Probe phrasing + the logistic scale are heuristic and worth
+    /// tuning against real audio.
+    struct AttributeAxis { let name: String; let positive: [String]; let negative: [String] }
+    static let attributeAxes: [AttributeAxis] = [
+        AttributeAxis(name: "valence",
+            positive: ["happy joyful uplifting positive music", "cheerful bright feel-good song"],
+            negative: ["sad melancholic depressing music", "dark gloomy somber song"]),
+        AttributeAxis(name: "danceability",
+            positive: ["danceable groovy rhythmic music with a strong steady beat", "club dance track you can dance to"],
+            negative: ["free-form ambient music with no beat", "slow arrhythmic music you cannot dance to"]),
+        AttributeAxis(name: "acousticness",
+            positive: ["acoustic unplugged music on organic real instruments", "natural acoustic recording with guitar piano strings"],
+            negative: ["electronic synthetic produced music", "heavily synthesized electronic track full of synths"]),
+        AttributeAxis(name: "instrumentalness",
+            positive: ["instrumental music with no vocals", "purely instrumental track without any singing"],
+            negative: ["song with prominent lead vocals and singing", "track with a singer and lyrics"]),
+    ]
+
+    /// Precomputed per-axis mean positive/negative unit vectors. Empty when the
+    /// text tokenizer is unavailable. Set once by `prepareProbes()` (single-thread,
+    /// right after load); `attributes(forEmbedding:)` then reads them concurrently.
+    private var attrProbes: [(name: String, pos: [Float], neg: [Float])] = []
+
+    /// Build the attribute probe vectors via the text model. Call once after load.
+    func prepareProbes() {
+        guard canEmbedText else { return }
+        func meanUnit(_ phrases: [String]) -> [Float]? {
+            var acc = [Float](repeating: 0, count: Self.embeddingDim); var n = 0
+            for p in phrases {
+                guard let e = try? textEmbedding(p), e.count == Self.embeddingDim else { continue }
+                vDSP_vadd(acc, 1, e, 1, &acc, 1, vDSP_Length(Self.embeddingDim)); n += 1
+            }
+            return n > 0 ? Self.l2(acc) : nil
+        }
+        var probes: [(name: String, pos: [Float], neg: [Float])] = []
+        for axis in Self.attributeAxes {
+            guard let pos = meanUnit(axis.positive), let neg = meanUnit(axis.negative) else { continue }
+            probes.append((axis.name, pos, neg))
+        }
+        attrProbes = probes
+    }
+
+    /// 0…1 attribute scores for an audio embedding (empty when probes unavailable).
+    /// Each axis maps the positive-vs-negative cosine contrast through a logistic.
+    public func attributes(forEmbedding emb: [Float]) -> [String: Float] {
+        guard !attrProbes.isEmpty else { return [:] }
+        let e = Self.l2(emb)
+        var result = [String: Float](minimumCapacity: attrProbes.count)
+        for p in attrProbes {
+            let contrast = Self.dot(e, p.pos) - Self.dot(e, p.neg)
+            result[p.name] = 1 / (1 + expf(-8 * contrast))
         }
         return result
     }

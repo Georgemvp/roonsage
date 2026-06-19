@@ -45,6 +45,20 @@ extension RoonClient {
         set { UserDefaults.standard.set(newValue, forKey: "radio_hard_ban_disliked") }
     }
 
+    /// Let the CLAP attribute axes (valence/danceability/acousticness/
+    /// instrumentalness) feed the radios (steering the AI titles/profile). Off by
+    /// default — the zero-shot probes are heuristic, so this stays opt-in until the
+    /// values have been eyeballed. The axes are always stored + displayed regardless.
+    public var radioAttributesEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "radio_attributes_enabled") }
+        set { UserDefaults.standard.set(newValue, forKey: "radio_attributes_enabled") }
+    }
+
+    /// Attribute scores (valence/danceability/…) for a now-playing track, if synced.
+    public func attributesFor(title: String, artist: String?, album: String?) -> [String: Float] {
+        database?.attributesForMatchKey(TrackIdentity.matchKey(artist: artist, album: album, title: title)) ?? [:]
+    }
+
     /// Lowercased artist names the user actually engages with — those they play
     /// most (Roon + Last.fm history) plus those they've thumbed up. The "familiar"
     /// set the smart radios lean toward at low adventurousness (and away from when
@@ -203,7 +217,8 @@ extension RoonClient {
                     keyRoot: o["key_root"] as? String, keyMode: o["key_mode"] as? String,
                     energy: o["energy"] as? Double, duration: o["duration"] as? Double,
                     tags: o["tags"] as? String, moods: o["moods"] as? String,
-                    bpmConfidence: o["bpm_confidence"] as? Double
+                    bpmConfidence: o["bpm_confidence"] as? Double,
+                    attributes: o["attributes"] as? String
                 ))
                 identities.append(DatabaseManager.FeatureIdentity(
                     matchKey: mk, artist: o["artist"] as? String, title: o["title"] as? String))

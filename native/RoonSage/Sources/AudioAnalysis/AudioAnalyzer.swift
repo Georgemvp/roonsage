@@ -13,16 +13,18 @@ public struct AudioFeatures: Sendable, Codable {
     // v13-era sonic embedding (Track E5). Empty when CLAP is unavailable.
     public var embedding: [Float] = []                 // 512-dim, L2-normalized
     public var moods: [String: Float] = [:]            // mood label → cosine
+    public var attributes: [String: Float] = [:]       // valence/danceability/… (zero-shot probes)
     public var embeddingModelVersion: String = ""      // e.g. "clap-…-v1"
 
     public init(bpm: Double, bpmConfidence: Double, keyRoot: String, keyMode: String,
                 camelot: String, energy: Double, durationSec: Double,
                 embedding: [Float] = [], moods: [String: Float] = [:],
+                attributes: [String: Float] = [:],
                 embeddingModelVersion: String = "") {
         self.bpm = bpm; self.bpmConfidence = bpmConfidence
         self.keyRoot = keyRoot; self.keyMode = keyMode; self.camelot = camelot
         self.energy = energy; self.durationSec = durationSec
-        self.embedding = embedding; self.moods = moods
+        self.embedding = embedding; self.moods = moods; self.attributes = attributes
         self.embeddingModelVersion = embeddingModelVersion
     }
 
@@ -38,6 +40,7 @@ public struct AudioFeatures: Sendable, Codable {
         durationSec = try c.decode(Double.self, forKey: .durationSec)
         embedding = try c.decodeIfPresent([Float].self, forKey: .embedding) ?? []
         moods = try c.decodeIfPresent([String: Float].self, forKey: .moods) ?? [:]
+        attributes = try c.decodeIfPresent([String: Float].self, forKey: .attributes) ?? [:]
         embeddingModelVersion = try c.decodeIfPresent(String.self, forKey: .embeddingModelVersion) ?? ""
     }
 }
@@ -67,10 +70,12 @@ public struct AudioAnalyzer {
 
         var embedding: [Float] = []
         var moods: [String: Float] = [:]
+        var attributes: [String: Float] = [:]
         var modelVersion = ""
         if let clap, let emb = try? clap.embed(url: url) {
             embedding = emb
             moods = clap.moods(forEmbedding: emb)
+            attributes = clap.attributes(forEmbedding: emb)
             modelVersion = clap.modelVersion
         }
 
@@ -84,6 +89,7 @@ public struct AudioAnalyzer {
             durationSec: audio.fullDurationSec > 0 ? audio.fullDurationSec : audio.duration,
             embedding: embedding,
             moods: moods,
+            attributes: attributes,
             embeddingModelVersion: modelVersion
         )
     }

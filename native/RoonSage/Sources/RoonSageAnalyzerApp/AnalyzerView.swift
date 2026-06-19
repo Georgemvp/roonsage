@@ -76,6 +76,27 @@ struct AnalyzerView: View {
                     .padding(6)
                 }
 
+                // Attribute axes — derived from stored embeddings, no re-scan.
+                GroupBox("2b · Sonische kenmerken (uit embeddings)") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Button(model.isBackfilling ? "Berekenen…" : "Bereken kenmerken") {
+                                model.startAttributeBackfill()
+                            }
+                            .disabled(!model.clapReady || model.isBackfilling || model.isAnalyzing || model.missingAttributes == 0)
+                            if model.isBackfilling { ProgressView().controlSize(.small) }
+                            Spacer()
+                            Text("\(model.missingAttributes) zonder kenmerken")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        Text(model.clapReady
+                             ? "Leidt valence / dansbaarheid / akoestisch / instrumentaal af uit de bestaande embeddings — geen her-analyse nodig."
+                             : "Wacht tot het CLAP-tekstmodel geladen is (zie Serve).")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(6)
+                }
+
                 // Serve
                 GroupBox("3 · Serve to the app") {
                     VStack(alignment: .leading, spacing: 8) {

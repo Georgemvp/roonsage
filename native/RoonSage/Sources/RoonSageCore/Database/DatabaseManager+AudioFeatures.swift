@@ -16,12 +16,13 @@ extension DatabaseManager {
         public var duration: Double?
         public var tags: String?
         public var moods: String?     // JSON {"happy":0.4,…}, from the analyzer
+        public var attributes: String? // JSON {"valence":0.6,…}, from the analyzer
         public init(matchKey: String, bpm: Double?, camelot: String?, keyRoot: String?,
                     keyMode: String?, energy: Double?, duration: Double?, tags: String?,
-                    moods: String? = nil, bpmConfidence: Double? = nil) {
+                    moods: String? = nil, bpmConfidence: Double? = nil, attributes: String? = nil) {
             self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot; self.keyRoot = keyRoot
             self.keyMode = keyMode; self.energy = energy; self.duration = duration; self.tags = tags
-            self.moods = moods; self.bpmConfidence = bpmConfidence
+            self.moods = moods; self.bpmConfidence = bpmConfidence; self.attributes = attributes
         }
     }
 
@@ -73,31 +74,41 @@ extension DatabaseManager {
         }) ?? nil
     }
 
+    /// CLAP attribute scores for one track by content match key (for Now Playing).
+    public func attributesForMatchKey(_ matchKey: String) -> [String: Float] {
+        (try? pool.read { db -> [String: Float] in
+            guard let s = try String.fetchOne(
+                db, sql: "SELECT attributes FROM track_audio_features WHERE match_key = ?", arguments: [matchKey]),
+                let d = s.data(using: .utf8) else { return [:] }
+            return (try? JSONDecoder().decode([String: Float].self, from: d)) ?? [:]
+        }) ?? [:]
+    }
+
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) async throws {
         guard !rows.isEmpty else { return }
         let iso = Self.isoFormatter.string(from: Date())
-        let chunk = Self.rowsPerChunk(columns: 11)
+        let chunk = Self.rowsPerChunk(columns: 12)
         try await pool.write { db in
             var start = 0
             while start < rows.count {
                 let slice = rows[start..<min(start + chunk, rows.count)]
-                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
                 var args: [DatabaseValueConvertible?] = []
-                args.reserveCapacity(slice.count * 11)
+                args.reserveCapacity(slice.count * 12)
                 for r in slice {
                     args.append(contentsOf: [r.matchKey, r.bpm, r.camelot, r.keyRoot,
                                              r.keyMode, r.energy, r.duration, r.tags, r.moods,
-                                             r.bpmConfidence, iso] as [DatabaseValueConvertible?])
+                                             r.bpmConfidence, r.attributes, iso] as [DatabaseValueConvertible?])
                 }
                 try db.execute(sql: """
                     INSERT INTO track_audio_features
-                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, synced_at)
+                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, attributes, synced_at)
                     VALUES \(placeholders)
                     ON CONFLICT(match_key) DO UPDATE SET
                       bpm=excluded.bpm, camelot=excluded.camelot, key_root=excluded.key_root,
                       key_mode=excluded.key_mode, energy=excluded.energy, duration=excluded.duration,
                       tags=excluded.tags, moods=excluded.moods, bpm_confidence=excluded.bpm_confidence,
-                      synced_at=excluded.synced_at
+                      attributes=excluded.attributes, synced_at=excluded.synced_at
                 """, arguments: StatementArguments(args))
                 start += chunk
             }
@@ -340,17 +351,20 @@ extension DatabaseManager {
         public var tags: [String]
         public var embedding: [Float]?       // 512-dim CLAP vector (Track E5)
         public var moods: [String: Float]    // mood → cosine, for Map colouring
+        public var attributes: [String: Float]  // valence/danceability/… (zero-shot)
         public var mapX: Double?             // PCA-2D projection (Music Map)
         public var mapY: Double?
 
         public init(id: String, title: String, artist: String?, album: String?, imageKey: String?,
                     matchKey: String, bpm: Double?, camelot: String, energy: Double?, tags: [String],
                     embedding: [Float]? = nil, moods: [String: Float] = [:],
-                    mapX: Double? = nil, mapY: Double? = nil, bpmConfidence: Double? = nil) {
+                    mapX: Double? = nil, mapY: Double? = nil, bpmConfidence: Double? = nil,
+                    attributes: [String: Float] = [:]) {
             self.id = id; self.title = title; self.artist = artist; self.album = album
             self.imageKey = imageKey; self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot
             self.energy = energy; self.tags = tags; self.embedding = embedding; self.moods = moods
             self.mapX = mapX; self.mapY = mapY; self.bpmConfidence = bpmConfidence
+            self.attributes = attributes
         }
     }
 
@@ -360,7 +374,7 @@ extension DatabaseManager {
         try await pool.read { db in
             var sql = """
                 SELECT t.id, t.title, t.artist, t.album, t.image_key, t.match_key,
-                       f.bpm, f.bpm_confidence, f.camelot, f.energy, f.tags, f.embedding, f.moods, f.map_x, f.map_y
+                       f.bpm, f.bpm_confidence, f.camelot, f.energy, f.tags, f.embedding, f.moods, f.attributes, f.map_x, f.map_y
                 FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
                 WHERE f.match_key IS NOT NULL
             """
@@ -385,12 +399,16 @@ extension DatabaseManager {
                 if let m = r["moods"] as String?, let d = m.data(using: .utf8) {
                     moods = (try? JSONDecoder().decode([String: Float].self, from: d)) ?? [:]
                 }
+                var attributes: [String: Float] = [:]
+                if let a = r["attributes"] as String?, let d = a.data(using: .utf8) {
+                    attributes = (try? JSONDecoder().decode([String: Float].self, from: d)) ?? [:]
+                }
                 out.append(SonicTrack(
                     id: r["id"] ?? "", title: title, artist: artist, album: r["album"],
                     imageKey: r["image_key"], matchKey: r["match_key"] ?? "",
                     bpm: r["bpm"], camelot: r["camelot"] ?? "", energy: r["energy"], tags: tags,
                     embedding: embedding, moods: moods, mapX: r["map_x"], mapY: r["map_y"],
-                    bpmConfidence: r["bpm_confidence"]
+                    bpmConfidence: r["bpm_confidence"], attributes: attributes
                 ))
             }
             return out

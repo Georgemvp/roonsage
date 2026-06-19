@@ -85,6 +85,30 @@ final class AnalyzerModel {
 
     func cancelTag() { tagger?.cancel() }
 
+    // MARK: - Attribute backfill (derive valence/danceability/… from stored embeddings)
+
+    private(set) var isBackfilling = false
+    /// Embedded rows still missing the CLAP attribute axes.
+    var missingAttributes: Int { store?.missingAttributesCount() ?? 0 }
+    /// Whether the CLAP text model is loaded (needed to compute attribute probes).
+    var clapReady: Bool { clap != nil }
+
+    /// Derive attributes for already-embedded rows — no audio re-read, no re-scan.
+    func startAttributeBackfill() {
+        guard let store, let clap, !isBackfilling, !isAnalyzing else { return }
+        isBackfilling = true
+        status = "Attributen berekenen uit embeddings…"
+        let w = LibraryWalker(store: store, clap: clap)
+        Task {
+            let n = await w.backfillAttributes { done in
+                Task { @MainActor in self.status = "Attributen berekend: \(done)…" }
+            }
+            isBackfilling = false
+            refresh()
+            status = "Attributen berekend voor \(n) tracks."
+        }
+    }
+
     /// Start the feature server on launch if it isn't already running — this app
     /// is the always-on server, so /features (5766) should be up without a click.
     func startServingIfNeeded() {
