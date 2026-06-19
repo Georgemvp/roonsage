@@ -91,8 +91,19 @@ separate logistic classifier over the (sparse) like/dislike labels was considere
 and skipped — it would overfit and largely duplicate the taste vector. Revisit if
 feedback volume grows.
 
+| B | **CLAP attribute axes** (valence/danceability/acousticness/instrumentalness) | ✅ shipped |
+
+The attribute axes are zero-shot text-probe contrasts computed in Swift from the
+existing CLAP model (no Python re-train), stored in a separate `attributes` column,
+activated without a re-scan via `LibraryWalker.backfillAttributes` (derives from
+stored embeddings), shown as Now-Playing badges, and behind the
+`radioAttributesEnabled` flag (default off) before they steer the AI titles. Probe
+phrasing/scale are heuristic — tune against real audio.
+
 Next (also on existing data):
 
+- **Validate + tune the attribute probe phrasing** on real audio (the one part not
+  yet verified by listening).
 - **ListenBrainz read-back** into `listening_history` (currently write-only).
 - **Offline eval harness** — hold out liked tracks, measure recall@k; extend the
   `useSonicEmbeddings` A/B flag to score radio quality.
