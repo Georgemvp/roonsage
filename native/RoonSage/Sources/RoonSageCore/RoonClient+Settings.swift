@@ -93,7 +93,14 @@ extension RoonClient {
     /// (keeps the saved URL) when no non-loopback core host is known yet.
     /// Use this for *running* completions; saving/editing must keep the raw URL.
     public func effectiveLLMConfig() -> LLMConfig {
-        var cfg = LLMConfigStore.load()
+        effectiveLLMConfig(LLMConfigStore.load())
+    }
+
+    /// Apply the loopback→core-host retargeting to an arbitrary (e.g. unsaved,
+    /// from the Settings "Test verbinding" button) config. No-op for non-Ollama
+    /// providers or when no non-loopback host is known yet.
+    public func effectiveLLMConfig(_ base: LLMConfig) -> LLMConfig {
+        var cfg = base
         guard cfg.provider == .ollama else { return cfg }
         let url = cfg.baseURL.trimmingCharacters(in: .whitespaces)
         let needsRetarget = url.isEmpty || (URL(string: url)?.host.map(Self.isLoopback) ?? true)

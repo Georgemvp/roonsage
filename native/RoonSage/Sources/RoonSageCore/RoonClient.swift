@@ -175,6 +175,11 @@ public final class RoonClient {
     public internal(set) var trackCount = 0
     public internal(set) var isGenreSyncing = false
     public internal(set) var genreCount = 0
+    /// Identities of tracks used by recent AI generations (newest last), lightly
+    /// de-prioritised so re-running a prompt doesn't return the same playlist.
+    /// Lives on the client (not view `@State`) so it survives tab-switches —
+    /// exactly when a user re-runs a prompt. Capped to a rolling window.
+    public internal(set) var recentlyGeneratedIdentities: [String] = []
     public internal(set) var coreHost: String?
     public internal(set) var corePort: UInt16 = 9330
     public internal(set) var selectedZoneID: String?

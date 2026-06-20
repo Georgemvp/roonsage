@@ -61,11 +61,14 @@ public struct SettingsView: View {
     // LLM
     @State private var llmProvider: LLMConfig.Provider = .ollama
     @State private var llmBaseURL:  String = "http://localhost:11434"
-    @State private var llmModel:    String = "qwen3.5:4b-mlx"
+    @State private var llmModel:    String = "qwen3:4b"
     @State private var llmApiKey:   String = ""
     @State private var llmSaved     = false
     @State private var ollamaModels: [String] = []
     @State private var isFetchingModels = false
+    @State private var isTestingLLM = false
+    @State private var llmTestStatus: String? = nil
+    @State private var llmTestOK = false
 
     public var body: some View {
         Form {
@@ -207,7 +210,7 @@ public struct SettingsView: View {
                     }
                 }
 
-                if llmProvider == .ollama || llmProvider == .custom {
+                if llmProvider.usesBaseURL {
                     LabeledContent("Base URL") {
                         HStack(spacing: Spacing.sm) {
                             TextField("http://localhost:11434", text: $llmBaseURL)
@@ -232,7 +235,8 @@ public struct SettingsView: View {
 
                 LabeledContent("Model") {
                     if ollamaModels.isEmpty {
-                        TextField("qwen3.5:4b-mlx", text: $llmModel)
+                        TextField(llmProvider.defaultModel.isEmpty ? "model-naam" : llmProvider.defaultModel,
+                                  text: $llmModel)
                             .textFieldStyle(.roundedBorder)
                     } else {
                         Picker("Model", selection: $llmModel) {
@@ -242,14 +246,35 @@ public struct SettingsView: View {
                     }
                 }
 
-                if llmProvider != .ollama {
+                if llmProvider.needsAPIKey {
                     LabeledContent("API-sleutel") {
                         SecureField("Plak hier je sleutel", text: $llmApiKey)
                             .textFieldStyle(.roundedBorder)
                     }
                 }
 
-                Button(llmSaved ? "Bewaard!" : "Bewaar LLM-instellingen") { saveLLMConfig() }
+                HStack(spacing: Spacing.md) {
+                    Button(llmSaved ? "Bewaard!" : "Bewaar LLM-instellingen") { saveLLMConfig() }
+                    Button {
+                        Task { await testLLM() }
+                    } label: {
+                        if isTestingLLM { ProgressView().controlSize(.small) }
+                        else { Label("Test verbinding", systemImage: "bolt.horizontal.circle") }
+                    }
+                    .disabled(isTestingLLM)
+                }
+
+                if let llmTestStatus {
+                    Label(llmTestStatus, systemImage: llmTestOK ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(llmTestOK ? Color.roonSuccess : Color.roonDanger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if llmProvider == .gemini {
+                    Text("Gebruik je Google AI Studio-sleutel (generativelanguage.googleapis.com). Groot contextvenster — ideaal voor curatie uit een grote bibliotheek.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             // External Services
@@ -467,6 +492,25 @@ public struct SettingsView: View {
         LLMConfigStore.save(LLMConfig(provider: llmProvider, baseURL: llmBaseURL, model: llmModel, apiKey: llmApiKey))
         llmSaved = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { llmSaved = false }
+    }
+
+    /// Fire a tiny completion against the *current* (unsaved) settings so the user
+    /// can confirm provider/key/model before relying on it. Uses the same
+    /// loopback-retargeting as real generation so a thin client tests the right host.
+    private func testLLM() async {
+        isTestingLLM = true; llmTestStatus = nil
+        defer { isTestingLLM = false }
+        var cfg = LLMConfig(provider: llmProvider, baseURL: llmBaseURL, model: llmModel, apiKey: llmApiKey)
+        // Apply the same loopback → core-host retargeting as real generation so a
+        // thin client tests the host where Ollama actually runs.
+        cfg = client.effectiveLLMConfig(cfg)
+        if let err = await LLMClient.shared.test(config: cfg) {
+            llmTestStatus = err
+            llmTestOK = false
+        } else {
+            llmTestStatus = "Verbinding OK — \(cfg.provider.rawValue) (\(cfg.effectiveModel)) antwoordt."
+            llmTestOK = true
+        }
     }
 
     // MARK: - Audio analyzer

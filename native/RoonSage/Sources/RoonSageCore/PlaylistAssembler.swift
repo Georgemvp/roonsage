@@ -16,6 +16,16 @@ import Foundation
 /// `RoonClient.rankCandidates`.
 public enum PlaylistAssembler {
 
+    /// Parse a comma/space/newline-separated list of 1-based track numbers from an
+    /// LLM response, keeping only those within `1...max`, preserving order. The
+    /// single source for what used to be three identical `parseNumbers` copies.
+    public static func picks(from text: String, max: Int) -> [Int] {
+        LLMClient.stripReasoning(text)
+            .components(separatedBy: CharacterSet(charactersIn: ", ;\n\t"))
+            .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .filter { $0 >= 1 && $0 <= max }
+    }
+
     /// Stable identity for dedup / anti-repetition. Prefers the content match
     /// key; falls back to title|artist so tracks without a key still dedup.
     public static func identity(_ t: TrackRecord) -> String {

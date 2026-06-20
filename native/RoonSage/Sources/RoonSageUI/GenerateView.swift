@@ -3,36 +3,37 @@ import RoonSageCore
 
 // MARK: - View
 
+/// AI playlist generation. The whole analyse → candidates → curate → name
+/// pipeline now lives in `RoonClient.generatePlaylist` (Core); this view only
+/// owns the prompt, the staged-progress display and an *editable* result the
+/// user can refine (play/queue/reorder/remove a track) before saving.
 @MainActor
 public struct GenerateView: View {
     public init() {}
     @Environment(RoonClient.self) private var client
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var prompt       = ""
-    @State private var targetCount  = 20
-    @State private var selectedZoneID: String? = nil
-    @State private var isGenerating = false
-    @State private var phase        = ""
-    @State private var generatedTracks: [TrackRecord] = []
-    /// Rows revealed so far — the curation result "deals out" with a short
-    /// stagger instead of dumping a list (the payoff for the LLM wait).
-    @State private var revealedCount = 0
-    @State private var revealTask: Task<Void, Never>? = nil
-    @State private var analysisSummary: String? = nil
-    @State private var droppedIntentNote: String? = nil
-    /// Identities of tracks used by recent generations, newest last — lightly
-    /// de-prioritised so repeating a prompt doesn't return the same playlist.
-    @State private var recentlyGenerated: [String] = []
-    @State private var aiDescription: String? = nil
+    @State private var prompt        = ""
+    @State private var targetCount   = 20
+    @State private var isGenerating  = false
+    @State private var phase: RoonClient.GenerationPhase? = nil
+    @State private var genTask: Task<Void, Never>? = nil
+    /// Monotonic token so a cancelled/superseded run can't reset shared @State or
+    /// publish a result under a newer run.
+    @State private var genToken      = 0
+
+    @State private var result: RoonClient.GenerationResult? = nil
+    /// Editable working copy of the curated tracks (mutated by the row actions).
+    @State private var tracks: [TrackRecord] = []
+
     @State private var playlistName = ""
     @State private var justSaved    = false
+    @State private var savedTask: Task<Void, Never>? = nil
     @State private var qobuzStatus: String? = nil
     @State private var errorMessage: String? = nil
     @State private var showTemplates = false
 
-    /// One featured template per category for quick access; all 63 live
-    /// behind "Alle sjablonen".
+    /// One featured template per category for quick access; all 63 live behind
+    /// "Alle sjablonen".
     private var featured: [PlaylistTemplate] {
         PlaylistTemplates.categories.compactMap { PlaylistTemplates.inCategory($0).first }
     }
@@ -50,516 +51,380 @@ public struct GenerateView: View {
             Color.clear.frame(height: 0)
             #endif
             VStack(alignment: .leading, spacing: Spacing.xl) {
-
-                // ── Prompt ────────────────────────────────────────────────
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    Text("Wat voor playlist?")
-                        .font(.headline)
-                    TextEditor(text: $prompt)
-                        .font(.body)
-                        .frame(height: 76)
-                        .scrollContentBackground(.hidden)
-                        .padding(Spacing.sm)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: Radius.md))
-                }
-
-                // ── Templates ─────────────────────────────────────────────
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    HStack {
-                        Text("Snelle sjablonen")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button { showTemplates = true } label: {
-                            Label("Alle sjablonen", systemImage: "square.grid.2x2")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: Spacing.sm) {
-                            ForEach(featured) { t in
-                                Button { apply(t) } label: {
-                                    HStack(spacing: Spacing.xs) {
-                                        Text(t.icon)
-                                        Text(t.name).font(.callout)
-                                    }
-                                    .padding(.horizontal, Spacing.md)
-                                    .padding(.vertical, Spacing.sm)
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-                        .padding(.horizontal, 1)
-                    }
-                }
-
-                // ── Options ───────────────────────────────────────────────
-                HStack(spacing: Spacing.lg) {
-                    HStack(spacing: 6) {
-                        Text("Tracks")
-                            .foregroundStyle(.secondary)
-                        Picker("Tracks", selection: $targetCount) {
-                            Text("10").tag(10)
-                            Text("20").tag(20)
-                            Text("30").tag(30)
-                            Text("50").tag(50)
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: 200)
-                        .labelsHidden()
-                    }
-
-                    Spacer()
-                }
-
-                // ── Generate button ───────────────────────────────────────
-                HStack(spacing: Spacing.md) {
-                    Button {
-                        Task { await generate() }
-                    } label: {
-                        Label(isGenerating ? "Genereren…" : "Genereer playlist",
-                              systemImage: "wand.and.stars")
-                            .frame(minWidth: 180)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || isGenerating)
-
-                    if isGenerating {
-                        ProgressView().controlSize(.small)
-                        Text(phase).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
+                promptSection
+                templatesSection
+                optionsSection
+                generateSection
 
                 if let err = errorMessage {
                     Label(err, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(Color.roonDanger)
                         .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
                 }
 
-                // ── Result ────────────────────────────────────────────────
-                if !generatedTracks.isEmpty {
-                    Divider()
+                if isGenerating {
+                    GenerationStepper(current: phase ?? .analyzing)
+                        .transition(.opacity)
+                }
 
-                    VStack(alignment: .leading, spacing: Spacing.md) {
-                        HStack(alignment: .top, spacing: Spacing.sm) {
-                            Image(systemName: "wand.and.stars")
-                                .foregroundStyle(Color.roonGold)
-                                .symbolEffect(.bounce, value: generatedTracks.count)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(playlistName.isEmpty ? "Gegenereerde playlist" : playlistName)
-                                    .font(.title3.bold())
-                                if let aiDescription, !aiDescription.isEmpty {
-                                    Text(aiDescription)
-                                        .font(.callout)
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                HStack(spacing: 5) {
-                                    Text("\(generatedTracks.count) tracks")
-                                    if let summary = analysisSummary { Text("· \(summary)") }
-                                    if justSaved { Text("· opgeslagen").foregroundStyle(Color.roonGold) }
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                                if let note = droppedIntentNote {
-                                    Label(note, systemImage: "exclamationmark.triangle.fill")
-                                        .font(.caption)
-                                        .foregroundStyle(.orange)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
-                            Spacer()
-                        }
-
-                        // Play choice — pick a zone, then start it. No auto-play.
-                        HStack(spacing: Spacing.sm) {
-                            if !client.zones.isEmpty {
-                                Picker("Zone", selection: $selectedZoneID) {
-                                    Text("Kies zone…").tag(Optional<String>.none)
-                                    ForEach(client.zones) { z in
-                                        Label(z.displayName, systemImage: z.state.icon).tag(Optional(z.id))
-                                    }
-                                }
-                                .labelsHidden()
-                                .frame(maxWidth: 220)
-                            }
-                            Button {
-                                if let zoneID = selectedZoneID {
-                                    Haptics.tap()
-                                    Task { await client.curateTracks(generatedTracks, zoneID: zoneID) }
-                                }
-                            } label: {
-                                Label("Speel af", systemImage: "play.fill").frame(minWidth: 120)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(selectedZoneID == nil)
-                        }
-                    }
-
-                    // Save as local playlist
-                    HStack(spacing: Spacing.sm) {
-                        TextField("Naam playlist", text: $playlistName)
-                            .textFieldStyle(.roundedBorder)
-                        Button {
-                            let name = playlistName.trimmingCharacters(in: .whitespaces)
-                            guard !name.isEmpty else { return }
-                            client.savePlaylist(name: name, tracks: generatedTracks)
-                            Haptics.success()
-                            justSaved = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { justSaved = false }
-                        } label: {
-                            Label(justSaved ? "Bewaard!" : "Bewaar playlist", systemImage: "square.and.arrow.down")
-                        }
-                        .disabled(playlistName.trimmingCharacters(in: .whitespaces).isEmpty)
-
-                        if client.qobuzConfigured {
-                            Button {
-                                let name = playlistName.trimmingCharacters(in: .whitespaces)
-                                guard !name.isEmpty else { return }
-                                qobuzStatus = "Bewaren in Qobuz…"
-                                Task {
-                                    if let r = await client.saveToQobuz(name: name, tracks: generatedTracks) {
-                                        qobuzStatus = "Bewaard in Qobuz — \(r.matched)/\(r.total) tracks gematcht."
-                                    } else {
-                                        qobuzStatus = "Bewaren in Qobuz mislukt — controleer je account in Instellingen."
-                                    }
-                                }
-                            } label: {
-                                Label("Bewaar in Qobuz", systemImage: "cloud")
-                            }
-                            .disabled(playlistName.trimmingCharacters(in: .whitespaces).isEmpty)
-                        }
-                    }
-                    if let qobuzStatus {
-                        Text(qobuzStatus).font(.caption).foregroundStyle(.secondary)
-                    }
-
-                    // Rows deal out one by one (30 ms stagger, spring) —
-                    // see revealTracks(). Reduce-motion shows them at once.
-                    ForEach(Array(generatedTracks.prefix(revealedCount).enumerated()), id: \.offset) { i, t in
-                        HStack(spacing: 10) {
-                            Text("\(i + 1)")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.tertiary)
-                                .frame(width: 28, alignment: .trailing)
-                            AlbumArtView(imageKey: t.imageKey, size: 40)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(t.title).font(.body).lineLimit(1)
-                                if let a = t.artist {
-                                    Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                }
-                            }
-                            Spacer()
-                            if let y = t.year {
-                                Text(String(y))
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                    }
+                if isGenerating, result == nil {
+                    loadingState
+                } else if let result {
+                    resultSection(result)
+                } else {
+                    idleState
                 }
             }
             .padding(Spacing.xl)
+            .animation(Motion.standard, value: result?.title)
+            .animation(Motion.quick, value: errorMessage)
         }
         .navigationTitle("Playlist genereren")
         #if os(iOS)
         .scrollDismissesKeyboard(.interactively)
         #endif
-        .onAppear {
-            if selectedZoneID == nil { selectedZoneID = client.selectedZone?.id }
-        }
         .sheet(isPresented: $showTemplates) {
-            TemplatePicker { t in
-                apply(t)
-                showTemplates = false
+            TemplatePicker { t in apply(t); showTemplates = false }
+        }
+    }
+
+    // MARK: Form
+
+    private var promptSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("Wat voor playlist?").font(.headline)
+            AIPromptField(text: $prompt,
+                          placeholder: "Beschrijf de sfeer, het genre of de gelegenheid… bijv. “warme jazz voor een regenachtige zondagochtend”")
+        }
+    }
+
+    private var templatesSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            HStack {
+                Text("Snelle sjablonen")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button { showTemplates = true } label: {
+                    Label("Alle sjablonen", systemImage: "square.grid.2x2").font(.caption)
+                }
+                .buttonStyle(.borderless)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.sm) {
+                    ForEach(featured) { t in
+                        Button { apply(t) } label: {
+                            HStack(spacing: Spacing.xs) {
+                                Text(t.icon)
+                                Text(t.name).font(.callout).lineLimit(1)
+                            }
+                            .padding(.horizontal, Spacing.md)
+                            .padding(.vertical, Spacing.sm)
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                    }
+                }
+                .padding(.horizontal, 1)
             }
         }
     }
 
-    // MARK: - Generation logic (analyze → filter → generate)
+    private var optionsSection: some View {
+        HStack(spacing: Spacing.lg) {
+            HStack(spacing: Spacing.xs) {
+                Text("Tracks").foregroundStyle(.secondary)
+                Picker("Tracks", selection: $targetCount) {
+                    Text("10").tag(10)
+                    Text("20").tag(20)
+                    Text("30").tag(30)
+                    Text("50").tag(50)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+                .labelsHidden()
+            }
+            Spacer()
+            ZonePicker()
+        }
+    }
 
-    private func generate() async {
+    private var generateSection: some View {
+        HStack(spacing: Spacing.md) {
+            Button { startGenerate() } label: {
+                Label(generateButtonTitle, systemImage: "wand.and.stars")
+                    .frame(minWidth: 180)
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || isGenerating)
+
+            if isGenerating {
+                Button(role: .cancel) { genTask?.cancel() } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private var generateButtonTitle: String {
+        if isGenerating { return "Genereren…" }
+        return result == nil ? "Genereer playlist" : "Opnieuw genereren"
+    }
+
+    // MARK: States
+
+    private var idleState: some View {
+        VStack(spacing: Spacing.sm) {
+            Image(systemName: "wand.and.stars")
+                .font(.system(size: 34))
+                .foregroundStyle(Color.roonGold.opacity(0.7))
+            Text("Beschrijf wat je wilt horen")
+                .font(.headline)
+            Text("RoonSage analyseert je verzoek, kiest passende tracks uit jouw bibliotheek en stelt een gevarieerde playlist samen — die je daarna kunt bijschaven.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Spacing.xl)
+    }
+
+    private var loadingState: some View {
+        SkeletonRows(count: min(targetCount, 8))
+            .transition(.opacity)
+    }
+
+    // MARK: Result
+
+    @ViewBuilder
+    private func resultSection(_ r: RoonClient.GenerationResult) -> some View {
+        Divider()
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            resultHeader(r)
+            FilterChips(filters: r.filters, poolSize: r.poolSize)
+            saveRow
+            if let qobuzStatus {
+                Text(qobuzStatus).font(.caption).foregroundStyle(.secondary)
+            }
+            playRow
+            trackList
+        }
+    }
+
+    private func resultHeader(_ r: RoonClient.GenerationResult) -> some View {
+        HStack(alignment: .top, spacing: Spacing.sm) {
+            Image(systemName: "wand.and.stars")
+                .foregroundStyle(Color.roonGold)
+                .symbolEffect(.bounce, value: tracks.count)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(playlistName.isEmpty ? r.title : playlistName)
+                    .font(.title3.bold())
+                if let desc = r.description, !desc.isEmpty {
+                    Text(desc)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(spacing: 5) {
+                    Text("\(tracks.count) tracks")
+                    if justSaved { Text("· opgeslagen").foregroundStyle(Color.roonGold) }
+                }
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                if !r.aiCurated {
+                    Label("Automatisch samengesteld — de AI-selectie lukte niet helemaal.",
+                          systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(Color.roonWarning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let note = r.droppedNote {
+                    Label(note, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(Color.roonWarning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer()
+        }
+    }
+
+    private var saveRow: some View {
+        HStack(spacing: Spacing.sm) {
+            TextField("Naam playlist", text: $playlistName)
+                .textFieldStyle(.roundedBorder)
+            Button {
+                save()
+            } label: {
+                Label(justSaved ? "Bewaard!" : "Bewaar", systemImage: justSaved ? "checkmark" : "square.and.arrow.down")
+            }
+            .disabled(playlistName.trimmingCharacters(in: .whitespaces).isEmpty || tracks.isEmpty)
+
+            if client.qobuzConfigured {
+                Button { saveToQobuz() } label: {
+                    Label("Qobuz", systemImage: "cloud")
+                }
+                .disabled(playlistName.trimmingCharacters(in: .whitespaces).isEmpty || tracks.isEmpty)
+                .help("Bewaar deze playlist ook in je Qobuz-account")
+            }
+        }
+    }
+
+    private var playRow: some View {
+        HStack(spacing: Spacing.sm) {
+            Button {
+                guard let z = client.selectedZone?.id else { return }
+                Haptics.tap()
+                Task { await client.curateTracks(tracks, zoneID: z) }
+            } label: {
+                Label("Speel alles", systemImage: "play.fill").frame(minWidth: 120)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(client.selectedZone == nil || tracks.isEmpty)
+
+            if client.selectedZone == nil {
+                Text("Kies een zone om af te spelen")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+    }
+
+    private var trackList: some View {
+        LazyVStack(spacing: 0) {
+            ForEach(Array(tracks.enumerated()), id: \.element.id) { i, t in
+                AIResultRow(index: i + 1, title: t.title, subtitle: subtitle(t), imageKey: t.imageKey) {
+                    Button { playOne(t) } label: { Image(systemName: "play.fill") }
+                        .buttonStyle(.borderless)
+                        .disabled(client.selectedZone == nil)
+                        .accessibilityLabel("Speel \(t.title)")
+                }
+                .contextMenu {
+                    Button { playOne(t) } label: { Label("Speel nu", systemImage: "play.fill") }
+                        .disabled(client.selectedZone == nil)
+                    Button { queueOne(t, next: true) } label: {
+                        Label("Speel hierna", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    }
+                    .disabled(client.selectedZone == nil)
+                    Divider()
+                    Button { move(t, by: -1) } label: { Label("Omhoog", systemImage: "arrow.up") }
+                        .disabled(i == 0)
+                    Button { move(t, by: 1) } label: { Label("Omlaag", systemImage: "arrow.down") }
+                        .disabled(i == tracks.count - 1)
+                    Divider()
+                    Button(role: .destructive) { remove(t) } label: {
+                        Label("Verwijder uit playlist", systemImage: "trash")
+                    }
+                }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                Divider().opacity(0.4)
+            }
+        }
+    }
+
+    private func subtitle(_ t: TrackRecord) -> String {
+        var s = t.artist ?? ""
+        if let y = t.year { s += s.isEmpty ? "\(y)" : " · \(y)" }
+        return s
+    }
+
+    // MARK: Actions
+
+    private func startGenerate() {
+        genTask?.cancel()
+        genToken &+= 1
+        let token = genToken
+        genTask = Task { await generate(token: token) }
+    }
+
+    private func generate(token: Int) async {
+        let request = prompt.trimmingCharacters(in: .whitespaces)
+        guard !request.isEmpty else { return }
         isGenerating = true
         errorMessage = nil
-        generatedTracks = []
-        revealedCount = 0
-        analysisSummary = nil
-        droppedIntentNote = nil
-        aiDescription = nil
         justSaved = false
-        defer { isGenerating = false; phase = "" }
-
-        let request = prompt.trimmingCharacters(in: .whitespaces)
-        let config = client.effectiveLLMConfig()
-
-        // Stage 1 — analyse the request into genre/decade filters so the LLM
-        // sees RELEVANT tracks (not just the first 300 alphabetically).
-        phase = "Analyseren…"
-        let analysis = await analyzeRequest(request, config: config)
-
-        // Stage 2 — build a varied candidate pool from the filtered library.
-        phase = "Kandidaten selecteren…"
-        let built = await buildCandidates(
-            genres: analysis.genres, decades: analysis.decades,
-            keywords: analysis.keywords, tags: analysis.tags, target: targetCount
-        )
-        let pool = built.tracks
-        guard !pool.isEmpty else {
-            errorMessage = "Geen passende tracks — synchroniseer je bibliotheek of probeer een bredere omschrijving."
-            return
-        }
-        // Hybrid AI: reorder the pool by sonic closeness to the request so the
-        // LLM curates from the most relevant candidates first (falls back to the
-        // pool order when embeddings/analyzer text model aren't available).
-        let candidates = await client.sonicRerank(request, pool, limit: pool.count, maxPerArtist: 50) ?? pool
-        // Summarise on the filters that SURVIVED broadening, not what the LLM
-        // wanted — so "Uit hele bibliotheek" honestly signals the genre intent
-        // couldn't be honoured.
-        analysisSummary = summarise(built.survived, poolSize: candidates.count)
-        // If the request implied a genre/mood but the library had too few matching
-        // tracks, warn rather than silently curating an off-target playlist.
-        if (!analysis.genres.isEmpty || !analysis.tags.isEmpty) && built.survived.genres.isEmpty && built.survived.tags.isEmpty {
-            droppedIntentNote = "Te weinig tracks voor dit genre in je bibliotheek — gekozen uit de hele bibliotheek."
-        } else {
-            droppedIntentNote = nil
-        }
-
-        // Stage 3 — curate the final selection.
-        phase = "Cureren…"
-        let list = candidates.enumerated().map { i, t -> String in
-            var s = "\(i + 1). \(t.title)"
-            if let a = t.artist { s += " — \(a)" }
-            if let y = t.year   { s += " (\(y))" }
-            return s
-        }.joined(separator: "\n")
-
-        // Taste signals: top-played artists (via tasteProfile so it also works in
-        // thin-client mode, where the local listening_history is empty) and
-        // explicit like/dislike feedback.
-        let topArtists = (await client.tasteProfile(topLimit: 30, recentLimit: 1))?.topArtists ?? []
-        let preferred = Set(topArtists.map { $0.artist.lowercased() })
-        let hints = await client.feedbackArtistHints()
-        let deprioritized = Set(recentlyGenerated)
-
-        let system = """
-        You are a music curator for a personal Roon music player. \
-        Select exactly \(targetCount) tracks from the numbered list that best match the request. \
-        Rules: max 2 tracks per artist, no two consecutive tracks by the same artist, ensure variety. \
-        Lean toward artists the listener favors and avoid those they dislike, unless the request \
-        explicitly asks for them. \
-        Return ONLY the track numbers separated by commas — no explanation, no extra text. \
-        Example: 3, 17, 42, 8, 91
-        """
-        var taste = ""
-        if !hints.liked.isEmpty {
-            taste += "\n\nArtists the listener likes (favor similar): \(hints.liked.prefix(20).joined(separator: ", "))"
-        }
-        if !hints.disliked.isEmpty {
-            taste += "\nArtists the listener dislikes (avoid unless asked): \(hints.disliked.prefix(20).joined(separator: ", "))"
-        }
-        let user = "Request: \(request)\(taste)\n\nAvailable tracks:\n\(list)"
+        qobuzStatus = nil
+        phase = .analyzing
+        // Keep any existing result visible during a regenerate; restore nothing on
+        // Stop. The token guard stops a superseded run from clobbering newer state.
+        defer { if token == genToken { isGenerating = false; phase = nil } }
 
         do {
-            let response = try await LLMClient.shared.complete(system: system, user: user, config: config)
-            let numbers  = parseNumbers(from: response, max: candidates.count)
-            let llmPicks = numbers.compactMap { n -> TrackRecord? in
-                guard n >= 1, n <= candidates.count else { return nil }
-                return candidates[n - 1]
+            let r = try await client.generatePlaylist(request: request, target: targetCount) { p in
+                guard token == genToken else { return }
+                withAnimation(Motion.quick) { phase = p }
             }
-            // Deterministic post-pass: dedup, enforce max-2-per-artist + no
-            // back-to-back artists, and top up to the target from the ranked pool
-            // when the LLM under-delivers (invalid/too-few numbers) instead of
-            // erroring or returning a short, clustered list.
-            let selected = PlaylistAssembler.assemble(
-                llmPicks: llmPicks, pool: candidates, target: targetCount,
-                maxPerArtist: 2, preferredArtists: preferred, deprioritized: deprioritized
-            )
-            guard !selected.isEmpty else {
-                errorMessage = "Kon geen playlist samenstellen — probeer een bredere omschrijving."
-                return
-            }
-            // Remember these for anti-repetition next time (cap the trail).
-            recentlyGenerated = (recentlyGenerated + selected.map { PlaylistAssembler.identity($0) }).suffix(240).map { $0 }
-            revealTracks(selected)
-
-            // Stage 4 — AI title + description, then auto-save locally. No
-            // auto-play: the user chooses whether/where via the zone selector.
-            phase = "Titel & beschrijving…"
-            let meta = await describePlaylist(request: request, tracks: selected, config: config)
-            playlistName = meta.title
-            aiDescription = meta.description
-            client.savePlaylist(name: meta.title, tracks: selected)
-            justSaved = true
+            guard !Task.isCancelled, token == genToken else { return }
+            result = r
+            playlistName = r.title
+            withAnimation(Motion.spring) { tracks = r.tracks }
+            Haptics.success()
         } catch {
+            if Task.isCancelled || token != genToken { return }
             errorMessage = error.localizedDescription
             Haptics.error()
         }
     }
 
-    /// Deal the curated rows out with a 30 ms stagger — like cards being laid
-    /// on a table. Success haptic fires once when the result lands.
-    private func revealTracks(_ tracks: [TrackRecord]) {
-        revealTask?.cancel()
-        generatedTracks = tracks
+    private func save() {
+        let name = playlistName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !tracks.isEmpty else { return }
+        client.savePlaylist(name: name, tracks: tracks)
         Haptics.success()
-        guard !reduceMotion else { revealedCount = tracks.count; return }
-        revealedCount = 0
-        revealTask = Task {
-            for i in 1...tracks.count {
-                try? await Task.sleep(nanoseconds: 30_000_000)
-                guard !Task.isCancelled else { return }
-                withAnimation(Motion.spring) { revealedCount = i }
+        flashSaved()
+    }
+
+    private func flashSaved() {
+        justSaved = true
+        savedTask?.cancel()
+        savedTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            justSaved = false
+        }
+    }
+
+    private func saveToQobuz() {
+        let name = playlistName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !tracks.isEmpty else { return }
+        qobuzStatus = "Bewaren in Qobuz…"
+        Task {
+            if let r = await client.saveToQobuz(name: name, tracks: tracks) {
+                qobuzStatus = "Bewaard in Qobuz — \(r.matched)/\(r.total) tracks gematcht."
+            } else {
+                qobuzStatus = "Bewaren in Qobuz mislukt — controleer je account in Instellingen."
             }
         }
     }
 
-    /// LLM stage 4: an evocative Dutch title + a one-line description for the
-    /// curated set. Falls back to a heuristic name (no description) on failure.
-    private func describePlaylist(request: String, tracks: [TrackRecord], config: LLMConfig) async -> (title: String, description: String?) {
-        let sample = tracks.prefix(30).map { t -> String in
-            var s = t.title
-            if let a = t.artist { s += " — \(a)" }
-            return s
-        }.joined(separator: "\n")
-        let system = """
-        You name and describe a music playlist in Dutch. \
-        Respond with ONLY a JSON object, no prose: {"title": "", "description": ""} \
-        - title: a short, evocative name (max 5 words), no surrounding quotes, no emoji. \
-        - description: one or two warm sentences capturing the mood and vibe of the set.
-        """
-        let user = "Verzoek van de gebruiker: \(request)\n\nTracks:\n\(sample)"
-        guard let resp = try? await LLMClient.shared.complete(system: system, user: user, config: config),
-              let obj = extractJSON(resp) else {
-            return (suggestedName(request), nil)
-        }
-        let title = (obj["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let desc  = (obj["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (title?.isEmpty == false ? title! : suggestedName(request),
-                desc?.isEmpty == false ? desc : nil)
+    private func playOne(_ t: TrackRecord) {
+        guard let z = client.selectedZone?.id else { return }
+        Haptics.tap()
+        Task { await client.curateTracks([t], zoneID: z) }
     }
 
-    private struct Analysis { var genres: [String]; var decades: [Int]; var keywords: String; var tags: [String] }
-
-    /// LLM stage 1: map the request to genres + decades + keywords + mood tags,
-    /// each chosen from what the library actually has. Degrades to no filter.
-    private func analyzeRequest(_ request: String, config: LLMConfig) async -> Analysis {
-        // Use the FULL genre vocabulary (not just top-20) so smaller genres stay
-        // selectable. Roon's taxonomy is coarse (~21 top-level genres, e.g. one
-        // "Jazz", no sub-styles), so the model is told to map sub-styles to their
-        // parent, with substring matching below as a safety net.
-        let available = await client.allGenres(limit: 200)
-        let availableTags = (await client.topTags(limit: 60)).map { $0.tag }
-        guard !available.isEmpty || !availableTags.isEmpty else {
-            return Analysis(genres: [], decades: [], keywords: "", tags: [])
-        }
-
-        let genreList = available.prefix(80).joined(separator: ", ")
-        let tagLine = availableTags.isEmpty ? ""
-            : "\n- tags: 0-5 mood/vibe tags chosen EXACTLY from this list that fit the request: \(availableTags.prefix(50).joined(separator: ", "))"
-        let system = """
-        You map a music playlist request to library filters. \
-        Respond with ONLY a JSON object, no prose: \
-        {"genres": [], "decades": [], "keywords": "", "tags": []} \
-        - genres: 0-6 names copied VERBATIM from the available list that fit the request's mood/style. The list is the COMPLETE vocabulary — never invent names. Map any sub-style in the request to its closest PARENT in the list (e.g. bebop/swing/smooth jazz/hard bop -> "Jazz"; techno/house -> the closest electronic name; baroque/opera -> "Classical"). Empty = no genre constraint. \
-        - decades: 0-3 decade start years like 1980 if an era is implied, else []. \
-        - keywords: short extra search terms for title/artist, or "".\(tagLine)
-        Available genres: \(genreList)
-        """
-        guard let resp = try? await LLMClient.shared.complete(system: system, user: "Request: \(request)", config: config),
-              let obj = extractJSON(resp) else {
-            return Analysis(genres: [], decades: [], keywords: "", tags: [])
-        }
-
-        // Expand each model-picked genre to every library genre it overlaps with,
-        // so "jazz" also pulls in "Vocal Jazz", "Jazz Fusion", "Cool Jazz", etc.
-        // (exact equality alone left these out → empty filter → whole-library
-        // fallback that ignored the request). Bidirectional substring match.
-        let picked = (obj["genres"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() } ?? []
-        var matched: [String] = []
-        var seen = Set<String>()
-        for p in picked where !p.isEmpty {
-            for g in available {
-                let gl = g.lowercased()
-                guard gl.contains(p) || p.contains(gl) else { continue }
-                if seen.insert(gl).inserted { matched.append(g) }
-            }
-        }
-        let genres = matched
-        let decades = (obj["decades"] as? [Any])?.compactMap { ($0 as? Int) ?? Int(String(describing: $0)) } ?? []
-        let keywords = (obj["keywords"] as? String) ?? ""
-        let tagSet = Set(availableTags.map { $0.lowercased() })
-        let tags = (obj["tags"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() }.filter { tagSet.contains($0) } ?? []
-        return Analysis(genres: genres, decades: decades, keywords: keywords, tags: tags)
+    private func queueOne(_ t: TrackRecord, next: Bool) {
+        guard let z = client.selectedZone?.id else { return }
+        Haptics.tap()
+        Task { await client.queueTracks([t], next: next, zoneID: z) }
     }
 
-    /// Filter the library by the analysed criteria, broadening if too sparse,
-    /// then shuffle so the LLM sees a varied sample rather than an A→Z slice.
-    private func buildCandidates(genres: [String], decades: [Int], keywords: String, tags: [String], target: Int) async -> (tracks: [TrackRecord], survived: Analysis) {
-        let minPool = max(target * 3, 40)
-        var opts = DatabaseManager.FilterOptions()
-        opts.genres = genres
-        opts.decades = decades
-        opts.keywords = keywords
-        opts.tags = tags
-        opts.limit = 3000
-
-        var pool = await client.filterTracks(options: opts)
-        // Tags are the most specific (and need synced audio features) — drop first.
-        if pool.count < minPool, !tags.isEmpty {
-            opts.tags = []; pool = await client.filterTracks(options: opts)
-        }
-        if pool.count < minPool, !keywords.isEmpty {
-            opts.keywords = ""; pool = await client.filterTracks(options: opts)
-        }
-        if pool.count < minPool, !decades.isEmpty {
-            opts.decades = []; pool = await client.filterTracks(options: opts)
-        }
-        if pool.count < minPool, !genres.isEmpty {
-            opts.genres = []; pool = await client.filterTracks(options: opts)
-        }
-        pool.shuffle()
-        // Report the filters that actually survived broadening so the summary is
-        // honest about whether the request's genre intent really constrained the
-        // pool (or quietly fell back to the whole library).
-        let survived = Analysis(genres: opts.genres, decades: opts.decades, keywords: opts.keywords, tags: opts.tags)
-        return (Array(pool.prefix(400)), survived)
+    private func remove(_ t: TrackRecord) {
+        withAnimation(Motion.quick) { tracks.removeAll { $0.id == t.id } }
+        Haptics.tap()
     }
 
-    private func summarise(_ a: Analysis, poolSize: Int) -> String {
-        var parts: [String] = []
-        if !a.genres.isEmpty  { parts.append(a.genres.joined(separator: ", ")) }
-        if !a.tags.isEmpty    { parts.append(a.tags.joined(separator: ", ")) }
-        if !a.decades.isEmpty { parts.append(a.decades.sorted().map { "\($0)s" }.joined(separator: ", ")) }
-        let scope = parts.isEmpty ? "hele bibliotheek" : parts.joined(separator: " · ")
-        return "Uit \(scope) (\(poolSize) kandidaten)"
-    }
-
-    private func suggestedName(_ request: String) -> String {
-        let trimmed = request.prefix(48).trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Gegenereerde playlist" : String(trimmed)
-    }
-
-    private func extractJSON(_ text: String) -> [String: Any]? {
-        let clean = text.replacingOccurrences(
-            of: #"<think>[\s\S]*?</think>"#, with: "", options: .regularExpression
-        )
-        guard let start = clean.firstIndex(of: "{"), let end = clean.lastIndex(of: "}"), start < end else { return nil }
-        let json = String(clean[start...end])
-        return (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]
-    }
-
-    private func parseNumbers(from text: String, max: Int) -> [Int] {
-        let clean = text.replacingOccurrences(
-            of: #"<think>[\s\S]*?</think>"#, with: "", options: .regularExpression
-        )
-        return clean
-            .components(separatedBy: .init(charactersIn: ", ;\n\t"))
-            .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            .filter { $0 >= 1 && $0 <= max }
+    private func move(_ t: TrackRecord, by delta: Int) {
+        guard let i = tracks.firstIndex(where: { $0.id == t.id }) else { return }
+        let j = i + delta
+        guard tracks.indices.contains(j) else { return }
+        withAnimation(Motion.quick) { tracks.swapAt(i, j) }
+        Haptics.tap()
     }
 }
 

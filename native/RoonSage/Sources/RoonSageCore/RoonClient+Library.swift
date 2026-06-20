@@ -328,67 +328,148 @@ extension RoonClient {
 
     // MARK: - LLM request analysis (shared by Generate & Recommend)
 
+    /// The analysed scope of a free-text request: which library genres / mood
+    /// tags / decades / keywords it maps to. Shared by Generate, Ask and Recommend.
     public struct RequestFilters: Sendable {
         public var genres: [String]
         public var decades: [Int]
         public var keywords: String
+        public var tags: [String]
+
+        public init(genres: [String] = [], decades: [Int] = [], keywords: String = "", tags: [String] = []) {
+            self.genres = genres
+            self.decades = decades
+            self.keywords = keywords
+            self.tags = tags
+        }
+
+        public var isEmpty: Bool {
+            genres.isEmpty && decades.isEmpty && keywords.isEmpty && tags.isEmpty
+        }
+
+        /// Human-readable Dutch scope line for a result header, e.g.
+        /// "Uit Jazz · chill · 1970s (240 kandidaten)".
+        public func scopeSummary(poolSize: Int) -> String {
+            var parts: [String] = []
+            if !genres.isEmpty  { parts.append(genres.joined(separator: ", ")) }
+            if !tags.isEmpty    { parts.append(tags.joined(separator: ", ")) }
+            if !decades.isEmpty { parts.append(decades.sorted().map { "\($0)s" }.joined(separator: ", ")) }
+            if parts.isEmpty, !keywords.isEmpty { parts.append("“\(keywords)”") }
+            let scope = parts.isEmpty ? "hele bibliotheek" : parts.joined(separator: " · ")
+            return "Uit \(scope) (\(poolSize) kandidaten)"
+        }
     }
 
-    /// LLM stage 1: map a free-text request to genres (from the library's actual
-    /// genres) + decades + keywords. When genre data is unavailable, still extracts
-    /// keywords/decades so the candidate pool is at least keyword-filtered.
+    /// LLM stage 1 (single source of truth for Generate / Ask / Recommend): map a
+    /// free-text request to library genres + mood tags + decades + keywords, each
+    /// chosen from what the library actually contains. Uses JSON mode + a low
+    /// temperature for faithful, near-deterministic mapping. Degrades gracefully:
+    /// substring match when the LLM is unreachable, keywords-only when there's no
+    /// genre/tag vocabulary yet.
     public func analyzeForFilters(request: String) async -> RequestFilters {
-        let available = (await libraryStats())?.topGenres.map { $0.genre } ?? []
+        let available = await allGenres(limit: 200)
+        let availableTags = (await topTags(limit: 60)).map { $0.tag }
         let config = effectiveLLMConfig()
 
-        if available.isEmpty {
-            // No genre data yet — fall back to keywords + decades only so the
-            // candidate pool isn't a random whole-library shuffle.
+        guard !available.isEmpty || !availableTags.isEmpty else {
+            // No vocabulary yet — extract decades + keywords only so the candidate
+            // pool isn't a random whole-library shuffle.
             let system = """
             Extract search keywords from a music request. \
             Respond with ONLY a JSON object, no prose: {"decades": [], "keywords": ""} \
             - decades: 0-3 decade start years like 1980 if an era is implied, else []. \
             - keywords: 1-3 short English search terms capturing the mood/genre, or "".
             """
-            guard let resp = try? await LLMClient.shared.complete(system: system, user: "Request: \(request)", config: config),
+            guard let resp = try? await LLMClient.shared.complete(
+                    system: system, user: "Request: \(request)", config: config,
+                    jsonMode: true, temperature: 0.2, maxTokens: 256),
                   let obj = Self.firstJSONObject(resp) else {
-                return RequestFilters(genres: [], decades: [], keywords: "")
+                return RequestFilters()
             }
-            let decades = (obj["decades"] as? [Any])?.compactMap { ($0 as? Int) ?? Int(String(describing: $0)) } ?? []
-            let keywords = (obj["keywords"] as? String) ?? ""
-            return RequestFilters(genres: [], decades: decades, keywords: keywords)
+            return RequestFilters(decades: Self.parseDecades(obj["decades"]),
+                                  keywords: (obj["keywords"] as? String) ?? "")
         }
 
-        var canonical: [String: String] = [:]
-        for g in available { canonical[g.lowercased()] = g }
-
-        let genreList = available.prefix(40).joined(separator: ", ")
+        // Use the FULL genre vocabulary (not just top-N) so smaller genres stay
+        // selectable. Roon's taxonomy is coarse (e.g. one "Jazz"), so the model is
+        // told to map sub-styles to their parent; substring matching below is the
+        // safety net.
+        let genreList = available.prefix(80).joined(separator: ", ")
+        let tagLine = availableTags.isEmpty ? ""
+            : "\n- tags: 0-5 mood/vibe tags chosen EXACTLY from this list that fit the request: \(availableTags.prefix(50).joined(separator: ", "))"
         let system = """
-        You map a music request to library filters. Respond with ONLY a JSON object, no prose: \
-        {"genres": [], "decades": [], "keywords": ""} \
-        - genres: 0-6 names chosen EXACTLY from the available list that fit the request. Empty = no genre constraint. \
+        You map a music playlist request to library filters. \
+        Respond with ONLY a JSON object, no prose: \
+        {"genres": [], "decades": [], "keywords": "", "tags": []} \
+        - genres: 0-6 names copied VERBATIM from the available list that fit the request's mood/style. The list is the COMPLETE vocabulary — never invent names. Map any sub-style in the request to its closest PARENT in the list (e.g. bebop/swing/smooth jazz/hard bop -> "Jazz"; techno/house -> the closest electronic name; baroque/opera -> "Classical"). Empty = no genre constraint. \
         - decades: 0-3 decade start years like 1980 if an era is implied, else []. \
-        - keywords: short extra search terms, or "". \
+        - keywords: short extra search terms for title/artist, or "".\(tagLine)
         Available genres: \(genreList)
         """
-        guard let resp = try? await LLMClient.shared.complete(system: system, user: "Request: \(request)", config: config),
+        guard let resp = try? await LLMClient.shared.complete(
+                system: system, user: "Request: \(request)", config: config,
+                jsonMode: true, temperature: 0.2, maxTokens: 256),
               let obj = Self.firstJSONObject(resp) else {
-            // LLM unreachable — fall back to direct genre-name substring match.
+            // LLM unreachable — direct genre-name substring match.
             // "jazzy" contains "jazz" which matches genre "Jazz" without an LLM.
             let requestLower = request.lowercased()
-            let matched = canonical.compactMap { key, value in requestLower.contains(key) ? value : nil }
-            return RequestFilters(genres: matched, decades: [], keywords: "")
+            let matched = available.filter { requestLower.contains($0.lowercased()) }
+            return RequestFilters(genres: matched)
         }
-        let genres = (obj["genres"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() }.compactMap { canonical[$0] } ?? []
-        let decades = (obj["decades"] as? [Any])?.compactMap { ($0 as? Int) ?? Int(String(describing: $0)) } ?? []
+
+        // Expand each model-picked genre to every library genre it overlaps with,
+        // so "jazz" also pulls in "Vocal Jazz", "Jazz Fusion", etc. (bidirectional
+        // substring) — exact equality alone left these out → empty filter → whole-
+        // library fallback that ignored the request.
+        let picked = (obj["genres"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() } ?? []
+        var genres: [String] = []
+        var seen = Set<String>()
+        for p in picked where !p.isEmpty {
+            for g in available {
+                let gl = g.lowercased()
+                guard gl.contains(p) || p.contains(gl) else { continue }
+                if seen.insert(gl).inserted { genres.append(g) }
+            }
+        }
+        let decades = Self.parseDecades(obj["decades"])
         let keywords = (obj["keywords"] as? String) ?? ""
-        return RequestFilters(genres: genres, decades: decades, keywords: keywords)
+        let tagSet = Set(availableTags.map { $0.lowercased() })
+        var seenTags = Set<String>()
+        // Dedup tags too (a model may echo "Chill"/"chill") so FilterChips' ForEach
+        // ids stay unique.
+        let tags = (obj["tags"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() }
+            .filter { tagSet.contains($0) && seenTags.insert($0).inserted } ?? []
+        return RequestFilters(genres: genres, decades: decades, keywords: keywords, tags: tags)
     }
 
     static func firstJSONObject(_ text: String) -> [String: Any]? {
+        // `complete` already strips reasoning blocks; this is the brace-matching
+        // safety net for models that wrap JSON in prose or code fences.
         let clean = text.replacingOccurrences(of: #"<think>[\s\S]*?</think>"#, with: "", options: .regularExpression)
         guard let start = clean.firstIndex(of: "{"), let end = clean.lastIndex(of: "}"), start < end else { return nil }
         return (try? JSONSerialization.jsonObject(with: Data(clean[start...end].utf8))) as? [String: Any]
+    }
+
+    /// Robustly parse a JSON "decades" array into floored decade start-years.
+    /// Handles Int (1980), Double (1980.0), and numeric strings ("1980"); floors
+    /// to the decade boundary and drops anything outside 1900...2030. `Int(String(
+    /// describing: 1980.0))` silently returns nil, dropping eras — this doesn't.
+    nonisolated static func parseDecades(_ raw: Any?) -> [Int] {
+        guard let arr = raw as? [Any] else { return [] }
+        var out: [Int] = []
+        for v in arr {
+            var year: Int?
+            if let i = v as? Int { year = i }
+            else if let d = v as? Double { year = Int(d) }
+            else if let s = v as? String {
+                let t = s.trimmingCharacters(in: .whitespaces)
+                year = Int(t) ?? Double(t).map(Int.init)
+            }
+            guard let y = year, y >= 1900, y <= 2030 else { continue }
+            let decade = (y / 10) * 10
+            if !out.contains(decade) { out.append(decade) }
+        }
+        return out
     }
 
     /// Distinct albums whose tracks match the filters — a candidate pool for
@@ -397,21 +478,27 @@ extension RoonClient {
         var opts = DatabaseManager.FilterOptions()
         opts.genres = filters.genres
         opts.decades = filters.decades
+        opts.tags = filters.tags
         // Keywords from the LLM are often multi-word mood phrases ("Smooth, Late Night")
         // that the FTS5 AND-query can't match, yielding 0 results and triggering the
-        // whole-library fallback. Only apply keywords when genres are absent.
-        opts.keywords = filters.genres.isEmpty ? filters.keywords : ""
+        // whole-library fallback. Only apply keywords when no genre/tag constraint.
+        opts.keywords = (filters.genres.isEmpty && filters.tags.isEmpty) ? filters.keywords : ""
         opts.excludeLive = true
         opts.limit = 4000
         var tracks = await filterTracks(options: opts)
-        if tracks.count < 30 {
+        if tracks.count < 30, !opts.tags.isEmpty {
+            // Tags need synced audio features — relax them first.
+            opts.tags = []
+            tracks = await filterTracks(options: opts)
+        }
+        if tracks.count < 30, !opts.genres.isEmpty {
             // Genre filter too narrow — drop genres but keep keywords/decades so
             // the pool stays relevant instead of falling back to the whole library.
             opts.genres = []
             tracks = await filterTracks(options: opts)
         }
         if tracks.count < 30 {
-            // Keywords also too narrow — full library fallback.
+            // Everything too narrow — full library fallback.
             opts.decades = []; opts.keywords = ""
             tracks = await filterTracks(options: opts)
         }

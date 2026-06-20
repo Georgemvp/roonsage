@@ -2,7 +2,8 @@ import SwiftUI
 import RoonSageCore
 
 /// Album-level recommendations: describe a vibe, the LLM picks albums from your
-/// library to explore (library-first). Each recommendation is playable.
+/// library to explore (library-first). Each recommendation is playable, and the
+/// history is kept so you can revisit earlier sets.
 @MainActor
 public struct RecommendView: View {
     public init() {}
@@ -10,11 +11,10 @@ public struct RecommendView: View {
 
     @State private var prompt        = ""
     @State private var count         = 8
-    @State private var selectedZoneID: String? = nil
     @State private var isWorking     = false
     @State private var phase         = ""
     @State private var albums: [DatabaseManager.AlbumResult] = []
-    @State private var summary: String? = nil
+    @State private var resultFilters: RoonClient.RequestFilters? = nil
     @State private var errorMessage: String? = nil
 
     @State private var history: [DatabaseManager.RecommendationSummary] = []
@@ -33,124 +33,37 @@ public struct RecommendView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.xl) {
                 if client.genreCount == 0 {
-                    Label("Genres zijn niet gesynchroniseerd. Ga naar Instellingen → \"Synchroniseer genres\" voor betere aanbevelingen.", systemImage: "exclamationmark.triangle")
+                    Label("Genres zijn niet gesynchroniseerd. Ga naar Instellingen → “Synchroniseer genres” voor betere aanbevelingen.",
+                          systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(Color.roonWarning)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Waar heb je zin in?").font(.headline)
-                    TextEditor(text: $prompt)
-                        .font(.body)
-                        .frame(height: 70)
-                        .scrollContentBackground(.hidden)
-                        .padding(Spacing.sm)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: Radius.md))
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220))], spacing: 8) {
-                        ForEach(ideas, id: \.self) { idea in
-                            Button { prompt = idea } label: {
-                                Text(idea).font(.caption).frame(maxWidth: .infinity).padding(.vertical, 4)
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                }
-
-                HStack(spacing: 16) {
-                    HStack(spacing: 6) {
-                        Text("Albums").foregroundStyle(.secondary)
-                        Picker("Albums", selection: $count) {
-                            ForEach([5, 8, 12], id: \.self) { Text("\($0)").tag($0) }
-                        }
-                        .pickerStyle(.segmented).frame(width: 150).labelsHidden()
-                    }
-                    Spacer()
-                    if !client.zones.isEmpty {
-                        Picker("Zone", selection: $selectedZoneID) {
-                            Text("Kies zone…").tag(Optional<String>.none)
-                            ForEach(client.zones) { z in
-                                Label(z.displayName, systemImage: z.state.icon).tag(Optional(z.id))
-                            }
-                        }
-                        .frame(maxWidth: 200)
-                    }
-                }
-
-                HStack(spacing: 12) {
-                    Button { Task { await recommend() } } label: {
-                        Label(isWorking ? "Denken…" : "Beveel albums aan", systemImage: "sparkles")
-                            .frame(minWidth: 190)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || isWorking)
-                    if isWorking {
-                        ProgressView().controlSize(.small)
-                        Text(phase).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
+                promptSection
+                optionsSection
+                recommendSection
 
                 if let err = errorMessage {
-                    Label(err, systemImage: "exclamationmark.triangle").foregroundStyle(Color.roonDanger).font(.callout)
+                    Label(err, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(Color.roonDanger).font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if !albums.isEmpty {
                     Divider()
-                    if let summary {
-                        Text(summary).font(.caption).foregroundStyle(.secondary)
+                    if let resultFilters {
+                        FilterChips(filters: resultFilters)
                     }
                     albumList(albums)
+                } else if !isWorking && history.isEmpty {
+                    idleState
                 }
 
-                // History
-                if !history.isEmpty {
-                    Divider()
-                    Text("Eerdere aanbevelingen")
-                        .font(.headline)
-
-                    ForEach(history, id: \.id) { entry in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(entry.prompt)
-                                        .font(.body)
-                                        .lineLimit(1)
-                                    Text("\(entry.albumCount) albums · \(formatDate(entry.createdAt))")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button {
-                                    Task { await toggleHistory(entry) }
-                                } label: {
-                                    Image(systemName: expandedHistoryID == entry.id ? "chevron.up" : "chevron.down")
-                                }
-                                .buttonStyle(.borderless)
-                                .accessibilityLabel(expandedHistoryID == entry.id ? "Inklappen" : "Uitklappen")
-                                Button(role: .destructive) {
-                                    pendingDelete = entry
-                                } label: {
-                                    Image(systemName: "trash")
-                                }
-                                .buttonStyle(.borderless)
-                                .foregroundStyle(.secondary)
-                                .accessibilityLabel("Verwijder aanbeveling")
-                                .help("Verwijder deze aanbeveling")
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture { Task { await toggleHistory(entry) } }
-
-                            if expandedHistoryID == entry.id {
-                                albumList(historyAlbums)
-                                    .padding(.top, 4)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                        Divider()
-                    }
-                }
+                historySection
             }
             .padding(Spacing.xl)
+            .animation(Motion.standard, value: albums.map(\.albumKey))
         }
         .navigationTitle("Aanbevelen")
         .confirmationDialog(
@@ -161,10 +74,7 @@ public struct RecommendView: View {
             Button("Verwijderen", role: .destructive) {
                 client.deleteRecommendation(id: entry.id)
                 history.removeAll { $0.id == entry.id }
-                if expandedHistoryID == entry.id {
-                    expandedHistoryID = nil
-                    historyAlbums = []
-                }
+                if expandedHistoryID == entry.id { expandedHistoryID = nil; historyAlbums = [] }
                 Haptics.success()
                 pendingDelete = nil
             }
@@ -172,36 +82,127 @@ public struct RecommendView: View {
         } message: { entry in
             Text(entry.prompt)
         }
-        .onAppear {
-            if selectedZoneID == nil { selectedZoneID = client.selectedZone?.id }
-            Task { history = await client.recommendations() }
+        .onAppear { Task { history = await client.recommendations() } }
+    }
+
+    // MARK: Form
+
+    private var promptSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("Waar heb je zin in?").font(.headline)
+            AIPromptField(text: $prompt,
+                          placeholder: "Beschrijf een sfeer of gelegenheid… bijv. “diepe platen voor een lange avond”",
+                          minHeight: 70)
+            SuggestionChips(ideas) { prompt = $0 }
+        }
+    }
+
+    private var optionsSection: some View {
+        HStack(spacing: Spacing.lg) {
+            HStack(spacing: Spacing.xs) {
+                Text("Albums").foregroundStyle(.secondary)
+                Picker("Albums", selection: $count) {
+                    ForEach([5, 8, 12], id: \.self) { Text("\($0)").tag($0) }
+                }
+                .pickerStyle(.segmented).frame(width: 150).labelsHidden()
+            }
+            Spacer()
+            ZonePicker()
+        }
+    }
+
+    private var recommendSection: some View {
+        HStack(spacing: Spacing.md) {
+            Button { Task { await recommend() } } label: {
+                Label(isWorking ? "Denken…" : "Beveel albums aan", systemImage: "sparkles")
+                    .frame(minWidth: 190)
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || isWorking)
+            if isWorking {
+                ProgressView().controlSize(.small)
+                Text(phase).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var idleState: some View {
+        VStack(spacing: Spacing.sm) {
+            Image(systemName: "sparkles.rectangle.stack")
+                .font(.system(size: 32))
+                .foregroundStyle(Color.roonGold.opacity(0.7))
+            Text("Ontdek albums uit je bibliotheek")
+                .font(.headline)
+            Text("Beschrijf een sfeer en RoonSage kiest hele albums die erbij passen — ideaal om van begin tot eind te luisteren.")
+                .font(.callout).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Spacing.lg)
+    }
+
+    // MARK: History
+
+    @ViewBuilder
+    private var historySection: some View {
+        if !history.isEmpty {
+            Divider()
+            Text("Eerdere aanbevelingen").font(.headline)
+            ForEach(history, id: \.id) { entry in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.prompt).font(.body).lineLimit(1)
+                            Text("\(entry.albumCount) albums · \(formatDate(entry.createdAt))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button { Task { await toggleHistory(entry) } } label: {
+                            Image(systemName: expandedHistoryID == entry.id ? "chevron.up" : "chevron.down")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(expandedHistoryID == entry.id ? "Inklappen" : "Uitklappen")
+                        Button(role: .destructive) { pendingDelete = entry } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Verwijder aanbeveling")
+                        .help("Verwijder deze aanbeveling")
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { Task { await toggleHistory(entry) } }
+
+                    if expandedHistoryID == entry.id {
+                        albumList(historyAlbums).padding(.top, 4)
+                    }
+                }
+                .padding(.vertical, 4)
+                Divider()
+            }
         }
     }
 
     @ViewBuilder
     private func albumList(_ items: [DatabaseManager.AlbumResult]) -> some View {
         ForEach(items, id: \.albumKey) { album in
-            HStack(spacing: 10) {
-                AlbumArtView(imageKey: album.imageKey, size: 44)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(album.album).font(.body).lineLimit(1)
-                    Text("\(album.artist ?? "Onbekend")\(album.year.map { " · \($0)" } ?? "")")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer()
+            AIResultRow(title: album.album,
+                        subtitle: "\(album.artist ?? "Onbekend")\(album.year.map { " · \($0)" } ?? "")",
+                        imageKey: album.imageKey) {
                 Button {
-                    guard let zone = selectedZoneID else { return }
+                    guard let zone = client.selectedZone?.id else { return }
                     Haptics.tap()
                     Task { await client.playAlbum(albumKey: album.albumKey, zoneID: zone) }
                 } label: {
                     Image(systemName: "play.fill")
                 }
                 .buttonStyle(.bordered)
-                .disabled(selectedZoneID == nil)
+                .disabled(client.selectedZone == nil)
                 .accessibilityLabel("Speel \(album.album) af")
-                .help(selectedZoneID == nil ? "Kies eerst een zone" : "Speel dit album af")
+                .help(client.selectedZone == nil ? "Kies eerst een zone" : "Speel dit album af")
             }
-            .padding(.vertical, 2)
         }
     }
 
@@ -227,7 +228,7 @@ public struct RecommendView: View {
     }
 
     private func recommend() async {
-        isWorking = true; errorMessage = nil; albums = []; summary = nil
+        isWorking = true; errorMessage = nil; albums = []; resultFilters = nil
         defer { isWorking = false; phase = "" }
 
         let request = prompt.trimmingCharacters(in: .whitespaces)
@@ -255,40 +256,27 @@ public struct RecommendView: View {
         (unless the request explicitly asks for them). \
         Return ONLY the album numbers separated by commas — no explanation. Example: 3, 11, 2, 8
         """
-        // Explicit like/dislike signal so recommendations reflect taste, not just
-        // the request text.
-        let hints = await client.feedbackArtistHints()
-        var taste = ""
-        if !hints.liked.isEmpty {
-            taste += "\n\nArtists the listener likes (favor similar): \(hints.liked.prefix(20).joined(separator: ", "))"
-        }
-        if !hints.disliked.isEmpty {
-            taste += "\nArtists the listener dislikes (avoid): \(hints.disliked.prefix(20).joined(separator: ", "))"
-        }
+        let taste = await client.feedbackPromptBlock()
         let user = "Request: \(request)\(taste)\n\nAvailable albums:\n\(list)"
 
         do {
-            let resp = try await LLMClient.shared.complete(system: system, user: user, config: client.effectiveLLMConfig())
-            let numbers = parseNumbers(from: resp, max: candidates.count)
-            guard !numbers.isEmpty else { errorMessage = "Kon de aanbeveling niet verwerken — probeer opnieuw."; return }
+            let resp = try await LLMClient.shared.complete(
+                system: system, user: user, config: client.effectiveLLMConfig(),
+                temperature: 0.3, maxTokens: 256)
+            let numbers = PlaylistAssembler.picks(from: resp, max: candidates.count)
+            guard !numbers.isEmpty else {
+                errorMessage = "Kon de aanbeveling niet verwerken — probeer opnieuw."
+                return
+            }
             albums = numbers.compactMap { n in (n >= 1 && n <= candidates.count) ? candidates[n - 1] : nil }
-            var parts: [String] = []
-            if !filters.genres.isEmpty  { parts.append(filters.genres.joined(separator: ", ")) }
-            if !filters.decades.isEmpty { parts.append(filters.decades.sorted().map { "\($0)s" }.joined(separator: ", ")) }
-            summary = parts.isEmpty ? "Uit je hele bibliotheek" : "Uit \(parts.joined(separator: " · "))"
+            resultFilters = filters
+            Haptics.success()
 
-            // Persist to history
             client.saveRecommendation(prompt: request, albums: albums)
             history = await client.recommendations()
         } catch {
             errorMessage = error.localizedDescription
+            Haptics.error()
         }
-    }
-
-    private func parseNumbers(from text: String, max: Int) -> [Int] {
-        let clean = text.replacingOccurrences(of: #"<think>[\s\S]*?</think>"#, with: "", options: .regularExpression)
-        return clean.components(separatedBy: .init(charactersIn: ", ;\n\t"))
-            .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            .filter { $0 >= 1 && $0 <= max }
     }
 }
