@@ -463,8 +463,8 @@ extension RoonClient {
         """
         guard let resp = try? await LLMClient.shared.complete(
             system: system, user: "Request: \(q)", config: effectiveLLMConfig()) else { return nil }
+        // `complete` already strips any reasoning block — just tidy the phrase.
         let phrase = resp
-            .replacingOccurrences(of: #"<think>[\s\S]*?</think>"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\"", with: "")
         return phrase.isEmpty ? nil : String(phrase.prefix(120))

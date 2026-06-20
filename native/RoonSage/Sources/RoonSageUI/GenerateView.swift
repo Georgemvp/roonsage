@@ -1,35 +1,154 @@
 import SwiftUI
+import Observation
 import RoonSageCore
+
+// MARK: - View model
+
+/// Owns all of GenerateView's UI + orchestration state so the view itself is pure
+/// presentation. The heavy pipeline lives in `RoonClient.generatePlaylist`; this
+/// model wires it to the screen: staged progress, a cancellable/token-guarded
+/// run, an editable result, and saving.
+@MainActor
+@Observable
+final class GenerateModel {
+    var prompt        = ""
+    var targetCount   = 20
+    var isGenerating  = false
+    var phase: RoonClient.GenerationPhase? = nil
+    var result: RoonClient.GenerationResult? = nil
+    /// Editable working copy of the curated tracks (mutated by the row actions).
+    var tracks: [TrackRecord] = []
+    var playlistName  = ""
+    var justSaved     = false
+    var qobuzStatus: String? = nil
+    var errorMessage: String? = nil
+
+    @ObservationIgnored private var genTask: Task<Void, Never>? = nil
+    /// Monotonic token so a cancelled/superseded run can't reset shared state or
+    /// publish a result under a newer run.
+    @ObservationIgnored private var genToken = 0
+    @ObservationIgnored private var savedTask: Task<Void, Never>? = nil
+
+    var canGenerate: Bool { !prompt.trimmingCharacters(in: .whitespaces).isEmpty }
+    var canSave: Bool { !playlistName.trimmingCharacters(in: .whitespaces).isEmpty && !tracks.isEmpty }
+
+    func apply(_ t: PlaylistTemplate) {
+        prompt = t.prompt
+        targetCount = [10, 20, 30, 50].min(by: { abs($0 - t.trackCount) < abs($1 - t.trackCount) }) ?? 20
+        playlistName = t.name
+        Haptics.tap()
+    }
+
+    func startGenerate(client: RoonClient) {
+        genTask?.cancel()
+        genToken &+= 1
+        let token = genToken
+        genTask = Task { await generate(token: token, client: client) }
+    }
+
+    func stop() { genTask?.cancel() }
+
+    private func generate(token: Int, client: RoonClient) async {
+        let request = prompt.trimmingCharacters(in: .whitespaces)
+        guard !request.isEmpty else { return }
+        isGenerating = true
+        errorMessage = nil
+        justSaved = false
+        qobuzStatus = nil
+        phase = .analyzing
+        // Keep any existing result visible during a regenerate; restore nothing on
+        // Stop. The token guard stops a superseded run from clobbering newer state.
+        defer { if token == genToken { isGenerating = false; phase = nil } }
+
+        do {
+            let r = try await client.generatePlaylist(request: request, target: targetCount) { [weak self] p in
+                guard let self, token == self.genToken else { return }
+                withAnimation(Motion.quick) { self.phase = p }
+            }
+            guard !Task.isCancelled, token == genToken else { return }
+            result = r
+            playlistName = r.title
+            withAnimation(Motion.spring) { tracks = r.tracks }
+            Haptics.success()
+        } catch {
+            if Task.isCancelled || token != genToken { return }
+            errorMessage = error.localizedDescription
+            Haptics.error()
+        }
+    }
+
+    func save(client: RoonClient) {
+        let name = playlistName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !tracks.isEmpty else { return }
+        client.savePlaylist(name: name, tracks: tracks)
+        Haptics.success()
+        justSaved = true
+        savedTask?.cancel()
+        savedTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.justSaved = false
+        }
+    }
+
+    func saveToQobuz(client: RoonClient) {
+        let name = playlistName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !tracks.isEmpty else { return }
+        qobuzStatus = "Bewaren in Qobuz…"
+        let snapshot = tracks
+        Task { [weak self] in
+            if let r = await client.saveToQobuz(name: name, tracks: snapshot) {
+                self?.qobuzStatus = "Bewaard in Qobuz — \(r.matched)/\(r.total) tracks gematcht."
+            } else {
+                self?.qobuzStatus = "Bewaren in Qobuz mislukt — controleer je account in Instellingen."
+            }
+        }
+    }
+
+    func playAll(client: RoonClient) {
+        guard let z = client.selectedZone?.id, !tracks.isEmpty else { return }
+        Haptics.tap()
+        let snapshot = tracks
+        Task { await client.curateTracks(snapshot, zoneID: z) }
+    }
+
+    func playOne(_ track: TrackRecord, client: RoonClient) {
+        guard let z = client.selectedZone?.id else { return }
+        Haptics.tap()
+        Task { await client.curateTracks([track], zoneID: z) }
+    }
+
+    func queueOne(_ track: TrackRecord, next: Bool, client: RoonClient) {
+        guard let z = client.selectedZone?.id else { return }
+        Haptics.tap()
+        Task { await client.queueTracks([track], next: next, zoneID: z) }
+    }
+
+    func remove(_ track: TrackRecord) {
+        withAnimation(Motion.quick) { tracks.removeAll { $0.id == track.id } }
+        Haptics.tap()
+    }
+
+    func move(_ track: TrackRecord, by delta: Int) {
+        guard let i = tracks.firstIndex(where: { $0.id == track.id }) else { return }
+        let j = i + delta
+        guard tracks.indices.contains(j) else { return }
+        withAnimation(Motion.quick) { tracks.swapAt(i, j) }
+        Haptics.tap()
+    }
+}
 
 // MARK: - View
 
 /// AI playlist generation. The whole analyse → candidates → curate → name
-/// pipeline now lives in `RoonClient.generatePlaylist` (Core); this view only
-/// owns the prompt, the staged-progress display and an *editable* result the
-/// user can refine (play/queue/reorder/remove a track) before saving.
+/// pipeline lives in `RoonClient.generatePlaylist` (Core); this view is pure
+/// presentation over `GenerateModel`, with an *editable* result the user can
+/// refine (play/queue/reorder/remove a track) before saving.
 @MainActor
 public struct GenerateView: View {
     public init() {}
     @Environment(RoonClient.self) private var client
-
-    @State private var prompt        = ""
-    @State private var targetCount   = 20
-    @State private var isGenerating  = false
-    @State private var phase: RoonClient.GenerationPhase? = nil
-    @State private var genTask: Task<Void, Never>? = nil
-    /// Monotonic token so a cancelled/superseded run can't reset shared @State or
-    /// publish a result under a newer run.
-    @State private var genToken      = 0
-
-    @State private var result: RoonClient.GenerationResult? = nil
-    /// Editable working copy of the curated tracks (mutated by the row actions).
-    @State private var tracks: [TrackRecord] = []
-
-    @State private var playlistName = ""
-    @State private var justSaved    = false
-    @State private var savedTask: Task<Void, Never>? = nil
-    @State private var qobuzStatus: String? = nil
-    @State private var errorMessage: String? = nil
+    @State private var model = GenerateModel()
     @State private var showTemplates = false
 
     /// One featured template per category for quick access; all 63 live behind
@@ -38,25 +157,42 @@ public struct GenerateView: View {
         PlaylistTemplates.categories.compactMap { PlaylistTemplates.inCategory($0).first }
     }
 
-    private func apply(_ t: PlaylistTemplate) {
-        prompt = t.prompt
-        targetCount = [10, 20, 30, 50].min(by: { abs($0 - t.trackCount) < abs($1 - t.trackCount) }) ?? 20
-        playlistName = t.name
-        Haptics.tap()
-    }
-
     public var body: some View {
-        ScrollView {
+        @Bindable var model = model
+        return ScrollView {
             #if os(iOS)
             Color.clear.frame(height: 0)
             #endif
             VStack(alignment: .leading, spacing: Spacing.xl) {
-                promptSection
+
+                VStack(alignment: .leading, spacing: Spacing.sm) {
+                    Text("Wat voor playlist?").font(.headline)
+                    AIPromptField(text: $model.prompt,
+                                  placeholder: "Beschrijf de sfeer, het genre of de gelegenheid… bijv. “warme jazz voor een regenachtige zondagochtend”")
+                }
+
                 templatesSection
-                optionsSection
+
+                HStack(spacing: Spacing.lg) {
+                    HStack(spacing: Spacing.xs) {
+                        Text("Tracks").foregroundStyle(.secondary)
+                        Picker("Tracks", selection: $model.targetCount) {
+                            Text("10").tag(10)
+                            Text("20").tag(20)
+                            Text("30").tag(30)
+                            Text("50").tag(50)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 200)
+                        .labelsHidden()
+                    }
+                    Spacer()
+                    ZonePicker()
+                }
+
                 generateSection
 
-                if let err = errorMessage {
+                if let err = model.errorMessage {
                     Label(err, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(Color.roonDanger)
                         .font(.callout)
@@ -64,41 +200,33 @@ public struct GenerateView: View {
                         .transition(.opacity)
                 }
 
-                if isGenerating {
-                    GenerationStepper(current: phase ?? .analyzing)
+                if model.isGenerating {
+                    GenerationStepper(current: model.phase ?? .analyzing)
                         .transition(.opacity)
                 }
 
-                if isGenerating, result == nil {
-                    loadingState
-                } else if let result {
-                    resultSection(result)
+                if model.isGenerating, model.result == nil {
+                    SkeletonRows(count: min(model.targetCount, 8)).transition(.opacity)
+                } else if let result = model.result {
+                    resultSection(result, name: $model.playlistName)
                 } else {
                     idleState
                 }
             }
             .padding(Spacing.xl)
-            .animation(Motion.standard, value: result?.title)
-            .animation(Motion.quick, value: errorMessage)
+            .animation(Motion.standard, value: model.result?.title)
+            .animation(Motion.quick, value: model.errorMessage)
         }
         .navigationTitle("Playlist genereren")
         #if os(iOS)
         .scrollDismissesKeyboard(.interactively)
         #endif
         .sheet(isPresented: $showTemplates) {
-            TemplatePicker { t in apply(t); showTemplates = false }
+            TemplatePicker { t in model.apply(t); showTemplates = false }
         }
     }
 
     // MARK: Form
-
-    private var promptSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            Text("Wat voor playlist?").font(.headline)
-            AIPromptField(text: $prompt,
-                          placeholder: "Beschrijf de sfeer, het genre of de gelegenheid… bijv. “warme jazz voor een regenachtige zondagochtend”")
-        }
-    }
 
     private var templatesSection: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
@@ -115,7 +243,7 @@ public struct GenerateView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: Spacing.sm) {
                     ForEach(featured) { t in
-                        Button { apply(t) } label: {
+                        Button { model.apply(t) } label: {
                             HStack(spacing: Spacing.xs) {
                                 Text(t.icon)
                                 Text(t.name).font(.callout).lineLimit(1)
@@ -132,37 +260,18 @@ public struct GenerateView: View {
         }
     }
 
-    private var optionsSection: some View {
-        HStack(spacing: Spacing.lg) {
-            HStack(spacing: Spacing.xs) {
-                Text("Tracks").foregroundStyle(.secondary)
-                Picker("Tracks", selection: $targetCount) {
-                    Text("10").tag(10)
-                    Text("20").tag(20)
-                    Text("30").tag(30)
-                    Text("50").tag(50)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 200)
-                .labelsHidden()
-            }
-            Spacer()
-            ZonePicker()
-        }
-    }
-
     private var generateSection: some View {
         HStack(spacing: Spacing.md) {
-            Button { startGenerate() } label: {
+            Button { model.startGenerate(client: client) } label: {
                 Label(generateButtonTitle, systemImage: "wand.and.stars")
                     .frame(minWidth: 180)
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
-            .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || isGenerating)
+            .disabled(!model.canGenerate || model.isGenerating)
 
-            if isGenerating {
-                Button(role: .cancel) { genTask?.cancel() } label: {
+            if model.isGenerating {
+                Button(role: .cancel) { model.stop() } label: {
                     Label("Stop", systemImage: "stop.fill")
                 }
                 .buttonStyle(.bordered)
@@ -171,11 +280,9 @@ public struct GenerateView: View {
     }
 
     private var generateButtonTitle: String {
-        if isGenerating { return "Genereren…" }
-        return result == nil ? "Genereer playlist" : "Opnieuw genereren"
+        if model.isGenerating { return "Genereren…" }
+        return model.result == nil ? "Genereer playlist" : "Opnieuw genereren"
     }
-
-    // MARK: States
 
     private var idleState: some View {
         VStack(spacing: Spacing.sm) {
@@ -194,21 +301,16 @@ public struct GenerateView: View {
         .padding(.vertical, Spacing.xl)
     }
 
-    private var loadingState: some View {
-        SkeletonRows(count: min(targetCount, 8))
-            .transition(.opacity)
-    }
-
     // MARK: Result
 
     @ViewBuilder
-    private func resultSection(_ r: RoonClient.GenerationResult) -> some View {
+    private func resultSection(_ r: RoonClient.GenerationResult, name: Binding<String>) -> some View {
         Divider()
         VStack(alignment: .leading, spacing: Spacing.md) {
             resultHeader(r)
             FilterChips(filters: r.filters, poolSize: r.poolSize)
-            saveRow
-            if let qobuzStatus {
+            saveRow(name)
+            if let qobuzStatus = model.qobuzStatus {
                 Text(qobuzStatus).font(.caption).foregroundStyle(.secondary)
             }
             playRow
@@ -220,9 +322,9 @@ public struct GenerateView: View {
         HStack(alignment: .top, spacing: Spacing.sm) {
             Image(systemName: "wand.and.stars")
                 .foregroundStyle(Color.roonGold)
-                .symbolEffect(.bounce, value: tracks.count)
+                .symbolEffect(.bounce, value: model.tracks.count)
             VStack(alignment: .leading, spacing: 4) {
-                Text(playlistName.isEmpty ? r.title : playlistName)
+                Text(model.playlistName.isEmpty ? r.title : model.playlistName)
                     .font(.title3.bold())
                 if let desc = r.description, !desc.isEmpty {
                     Text(desc)
@@ -231,8 +333,8 @@ public struct GenerateView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 5) {
-                    Text("\(tracks.count) tracks")
-                    if justSaved { Text("· opgeslagen").foregroundStyle(Color.roonGold) }
+                    Text("\(model.tracks.count) tracks")
+                    if model.justSaved { Text("· opgeslagen").foregroundStyle(Color.roonGold) }
                 }
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -254,22 +356,21 @@ public struct GenerateView: View {
         }
     }
 
-    private var saveRow: some View {
+    private func saveRow(_ name: Binding<String>) -> some View {
         HStack(spacing: Spacing.sm) {
-            TextField("Naam playlist", text: $playlistName)
+            TextField("Naam playlist", text: name)
                 .textFieldStyle(.roundedBorder)
-            Button {
-                save()
-            } label: {
-                Label(justSaved ? "Bewaard!" : "Bewaar", systemImage: justSaved ? "checkmark" : "square.and.arrow.down")
+            Button { model.save(client: client) } label: {
+                Label(model.justSaved ? "Bewaard!" : "Bewaar",
+                      systemImage: model.justSaved ? "checkmark" : "square.and.arrow.down")
             }
-            .disabled(playlistName.trimmingCharacters(in: .whitespaces).isEmpty || tracks.isEmpty)
+            .disabled(!model.canSave)
 
             if client.qobuzConfigured {
-                Button { saveToQobuz() } label: {
+                Button { model.saveToQobuz(client: client) } label: {
                     Label("Qobuz", systemImage: "cloud")
                 }
-                .disabled(playlistName.trimmingCharacters(in: .whitespaces).isEmpty || tracks.isEmpty)
+                .disabled(!model.canSave)
                 .help("Bewaar deze playlist ook in je Qobuz-account")
             }
         }
@@ -277,15 +378,11 @@ public struct GenerateView: View {
 
     private var playRow: some View {
         HStack(spacing: Spacing.sm) {
-            Button {
-                guard let z = client.selectedZone?.id else { return }
-                Haptics.tap()
-                Task { await client.curateTracks(tracks, zoneID: z) }
-            } label: {
+            Button { model.playAll(client: client) } label: {
                 Label("Speel alles", systemImage: "play.fill").frame(minWidth: 120)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(client.selectedZone == nil || tracks.isEmpty)
+            .disabled(client.selectedZone == nil || model.tracks.isEmpty)
 
             if client.selectedZone == nil {
                 Text("Kies een zone om af te spelen")
@@ -295,136 +392,50 @@ public struct GenerateView: View {
         }
     }
 
+    /// Editable track list: drag-to-reorder + swipe-to-delete (List `.onMove`/
+    /// `.onDelete`, scroll disabled so it sits inside the page ScrollView, like
+    /// DJSetView), plus a per-row play button and a context menu (play/queue/
+    /// move/remove) so reordering also works where drag isn't available.
     private var trackList: some View {
-        LazyVStack(spacing: 0) {
-            ForEach(Array(tracks.enumerated()), id: \.element.id) { i, t in
+        List {
+            ForEach(Array(model.tracks.enumerated()), id: \.element.id) { i, t in
                 AIResultRow(index: i + 1, title: t.title, subtitle: subtitle(t), imageKey: t.imageKey) {
-                    Button { playOne(t) } label: { Image(systemName: "play.fill") }
+                    Button { model.playOne(t, client: client) } label: { Image(systemName: "play.fill") }
                         .buttonStyle(.borderless)
                         .disabled(client.selectedZone == nil)
                         .accessibilityLabel("Speel \(t.title)")
                 }
+                .listRowInsets(EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4))
                 .contextMenu {
-                    Button { playOne(t) } label: { Label("Speel nu", systemImage: "play.fill") }
+                    Button { model.playOne(t, client: client) } label: { Label("Speel nu", systemImage: "play.fill") }
                         .disabled(client.selectedZone == nil)
-                    Button { queueOne(t, next: true) } label: {
+                    Button { model.queueOne(t, next: true, client: client) } label: {
                         Label("Speel hierna", systemImage: "text.line.first.and.arrowtriangle.forward")
                     }
                     .disabled(client.selectedZone == nil)
                     Divider()
-                    Button { move(t, by: -1) } label: { Label("Omhoog", systemImage: "arrow.up") }
+                    Button { model.move(t, by: -1) } label: { Label("Omhoog", systemImage: "arrow.up") }
                         .disabled(i == 0)
-                    Button { move(t, by: 1) } label: { Label("Omlaag", systemImage: "arrow.down") }
-                        .disabled(i == tracks.count - 1)
+                    Button { model.move(t, by: 1) } label: { Label("Omlaag", systemImage: "arrow.down") }
+                        .disabled(i == model.tracks.count - 1)
                     Divider()
-                    Button(role: .destructive) { remove(t) } label: {
+                    Button(role: .destructive) { model.remove(t) } label: {
                         Label("Verwijder uit playlist", systemImage: "trash")
                     }
                 }
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-                Divider().opacity(0.4)
             }
+            .onMove { from, to in model.tracks.move(fromOffsets: from, toOffset: to); Haptics.tap() }
+            .onDelete { idx in model.tracks.remove(atOffsets: idx); Haptics.tap() }
         }
+        .listStyle(.plain)
+        .scrollDisabled(true)
+        .frame(minHeight: CGFloat(model.tracks.count) * 64)
     }
 
     private func subtitle(_ t: TrackRecord) -> String {
         var s = t.artist ?? ""
         if let y = t.year { s += s.isEmpty ? "\(y)" : " · \(y)" }
         return s
-    }
-
-    // MARK: Actions
-
-    private func startGenerate() {
-        genTask?.cancel()
-        genToken &+= 1
-        let token = genToken
-        genTask = Task { await generate(token: token) }
-    }
-
-    private func generate(token: Int) async {
-        let request = prompt.trimmingCharacters(in: .whitespaces)
-        guard !request.isEmpty else { return }
-        isGenerating = true
-        errorMessage = nil
-        justSaved = false
-        qobuzStatus = nil
-        phase = .analyzing
-        // Keep any existing result visible during a regenerate; restore nothing on
-        // Stop. The token guard stops a superseded run from clobbering newer state.
-        defer { if token == genToken { isGenerating = false; phase = nil } }
-
-        do {
-            let r = try await client.generatePlaylist(request: request, target: targetCount) { p in
-                guard token == genToken else { return }
-                withAnimation(Motion.quick) { phase = p }
-            }
-            guard !Task.isCancelled, token == genToken else { return }
-            result = r
-            playlistName = r.title
-            withAnimation(Motion.spring) { tracks = r.tracks }
-            Haptics.success()
-        } catch {
-            if Task.isCancelled || token != genToken { return }
-            errorMessage = error.localizedDescription
-            Haptics.error()
-        }
-    }
-
-    private func save() {
-        let name = playlistName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty, !tracks.isEmpty else { return }
-        client.savePlaylist(name: name, tracks: tracks)
-        Haptics.success()
-        flashSaved()
-    }
-
-    private func flashSaved() {
-        justSaved = true
-        savedTask?.cancel()
-        savedTask = Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            guard !Task.isCancelled else { return }
-            justSaved = false
-        }
-    }
-
-    private func saveToQobuz() {
-        let name = playlistName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty, !tracks.isEmpty else { return }
-        qobuzStatus = "Bewaren in Qobuz…"
-        Task {
-            if let r = await client.saveToQobuz(name: name, tracks: tracks) {
-                qobuzStatus = "Bewaard in Qobuz — \(r.matched)/\(r.total) tracks gematcht."
-            } else {
-                qobuzStatus = "Bewaren in Qobuz mislukt — controleer je account in Instellingen."
-            }
-        }
-    }
-
-    private func playOne(_ t: TrackRecord) {
-        guard let z = client.selectedZone?.id else { return }
-        Haptics.tap()
-        Task { await client.curateTracks([t], zoneID: z) }
-    }
-
-    private func queueOne(_ t: TrackRecord, next: Bool) {
-        guard let z = client.selectedZone?.id else { return }
-        Haptics.tap()
-        Task { await client.queueTracks([t], next: next, zoneID: z) }
-    }
-
-    private func remove(_ t: TrackRecord) {
-        withAnimation(Motion.quick) { tracks.removeAll { $0.id == t.id } }
-        Haptics.tap()
-    }
-
-    private func move(_ t: TrackRecord, by delta: Int) {
-        guard let i = tracks.firstIndex(where: { $0.id == t.id }) else { return }
-        let j = i + delta
-        guard tracks.indices.contains(j) else { return }
-        withAnimation(Motion.quick) { tracks.swapAt(i, j) }
-        Haptics.tap()
     }
 }
 

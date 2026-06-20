@@ -443,11 +443,10 @@ extension RoonClient {
     }
 
     static func firstJSONObject(_ text: String) -> [String: Any]? {
-        // `complete` already strips reasoning blocks; this is the brace-matching
-        // safety net for models that wrap JSON in prose or code fences.
-        let clean = text.replacingOccurrences(of: #"<think>[\s\S]*?</think>"#, with: "", options: .regularExpression)
-        guard let start = clean.firstIndex(of: "{"), let end = clean.lastIndex(of: "}"), start < end else { return nil }
-        return (try? JSONSerialization.jsonObject(with: Data(clean[start...end].utf8))) as? [String: Any]
+        // `complete` already strips reasoning blocks; this is just the brace-
+        // matching safety net for models that wrap JSON in prose or code fences.
+        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start < end else { return nil }
+        return (try? JSONSerialization.jsonObject(with: Data(text[start...end].utf8))) as? [String: Any]
     }
 
     /// Robustly parse a JSON "decades" array into floored decade start-years.
