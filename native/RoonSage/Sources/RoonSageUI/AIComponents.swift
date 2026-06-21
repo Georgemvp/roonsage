@@ -109,18 +109,25 @@ public struct ZonePicker: View {
                         }
                     }
                 } label: {
+                    let unset = client.selectedZone == nil
                     HStack(spacing: Spacing.xs) {
-                        Image(systemName: client.selectedZone?.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker")
+                        Image(systemName: unset ? "exclamationmark.circle.fill"
+                              : (client.selectedZone?.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker"))
                         Text(client.selectedZone?.displayName ?? "Kies zone")
                             .lineLimit(1)
                         Image(systemName: "chevron.down")
                             .font(.caption2.weight(.semibold))
                             .opacity(0.6)
                     }
-                    .font(.subheadline.weight(.medium))
+                    // When no zone is chosen, the picker is the thing standing
+                    // between the user and playback — make it read as an action
+                    // needed (accent tint) rather than a passive status chip.
+                    .font(.subheadline.weight(unset ? .semibold : .medium))
+                    .foregroundStyle(unset ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.primary))
                     .padding(.horizontal, Spacing.md)
                     .padding(.vertical, Spacing.sm)
-                    .background(Color.platformQuaternaryFill, in: Capsule())
+                    .background(unset ? AnyShapeStyle(Color.accentColor.opacity(0.15))
+                                : AnyShapeStyle(Color.platformQuaternaryFill), in: Capsule())
                 }
                 .fixedSize()
                 .onAppear {

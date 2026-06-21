@@ -186,7 +186,14 @@ public final class RoonClient {
 
     public var selectedZone: Zone? {
         if let id = selectedZoneID, let z = zoneMap[id] { return z }
-        return zones.first(where: { $0.state == .playing }) ?? zones.first
+        // Never silently fall back to an arbitrary idle zone: doing so once
+        // started playback on an unexpected speaker (a Google Home Mini that
+        // merely happened to sort first). Only auto-target a zone that is
+        // ALREADY playing, and only when exactly one is — so a "play" action can
+        // never wake an idle speaker by guessing. Otherwise return nil and let
+        // the UI insist on an explicit pick (buttons disable, picker highlights).
+        let playing = zones.filter { $0.state == .playing }
+        return playing.count == 1 ? playing.first : nil
     }
 
     // MARK: - Private
@@ -230,6 +237,11 @@ public final class RoonClient {
 
     public init() {
         database = DatabaseManager.open(url: Self.databaseURL)
+        // Restore the last explicitly-chosen zone so a play action targets the
+        // same speaker across launches instead of resetting to "no selection"
+        // (which previously routed to an arbitrary first zone). Resolves to nil
+        // automatically if that zone is gone — `selectedZone` checks `zoneMap`.
+        selectedZoneID = UserDefaults.standard.string(forKey: "selected_zone_id")
         refreshTrackCount()
         refreshGenreCount()
         #if os(macOS)

@@ -111,6 +111,10 @@ extension RoonClient {
 
     public func selectZone(_ id: String) {
         selectedZoneID = id
+        // Persist so the choice survives relaunch (see init restore). An explicit
+        // pick is the only thing that should make a "play" action target a zone
+        // that isn't already playing.
+        UserDefaults.standard.set(id, forKey: "selected_zone_id")
     }
 
     // MARK: - Library sync
