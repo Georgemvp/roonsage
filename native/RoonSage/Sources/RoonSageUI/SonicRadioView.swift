@@ -40,13 +40,12 @@ public struct SonicRadioView: View {
 
                 categoryPicker
 
-                if !radios.isEmpty {
+                AsyncStateView(isLoading: isLoading || !loaded, isEmpty: radios.isEmpty,
+                               onRetry: { Task { await load(force: true) } }) {
                     LazyVGrid(columns: columns, spacing: Spacing.md) {
                         ForEach(radios) { radioCard($0) }
                     }
-                } else if isLoading {
-                    SkeletonRows()
-                } else if loaded {
+                } empty: {
                     emptyState
                 }
 

@@ -201,9 +201,8 @@ public struct LibraryView: View {
 
     @ViewBuilder
     private var albumsContent: some View {
-        if albums.isEmpty {
-            if isLoadingGrid { SkeletonRows() } else { gridEmptyState(noun: "albums") }
-        } else {
+        AsyncStateView(isLoading: isLoadingGrid, isEmpty: albums.isEmpty,
+                       onRetry: { reloadContent() }) {
             ScrollView {
                 LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
                     ForEach(albums) { album in
@@ -218,14 +217,15 @@ public struct LibraryView: View {
                 .padding(Spacing.lg)
             }
             .refreshable { await refresh() }
+        } empty: {
+            gridEmptyState(noun: "albums")
         }
     }
 
     @ViewBuilder
     private var artistsContent: some View {
-        if artists.isEmpty {
-            if isLoadingGrid { SkeletonRows() } else { gridEmptyState(noun: "artiesten") }
-        } else {
+        AsyncStateView(isLoading: isLoadingGrid, isEmpty: artists.isEmpty,
+                       onRetry: { reloadContent() }) {
             ScrollView {
                 LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
                     ForEach(artists) { artist in
@@ -240,6 +240,8 @@ public struct LibraryView: View {
                 .padding(Spacing.lg)
             }
             .refreshable { await refresh() }
+        } empty: {
+            gridEmptyState(noun: "artiesten")
         }
     }
 
