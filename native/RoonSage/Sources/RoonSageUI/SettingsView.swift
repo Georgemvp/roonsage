@@ -24,6 +24,8 @@ public struct SettingsView: View {
     // Server sync (client role: pull settings + library + features from the server)
     @State private var serverURL: String = UserDefaults.standard.string(forKey: "library_import_url") ?? ""
     @State private var serverToken: String = LibraryShareServer.configuredToken ?? ""
+    @State private var savedServerToken: String = LibraryShareServer.configuredToken ?? ""
+    @State private var tokenSaved = false
     @State private var settingsSyncBusy = false
     @State private var settingsSyncStatus: String?
 
@@ -136,12 +138,23 @@ public struct SettingsView: View {
                     if let s = settingsSyncStatus {
                         Text(s).font(.caption).foregroundStyle(.secondary)
                     }
-                    SecureField("Servertoken", text: $serverToken)
-                        .textFieldStyle(.roundedBorder)
-                        .onChange(of: serverToken) { _, new in
-                            LibraryShareServer.setConfiguredToken(new)
+                    HStack(spacing: Spacing.sm) {
+                        // Save on commit (Enter / Bewaar), not on every keystroke —
+                        // a half-typed token used to overwrite the working one.
+                        SecureField("Servertoken", text: $serverToken)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { saveServerToken() }
+                        if tokenSaved {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(Color.roonSuccess)
+                                .accessibilityLabel("Token bewaard")
+                                .transition(.opacity)
                         }
-                    Text("Haalt instellingen, de muziekbibliotheek en de analyses op van de RoonSage-server (de analyzer op je always-on Mac). Plak het token dat de server toont onder ‘Bibliotheek’. De eerste keer moet je dit apparaat nog wel goedkeuren in Roon.")
+                        Button("Bewaar") { saveServerToken() }
+                            .disabled(serverToken.trimmingCharacters(in: .whitespaces) == savedServerToken)
+                    }
+                    .animation(Motion.quick, value: tokenSaved)
+                    Text("Haalt instellingen, de muziekbibliotheek en de analyses op van de RoonSage-server (de analyzer op je always-on Mac). Plak het token dat de server toont onder ‘Bibliotheek’ en bevestig met Enter of ‘Bewaar’. De eerste keer moet je dit apparaat nog wel goedkeuren in Roon.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -433,6 +446,19 @@ public struct SettingsView: View {
     /// Loads every field from UserDefaults + Keychain into local @State. Called
     /// on first render and again after a settings sync from the Mac, so the UI
     /// immediately reflects the imported values.
+    private func saveServerToken() {
+        let t = serverToken.trimmingCharacters(in: .whitespaces)
+        serverToken = t
+        LibraryShareServer.setConfiguredToken(t)
+        savedServerToken = t
+        tokenSaved = true
+        Haptics.success()
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            tokenSaved = false
+        }
+    }
+
     private func loadSettingsState() {
         refreshLastSync()
         lbToken = KeychainStore.load(key: "listenbrainz_token") ?? ""

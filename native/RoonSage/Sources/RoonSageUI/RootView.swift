@@ -169,6 +169,27 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Cross-view navigation
+
+/// Lets a deep view (e.g. an empty state) jump the sidebar/tab selection to
+/// another destination — so "Genereer een playlist" from the Playlists empty
+/// state actually takes the user to Generate instead of being a dead end.
+public struct NavigateAction {
+    let action: (SidebarItem) -> Void
+    public func callAsFunction(_ item: SidebarItem) { action(item) }
+}
+
+private struct NavigateActionKey: EnvironmentKey {
+    static let defaultValue = NavigateAction { _ in }
+}
+
+extension EnvironmentValues {
+    public var navigateTo: NavigateAction {
+        get { self[NavigateActionKey.self] }
+        set { self[NavigateActionKey.self] = newValue }
+    }
+}
+
 // MARK: - Sidebar grouping (macOS / iPad)
 
 /// Groups the 18 destinations into scannable sections, mirroring the iOS
@@ -249,6 +270,7 @@ struct RootView: View {
             connectedBadge
         } detail: {
             detailView(for: selection)
+                .environment(\.navigateTo, NavigateAction { selection = $0 })
         }
         .navigationTitle("")
         .toolbar { navToolbar }
@@ -324,6 +346,7 @@ struct RootView: View {
                 client.selectZone(lastZoneID)
             }
         }
+        .environment(\.navigateTo, NavigateAction { selection = $0 })
         .task { await autoPullFromServerIfEmpty() }
     }
 
@@ -443,14 +466,18 @@ struct RootView: View {
     }
 
     private var connectedBadge: some View {
-        HStack(spacing: 6) {
-            Circle().fill(Color.roonSuccess).frame(width: 8, height: 8)
+        let connected = client.connectionState.isConnected
+        return HStack(spacing: 6) {
+            Circle().fill(connected ? Color.roonSuccess : Color.roonDanger)
+                .frame(width: 8, height: 8)
             Text(client.connectionState.label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
         .padding(10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Verbinding: \(client.connectionState.label)")
     }
 
     /// Cmd+1…9 jump straight to a destination. Hidden but active (hardware keyboard).

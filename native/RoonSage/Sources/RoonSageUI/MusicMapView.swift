@@ -12,6 +12,9 @@ public struct MusicMapView: View {
     @State private var isLoading = false
     @State private var loaded = false
     @State private var selected: DatabaseManager.SonicTrack?
+    /// Memoized once per data change — recomputing in `body` and on every tap made
+    /// the scatter O(n) per render. Recomputed only in `load()`.
+    @State private var bounds = Bounds([])
 
     public var body: some View {
         Group {
@@ -47,11 +50,13 @@ public struct MusicMapView: View {
             .padding(.horizontal, Spacing.lg)
             .padding(.top, Spacing.sm)
 
+            colorLegend
+                .padding(.horizontal, Spacing.lg)
+
             ZoneHintBanner()
                 .padding(.horizontal, Spacing.lg)
 
             GeometryReader { geo in
-                let bounds = Bounds(tracks)
                 let pad: CGFloat = Spacing.xl
                 let plot = CGRect(x: pad, y: pad,
                                   width: max(1, geo.size.width - pad * 2),
@@ -81,8 +86,13 @@ public struct MusicMapView: View {
                     )
 
                     if let sel = selected {
+                        // Put the card on the opposite half from the tapped point so
+                        // it never covers the dot you just selected.
+                        let p = position(sel, in: plot, bounds: bounds)
+                        let cardAtTop = p.y > plot.midY
                         selectionCard(sel)
-                            .position(x: plot.minX + 130, y: plot.minY + 42)
+                            .position(x: min(max(p.x, plot.minX + 124), plot.maxX - 124),
+                                      y: cardAtTop ? plot.minY + 44 : plot.maxY - 44)
                     }
                 }
             }
@@ -90,6 +100,28 @@ public struct MusicMapView: View {
             .padding(.horizontal, Spacing.lg)
             .padding(.bottom, Spacing.lg)
         }
+    }
+
+    // MARK: - Colour legend
+
+    /// Explains the colour encoding (every dot is tinted by its Camelot key) — the
+    /// map was colour-coding silently with no key.
+    private var colorLegend: some View {
+        HStack(spacing: Spacing.sm) {
+            Text("Kleur = toonsoort")
+                .font(.caption2).foregroundStyle(.secondary)
+            LinearGradient(
+                colors: (0..<12).map { Color(hue: Double($0) / 12.0, saturation: 0.7, brightness: 0.9) },
+                startPoint: .leading, endPoint: .trailing)
+                .frame(width: 132, height: 8)
+                .clipShape(Capsule())
+                .accessibilityHidden(true)
+            Text("1 → 12")
+                .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Kleur van elk punt staat voor de toonsoort (Camelot 1 tot 12)")
     }
 
     // MARK: - Selection card
@@ -100,7 +132,7 @@ public struct MusicMapView: View {
             AlbumArtView(imageKey: t.imageKey, size: 36)
             VStack(alignment: .leading, spacing: 1) {
                 Text(t.title).font(.caption.weight(.semibold)).lineLimit(1)
-                Text(t.artist ?? "Unknown").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                Text(t.artist ?? "Onbekend").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 HStack(spacing: 4) {
                     if let bpm = t.bpm, bpm > 0 { Text("\(Int(bpm)) BPM") }
                     if !t.camelot.isEmpty { Text(t.camelot) }
@@ -110,15 +142,17 @@ public struct MusicMapView: View {
             Button {
                 guard let zone = client.selectedZone else { return }
                 Task { await client.playTrack(id: t.id, title: t.title, artist: t.artist, zoneID: zone.id) }
-            } label: { Image(systemName: "play.fill") }
+            } label: { Image(systemName: "play.fill").tappable44() }
             .buttonStyle(.borderless)
             .disabled(client.selectedZone == nil)
+            .accessibilityLabel("Speel \(t.title)")
+            .help(client.selectedZone == nil ? "Kies eerst een zone" : "Speel nu")
         }
         .frame(width: 240)
         .padding(Spacing.sm)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.gray.opacity(0.2)))
-        .shadow(radius: 4)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.lg))
+        .overlay(RoundedRectangle(cornerRadius: Radius.lg).strokeBorder(.gray.opacity(0.2)))
+        .shadow(color: .roonShadow, radius: 4)
         .transition(.scale.combined(with: .opacity))
     }
 
@@ -159,7 +193,7 @@ public struct MusicMapView: View {
         )
     }
 
-    private var usingMap: Bool { Bounds(tracks).usingMap }
+    private var usingMap: Bool { bounds.usingMap }
 
     private func selectNearest(to loc: CGPoint, in plot: CGRect, bounds: Bounds) {
         var best: DatabaseManager.SonicTrack?
@@ -199,6 +233,7 @@ public struct MusicMapView: View {
             lib = await client.sonicLibrary()
         }
         tracks = lib
+        bounds = Bounds(lib)
         isLoading = false
         loaded = true
     }

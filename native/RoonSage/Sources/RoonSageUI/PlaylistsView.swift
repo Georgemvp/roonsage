@@ -17,17 +17,26 @@ public struct PlaylistsView: View {
     @State private var statusOK: Bool? = nil
     @State private var hasLoaded = false
     @State private var pendingDelete: DatabaseManager.PlaylistSummary? = nil
+    @Environment(\.navigateTo) private var navigateTo
 
     public var body: some View {
         Group {
             if !hasLoaded {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if playlists.isEmpty {
-                ContentUnavailableView(
-                    "Geen bewaarde playlists",
-                    systemImage: "list.star",
-                    description: Text("Stel tracks samen en bewaar ze als playlist — ze verschijnen hier en blijven staan na een hersynchronisatie.")
-                )
+                ContentUnavailableView {
+                    Label("Geen bewaarde playlists", systemImage: "list.star")
+                } description: {
+                    Text("Stel tracks samen en bewaar ze als playlist — ze verschijnen hier en blijven staan na een hersynchronisatie.")
+                } actions: {
+                    Button {
+                        Haptics.tap()
+                        navigateTo(.generate)
+                    } label: {
+                        Label("Genereer een playlist", systemImage: "wand.and.stars")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             } else {
                 List {
                     ForEach(playlists, id: \.id) { pl in
