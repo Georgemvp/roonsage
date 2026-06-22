@@ -12,6 +12,7 @@ public struct LibraryView: View {
     @State private var artists: [DatabaseManager.ArtistResult] = []
     @State private var tags: [(tag: String, count: Int)] = []
     @State private var isLoadingTracks = false
+    @State private var isLoadingGrid = false
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
     @State private var sort: SortField = .title
@@ -137,7 +138,7 @@ public struct LibraryView: View {
             Button("Bewaar") {
                 let name = newPlaylistName.trimmingCharacters(in: .whitespaces)
                 guard !name.isEmpty else { return }
-                _ = client.savePlaylist(name: name, tracks: selectedRecords())
+                client.savePlaylist(name: name, tracks: selectedRecords())
                 newPlaylistName = ""
                 selection.removeAll()
             }
@@ -184,6 +185,7 @@ public struct LibraryView: View {
                 .contextMenu { rowMenu(track) }
                 .tag(track.id)
             }
+            .refreshable { await refresh() }
             if !selection.isEmpty { selectionBar }
         }
     }
@@ -191,7 +193,7 @@ public struct LibraryView: View {
     @ViewBuilder
     private var albumsContent: some View {
         if albums.isEmpty {
-            gridEmptyState(noun: "albums")
+            if isLoadingGrid { SkeletonRows() } else { gridEmptyState(noun: "albums") }
         } else {
             ScrollView {
                 LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
@@ -206,13 +208,14 @@ public struct LibraryView: View {
                 }
                 .padding(Spacing.lg)
             }
+            .refreshable { await refresh() }
         }
     }
 
     @ViewBuilder
     private var artistsContent: some View {
         if artists.isEmpty {
-            gridEmptyState(noun: "artiesten")
+            if isLoadingGrid { SkeletonRows() } else { gridEmptyState(noun: "artiesten") }
         } else {
             ScrollView {
                 LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
@@ -227,6 +230,7 @@ public struct LibraryView: View {
                 }
                 .padding(Spacing.lg)
             }
+            .refreshable { await refresh() }
         }
     }
 
@@ -368,17 +372,38 @@ public struct LibraryView: View {
 
     private func loadAlbums() {
         let q = searchText
+        if albums.isEmpty { isLoadingGrid = true }
         Task {
             albums = await client.searchAlbums(query: q)
+            isLoadingGrid = false
             isSearching = false
         }
     }
 
     private func loadArtists() {
         let q = searchText
+        if artists.isEmpty { isLoadingGrid = true }
         Task {
             artists = await client.searchArtists(query: q)
+            isLoadingGrid = false
             isSearching = false
+        }
+    }
+
+    /// Pull-to-refresh: re-reads the active mode's data from the local cache.
+    /// Awaited so the iOS refresh control shows its spinner until data lands.
+    private func refresh() async {
+        tags = await client.topTags(limit: 28)
+        switch viewMode {
+        case .tracks:
+            let rows = await client.browseTracks(query: searchText, tag: selectedTag)
+            let currentSort = sort
+            tracks = rows
+            displayTracks = await Task.detached { Self.sortAndDedupe(rows, by: currentSort) }.value
+        case .albums:
+            albums = await client.searchAlbums(query: searchText)
+        case .artists:
+            artists = await client.searchArtists(query: searchText)
         }
     }
 
@@ -426,6 +451,7 @@ struct LibraryTrackRow: View {
     public var body: some View {
         HStack(spacing: 10) {
             AlbumArtView(imageKey: track.imageKey, size: 40)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(track.title).font(.body).lineLimit(1)
@@ -452,6 +478,8 @@ struct LibraryTrackRow: View {
                     }
                 }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityText)
             Spacer()
             Button(action: onPlay) { Image(systemName: "play.fill") }
                 .buttonStyle(.borderless)
@@ -460,6 +488,16 @@ struct LibraryTrackRow: View {
                 .help(canPlay ? "Speel nu" : "Kies eerst een zone")
         }
         .padding(.vertical, 2)
+    }
+
+    /// One coherent VoiceOver announcement per row instead of 4–7 separate atoms.
+    private var accessibilityText: String {
+        var parts: [String] = [track.title]
+        if let a = track.artist, !a.isEmpty { parts.append(a) }
+        if track.isLive { parts.append("live") }
+        if let y = track.year { parts.append(String(y)) }
+        if let bpm = track.bpm { parts.append("\(Int(bpm)) BPM") }
+        return parts.joined(separator: ", ")
     }
 
     private func badge(_ text: String) -> some View {
@@ -483,6 +521,8 @@ struct AlbumGridCell: View {
             Text(albumSubtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(albumSubtitle.isEmpty ? album.album : "\(album.album), \(albumSubtitle)")
     }
 
     private var albumSubtitle: String {
@@ -507,5 +547,7 @@ struct ArtistGridCell: View {
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(artist.name), \(artist.albumCount) album\(artist.albumCount == 1 ? "" : "s"), \(artist.trackCount) nummers")
     }
 }

@@ -41,7 +41,7 @@ public struct MusicMapView: View {
                 Text("\(tracks.count) geanalyseerde tracks")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Text(usingMap ? "Sonische gelijkenis (CLAP · PCA)" : "Energie ↑   ·   Tempo →")
+                Text(usingMap ? "Sonische gelijkenis" : "Energie ↑   ·   Tempo →")
                     .font(.caption).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, Spacing.lg)

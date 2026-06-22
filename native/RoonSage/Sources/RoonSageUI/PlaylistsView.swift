@@ -12,12 +12,17 @@ public struct PlaylistsView: View {
     @State private var playlists: [DatabaseManager.PlaylistSummary] = []
     @State private var expanded: Int64? = nil
     @State private var tracks: [TrackRecord] = []
-    @State private var qobuzStatus: String? = nil
+    @State private var statusBanner: String? = nil
+    /// nil = in progress (spinner), true = success (green), false = failure (red).
+    @State private var statusOK: Bool? = nil
+    @State private var hasLoaded = false
     @State private var pendingDelete: DatabaseManager.PlaylistSummary? = nil
 
     public var body: some View {
         Group {
-            if playlists.isEmpty {
+            if !hasLoaded {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if playlists.isEmpty {
                 ContentUnavailableView(
                     "Geen bewaarde playlists",
                     systemImage: "list.star",
@@ -53,6 +58,7 @@ public struct PlaylistsView: View {
         .toolbar {
             Button(action: reload) { Image(systemName: "arrow.clockwise") }
                 .help("Ververs")
+                .accessibilityLabel("Ververs")
         }
         .onAppear(perform: reload)
         .confirmationDialog(
@@ -74,15 +80,26 @@ public struct PlaylistsView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if let qobuzStatus {
-                Text(qobuzStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(Spacing.sm)
-                    .frame(maxWidth: .infinity)
-                    .background(.bar)
+            if let statusBanner {
+                Label {
+                    Text(statusBanner)
+                } icon: {
+                    if let statusOK {
+                        Image(systemName: statusOK ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(statusOK == nil ? AnyShapeStyle(.secondary)
+                                 : AnyShapeStyle(statusOK! ? Color.roonSuccess : Color.roonDanger))
+                .padding(Spacing.sm)
+                .frame(maxWidth: .infinity)
+                .background(.bar)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .animation(Motion.standard, value: statusBanner)
     }
 
     @ViewBuilder
@@ -128,17 +145,25 @@ public struct PlaylistsView: View {
         Task {
             let tracks = await client.playlistTracks(id: pl.id)
             guard !tracks.isEmpty else { return }
-            qobuzStatus = "“\(pl.name)” bewaren in Qobuz…"
+            statusOK = nil
+            statusBanner = "“\(pl.name)” bewaren in Qobuz…"
             if let r = await client.saveToQobuz(name: pl.name, tracks: tracks) {
-                qobuzStatus = "“\(pl.name)” → Qobuz: \(r.matched)/\(r.total) gematcht."
+                statusOK = true
+                statusBanner = "“\(pl.name)” → Qobuz: \(r.matched)/\(r.total) gematcht."
+                Haptics.success()
             } else {
-                qobuzStatus = "Bewaren in Qobuz mislukt — controleer je account in Instellingen."
+                statusOK = false
+                statusBanner = "Bewaren in Qobuz mislukt — controleer je account in Instellingen."
+                Haptics.error()
             }
         }
     }
 
     private func reload() {
-        Task { playlists = await client.playlists() }
+        Task {
+            playlists = await client.playlists()
+            hasLoaded = true
+        }
     }
 
     private func toggle(_ pl: DatabaseManager.PlaylistSummary) {
@@ -152,7 +177,19 @@ public struct PlaylistsView: View {
 
     private func play(_ pl: DatabaseManager.PlaylistSummary) async {
         guard let zone = client.selectedZone else { return }
-        _ = await client.playPlaylist(id: pl.id, zoneID: zone.id)
+        Haptics.tap()
+        statusOK = nil
+        statusBanner = "“\(pl.name)” starten…"
+        let played = await client.playPlaylist(id: pl.id, zoneID: zone.id)
+        if played > 0 {
+            statusOK = true
+            statusBanner = "“\(pl.name)” speelt af in \(zone.displayName) — \(played) nummers."
+            Haptics.success()
+        } else {
+            statusOK = false
+            statusBanner = "“\(pl.name)” kon niet starten — geen van de tracks was beschikbaar."
+            Haptics.error()
+        }
     }
 
     private func delete(_ pl: DatabaseManager.PlaylistSummary) {

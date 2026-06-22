@@ -39,7 +39,9 @@ public struct TasteProfileView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            if isLoaded && totalListens == 0 {
+            if !isLoaded {
+                SkeletonRows()
+            } else if totalListens == 0 {
                 emptyState
             } else {
                 headerStats
@@ -53,6 +55,7 @@ public struct TasteProfileView: View {
         .toolbar {
             Button { load(force: true) } label: { Image(systemName: "arrow.clockwise") }
                 .help("Ververs")
+                .accessibilityLabel("Ververs")
         }
         .onAppear { load(force: true) }
         .onChange(of: client.zones) { _, _ in load() }

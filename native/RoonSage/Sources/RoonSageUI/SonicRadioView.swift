@@ -43,7 +43,7 @@ public struct SonicRadioView: View {
                         ForEach(radios) { radioCard($0) }
                     }
                 } else if isLoading {
-                    ProgressView().frame(maxWidth: .infinity).padding(.top, Spacing.xl)
+                    SkeletonRows()
                 } else if loaded {
                     emptyState
                 }

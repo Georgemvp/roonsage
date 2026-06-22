@@ -17,6 +17,7 @@ public struct AskView: View {
     @State private var summary: String?
     @State private var working = false
     @State private var playlistName = ""
+    @State private var showSaveAlert = false
     @State private var justSaved = false
     @State private var savedTask: Task<Void, Never>? = nil
 
@@ -47,14 +48,20 @@ public struct AskView: View {
                                 HStack(spacing: Spacing.sm) {
                                     Button { queue([track], next: true) } label: {
                                         Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                                            .frame(minWidth: 44, minHeight: 44)
+                                            .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.borderless)
                                     .disabled(client.selectedZone == nil)
                                     .accessibilityLabel("Zet \(track.title) als volgende in de wachtrij")
-                                    Button { play([track]) } label: { Image(systemName: "play.fill") }
-                                        .buttonStyle(.borderless)
-                                        .disabled(client.selectedZone == nil)
-                                        .accessibilityLabel("Speel \(track.title) nu")
+                                    Button { play([track]) } label: {
+                                        Image(systemName: "play.fill")
+                                            .frame(minWidth: 44, minHeight: 44)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .disabled(client.selectedZone == nil)
+                                    .accessibilityLabel("Speel \(track.title) nu")
                                 }
                             }
                             Divider().opacity(0.4)
@@ -68,6 +75,13 @@ public struct AskView: View {
         #if os(iOS)
         .scrollDismissesKeyboard(.interactively)
         #endif
+        .alert("Bewaar als playlist", isPresented: $showSaveAlert) {
+            TextField("Naam playlist", text: $playlistName)
+            Button("Annuleer", role: .cancel) {}
+            Button("Bewaar") { save() }
+        } message: {
+            Text("Bewaar \(results.count) nummers als lokale playlist.")
+        }
     }
 
     private var searchBar: some View {
@@ -75,6 +89,8 @@ public struct AskView: View {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
             TextField("Beschrijf een sfeer… bijv. “donker en hypnotisch rond 122 BPM”", text: $prompt)
                 .textFieldStyle(.plain)
+                .accessibilityLabel("Zoekopdracht")
+                .accessibilityHint("Beschrijf een sfeer, genre of tempo")
                 .onSubmit { if canSearch { Task { await search() } } }
             if !prompt.isEmpty {
                 Button { prompt = ""; results = []; summary = nil; filters = nil } label: {
@@ -102,7 +118,10 @@ public struct AskView: View {
             Text("\(results.count) nummers").font(.headline)
             Spacer()
             ZonePicker()
-            Button { save() } label: {
+            Button {
+                playlistName = "Vraag: \(prompt.prefix(40))"
+                showSaveAlert = true
+            } label: {
                 Label(justSaved ? "Bewaard!" : "Bewaar", systemImage: justSaved ? "checkmark" : "square.and.arrow.down")
             }
             .buttonStyle(.bordered)

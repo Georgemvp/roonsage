@@ -482,16 +482,19 @@ struct RootView: View {
                     Task { await client.previous(zoneID: zone.id) }
                 } label: { Image(systemName: "backward.fill") }
                     .accessibilityLabel("Vorige track")
+                    .help("Vorige track")
 
                 Button {
                     Task { await client.playPause(zoneID: zone.id) }
                 } label: { Image(systemName: zone.state == .playing ? "pause.fill" : "play.fill") }
                     .accessibilityLabel(zone.state == .playing ? "Pauzeer" : "Speel af")
+                    .help(zone.state == .playing ? "Pauzeer" : "Speel af")
 
                 Button {
                     Task { await client.next(zoneID: zone.id) }
                 } label: { Image(systemName: "forward.fill") }
                     .accessibilityLabel("Volgende track")
+                    .help("Volgende track")
             }
         }
     }
@@ -522,5 +525,6 @@ struct RootView: View {
             .font(.subheadline.weight(.semibold))
         }
         .accessibilityLabel("Zone: \(active?.displayName ?? "geen")")
+        .help("Kies een zone")
     }
 }

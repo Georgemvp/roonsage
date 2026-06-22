@@ -38,6 +38,7 @@ public struct AIPromptField: View {
                 .scrollContentBackground(.hidden)
                 .padding(Spacing.sm)
                 .frame(minHeight: minHeight)
+                .accessibilityLabel(placeholder)
         }
         .background(Color.platformQuaternaryFill, in: RoundedRectangle(cornerRadius: Radius.md))
         .overlay(

@@ -34,7 +34,7 @@ public struct SonicSearchView: View {
                     ContentUnavailableView(
                         "Geen resultaten",
                         systemImage: "sparkle.magnifyingglass",
-                        description: Text("Controleer of de analyzer draait met tekst-zoeken (/text-embed) en of er embeddings zijn gesynchroniseerd."))
+                        description: Text("Controleer of de analyzer draait met tekst-zoeken aan en of de sonische kenmerken zijn gesynchroniseerd."))
                 } else {
                     resultsList
                 }

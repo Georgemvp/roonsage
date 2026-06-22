@@ -40,6 +40,10 @@ public struct QueueView: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture { playFromHere(item) }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel(queueLabel(item, isNowPlaying: index == 0))
+                        .accessibilityHint("Tik om vanaf hier af te spelen")
                     }
                 }
                 .listStyle(.plain)
@@ -59,6 +63,14 @@ public struct QueueView: View {
         guard let zone = client.selectedZone?.id else { return }
         Haptics.tap()
         Task { await client.playFromHere(zoneID: zone, queueItemID: item.id) }
+    }
+
+    private func queueLabel(_ item: RoonClient.QueueItem, isNowPlaying: Bool) -> String {
+        var parts: [String] = []
+        if isNowPlaying { parts.append("Speelt nu") }
+        parts.append(item.title)
+        if let s = item.subtitle { parts.append(s) }
+        return parts.joined(separator: ", ")
     }
 
     private func formatTime(_ seconds: Int) -> String {

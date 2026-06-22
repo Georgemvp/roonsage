@@ -508,7 +508,8 @@ private struct NowPlayingHero: View {
                 } label: {
                     Image(systemName: vol.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         .foregroundStyle(.secondary)
-                        .frame(minWidth: 28, minHeight: 28)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(vol.isMuted ? "Dempen opheffen" : "Dempen")
