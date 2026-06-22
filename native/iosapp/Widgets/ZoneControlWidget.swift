@@ -99,19 +99,25 @@ struct ZoneControlView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            HStack(spacing: 14) {
+            HStack(spacing: 8) {
                 Button(intent: PlayPauseIntent()) {
                     Image(systemName: snap.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                         .font(.title2)
                         .foregroundStyle(widgetGold)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(snap.isPlaying ? "Pauzeer" : "Speel af")
                 Button(intent: NextTrackIntent()) {
                     Image(systemName: "forward.fill")
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Volgende track")
                 Spacer()
             }
         }
@@ -136,23 +142,32 @@ struct ZoneControlView: View {
                 }
             }
             Spacer()
-            HStack(spacing: 18) {
+            HStack(spacing: 8) {
                 Button(intent: PreviousTrackIntent()) {
                     Image(systemName: "backward.fill")
                         .foregroundStyle(.secondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Vorige track")
                 Button(intent: PlayPauseIntent()) {
                     Image(systemName: snap.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                         .font(.system(size: 40))
                         .foregroundStyle(widgetGold)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(snap.isPlaying ? "Pauzeer" : "Speel af")
                 Button(intent: NextTrackIntent()) {
                     Image(systemName: "forward.fill")
                         .foregroundStyle(.secondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Volgende track")
             }
         }
     }

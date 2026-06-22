@@ -451,6 +451,17 @@ private struct NowPlayingHero: View {
             .accessibilityElement()
             .accessibilityLabel("Afspeelpositie")
             .accessibilityValue(formatTime(displayPosition))
+            .accessibilityHint("Veeg omhoog of omlaag om te spoelen")
+            .accessibilityAdjustableAction { direction in
+                guard hasLength else { return }
+                let step = length * 0.05
+                let target = direction == .increment
+                    ? min(displayPosition + step, length)
+                    : max(displayPosition - step, 0)
+                displayPosition = target
+                setAnchor(target)   // hold until the next poll confirms
+                Task { await client.seek(zoneID: zone.id, seconds: target) }
+            }
 
             HStack {
                 Text(formatTime(displayPosition))

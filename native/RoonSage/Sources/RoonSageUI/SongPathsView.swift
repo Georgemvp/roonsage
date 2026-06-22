@@ -17,6 +17,7 @@ public struct SongPathsView: View {
     @State private var stepCount: Double = 10
     @State private var fromResults: [DatabaseManager.SonicTrack] = []
     @State private var toResults: [DatabaseManager.SonicTrack] = []
+    @State private var noResult = false
 
     public var body: some View {
         ScrollView {
@@ -51,6 +52,13 @@ public struct SongPathsView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(Color.roonGold)
                     .disabled(loading)
+                }
+
+                if noResult && !loading {
+                    ContentUnavailableView(
+                        "Geen brug gevonden",
+                        systemImage: "point.topleft.down.curvedto.point.bottomright.up",
+                        description: Text("Deze twee tracks liggen sonisch te ver uit elkaar, of er zijn te weinig geanalyseerde tracks. Probeer andere tracks of analyseer meer van je bibliotheek."))
                 }
 
                 if !path.isEmpty {
@@ -245,6 +253,7 @@ public struct SongPathsView: View {
     private func buildPath() async {
         guard let from = fromTrack, let to = toTrack else { return }
         loading = true
+        noResult = false
         defer { loading = false }
         let steps = Int(stepCount)
         let lib = await client.sonicLibrary()
@@ -253,5 +262,7 @@ public struct SongPathsView: View {
             SongPaths.find(from: from, to: to, library: lib, maxSteps: steps, index: index)
         }.value
         path = result
+        noResult = result.isEmpty
+        if result.isEmpty { Haptics.error() } else { Haptics.success() }
     }
 }

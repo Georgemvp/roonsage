@@ -16,6 +16,7 @@ public struct SongAlchemyView: View {
     @State private var searchResults: [DatabaseManager.SonicTrack] = []
     @State private var addingTo: Bucket = .add
     @State private var loading = false
+    @State private var noResult = false
 
     enum Bucket { case add, subtract }
 
@@ -47,6 +48,13 @@ public struct SongAlchemyView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(Color.roonGold)
                     .disabled(loading)
+                }
+
+                if noResult && !loading {
+                    ContentUnavailableView(
+                        "Niets te mixen",
+                        systemImage: "wand.and.sparkles",
+                        description: Text("Geen passende tracks gevonden. Voeg andere tracks toe, of zorg dat je bibliotheek sonisch geanalyseerd en gesynchroniseerd is."))
                 }
 
                 if !results.isEmpty {
@@ -234,6 +242,7 @@ public struct SongAlchemyView: View {
     private func compute() async {
         guard !addTracks.isEmpty else { return }
         loading = true
+        noResult = false
         defer { loading = false }
         let adds = addTracks
         let subtracts = subtractTracks
@@ -243,5 +252,7 @@ public struct SongAlchemyView: View {
             SonicEngine.alchemy(add: adds, subtract: subtracts, in: lib, limit: 30, index: index)
         }.value
         withAnimation(Motion.standard) { results = r }
+        noResult = r.isEmpty
+        if r.isEmpty { Haptics.error() } else { Haptics.success() }
     }
 }

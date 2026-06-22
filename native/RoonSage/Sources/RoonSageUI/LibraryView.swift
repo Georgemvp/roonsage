@@ -118,6 +118,15 @@ public struct LibraryView: View {
                     .disabled(!client.connectionState.isConnected)
                 }
             }
+            #if os(iOS)
+            // Without an edit toggle, `List(selection:)` can't enter multi-select
+            // on touch, leaving the Speel/Wachtrij/Bewaar bar unreachable.
+            if viewMode == .tracks, !tracks.isEmpty {
+                ToolbarItem(placement: .topBarLeading) {
+                    EditButton().accessibilityHint("Selecteer meerdere tracks")
+                }
+            }
+            #endif
         }
         .onChange(of: searchText) { _, _ in
             isSearching = true

@@ -18,6 +18,7 @@ public struct DiscoveryView: View {
     public var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: Spacing.xl) {
+                ZoneHintBanner()
                 if let stats {
                     if let hero = heroItem { heroCard(hero) }
                     summaryCards(stats)

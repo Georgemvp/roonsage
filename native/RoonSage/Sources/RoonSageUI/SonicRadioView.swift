@@ -32,6 +32,8 @@ public struct SonicRadioView: View {
             VStack(alignment: .leading, spacing: Spacing.lg) {
                 if let radio = client.activeRadio { activeBanner(radio) }
 
+                ZoneHintBanner()
+
                 header
 
                 adventurousnessTuner

@@ -141,6 +141,35 @@ public struct ZonePicker: View {
     }
 }
 
+// MARK: Zone hint banner
+
+/// Shown above zone-dependent actions when no zone is selected, so play buttons
+/// don't just silently disable with no explanation. Embeds the `ZonePicker` so
+/// the fix is one tap away. Hides itself once a zone is chosen (or none exist).
+@MainActor
+public struct ZoneHintBanner: View {
+    @Environment(RoonClient.self) private var client
+
+    public init() {}
+
+    public var body: some View {
+        if client.selectedZone == nil, !client.zones.isEmpty {
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(Color.accentColor)
+                Text("Kies een zone om af te spelen")
+                    .font(.subheadline)
+                Spacer()
+                ZonePicker()
+            }
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.sm)
+            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.md))
+            .accessibilityElement(children: .contain)
+        }
+    }
+}
+
 // MARK: Result row
 
 /// A track/album row with optional index, artwork, title/subtitle and a trailing
@@ -222,14 +251,19 @@ public struct FilterChips: View {
 @MainActor
 public struct GenerationStepper: View {
     private let current: RoonClient.GenerationPhase
+    private let phases: [RoonClient.GenerationPhase]
 
-    public init(current: RoonClient.GenerationPhase) {
+    /// `phases` lets a shorter flow (e.g. Recommend has no naming stage) render
+    /// only the steps it actually runs, so no step hangs forever as "pending".
+    public init(current: RoonClient.GenerationPhase,
+                phases: [RoonClient.GenerationPhase] = RoonClient.GenerationPhase.allCases) {
         self.current = current
+        self.phases = phases
     }
 
     public var body: some View {
         HStack(spacing: Spacing.sm) {
-            ForEach(RoonClient.GenerationPhase.allCases, id: \.rawValue) { phase in
+            ForEach(phases, id: \.rawValue) { phase in
                 let state = stepState(phase)
                 HStack(spacing: Spacing.xs) {
                     icon(for: state)
@@ -238,7 +272,7 @@ public struct GenerationStepper: View {
                         .font(.caption.weight(state == .active ? .semibold : .regular))
                         .foregroundStyle(state == .pending ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
                 }
-                if phase != RoonClient.GenerationPhase.allCases.last {
+                if phase != phases.last {
                     Rectangle()
                         .fill(state == .done ? Color.roonGold : Color.secondary.opacity(0.2))
                         .frame(height: 1)

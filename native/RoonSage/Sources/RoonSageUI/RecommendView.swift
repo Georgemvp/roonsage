@@ -12,7 +12,7 @@ public struct RecommendView: View {
     @State private var prompt        = ""
     @State private var count         = 8
     @State private var isWorking     = false
-    @State private var phase         = ""
+    @State private var phase: RoonClient.GenerationPhase = .analyzing
     @State private var albums: [DatabaseManager.AlbumResult] = []
     @State private var resultFilters: RoonClient.RequestFilters? = nil
     @State private var errorMessage: String? = nil
@@ -112,17 +112,20 @@ public struct RecommendView: View {
     }
 
     private var recommendSection: some View {
-        HStack(spacing: Spacing.md) {
-            Button { Task { await recommend() } } label: {
-                Label(isWorking ? "Denken…" : "Beveel albums aan", systemImage: "sparkles")
-                    .frame(minWidth: 190)
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack(spacing: Spacing.md) {
+                Button { Task { await recommend() } } label: {
+                    Label(isWorking ? "Denken…" : "Beveel albums aan", systemImage: "sparkles")
+                        .frame(minWidth: 190)
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || isWorking)
+                Spacer()
             }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
-            .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || isWorking)
             if isWorking {
-                ProgressView().controlSize(.small)
-                Text(phase).font(.caption).foregroundStyle(.secondary)
+                // Shared stepper so Generate / Ask / Recommend feel like one family.
+                GenerationStepper(current: phase, phases: [.analyzing, .candidates, .curating])
             }
         }
     }
@@ -229,21 +232,21 @@ public struct RecommendView: View {
 
     private func recommend() async {
         isWorking = true; errorMessage = nil; albums = []; resultFilters = nil
-        defer { isWorking = false; phase = "" }
+        phase = .analyzing
+        defer { isWorking = false }
 
         let request = prompt.trimmingCharacters(in: .whitespaces)
 
-        phase = "Analyseren…"
         let filters = await client.analyzeForFilters(request: request)
 
-        phase = "Albums verzamelen…"
+        phase = .candidates
         let candidates = await client.candidateAlbums(filters: filters, limit: 60)
         guard !candidates.isEmpty else {
             errorMessage = "Geen albums om aan te bevelen — synchroniseer eerst je bibliotheek."
             return
         }
 
-        phase = "Kiezen…"
+        phase = .curating
         let list = candidates.enumerated().map { i, a -> String in
             var line = "\(i + 1). \(a.album) — \(a.artist ?? "Onbekend")\(a.year.map { " (\($0))" } ?? "")"
             if !a.genres.isEmpty { line += " [\(a.genres.prefix(3).joined(separator: ", "))]" }
