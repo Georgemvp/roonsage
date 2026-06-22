@@ -36,6 +36,20 @@ extension Color {
     public static let roonDanger = Color.red
     /// Informational accents: hints, neutral highlights.
     public static let roonInfo = Color.blue
+
+    /// One drop-shadow tint for raised art/cards, so depth stays uniform instead
+    /// of every call-site inventing its own `.black.opacity(0.2…0.4)`.
+    public static let roonShadow = Color.black.opacity(0.25)
+}
+
+extension View {
+    /// Guarantees at least Apple's 44×44pt minimum hit target for icon-only
+    /// controls, expanding the tappable area without resizing the glyph. Use on
+    /// borderless image buttons (play/skip/mute/refresh) so touch + VoiceOver
+    /// land reliably.
+    public func tappable44() -> some View {
+        self.frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+    }
 }
 
 /// 4-pt spacing scale. Prefer these over inline magic numbers.

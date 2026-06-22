@@ -39,16 +39,17 @@ public struct TasteProfileView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            if !isLoaded {
-                SkeletonRows()
-            } else if totalListens == 0 {
+            AsyncStateView(isLoading: !isLoaded, isEmpty: totalListens == 0,
+                           onRetry: { load(force: true) }) {
+                VStack(spacing: 0) {
+                    headerStats
+                    Divider()
+                    tabPicker
+                    Divider()
+                    tabContent
+                }
+            } empty: {
                 emptyState
-            } else {
-                headerStats
-                Divider()
-                tabPicker
-                Divider()
-                tabContent
             }
         }
         .navigationTitle("Smaakprofiel")

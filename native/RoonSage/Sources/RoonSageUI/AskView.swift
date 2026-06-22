@@ -48,16 +48,14 @@ public struct AskView: View {
                                 HStack(spacing: Spacing.sm) {
                                     Button { queue([track], next: true) } label: {
                                         Image(systemName: "text.line.first.and.arrowtriangle.forward")
-                                            .frame(minWidth: 44, minHeight: 44)
-                                            .contentShape(Rectangle())
+                                            .tappable44()
                                     }
                                     .buttonStyle(.borderless)
                                     .disabled(client.selectedZone == nil)
                                     .accessibilityLabel("Zet \(track.title) als volgende in de wachtrij")
                                     Button { play([track]) } label: {
                                         Image(systemName: "play.fill")
-                                            .frame(minWidth: 44, minHeight: 44)
-                                            .contentShape(Rectangle())
+                                            .tappable44()
                                     }
                                     .buttonStyle(.borderless)
                                     .disabled(client.selectedZone == nil)

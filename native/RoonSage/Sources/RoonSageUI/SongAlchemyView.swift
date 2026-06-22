@@ -25,6 +25,8 @@ public struct SongAlchemyView: View {
             VStack(alignment: .leading, spacing: Spacing.lg) {
                 header
 
+                ZoneHintBanner()
+
                 HStack(alignment: .top, spacing: Spacing.md) {
                     bucket(title: "Optellen", tracks: $addTracks, tint: Color.roonSuccess,
                            icon: "plus.circle.fill", bucket: .add)

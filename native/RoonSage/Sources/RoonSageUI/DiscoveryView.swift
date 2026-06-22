@@ -89,7 +89,7 @@ public struct DiscoveryView: View {
         HStack(spacing: Spacing.lg) {
             AlbumArtView(imageKey: item.imageKey, size: 120)
                 .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-                .shadow(color: .black.opacity(0.3), radius: 10, y: 6)
+                .shadow(color: .roonShadow, radius: 10, y: 6)
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 Label("Herontdek", systemImage: "sparkles")
                     .font(.caption.bold())
@@ -161,7 +161,7 @@ public struct DiscoveryView: View {
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 AlbumArtView(imageKey: c.imageKey, size: 130)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.md))
-                    .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+                    .shadow(color: .roonShadow, radius: 4, y: 2)
                     .overlay(alignment: .bottomTrailing) {
                         Image(systemName: "play.circle.fill")
                             .font(.title2)

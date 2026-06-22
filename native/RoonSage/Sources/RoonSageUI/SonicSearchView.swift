@@ -26,6 +26,8 @@ public struct SonicSearchView: View {
 
                 searchBar
 
+                ZoneHintBanner()
+
                 if !searched && results.isEmpty {
                     exampleChips
                 } else if loading {

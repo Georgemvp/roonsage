@@ -24,6 +24,8 @@ public struct SongPathsView: View {
             VStack(alignment: .leading, spacing: Spacing.lg) {
                 header
 
+                ZoneHintBanner()
+
                 VStack(spacing: Spacing.md) {
                     trackPicker(label: "Van", query: $fromQuery,
                                 selected: $fromTrack, results: $fromResults,

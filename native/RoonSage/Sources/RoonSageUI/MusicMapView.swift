@@ -47,6 +47,9 @@ public struct MusicMapView: View {
             .padding(.horizontal, Spacing.lg)
             .padding(.top, Spacing.sm)
 
+            ZoneHintBanner()
+                .padding(.horizontal, Spacing.lg)
+
             GeometryReader { geo in
                 let bounds = Bounds(tracks)
                 let pad: CGFloat = Spacing.xl
