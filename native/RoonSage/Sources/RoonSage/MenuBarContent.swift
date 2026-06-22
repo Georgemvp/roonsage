@@ -91,19 +91,20 @@ struct MenuBarContent: View {
         HStack(spacing: 0) {
             Spacer()
 
-            menuBarButton("backward.fill") {
+            menuBarButton("backward.fill", label: "Vorige track") {
                 Task { await client.previous(zoneID: zone.id) }
             }
 
             menuBarButton(
                 zone.state == .playing ? "pause.circle.fill" : "play.circle.fill",
+                label: zone.state == .playing ? "Pauzeer" : "Speel af",
                 font: .title3,
                 accent: true
             ) {
                 Task { await client.playPause(zoneID: zone.id) }
             }
 
-            menuBarButton("forward.fill") {
+            menuBarButton("forward.fill", label: "Volgende track") {
                 Task { await client.next(zoneID: zone.id) }
             }
 
@@ -111,13 +112,14 @@ struct MenuBarContent: View {
 
             // Volume quick adjust
             if let output = zone.outputs.first, let vol = output.volume {
-                menuBarButton(vol.isMuted ? "speaker.slash.fill" : "speaker.fill") {
+                menuBarButton(vol.isMuted ? "speaker.slash.fill" : "speaker.fill",
+                              label: vol.isMuted ? "Dempen opheffen" : "Dempen") {
                     Task { await client.toggleMute(outputID: output.id, muted: !vol.isMuted) }
                 }
-                menuBarButton("speaker.minus") {
+                menuBarButton("speaker.minus", label: "Zachter") {
                     Task { await client.adjustVolume(outputID: output.id, delta: -(vol.step > 0 ? vol.step : 2)) }
                 }
-                menuBarButton("speaker.plus") {
+                menuBarButton("speaker.plus", label: "Harder") {
                     Task { await client.adjustVolume(outputID: output.id, delta: vol.step > 0 ? vol.step : 2) }
                 }
             }
@@ -169,6 +171,7 @@ struct MenuBarContent: View {
 
     func menuBarButton(
         _ icon: String,
+        label: String,
         font: Font = .callout,
         accent: Bool = false,
         action: @escaping () -> Void
@@ -178,7 +181,10 @@ struct MenuBarContent: View {
                 .font(font)
                 .foregroundStyle(accent ? Color.roonGold : .primary)
                 .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .help(label)
     }
 }

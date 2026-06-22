@@ -204,6 +204,7 @@ private struct MixRadar: View {
 
                 ZStack {
                     WheelCanvas(currentCamelot: currentCamelot, compatible: compatibleSet)
+                        .accessibilityHidden(true)
 
                     // Neon-gold harmonic arcs to compatible candidates.
                     Canvas { ctx, _ in
@@ -215,6 +216,7 @@ private struct MixRadar: View {
                                        lineWidth: 1.5)
                         }
                     }
+                    .accessibilityHidden(true)
 
                     // Centre: the playing track.
                     centreArt.position(center)

@@ -125,9 +125,13 @@ public struct DJSetView: View {
             Label("Tempo", systemImage: "metronome").font(.caption).foregroundStyle(.secondary)
             BPMCurvePreview(bpms: set.map { $0.bpm })
                 .frame(height: 50)
+                .accessibilityElement()
+                .accessibilityLabel("Tempoverloop: \(Int(set.first?.bpm ?? 0)) tot \(Int(set.last?.bpm ?? 0)) BPM over \(set.count) tracks")
             Label("Energie", systemImage: "bolt.fill").font(.caption).foregroundStyle(.secondary)
             EnergyCurvePreview(energies: set.map { $0.energy })
                 .frame(height: 34)
+                .accessibilityElement()
+                .accessibilityLabel("Energieboog over \(set.count) tracks")
             HarmonicTransitionStrip(camelots: set.map { $0.camelot })
         }
         .padding(.vertical, 4)
@@ -154,6 +158,8 @@ public struct DJSetView: View {
                     Badge(t.camelot, tint: .roonGold)
                 }
                 .padding(.vertical, 2)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(i + 1). \(t.title)" + (t.artist.map { ", \($0)" } ?? "") + ", \(Int(t.bpm)) BPM, toonsoort \(t.camelot)")
             }
             .onMove { from, to in set.move(fromOffsets: from, toOffset: to) }
             .onDelete { indices in set.remove(atOffsets: indices) }
@@ -286,6 +292,7 @@ private struct HarmonicTransitionStrip: View {
                         .frame(height: 6)
                 }
             }
+            .accessibilityHidden(true)
             if !rels.isEmpty {
                 Text("\(smooth)/\(rels.count) harmonische overgangen")
                     .font(.caption2).foregroundStyle(.secondary)
