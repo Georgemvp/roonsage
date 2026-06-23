@@ -8,7 +8,10 @@ public struct TempoAnalyzer {
         _ samples: [Float],
         sampleRate: Double,
         frameSize: Int = 1024,
-        hop: Int = 512
+        hop: Int = 512,
+        minBpm: Double = 60,
+        maxBpm: Double = 200,
+        priorCenter: Double = 120
     ) -> (bpm: Double, confidence: Double) {
         guard samples.count > frameSize * 8 else { return (0, 0) }
 
@@ -43,16 +46,19 @@ public struct TempoAnalyzer {
         let env = onset.map { max(0, $0 - mean) }
 
         let onsetSR = sampleRate / Double(hop)
-        let minBpm = 60.0, maxBpm = 200.0
-        let minLag = max(1, Int((onsetSR * 60.0 / maxBpm).rounded()))
-        let maxLag = min(env.count - 1, Int((onsetSR * 60.0 / minBpm).rounded()))
+        // Clamp to a sane, ordered window; defaults reproduce the old 60-200.
+        let loBpm = max(20.0, min(minBpm, maxBpm))
+        let hiBpm = max(loBpm + 1, max(minBpm, maxBpm))
+        let minLag = max(1, Int((onsetSR * 60.0 / hiBpm).rounded()))
+        let maxLag = min(env.count - 1, Int((onsetSR * 60.0 / loBpm).rounded()))
         guard maxLag > minLag else { return (0, 0) }
 
-        // Weight each candidate tempo by a log-Gaussian prior centred on 120 BPM.
-        // This resolves octave ambiguity (half/double/triplet) without blind
-        // folding — the standard librosa-style approach.
+        // Weight each candidate tempo by a log-Gaussian prior centred on
+        // `priorCenter` (default 120). This resolves octave ambiguity
+        // (half/double/triplet) without blind folding — the librosa-style approach.
+        let center = max(loBpm, min(hiBpm, priorCenter))
         func prior(_ bpm: Double) -> Double {
-            let z = (log2(bpm) - log2(120.0)) / 0.9
+            let z = (log2(bpm) - log2(center)) / 0.9
             return exp(-0.5 * z * z)
         }
 

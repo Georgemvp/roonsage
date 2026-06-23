@@ -19,6 +19,9 @@ public final class LibraryWalker {
     private let clap: CLAPModel?
     private let excerptSeconds: Double
     private let sampleRate: Double
+    private let minBpm: Double
+    private let maxBpm: Double
+    private let priorBpm: Double
     private var cancelled = false
 
     /// Default concurrency is low (3): the library typically lives on a slow
@@ -26,14 +29,19 @@ public final class LibraryWalker {
     /// and *reduce* throughput. Raise it only for fast (SSD/local) storage.
     /// Pass a loaded `clap` to compute sonic embeddings during the walk.
     /// `excerptSeconds`/`sampleRate` control the analysed window (less I/O on slow
-    /// drives) vs precision — user-tunable; take effect on the next (re-)analysis.
+    /// drives) vs precision; `minBpm`/`maxBpm`/`priorBpm` tune tempo detection —
+    /// all user-tunable and take effect on the next (re-)analysis.
     public init(store: FeatureStore, concurrency: Int = 3, clap: CLAPModel? = nil,
-                excerptSeconds: Double = 120, sampleRate: Double = 22050) {
+                excerptSeconds: Double = 120, sampleRate: Double = 22050,
+                minBpm: Double = 60, maxBpm: Double = 200, priorBpm: Double = 120) {
         self.store = store
         self.concurrency = max(1, concurrency)
         self.clap = clap
         self.excerptSeconds = max(0, excerptSeconds)
         self.sampleRate = sampleRate > 0 ? sampleRate : 22050
+        self.minBpm = minBpm
+        self.maxBpm = maxBpm
+        self.priorBpm = priorBpm
     }
 
     private enum Mode: Sendable { case full, embeddingOnly }
@@ -61,7 +69,9 @@ public final class LibraryWalker {
         ) else { return (0, 0) }
 
         let currentModel = clap?.modelVersion
-        let excerpt = excerptSeconds, sr = sampleRate   // local copies (avoid self-capture in @Sendable tasks)
+        // Local copies (avoid self-capture in the @Sendable task closures).
+        let excerpt = excerptSeconds, sr = sampleRate
+        let bpmLo = minBpm, bpmHi = maxBpm, bpmPrior = priorBpm
         await withTaskGroup(of: WalkResult.self) { group in
             var inFlight = 0
             // Buffer analyzed rows and persist in one transaction per chunk instead
@@ -108,7 +118,8 @@ public final class LibraryWalker {
                 }
                 discovered += 1
                 let clap = self.clap
-                group.addTask { Self.process(url, mtime: mtime, mode: mode, clap: clap, excerptSeconds: excerpt, sampleRate: sr, isoFormatter: iso) }
+                group.addTask { Self.process(url, mtime: mtime, mode: mode, clap: clap, excerptSeconds: excerpt, sampleRate: sr,
+                                             minBpm: bpmLo, maxBpm: bpmHi, priorBpm: bpmPrior, isoFormatter: iso) }
                 inFlight += 1
                 while inFlight >= concurrency { await drainOne() }
             }
@@ -121,6 +132,7 @@ public final class LibraryWalker {
 
     private static func process(_ url: URL, mtime: Double, mode: Mode,
                                 clap: CLAPModel?, excerptSeconds: Double, sampleRate: Double,
+                                minBpm: Double, maxBpm: Double, priorBpm: Double,
                                 isoFormatter: ISO8601DateFormatter) -> WalkResult {
         switch mode {
         case .embeddingOnly:
@@ -139,7 +151,9 @@ public final class LibraryWalker {
         case .full:
             let meta = MetadataReader.read(url: url)
             guard let f = try? AudioAnalyzer.analyze(url: url, sampleRate: sampleRate,
-                                                     excerptSeconds: excerptSeconds, clap: clap) else { return .failed }
+                                                     excerptSeconds: excerptSeconds,
+                                                     minBpm: minBpm, maxBpm: maxBpm, priorBpm: priorBpm,
+                                                     clap: clap) else { return .failed }
             let key = TrackIdentity.matchKey(artist: meta.artist, album: meta.album, title: meta.title)
             guard !key.replacingOccurrences(of: "\u{1f}", with: "").isEmpty else { return .failed }
             return .full(TrackFeatureRow(

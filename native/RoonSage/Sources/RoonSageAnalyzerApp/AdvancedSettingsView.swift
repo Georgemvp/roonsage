@@ -40,6 +40,13 @@ struct AdvancedSettingsView: View {
                         Picker("Samplerate", selection: $model.analysisSampleRate) {
                             ForEach(sampleRateOptions, id: \.1) { Text($0.0).tag($0.1) }
                         }
+                        Divider()
+                        Text("Tempo (BPM)").font(.subheadline.weight(.semibold))
+                        Stepper(value: $model.bpmMin, in: 20...300, step: 5) { Text("Min. BPM: \(Int(model.bpmMin))") }
+                        Stepper(value: $model.bpmMax, in: 40...400, step: 5) { Text("Max. BPM: \(Int(model.bpmMax))") }
+                        Stepper(value: $model.bpmPrior, in: 40...220, step: 1) { Text("Tempo-voorkeur: \(Int(model.bpmPrior)) BPM") }
+                        Text("Het bereik begrenst de tempodetectie; de voorkeur stuurt de octaaf-keuze (half/dubbel tempo) — bv. ~90 ballad, ~120 algemeen, ~128 house, ~174 drum&bass.")
+                            .font(.caption).foregroundStyle(.secondary)
                         Label("Wijzigingen gelden voor de VOLGENDE analyse; bestaande tracks moeten opnieuw geanalyseerd worden om effect te hebben.",
                               systemImage: "info.circle")
                             .font(.caption).foregroundStyle(.secondary)

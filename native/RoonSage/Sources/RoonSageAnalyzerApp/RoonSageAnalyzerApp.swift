@@ -43,6 +43,15 @@ struct RoonSageAnalyzerApp: App {
             .task { client.startServerFeatureSync() }
         }
         .windowResizability(.contentSize)
+
+        // Status item: the server runs headless most of the time, so surface its
+        // Roon/analyse/serve state + reconnect & pause/resume in the menubar.
+        MenuBarExtra("RoonSage Analyzer", systemImage: "waveform.path.ecg") {
+            AnalyzerMenuBarContent()
+                .environment(model)
+                .environment(client)
+        }
+        .menuBarExtraStyle(.window)
     }
 
     /// Haalt elke 15 minuten nieuwe Last.fm-scrobbles op (inclusief ARC-plays die

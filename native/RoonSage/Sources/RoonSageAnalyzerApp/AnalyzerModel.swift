@@ -18,6 +18,9 @@ final class AnalyzerModel {
     var walkerConcurrency: Int { didSet { UserDefaults.standard.set(walkerConcurrency, forKey: "walker_concurrency") } }
     var excerptSeconds: Double { didSet { UserDefaults.standard.set(excerptSeconds, forKey: "excerpt_seconds") } }
     var analysisSampleRate: Double { didSet { UserDefaults.standard.set(analysisSampleRate, forKey: "analysis_sample_rate") } }
+    var bpmMin: Double { didSet { UserDefaults.standard.set(bpmMin, forKey: "bpm_min") } }
+    var bpmMax: Double { didSet { UserDefaults.standard.set(bpmMax, forKey: "bpm_max") } }
+    var bpmPrior: Double { didSet { UserDefaults.standard.set(bpmPrior, forKey: "bpm_prior") } }
     // Tagging-tuning (Ollama).
     var tagConcurrency: Int { didSet { UserDefaults.standard.set(tagConcurrency, forKey: "tag_concurrency") } }
     var tagContextTokens: Int { didSet { UserDefaults.standard.set(tagContextTokens, forKey: "tag_context_tokens") } }
@@ -65,6 +68,9 @@ final class AnalyzerModel {
         walkerConcurrency = UserDefaults.standard.object(forKey: "walker_concurrency") as? Int ?? 3
         excerptSeconds = UserDefaults.standard.object(forKey: "excerpt_seconds") as? Double ?? 120
         analysisSampleRate = UserDefaults.standard.object(forKey: "analysis_sample_rate") as? Double ?? 22050
+        bpmMin = UserDefaults.standard.object(forKey: "bpm_min") as? Double ?? 60
+        bpmMax = UserDefaults.standard.object(forKey: "bpm_max") as? Double ?? 200
+        bpmPrior = UserDefaults.standard.object(forKey: "bpm_prior") as? Double ?? 120
         tagConcurrency = UserDefaults.standard.object(forKey: "tag_concurrency") as? Int ?? 6
         tagContextTokens = UserDefaults.standard.object(forKey: "tag_context_tokens") as? Int ?? 8192
         tagTemperature = UserDefaults.standard.object(forKey: "tag_temperature") as? Double ?? 0.4
@@ -95,7 +101,8 @@ final class AnalyzerModel {
         analyze = nil
         status = "Scanning…"
         let w = LibraryWalker(store: store, concurrency: walkerConcurrency,
-                              excerptSeconds: excerptSeconds, sampleRate: analysisSampleRate)
+                              excerptSeconds: excerptSeconds, sampleRate: analysisSampleRate,
+                              minBpm: bpmMin, maxBpm: bpmMax, priorBpm: bpmPrior)
         walker = w
         let path = musicPath
         Task {

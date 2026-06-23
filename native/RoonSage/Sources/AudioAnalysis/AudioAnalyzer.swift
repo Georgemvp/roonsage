@@ -59,13 +59,17 @@ public struct AudioAnalyzer {
         sampleRate: Double = 22050,
         excerptSeconds: Double = 120,
         excerptStart: Double = 0,  // read from the start — FLAC seek via AVFoundation is very slow
+        minBpm: Double = 60,
+        maxBpm: Double = 200,
+        priorBpm: Double = 120,
         clap: CLAPModel? = nil
     ) throws -> AudioFeatures {
         let audio = try AudioDecoder.decode(
             url: url, targetSampleRate: sampleRate,
             maxSeconds: excerptSeconds, startFraction: excerptStart
         )
-        let (bpm, conf) = TempoAnalyzer.bpm(audio.samples, sampleRate: audio.sampleRate)
+        let (bpm, conf) = TempoAnalyzer.bpm(audio.samples, sampleRate: audio.sampleRate,
+                                            minBpm: minBpm, maxBpm: maxBpm, priorCenter: priorBpm)
         let key = KeyAnalyzer.detect(audio.samples, sampleRate: audio.sampleRate)
 
         var embedding: [Float] = []
