@@ -56,11 +56,22 @@ public final class LibraryWalker {
         let currentModel = clap?.modelVersion
         await withTaskGroup(of: WalkResult.self) { group in
             var inFlight = 0
+            // Buffer analyzed rows and persist in one transaction per chunk instead
+            // of one per track (far fewer WAL commits). Resumable, so the small
+            // unflushed tail on a crash is simply re-analyzed next run.
+            var pendingFull: [TrackFeatureRow] = []
+            func flush() {
+                guard !pendingFull.isEmpty else { return }
+                try? store.upsertBatch(pendingFull)
+                pendingFull.removeAll(keepingCapacity: true)
+            }
             func drainOne() async {
                 guard let result = await group.next() else { return }
                 inFlight -= 1
                 switch result {
-                case .full(let row): try? store.upsert(row); done += 1
+                case .full(let row):
+                    pendingFull.append(row); done += 1
+                    if pendingFull.count >= 64 { flush() }
                 case .embeddingOnly(let p, let m, let e, let mv, let mo, let at):
                     try? store.setEmbedding(path: p, mtime: m, embedding: e, model: mv, moods: mo, attributes: at); done += 1
                 case .failed: failed += 1
@@ -94,6 +105,7 @@ public final class LibraryWalker {
                 while inFlight >= concurrency { await drainOne() }
             }
             while inFlight > 0 { await drainOne() }
+            flush()   // persist the tail (also covers the cancel path)
             group.cancelAll()
         }
         return (done, failed)

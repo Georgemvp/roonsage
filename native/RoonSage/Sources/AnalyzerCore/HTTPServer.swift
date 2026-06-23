@@ -28,6 +28,43 @@ public final class HTTPServer {
     }
     private var listener: NWListener?
 
+    // Response cache: building the full /features JSON (or /embeddings blob) for
+    // 24-50k tracks allocates 15-100 MB and was redone on EVERY request — stacking
+    // on concurrent polls. Cache the built Data, keyed on the corpus signature, so
+    // a request only rebuilds when analyses actually changed. The build runs
+    // OUTSIDE the lock (it can take seconds) so requests don't serialize on it.
+    private let cacheLock = NSLock()
+    private var featuresCache: [String: Data] = [:]   // "sig|embed=0/1" → JSON
+    private var featuresCacheSig = ""
+    private var embeddingsCache: Data?
+    private var embeddingsCacheSig = ""
+
+    private func cachedFeatures(includeEmbedding: Bool) -> Data {
+        let sig = store.contentSignature()
+        let key = "\(sig)|\(includeEmbedding ? 1 : 0)"
+        cacheLock.lock()
+        if featuresCacheSig == sig, let hit = featuresCache[key] { cacheLock.unlock(); return hit }
+        cacheLock.unlock()
+        let data = store.exportJSON(includeEmbedding: includeEmbedding)
+        cacheLock.lock()
+        if featuresCacheSig != sig { featuresCache.removeAll(); featuresCacheSig = sig }   // corpus changed → drop stale variants
+        featuresCache[key] = data
+        cacheLock.unlock()
+        return data
+    }
+
+    private func cachedEmbeddings() -> Data {
+        let sig = store.contentSignature()
+        cacheLock.lock()
+        if embeddingsCacheSig == sig, let hit = embeddingsCache { cacheLock.unlock(); return hit }
+        cacheLock.unlock()
+        let data = store.embeddingsBlob()
+        cacheLock.lock()
+        embeddingsCache = data; embeddingsCacheSig = sig
+        cacheLock.unlock()
+        return data
+    }
+
     public init(port: UInt16, store: FeatureStore, clap: CLAPModel? = nil, token: String? = nil) {
         self.port = port
         self.store = store
@@ -106,11 +143,11 @@ public final class HTTPServer {
             return ("200 OK", body, "application/json")
         }
         if path.hasPrefix("/embeddings") {
-            return ("200 OK", store.embeddingsBlob(), "application/octet-stream")
+            return ("200 OK", cachedEmbeddings(), "application/octet-stream")
         }
         if path.hasPrefix("/features") {
             let withEmbedding = path.contains("embed=1")
-            return ("200 OK", store.exportJSON(includeEmbedding: withEmbedding), "application/json")
+            return ("200 OK", cachedFeatures(includeEmbedding: withEmbedding), "application/json")
         }
         if path.hasPrefix("/health") { return ("200 OK", Data("{\"status\":\"ok\",\"tracks\":\(store.count())}".utf8), "application/json") }
         return ("404 Not Found", Data("not found".utf8), "text/plain")

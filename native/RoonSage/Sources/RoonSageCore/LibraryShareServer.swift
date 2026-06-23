@@ -73,6 +73,14 @@ public final class LibraryShareServer: @unchecked Sendable {
     private let database: DatabaseManager
     private var listener: NWListener?
 
+    // /library is rebuilt (tens of MB for a large library) on each request, and
+    // clients re-pull it whenever the /playback libraryRevision shifts (its
+    // featuresRevision part changes during analysis) — though library CONTENT only
+    // changes on a sync. Cache it, keyed on `last_sync`, so those re-pulls don't
+    // rebuild. @unchecked Sendable → guard with a lock.
+    private let libCacheLock = NSLock()
+    private var libraryCache: (sig: String, data: Data)?
+
     public init(port: UInt16 = LibraryShareServer.defaultPort, database: DatabaseManager) {
         self.port = port
         self.database = database
@@ -248,7 +256,12 @@ public final class LibraryShareServer: @unchecked Sendable {
             return ("200 OK", data, "application/json")
         }
         if path.hasPrefix("/library") {
+            let sig = ((try? database.syncStateValue(forKey: "last_sync")) ?? nil) ?? ""
+            libCacheLock.lock()
+            if let c = libraryCache, c.sig == sig { let d = c.data; libCacheLock.unlock(); return ("200 OK", d, "application/json") }
+            libCacheLock.unlock()
             if let body = try? await database.exportLibraryJSON() {
+                libCacheLock.lock(); libraryCache = (sig, body); libCacheLock.unlock()
                 return ("200 OK", body, "application/json")
             }
             return ("500 Internal Server Error", Data("export failed".utf8), "text/plain")

@@ -171,27 +171,50 @@ public final class FeatureStore {
     }
 
     public func upsert(_ r: TrackFeatureRow) throws {
+        try upsertBatch([r])
+    }
+
+    /// Upsert many rows in ONE write transaction. A per-row `upsert()` opens a
+    /// transaction (and WAL commit / fsync) each call — at 24-50k tracks that's as
+    /// many commits. The walker buffers results and flushes through here.
+    public func upsertBatch(_ rows: [TrackFeatureRow]) throws {
+        guard !rows.isEmpty else { return }
         try dbQueue.write { db in
-            try db.execute(sql: """
-                INSERT INTO track_features
-                  (match_key, artist, title, album, year, file_path, file_mtime,
-                   bpm, bpm_confidence, key_root, key_mode, camelot, energy, duration, tags, analyzed_at,
-                   embedding, embedding_model, moods, attributes)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(match_key) DO UPDATE SET
-                  artist=excluded.artist, title=excluded.title, album=excluded.album, year=excluded.year,
-                  file_path=excluded.file_path, file_mtime=excluded.file_mtime,
-                  bpm=excluded.bpm, bpm_confidence=excluded.bpm_confidence,
-                  key_root=excluded.key_root, key_mode=excluded.key_mode, camelot=excluded.camelot,
-                  energy=excluded.energy, duration=excluded.duration, analyzed_at=excluded.analyzed_at,
-                  embedding=excluded.embedding, embedding_model=excluded.embedding_model, moods=excluded.moods,
-                  attributes=excluded.attributes
-            """, arguments: [
-                r.matchKey, r.artist, r.title, r.album, r.year, r.filePath, r.fileMtime,
-                r.bpm, r.bpmConfidence, r.keyRoot, r.keyMode, r.camelot, r.energy, r.duration, r.tags, r.analyzedAt,
-                r.embedding.map(Self.blob), r.embeddingModel, r.moods, r.attributes,
-            ])
+            for r in rows {
+                try db.execute(sql: """
+                    INSERT INTO track_features
+                      (match_key, artist, title, album, year, file_path, file_mtime,
+                       bpm, bpm_confidence, key_root, key_mode, camelot, energy, duration, tags, analyzed_at,
+                       embedding, embedding_model, moods, attributes)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(match_key) DO UPDATE SET
+                      artist=excluded.artist, title=excluded.title, album=excluded.album, year=excluded.year,
+                      file_path=excluded.file_path, file_mtime=excluded.file_mtime,
+                      bpm=excluded.bpm, bpm_confidence=excluded.bpm_confidence,
+                      key_root=excluded.key_root, key_mode=excluded.key_mode, camelot=excluded.camelot,
+                      energy=excluded.energy, duration=excluded.duration, analyzed_at=excluded.analyzed_at,
+                      embedding=excluded.embedding, embedding_model=excluded.embedding_model, moods=excluded.moods,
+                      attributes=excluded.attributes
+                """, arguments: [
+                    r.matchKey, r.artist, r.title, r.album, r.year, r.filePath, r.fileMtime,
+                    r.bpm, r.bpmConfidence, r.keyRoot, r.keyMode, r.camelot, r.energy, r.duration, r.tags, r.analyzedAt,
+                    r.embedding.map(Self.blob), r.embeddingModel, r.moods, r.attributes,
+                ])
+            }
         }
+    }
+
+    /// Cheap signature of the feature corpus for HTTP response caching: any add
+    /// (count), embed, tag or attribute-backfill changes one of the COUNTs, so a
+    /// stale cache is never served. One query, all four counts.
+    public func contentSignature() -> String {
+        (try? dbQueue.read { db in
+            let r = try Row.fetchOne(db, sql: """
+                SELECT COUNT(*) AS c, COUNT(embedding) AS e, COUNT(tags) AS t, COUNT(attributes) AS a
+                FROM track_features
+            """)
+            return "\(r?["c"] as Int? ?? 0)/\(r?["e"] as Int? ?? 0)/\(r?["t"] as Int? ?? 0)/\(r?["a"] as Int? ?? 0)"
+        }) ?? "0/0/0/0"
     }
 
     /// Full row for a (path, mtime), including the embedding BLOB. Used by tests
