@@ -53,10 +53,25 @@ public struct TrackFeatureRow: Sendable {
 
 public final class FeatureStore {
     private let dbQueue: DatabaseQueue
+    public let databasePath: String
 
     public init(path: String) throws {
+        databasePath = path
         dbQueue = try DatabaseQueue(path: path)
         try migrate()
+    }
+
+    /// Reclaim free pages / defragment the file. Safe maintenance; can take a
+    /// while on a big DB. The server-of-record's analyses live here.
+    public func vacuum() throws {
+        try dbQueue.writeWithoutTransaction { db in try db.execute(sql: "VACUUM") }
+    }
+
+    /// Write a consistent snapshot copy to `path` (clean, defragmented). Uses
+    /// `VACUUM INTO`, which is transactional — no need to stop the server.
+    public func backup(toPath path: String) throws {
+        let escaped = path.replacingOccurrences(of: "'", with: "''")
+        try dbQueue.writeWithoutTransaction { db in try db.execute(sql: "VACUUM INTO '\(escaped)'") }
     }
 
     public static func defaultPath() -> String {

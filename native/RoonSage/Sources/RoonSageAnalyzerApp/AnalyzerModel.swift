@@ -3,6 +3,7 @@ import AudioAnalysis
 import Foundation
 import Observation
 import RoonSageCore
+import ServiceManagement
 
 @MainActor
 @Observable
@@ -12,6 +13,32 @@ final class AnalyzerModel {
     var model: String { didSet { UserDefaults.standard.set(model, forKey: "ollama_model") } }
     var port: String { didSet { UserDefaults.standard.set(port, forKey: "serve_port") } }
     var autoStart: Bool { didSet { UserDefaults.standard.set(autoStart, forKey: "auto_start") } }
+
+    // Analyse-tuning — neemt effect bij de VOLGENDE (re-)analyse, niet met terugwerkende kracht.
+    var walkerConcurrency: Int { didSet { UserDefaults.standard.set(walkerConcurrency, forKey: "walker_concurrency") } }
+    var excerptSeconds: Double { didSet { UserDefaults.standard.set(excerptSeconds, forKey: "excerpt_seconds") } }
+    var analysisSampleRate: Double { didSet { UserDefaults.standard.set(analysisSampleRate, forKey: "analysis_sample_rate") } }
+    // Tagging-tuning (Ollama).
+    var tagConcurrency: Int { didSet { UserDefaults.standard.set(tagConcurrency, forKey: "tag_concurrency") } }
+    var tagContextTokens: Int { didSet { UserDefaults.standard.set(tagContextTokens, forKey: "tag_context_tokens") } }
+    var tagTemperature: Double { didSet { UserDefaults.standard.set(tagTemperature, forKey: "tag_temperature") } }
+    var tagBatchSize: Int { didSet { UserDefaults.standard.set(tagBatchSize, forKey: "tag_batch_size") } }
+
+    // Onderhoud & beveiliging.
+    var launchAtLogin: Bool { didSet { applyLaunchAtLogin(launchAtLogin) } }
+    var logLevelRaw: Int {
+        didSet {
+            UserDefaults.standard.set(logLevelRaw, forKey: "log_level")
+            Log.minimumLevel = LogLevel(rawValue: logLevelRaw) ?? .info
+        }
+    }
+    /// Force the share token even for not-yet-paired clients (vs the default grace
+    /// window). Mirrors LibraryShareServer.enforceToken (UserDefaults-backed).
+    var enforceToken: Bool {
+        get { LibraryShareServer.enforceToken }
+        set { LibraryShareServer.enforceToken = newValue }
+    }
+    private(set) var maintenanceStatus: String?
 
     private(set) var trackCount = 0
     private(set) var taggedCount = 0
@@ -35,6 +62,20 @@ final class AnalyzerModel {
         model = UserDefaults.standard.string(forKey: "ollama_model") ?? "qwen3.5:4b-mlx"
         port = UserDefaults.standard.string(forKey: "serve_port") ?? "5766"
         autoStart = UserDefaults.standard.object(forKey: "auto_start") as? Bool ?? true
+        walkerConcurrency = UserDefaults.standard.object(forKey: "walker_concurrency") as? Int ?? 3
+        excerptSeconds = UserDefaults.standard.object(forKey: "excerpt_seconds") as? Double ?? 120
+        analysisSampleRate = UserDefaults.standard.object(forKey: "analysis_sample_rate") as? Double ?? 22050
+        tagConcurrency = UserDefaults.standard.object(forKey: "tag_concurrency") as? Int ?? 6
+        tagContextTokens = UserDefaults.standard.object(forKey: "tag_context_tokens") as? Int ?? 8192
+        tagTemperature = UserDefaults.standard.object(forKey: "tag_temperature") as? Double ?? 0.4
+        tagBatchSize = UserDefaults.standard.object(forKey: "tag_batch_size") as? Int ?? 200
+        if #available(macOS 13.0, *) {
+            launchAtLogin = SMAppService.mainApp.status == .enabled   // reflect, don't register (didSet skipped in init)
+        } else {
+            launchAtLogin = false
+        }
+        logLevelRaw = UserDefaults.standard.object(forKey: "log_level") as? Int ?? LogLevel.info.rawValue
+        Log.minimumLevel = LogLevel(rawValue: logLevelRaw) ?? .info
         refresh()
     }
 
@@ -53,7 +94,8 @@ final class AnalyzerModel {
         isAnalyzing = true
         analyze = nil
         status = "Scanning…"
-        let w = LibraryWalker(store: store)
+        let w = LibraryWalker(store: store, concurrency: walkerConcurrency,
+                              excerptSeconds: excerptSeconds, sampleRate: analysisSampleRate)
         walker = w
         let path = musicPath
         Task {
@@ -73,7 +115,8 @@ final class AnalyzerModel {
         isTagging = true
         tag = nil
         status = "Tagging via Ollama…"
-        let t = Tagger(store: store, ollamaURL: ollamaURL, model: model)
+        let t = Tagger(store: store, ollamaURL: ollamaURL, model: model, concurrency: tagConcurrency,
+                       contextTokens: tagContextTokens, temperature: tagTemperature, batchSize: tagBatchSize)
         tagger = t
         Task {
             await t.run { p in Task { @MainActor in self.tag = p } }
@@ -84,6 +127,74 @@ final class AnalyzerModel {
     }
 
     func cancelTag() { tagger?.cancel() }
+
+    // MARK: - Maintenance & login item
+
+    private func applyLaunchAtLogin(_ on: Bool) {
+        guard #available(macOS 13.0, *) else { status = "Start-bij-inloggen vereist macOS 13 of nieuwer."; return }
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            status = "Login-item kon niet worden ingesteld: \(error.localizedDescription)"
+        }
+    }
+
+    /// Write a timestamped snapshot of analyzer.db next to the original. The
+    /// VACUUM INTO runs off the main actor so a large DB doesn't freeze the UI.
+    func backupDatabase() {
+        guard let store else { return }
+        maintenanceStatus = "Back-up maken…"
+        let src = store.databasePath
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let dst = (src as NSString).deletingLastPathComponent + "/analyzer-backup-\(stamp).db"
+        Task.detached {
+            let msg: String
+            do { try store.backup(toPath: dst); msg = "Back-up gemaakt: \(dst)" }
+            catch { msg = "Back-up mislukt: \(error.localizedDescription)" }
+            await MainActor.run { self.maintenanceStatus = msg }
+        }
+    }
+
+    func vacuumDatabase() {
+        guard let store else { return }
+        maintenanceStatus = "Database opschonen…"
+        Task.detached {
+            let msg: String
+            do { try store.vacuum(); msg = "Database opgeschoond." }
+            catch { msg = "Opschonen mislukt: \(error.localizedDescription)" }
+            await MainActor.run { self.maintenanceStatus = msg }
+        }
+    }
+
+    // MARK: - Ollama connection test (for tagging)
+
+    private(set) var ollamaTestStatus: String?
+
+    /// Probe the configured Ollama (`/api/tags`) and report reachability + whether
+    /// the chosen model is installed — validates the tagging setup before a run.
+    func testOllama() {
+        ollamaTestStatus = "Testen…"
+        let urlStr = ollamaURL, want = model
+        Task {   // @MainActor inherited; the await suspends without blocking the UI
+            guard let url = URL(string: "\(urlStr)/api/tags") else { ollamaTestStatus = "Ongeldige Ollama-URL"; return }
+            do {
+                var req = URLRequest(url: url, timeoutInterval: 6)
+                req.httpMethod = "GET"
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
+                    ollamaTestStatus = "Ollama antwoordde met een fout"; return
+                }
+                let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                let names = (obj?["models"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
+                let has = names.contains { $0 == want || $0 == "\(want):latest" || $0.hasPrefix("\(want):") }
+                ollamaTestStatus = has
+                    ? "✓ Verbonden — model '\(want)' beschikbaar (\(names.count) modellen)"
+                    : "⚠︎ Verbonden, maar '\(want)' niet gevonden. Beschikbaar: \(names.prefix(4).joined(separator: ", "))"
+            } catch {
+                ollamaTestStatus = "Niet bereikbaar: \(error.localizedDescription)"
+            }
+        }
+    }
 
     // MARK: - CLAP model lifecycle
 

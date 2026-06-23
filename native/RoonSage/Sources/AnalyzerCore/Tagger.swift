@@ -15,13 +15,20 @@ public final class Tagger {
     private let ollamaURL: String
     private let model: String
     private let concurrency: Int
+    private let contextTokens: Int
+    private let temperature: Double
+    private let batchSize: Int
     private var cancelled = false
 
-    public init(store: FeatureStore, ollamaURL: String, model: String, concurrency: Int = 6) {
+    public init(store: FeatureStore, ollamaURL: String, model: String, concurrency: Int = 6,
+                contextTokens: Int = 8192, temperature: Double = 0.4, batchSize: Int = 200) {
         self.store = store
         self.ollamaURL = ollamaURL
         self.model = model
         self.concurrency = max(1, concurrency)
+        self.contextTokens = max(512, contextTokens)
+        self.temperature = max(0, temperature)
+        self.batchSize = max(1, batchSize)
     }
 
     public func cancel() { cancelled = true }
@@ -33,10 +40,11 @@ public final class Tagger {
         let total = store.count()
         guard total > 0 else { return }
         let url = ollamaURL, model = self.model
+        let ctx = contextTokens, temp = temperature
         var failed = 0
 
         while !cancelled {
-            let batch = store.untagged(limit: 200)
+            let batch = store.untagged(limit: batchSize)
             if batch.isEmpty { break }
             var producedAny = false
 
@@ -47,7 +55,7 @@ public final class Tagger {
                 func addNext() {
                     guard !cancelled, let row = iterator.next() else { return }
                     inFlight += 1
-                    group.addTask { (row.matchKey, await Tagger.tag(row, ollamaURL: url, model: model)) }
+                    group.addTask { (row.matchKey, await Tagger.tag(row, ollamaURL: url, model: model, contextTokens: ctx, temperature: temp)) }
                 }
 
                 for _ in 0..<concurrency { addNext() }
@@ -69,7 +77,8 @@ public final class Tagger {
         }
     }
 
-    private static func tag(_ r: TrackFeatureRow, ollamaURL: String, model: String) async -> String? {
+    private static func tag(_ r: TrackFeatureRow, ollamaURL: String, model: String,
+                            contextTokens: Int = 8192, temperature: Double = 0.4) async -> String? {
         let prompt = """
         Track: \(r.artist ?? "?") — \(r.title ?? "?")
         Album: \(r.album ?? "?")\(r.year.map { " (\($0))" } ?? "")
@@ -85,7 +94,7 @@ public final class Tagger {
             "think": false,
             // Tiny prompts — cap the context so Ollama can fit several parallel
             // slots instead of reserving the model's full (262k) KV cache per slot.
-            "options": ["temperature": 0.4, "num_ctx": 8192],
+            "options": ["temperature": temperature, "num_ctx": contextTokens],
         ]
         guard let url = URL(string: "\(ollamaURL)/api/chat"),
               let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }

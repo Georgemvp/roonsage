@@ -10,7 +10,7 @@ struct AnalyzerRootView: View {
     @State private var section: Section? = .dashboard
 
     enum Section: String, CaseIterable, Identifiable {
-        case dashboard, analyzer, radios, server
+        case dashboard, analyzer, radios, server, advanced
         var id: String { rawValue }
 
         var title: String {
@@ -19,6 +19,7 @@ struct AnalyzerRootView: View {
             case .analyzer:  return "Analyzer"
             case .radios:    return "Radio's"
             case .server:    return "Server"
+            case .advanced:  return "Geavanceerd"
             }
         }
         var icon: String {
@@ -27,6 +28,7 @@ struct AnalyzerRootView: View {
             case .analyzer:  return "waveform.path.ecg"
             case .radios:    return "dot.radiowaves.left.and.right"
             case .server:    return "gearshape"
+            case .advanced:  return "slider.horizontal.3"
             }
         }
     }
@@ -54,6 +56,7 @@ struct AnalyzerRootView: View {
         case .analyzer:  AnalyzerView()
         case .radios:    SonicRadioSettingsView()
         case .server:    SettingsView(role: .server)
+        case .advanced:  AdvancedSettingsView()
         }
     }
 }
