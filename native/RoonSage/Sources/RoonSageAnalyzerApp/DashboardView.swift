@@ -42,9 +42,31 @@ struct DashboardView: View {
 
     private var roonCard: some View {
         StatusCard(title: "Roon", icon: "link", tint: client.connectionState.isConnected ? .green : .orange) {
-            Text(client.connectionState.label).font(.headline)
+            HStack(spacing: Spacing.sm) {
+                if client.connectionState.isBusy { ProgressView().controlSize(.small) }
+                Text(client.connectionState.label).font(.headline)
+            }
             if let host = client.coreHost {
                 Text("\(host):\(client.corePort)").font(.caption).foregroundStyle(.secondary)
+            }
+            if !client.connectionState.isConnected {
+                Button("Opnieuw verbinden") { reconnectRoon() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .padding(.top, 2)
+            }
+        }
+    }
+
+    /// Force an immediate reconnect attempt — breaks a stuck `.connecting` state
+    /// without restarting the app. The background connect loop then takes over.
+    private func reconnectRoon() {
+        Task {
+            await client.disconnect()
+            if let host = client.savedHost {
+                await client.connect(host: host, port: client.savedPort)
+            } else {
+                await client.discoverAndConnect()
             }
         }
     }

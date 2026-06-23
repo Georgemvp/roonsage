@@ -41,6 +41,15 @@ public final class RoonClient {
             if case .connected = self { return true }
             return false
         }
+
+        /// Mid-handshake: discovering a Core, or opening/authorizing a socket.
+        /// Drives the "connecting" spinner + reconnect affordance in the UI.
+        public var isBusy: Bool {
+            switch self {
+            case .discovering, .connecting, .awaitingAuthorization: return true
+            default: return false
+            }
+        }
     }
 
     // MARK: - Sync state
@@ -445,7 +454,14 @@ public final class RoonClient {
         if token == nil { connectionState = .awaitingAuthorization }
 
         do {
-            let body = try await transport.register(payload: payload)
+            // With a saved token Roon answers promptly (Registered/Unauthorized);
+            // bound the wait so a silent Core (seen after a token glitch) can't
+            // park us in `.connecting` forever. First-time auth (token == nil)
+            // gets NO timeout — it waits for the user to enable the extension.
+            let body = try await transport.register(
+                payload: payload,
+                timeoutNanos: token == nil ? nil : 20_000_000_000
+            )
             guard let reg = RoonClientAuth.parseRegistration(body) else {
                 // Log only the keys — the raw body carries the Roon token, and
                 // the log file is meant to be shareable.
@@ -472,6 +488,10 @@ public final class RoonClient {
             if needsResync { startSync() }
         } catch {
             Log.error("registratie mislukt: \(error.localizedDescription)", category: .roon)
+            // The socket opened but registration didn't complete (timeout/refused).
+            // Close it so the next attempt starts on a fresh socket instead of
+            // leaving this one dangling open (a retry would otherwise leak it).
+            await transport.disconnect()
             connectionState = .failed(error.localizedDescription)
         }
     }

@@ -44,6 +44,24 @@ actor RoonTransport {
     private var watchdogTask: Task<Void, Never>?
     private var lastReceivedAt: Date = .distantPast
 
+    // Connect-phase watchdog: the idle watchdog above only starts AFTER the socket
+    // opens. If the WS handshake never completes (port open but silent, or a stall
+    // with no error) nothing would tear the attempt down — the connection would
+    // sit in `.connecting` indefinitely (this was the bug behind the analyzer
+    // hanging on "Verbinden met …"). Give up after this and report a close.
+    private var connectWatchdogTask: Task<Void, Never>?
+    private static let connectTimeoutNanos: UInt64 = 18_000_000_000   // 18s
+
+    // The URLSession is recreated per attempt; keep a handle so the old one can be
+    // invalidated on close/reconnect. URLSession strongly retains its delegate +
+    // delegate queue until invalidated — not doing so leaks one per reconnect,
+    // which adds up on a flaky link that reconnects every ~30s.
+    private var session: URLSession?
+
+    // Run the close path at most once per connection: the delegate close, a
+    // receive failure, the connect watchdog and the idle watchdog can all race.
+    private var closeHandled = false
+
     // MARK: - Pending request tracking
 
     private var pendingRequests: [Int: CheckedContinuation<[String: Any], Error>] = [:]
@@ -55,6 +73,13 @@ actor RoonTransport {
     private var subscriptions: [Int: AsyncStream<[String: Any]>.Continuation] = [:]
     // One-shot continuation for the Roon registration response.
     private var registrationContinuation: CheckedContinuation<[String: Any], Error>?
+    // Re-registration (token present) expects a prompt Registered/Unauthorized.
+    // If the Core goes silent after the WS opens (observed after a token glitch),
+    // the continuation parks forever — the idle watchdog is paused during
+    // registration — leaving us stuck in `.connecting`. This bounds it. NOT armed
+    // for first-time auth (token == nil), which legitimately waits for the human
+    // to enable the extension in Roon.
+    private var registrationTimeoutTask: Task<Void, Never>?
 
     // MARK: - External callbacks
 
@@ -72,6 +97,8 @@ actor RoonTransport {
     // MARK: - Connect / Disconnect
 
     func connect(host: String, port: UInt16) {
+        // Reset the once-guard for this fresh attempt before anything can close.
+        closeHandled = false
         // Defensive: never force-unwrap a URL built from external input. The
         // caller (RoonClient.connect) already validates, but guard here too so
         // a malformed host can never trap the process.
@@ -92,22 +119,52 @@ actor RoonTransport {
             Task { [self] in await self.handleClose() }
         }
 
-        let session = URLSession(
-            configuration: .default,
-            delegate: del,
-            delegateQueue: OperationQueue()
-        )
+        // Fail fast: a connect that can't reach the Core reports the error (via the
+        // delegate's didCompleteWithError) instead of parking on the 60s default;
+        // waitsForConnectivity=false so we don't block on "no route". Only the
+        // per-read timeout is set — it RESETS on each frame, so Roon's ~10s pings
+        // keep a healthy socket alive (it mirrors the existing 20s idle watchdog).
+        // NOT timeoutIntervalForResource: that's a hard total-time cap that would
+        // kill a long-lived WebSocket. The explicit connect watchdog below bounds
+        // the handshake phase instead.
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 20
+        config.waitsForConnectivity = false
+        let session = URLSession(configuration: config, delegate: del, delegateQueue: OperationQueue())
+        self.session = session
         let task = session.webSocketTask(with: url)
         wsTask = task
         task.resume()
         startReceiving(task)
+        startConnectWatchdog()
+    }
+
+    private func startConnectWatchdog() {
+        connectWatchdogTask?.cancel()
+        connectWatchdogTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.connectTimeoutNanos)
+            guard !Task.isCancelled else { return }
+            await self?.connectTimedOut()
+        }
+    }
+
+    private func connectTimedOut() async {
+        // Handshake never completed → tear the stalled attempt down so the caller
+        // (RoonClient / the server's connect loop) retries the next candidate.
+        guard !isConnected, !closeHandled else { return }
+        await handleClose()
     }
 
     func disconnect() {
+        closeHandled = true
+        connectWatchdogTask?.cancel()
+        connectWatchdogTask = nil
         watchdogTask?.cancel()
         watchdogTask = nil
         wsTask?.cancel(with: .normalClosure, reason: nil)
         wsTask = nil
+        session?.invalidateAndCancel()
+        session = nil
         delegate = nil
         isConnected = false
         failAllPending(with: URLError(.networkConnectionLost))
@@ -122,7 +179,7 @@ actor RoonTransport {
 
     // MARK: - Registration (special-cased: response matched by name, not by ID)
 
-    func register(payload: [String: Any]) async throws -> [String: Any] {
+    func register(payload: [String: Any], timeoutNanos: UInt64? = nil) async throws -> [String: Any] {
         let id = nextID; nextID += 1
         let frame = try MOOFrame.request(
             "\(RoonService.registry)/register",
@@ -138,11 +195,30 @@ actor RoonTransport {
                 do {
                     try await self.send(frame)
                 } catch {
-                    self.registrationContinuation?.resume(throwing: error)
-                    self.registrationContinuation = nil
+                    self.failRegistration(with: error)
+                }
+            }
+            // Re-auth (token present) should answer fast; bound the wait so a
+            // silent Core can't park us in `.connecting` forever.
+            if let timeoutNanos {
+                registrationTimeoutTask?.cancel()
+                registrationTimeoutTask = Task {
+                    try? await Task.sleep(nanoseconds: timeoutNanos)
+                    guard !Task.isCancelled else { return }
+                    await self.failRegistration(with: RoonTransportError.requestTimeout)
                 }
             }
         }
+    }
+
+    /// Resolve a pending registration with a failure (send error or timeout) and
+    /// tear down its timeout task. No-op if registration already resolved.
+    private func failRegistration(with error: Error) {
+        registrationTimeoutTask?.cancel()
+        registrationTimeoutTask = nil
+        guard let cont = registrationContinuation else { return }
+        registrationContinuation = nil
+        cont.resume(throwing: error)
     }
 
     // MARK: - Request / Response
@@ -242,8 +318,13 @@ actor RoonTransport {
             startReceiving(wsTask)
 
         case .failure:
-            // Actual disconnect is reported via the delegate; just stop looping.
-            break
+            // A receive failure means the socket is down. Route it to handleClose
+            // (idempotent) so a connect that fails is torn down even on the off
+            // chance a delegate callback is missed — belt-and-suspenders for the
+            // "stuck in .connecting" hang. Guard on the live socket so a stale
+            // callback from a replaced connection can't close the new one.
+            guard self.wsTask === wsTask else { return }
+            await handleClose()
         }
     }
 
@@ -264,10 +345,12 @@ actor RoonTransport {
         // client, which routes on "Registered" in the header regardless of verb.
         switch frame.name {
         case "Registered":
+            registrationTimeoutTask?.cancel(); registrationTimeoutTask = nil
             registrationContinuation?.resume(returning: body)
             registrationContinuation = nil
             return
         case "Unauthorized":
+            registrationTimeoutTask?.cancel(); registrationTimeoutTask = nil
             registrationContinuation?.resume(throwing: RoonTransportError.unauthorized)
             registrationContinuation = nil
             return
@@ -292,6 +375,8 @@ actor RoonTransport {
     // MARK: - Lifecycle helpers
 
     private func handleOpen() async {
+        connectWatchdogTask?.cancel()
+        connectWatchdogTask = nil
         isConnected = true
         lastReceivedAt = Date()
         startWatchdog()
@@ -299,9 +384,17 @@ actor RoonTransport {
     }
 
     private func handleClose() async {
+        if closeHandled { return }
+        closeHandled = true
+        connectWatchdogTask?.cancel()
+        connectWatchdogTask = nil
         watchdogTask?.cancel()
         watchdogTask = nil
         isConnected = false
+        // Invalidate the dead session so its delegate + queue are released before
+        // the next attempt's connect() spins up a new one.
+        session?.finishTasksAndInvalidate()
+        session = nil
         failAllPending(with: URLError(.networkConnectionLost))
         await onClose?()
     }
@@ -330,6 +423,8 @@ actor RoonTransport {
         requestTimeouts.removeAll()
         for cont in pendingRequests.values { cont.resume(throwing: error) }
         pendingRequests.removeAll()
+        registrationTimeoutTask?.cancel()
+        registrationTimeoutTask = nil
         registrationContinuation?.resume(throwing: error)
         registrationContinuation = nil
         for cont in subscriptions.values { cont.finish() }
