@@ -310,6 +310,20 @@ public struct SettingsView: View {
                 Text("Scrobblet elke track naar ListenBrainz zodra hij echt geluisterd is.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Toggle("Importeer ListenBrainz-playlists dagelijks", isOn: Binding(
+                    get: { client.lbPlaylistSyncEnabled },
+                    set: { client.setListenBrainzPlaylistSync(enabled: $0) }
+                ))
+                Text("Haalt elke dag je ListenBrainz-playlists (eigen + ‘voor jou samengesteld’) op en zet ze in de playlist-bibliotheek van de server, zodat ze in de Playlists-tab verschijnen.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if client.lbPlaylistSyncEnabled {
+                    Button("Synchroniseer playlists nu") { client.syncListenBrainzPlaylistsNow() }
+                    if !client.lbPlaylistSyncStatus.isEmpty {
+                        Text(client.lbPlaylistSyncStatus)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
 
             // Last.fm

@@ -97,6 +97,79 @@ extension DatabaseManager {
         }
     }
 
+    /// A playlist imported from an external source (e.g. ListenBrainz). `externalID`
+    /// is a stable, source-scoped key ("listenbrainz:<mbid>") used for idempotent sync.
+    public struct ExternalPlaylist: Sendable {
+        public var externalID: String
+        public var name: String
+        public var tracks: [TrackRecord]
+        public init(externalID: String, name: String, tracks: [TrackRecord]) {
+            self.externalID = externalID
+            self.name = name
+            self.tracks = tracks
+        }
+    }
+
+    /// Reconcile the set of playlists imported from a given source against the
+    /// freshly-fetched `playlists`, all in one transaction:
+    ///   • playlists no longer present upstream are removed,
+    ///   • existing ones are replaced (refreshing their tracks),
+    ///   • new ones are inserted.
+    /// `sourcePrefix` scopes the reconcile (e.g. "listenbrainz:") so playlists from
+    /// other sources — and user-curated ones (NULL external_id) — are left untouched.
+    public func syncExternalPlaylists(sourcePrefix: String, playlists: [ExternalPlaylist]) async throws {
+        try await pool.write { db in
+            let iso = Self.isoFormatter.string(from: Date())
+            let keep = playlists.map { $0.externalID }
+
+            // Prune playlists from this source that are no longer upstream. Deleting
+            // the playlist row cascades to its playlist_tracks.
+            if keep.isEmpty {
+                try db.execute(
+                    sql: "DELETE FROM playlists WHERE external_id LIKE ?",
+                    arguments: ["\(sourcePrefix)%"]
+                )
+            } else {
+                let ph = keep.map { _ in "?" }.joined(separator: ",")
+                var args: [DatabaseValueConvertible] = ["\(sourcePrefix)%"]
+                args.append(contentsOf: keep as [DatabaseValueConvertible])
+                try db.execute(
+                    sql: "DELETE FROM playlists WHERE external_id LIKE ? AND external_id NOT IN (\(ph))",
+                    arguments: StatementArguments(args)
+                )
+            }
+
+            let chunk = Self.rowsPerChunk(columns: 9)
+            for pl in playlists {
+                // Replace in place: drop the existing copy (cascades its tracks),
+                // then re-insert so renamed/reordered upstream playlists stay in sync.
+                try db.execute(sql: "DELETE FROM playlists WHERE external_id = ?", arguments: [pl.externalID])
+                try db.execute(
+                    sql: "INSERT INTO playlists (name, created_at, external_id) VALUES (?, ?, ?)",
+                    arguments: [pl.name, iso, pl.externalID]
+                )
+                let pid = db.lastInsertedRowID
+                var start = 0
+                while start < pl.tracks.count {
+                    let end = min(start + chunk, pl.tracks.count)
+                    let placeholders = (start..<end).map { _ in "(?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                    var args: [DatabaseValueConvertible?] = []
+                    args.reserveCapacity((end - start) * 9)
+                    for i in start..<end {
+                        let t = pl.tracks[i]
+                        args.append(contentsOf: [pid, i, t.id, t.title, t.artist, t.album, t.albumKey, t.year, t.isLive] as [DatabaseValueConvertible?])
+                    }
+                    try db.execute(sql: """
+                        INSERT INTO playlist_tracks
+                          (playlist_id, position, track_id, title, artist, album, album_key, year, is_live)
+                        VALUES \(placeholders)
+                    """, arguments: StatementArguments(args))
+                    start += chunk
+                }
+            }
+        }
+    }
+
     public func listPlaylists() async throws ->[PlaylistSummary] {
         try await pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
