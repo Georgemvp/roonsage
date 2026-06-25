@@ -321,4 +321,27 @@ extension DatabaseManagerTests {
         all = try await db.listPlaylists()
         XCTAssertEqual(all.map(\.name), ["Mijn mix"])
     }
+
+    func testExternalSourceLabelsAreScopedPerPrefix() async throws {
+        try await db.syncExternalPlaylists(sourcePrefix: "lastfm:", playlists: [
+            DatabaseManager.ExternalPlaylist(
+                externalID: "lastfm:top:7day",
+                name: "Last.fm Top · Laatste 7 dagen",
+                tracks: [TrackRecord(id: "", title: "Song", artist: "Artist", album: nil)]
+            ),
+        ])
+        let all = try await db.listPlaylists()
+        XCTAssertEqual(all.first?.source, "lastfm")
+
+        // A "lastfm:" reconcile must not touch listenbrainz playlists, and vice versa.
+        try await db.syncExternalPlaylists(sourcePrefix: "listenbrainz:", playlists: [
+            DatabaseManager.ExternalPlaylist(
+                externalID: "listenbrainz:abc",
+                name: "Weekly Jams",
+                tracks: [TrackRecord(id: "", title: "Other", artist: "B", album: nil)]
+            ),
+        ])
+        let both = try await db.listPlaylists()
+        XCTAssertEqual(Set(both.compactMap(\.source)), ["lastfm", "listenbrainz"])
+    }
 }

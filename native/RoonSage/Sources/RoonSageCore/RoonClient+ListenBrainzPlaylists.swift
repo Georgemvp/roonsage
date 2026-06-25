@@ -65,11 +65,18 @@ extension RoonClient {
             ))
         }
 
+        // A failed/rate-limited LB request (or per-playlist track fetch) also
+        // yields empty results, indistinguishable from "no playlists". If nothing
+        // came back, treat it as a transient outage and keep the last good copies
+        // instead of pruning every imported playlist to nothing.
+        guard !imported.isEmpty else {
+            lbPlaylistSyncStatus = "ListenBrainz gaf niets terug — vorige playlists behouden."
+            return
+        }
+
         do {
             try await db.syncExternalPlaylists(sourcePrefix: Self.lbPlaylistSource, playlists: imported)
-            lbPlaylistSyncStatus = imported.isEmpty
-                ? "Geen ListenBrainz-playlists gevonden."
-                : "\(imported.count) playlist(s) gesynchroniseerd."
+            lbPlaylistSyncStatus = "\(imported.count) playlist(s) gesynchroniseerd."
         } catch {
             lbPlaylistSyncStatus = "Synchronisatie mislukt."
             Log.warning("ListenBrainz playlist sync failed: \(error)", category: .network)
@@ -77,33 +84,37 @@ extension RoonClient {
         }
 
         if lbQobuzSyncEnabled {
-            await mirrorPlaylistsToQobuz(imported)
+            let n = await mirrorExternalPlaylistsToQobuz(imported, namePrefix: Self.lbQobuzNamePrefix)
+            lbPlaylistSyncStatus += n < 0 ? " (Qobuz niet ingesteld.)" : " \(n) naar Qobuz."
         }
     }
 
-    /// Mirror the imported ListenBrainz playlists to Qobuz, one playlist each,
-    /// under a recognisable "ListenBrainz · …" name. `syncPlaylist` finds-or-
-    /// creates by exact name and replaces contents, so daily runs update in place
-    /// rather than duplicating; orphans (playlists gone upstream) are removed.
-    private func mirrorPlaylistsToQobuz(_ playlists: [DatabaseManager.ExternalPlaylist]) async {
-        // Never reconcile to nothing on an empty import (a transient LB hiccup
+    /// Mirror imported external playlists to Qobuz, one playlist each, under
+    /// `namePrefix` (e.g. "ListenBrainz · "). `syncPlaylist` finds-or-creates by
+    /// exact name and replaces contents, so daily runs update in place rather than
+    /// duplicating; orphans (playlists gone upstream) are removed. Returns the
+    /// number synced, or -1 when Qobuz isn't configured. Shared by the Last.fm
+    /// playlist sync.
+    func mirrorExternalPlaylistsToQobuz(
+        _ playlists: [DatabaseManager.ExternalPlaylist], namePrefix: String
+    ) async -> Int {
+        // Never reconcile to nothing on an empty import (a transient hiccup
         // shouldn't wipe the Qobuz copies).
-        guard !playlists.isEmpty else { return }
+        guard !playlists.isEmpty else { return 0 }
         guard let email = KeychainStore.load(key: "qobuz_email"), !email.isEmpty,
               let password = KeychainStore.load(key: "qobuz_password"), !password.isEmpty else {
-            lbPlaylistSyncStatus += " (Qobuz niet ingesteld — niet naar Qobuz gesynct.)"
-            return
+            return -1
         }
 
         var synced = 0
         var kept = Set<String>()
         for pl in playlists {
-            let name = Self.lbQobuzNamePrefix + pl.name
+            let name = namePrefix + pl.name
             kept.insert(name)
             let tracks = pl.tracks.map { (title: $0.title, artist: $0.artist, album: $0.album) }
             let result = await QobuzClient.shared.syncPlaylist(
                 name: name,
-                description: "Gesynchroniseerd vanuit ListenBrainz door RoonSage",
+                description: "Gesynchroniseerd door RoonSage",
                 tracks: tracks,
                 email: email, password: password
             )
@@ -112,10 +123,9 @@ extension RoonClient {
 
         // Reconcile: drop Qobuz copies of playlists that no longer exist upstream.
         _ = await QobuzClient.shared.deleteRadioOrphans(
-            keep: kept, namePrefix: Self.lbQobuzNamePrefix, email: email, password: password
+            keep: kept, namePrefix: namePrefix, email: email, password: password
         )
-
-        lbPlaylistSyncStatus += " \(synced) naar Qobuz."
+        return synced
     }
 }
 #endif
