@@ -292,6 +292,9 @@ extension DatabaseManagerTests {
         var all = try await db.listPlaylists()
         XCTAssertEqual(all.count, 3)
         XCTAssertEqual(all.first(where: { $0.name == "Weekly Jams" })?.trackCount, 3)
+        // Imported playlists carry a source label; the user's own does not.
+        XCTAssertEqual(all.first(where: { $0.name == "Weekly Jams" })?.source, "listenbrainz")
+        XCTAssertNil(all.first(where: { $0.name == "Mijn mix" })?.source)
 
         // Re-import identical data: no duplicates (upsert by external_id).
         try await db.syncExternalPlaylists(sourcePrefix: "listenbrainz:", playlists: [

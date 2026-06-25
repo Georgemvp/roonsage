@@ -10,6 +10,10 @@ extension RoonClient {
     /// reconcile only ever touches ListenBrainz imports.
     static let lbPlaylistSource = "listenbrainz:"
 
+    /// Name prefix for the Qobuz copies, so they're recognisable and reconciled
+    /// in place (find-or-create by exact name) instead of duplicating each day.
+    static let lbQobuzNamePrefix = "ListenBrainz · "
+
     func startListenBrainzPlaylistSync(initialDelay: UInt64 = 15_000_000_000) {
         guard lbPlaylistSyncTask == nil else { return }
         lbPlaylistSyncTask = Task { [weak self] in
@@ -69,7 +73,49 @@ extension RoonClient {
         } catch {
             lbPlaylistSyncStatus = "Synchronisatie mislukt."
             Log.warning("ListenBrainz playlist sync failed: \(error)", category: .network)
+            return
         }
+
+        if lbQobuzSyncEnabled {
+            await mirrorPlaylistsToQobuz(imported)
+        }
+    }
+
+    /// Mirror the imported ListenBrainz playlists to Qobuz, one playlist each,
+    /// under a recognisable "ListenBrainz · …" name. `syncPlaylist` finds-or-
+    /// creates by exact name and replaces contents, so daily runs update in place
+    /// rather than duplicating; orphans (playlists gone upstream) are removed.
+    private func mirrorPlaylistsToQobuz(_ playlists: [DatabaseManager.ExternalPlaylist]) async {
+        // Never reconcile to nothing on an empty import (a transient LB hiccup
+        // shouldn't wipe the Qobuz copies).
+        guard !playlists.isEmpty else { return }
+        guard let email = KeychainStore.load(key: "qobuz_email"), !email.isEmpty,
+              let password = KeychainStore.load(key: "qobuz_password"), !password.isEmpty else {
+            lbPlaylistSyncStatus += " (Qobuz niet ingesteld — niet naar Qobuz gesynct.)"
+            return
+        }
+
+        var synced = 0
+        var kept = Set<String>()
+        for pl in playlists {
+            let name = Self.lbQobuzNamePrefix + pl.name
+            kept.insert(name)
+            let tracks = pl.tracks.map { (title: $0.title, artist: $0.artist, album: $0.album) }
+            let result = await QobuzClient.shared.syncPlaylist(
+                name: name,
+                description: "Gesynchroniseerd vanuit ListenBrainz door RoonSage",
+                tracks: tracks,
+                email: email, password: password
+            )
+            if result != nil { synced += 1 }
+        }
+
+        // Reconcile: drop Qobuz copies of playlists that no longer exist upstream.
+        _ = await QobuzClient.shared.deleteRadioOrphans(
+            keep: kept, namePrefix: Self.lbQobuzNamePrefix, email: email, password: password
+        )
+
+        lbPlaylistSyncStatus += " \(synced) naar Qobuz."
     }
 }
 #endif

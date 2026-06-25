@@ -68,6 +68,9 @@ extension DatabaseManager {
         public var name: String
         public var trackCount: Int
         public var createdAt: String
+        /// Origin of the playlist: "listenbrainz" for imported ListenBrainz
+        /// playlists, nil for user-curated ones. Lets clients show a source badge.
+        public var source: String?
     }
 
     public func savePlaylist(name: String, tracks: [TrackRecord]) async throws ->Int64 {
@@ -173,16 +176,19 @@ extension DatabaseManager {
     public func listPlaylists() async throws ->[PlaylistSummary] {
         try await pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT p.id, p.name, p.created_at, COUNT(pt.position) AS cnt
+                SELECT p.id, p.name, p.created_at, p.external_id, COUNT(pt.position) AS cnt
                 FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
                 GROUP BY p.id ORDER BY p.created_at DESC
             """)
             return rows.map {
-                PlaylistSummary(
+                let ext = $0["external_id"] as String?
+                let source = (ext?.hasPrefix("listenbrainz:") ?? false) ? "listenbrainz" : nil
+                return PlaylistSummary(
                     id: $0["id"] as Int64? ?? 0,
                     name: $0["name"] as String? ?? "",
                     trackCount: $0["cnt"] as Int? ?? 0,
-                    createdAt: $0["created_at"] as String? ?? ""
+                    createdAt: $0["created_at"] as String? ?? "",
+                    source: source
                 )
             }
         }
