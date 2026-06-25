@@ -358,6 +358,31 @@ public struct SettingsView: View {
                     }
                     Text("Eenmalig je hele scrobble-historie binnenhalen — vult jaaroverzicht, smaakprofiel en aanbevelingen. Kan bij een grote historie even duren.")
                         .font(.caption).foregroundStyle(.secondary)
+
+                    Divider()
+                    Toggle("Importeer top-tracks als playlists", isOn: Binding(
+                        get: { client.lastfmPlaylistSyncEnabled },
+                        set: { client.setLastfmPlaylistSync(enabled: $0) }
+                    ))
+                    Text("Last.fm heeft geen eigen playlists; dit maakt dagelijks playlists van je top-tracks (laatste 7 dagen, maand, jaar, aller tijden). Ze verschijnen met een Last.fm-label in de Playlists-tab.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if client.lastfmPlaylistSyncEnabled {
+                        Toggle("Sync ze ook naar Qobuz", isOn: Binding(
+                            get: { client.lastfmQobuzSyncEnabled },
+                            set: { client.setLastfmQobuzSync(enabled: $0) }
+                        ))
+                        .disabled(!client.qobuzConfigured)
+                        Text(client.qobuzConfigured
+                             ? "Maakt voor elke lijst een Qobuz-playlist “Last.fm · …” aan en werkt die dagelijks bij."
+                             : "Stel eerst je Qobuz-account in (sectie Qobuz) om dit te kunnen gebruiken.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button("Synchroniseer playlists nu") { client.syncLastfmPlaylistsNow() }
+                        if !client.lastfmPlaylistSyncStatus.isEmpty {
+                            Text(client.lastfmPlaylistSyncStatus)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+
                     Button("Ontkoppel Last.fm", role: .destructive) {
                         KeychainStore.delete(key: "lastfm_session_key")
                         KeychainStore.delete(key: "lastfm_username")

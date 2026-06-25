@@ -182,7 +182,12 @@ extension DatabaseManager {
             """)
             return rows.map {
                 let ext = $0["external_id"] as String?
-                let source = (ext?.hasPrefix("listenbrainz:") ?? false) ? "listenbrainz" : nil
+                let source: String?
+                switch ext {
+                case let e? where e.hasPrefix("listenbrainz:"): source = "listenbrainz"
+                case let e? where e.hasPrefix("lastfm:"):       source = "lastfm"
+                default:                                        source = nil
+                }
                 return PlaylistSummary(
                     id: $0["id"] as Int64? ?? 0,
                     name: $0["name"] as String? ?? "",

@@ -262,6 +262,20 @@ public final class RoonClient {
     var lbPlaylistSyncTask: Task<Void, Never>?
     #endif
 
+    // MARK: - Last.fm playlist sync (server only)
+
+    /// Whether the daily Last.fm top-tracks → playlist-library import is on.
+    public internal(set) var lastfmPlaylistSyncEnabled: Bool =
+        UserDefaults.standard.bool(forKey: "lastfm_playlist_sync_enabled")
+    /// Whether the Last.fm-derived playlists are also mirrored to Qobuz.
+    public internal(set) var lastfmQobuzSyncEnabled: Bool =
+        UserDefaults.standard.bool(forKey: "lastfm_qobuz_sync_enabled")
+    /// Human-readable status of the last Last.fm playlist import, shown in Settings.
+    public internal(set) var lastfmPlaylistSyncStatus: String = ""
+    #if os(macOS)
+    var lastfmPlaylistSyncTask: Task<Void, Never>?
+    #endif
+
     public init() {
         database = DatabaseManager.open(url: Self.databaseURL)
         // Restore the last explicitly-chosen zone so a play action targets the
@@ -283,6 +297,10 @@ public final class RoonClient {
         // Resume the daily ListenBrainz playlist import if the user enabled it.
         if lbPlaylistSyncEnabled {
             startListenBrainzPlaylistSync()
+        }
+        // Resume the daily Last.fm top-tracks playlist import if enabled.
+        if lastfmPlaylistSyncEnabled {
+            startLastfmPlaylistSync()
         }
         #endif
     }
@@ -332,6 +350,34 @@ public final class RoonClient {
     public func setListenBrainzQobuzSync(enabled: Bool) {
         lbQobuzSyncEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: "listenbrainz_qobuz_sync_enabled")
+    }
+
+    /// Turn the daily Last.fm top-tracks → playlist import on/off (persisted).
+    /// Enabling runs an import immediately. No-op off the server.
+    public func setLastfmPlaylistSync(enabled: Bool) {
+        lastfmPlaylistSyncEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "lastfm_playlist_sync_enabled")
+        #if os(macOS)
+        if enabled {
+            startLastfmPlaylistSync(initialDelay: 0)
+        } else {
+            stopLastfmPlaylistSync()
+            lastfmPlaylistSyncStatus = ""
+        }
+        #endif
+    }
+
+    /// Turn mirroring of Last.fm-derived playlists to Qobuz on/off (persisted).
+    public func setLastfmQobuzSync(enabled: Bool) {
+        lastfmQobuzSyncEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "lastfm_qobuz_sync_enabled")
+    }
+
+    /// Trigger a one-off Last.fm playlist import now (Settings "sync now").
+    public func syncLastfmPlaylistsNow() {
+        #if os(macOS)
+        Task { await runLastfmPlaylistSync() }
+        #endif
     }
 
     // MARK: - Database URL

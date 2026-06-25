@@ -111,20 +111,29 @@ public struct PlaylistsView: View {
         .animation(Motion.standard, value: statusBanner)
     }
 
+    /// Source badge for an imported playlist (nil for user-curated ones).
+    private func sourceBadge(_ source: String?) -> (text: String, color: Color)? {
+        switch source {
+        case "listenbrainz": return ("ListenBrainz", Color.roonGold)
+        case "lastfm":       return ("Last.fm", Color(red: 0.79, green: 0.04, blue: 0.04))
+        default:             return nil
+        }
+    }
+
     @ViewBuilder
     private func row(_ pl: DatabaseManager.PlaylistSummary) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(pl.name).font(.headline)
-                    if pl.source == "listenbrainz" {
-                        Text("ListenBrainz")
+                    if let badge = sourceBadge(pl.source) {
+                        Text(badge.text)
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.roonGold.opacity(0.18), in: Capsule())
-                            .foregroundStyle(Color.roonGold)
-                            .accessibilityLabel("Bron: ListenBrainz")
+                            .background(badge.color.opacity(0.18), in: Capsule())
+                            .foregroundStyle(badge.color)
+                            .accessibilityLabel("Bron: \(badge.text)")
                     }
                 }
                 Text("\(pl.trackCount) nummers · \(pl.createdAt.prefix(10))")
