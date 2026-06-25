@@ -21,13 +21,40 @@ public struct ContentView: View {
                     // ("Deze iPhone") playback is engaged.
                     .safeAreaInset(edge: .bottom) { LocalPlaybackBar() }
             } else {
-                ConnectView()
+                WelcomeGate()
             }
         }
         .animation(Motion.standard, value: client.connectionState.isConnected)
         .animation(Motion.standard, value: client.hasLiveSession)
         .overlay(alignment: .bottom) { ActionErrorToast() }
         .roonSageAppearance()
+    }
+}
+
+// MARK: - Welcome gate (first run)
+
+/// Decides what a disconnected user sees:
+///   - never connected before (`savedHost == nil`) → the `OnboardingView`
+///     walkthrough, until they tap through to connect;
+///   - already connected once, or mid-session after tapping "Verbinden" →
+///     the `ConnectView` (discover / reconnect / manual entry).
+///
+/// Because `savedHost` is only persisted on a *successful* connect, a brand-new
+/// user keeps seeing the welcome on every launch until they're actually
+/// connected — then never again.
+@MainActor
+struct WelcomeGate: View {
+    @Environment(RoonClient.self) private var client
+    @State private var showConnect = false
+
+    var body: some View {
+        if client.savedHost != nil || showConnect {
+            ConnectView()
+                .transition(.opacity)
+        } else {
+            OnboardingView { withAnimation(Motion.standard) { showConnect = true } }
+                .transition(.opacity)
+        }
     }
 }
 
