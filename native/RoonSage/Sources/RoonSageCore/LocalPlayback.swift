@@ -65,8 +65,9 @@ public final class LocalPlaybackController {
 
     /// Set by the iOS app so it can refresh `MPNowPlayingInfoCenter` and the
     /// home-screen widget whenever the engine's state changes. Kept as a closure
-    /// so this core type never imports MediaPlayer.
-    public var onStateChange: (() -> Void)?
+    /// so this core type never imports MediaPlayer. `@MainActor` so the handler
+    /// can touch main-actor UI/system state directly.
+    public var onStateChange: (@MainActor () -> Void)?
 
     #if canImport(AVFoundation)
     @ObservationIgnored private let player = AVPlayer()
@@ -80,16 +81,20 @@ public final class LocalPlaybackController {
         #if canImport(AVFoundation)
         // Advance when the current item finishes (single AVPlayer + manual queue,
         // so end-of-track is a notification, not AVQueuePlayer item management).
+        // Both callbacks are delivered on the main queue (the main actor's
+        // executor), so assume isolation rather than hop through a Task — that
+        // keeps it synchronous and avoids sending the non-Sendable AVPlayerItem
+        // across an actor boundary.
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main
         ) { [weak self] note in
             let finished = note.object as? AVPlayerItem
-            Task { @MainActor in self?.handleItemEnded(finished) }
+            MainActor.assumeIsolated { self?.handleItemEnded(finished) }
         }
         // ~2 Hz position updates drive the scrubber + lock-screen elapsed time.
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self else { return }
                 self.positionSec = time.seconds.isFinite ? max(0, time.seconds) : 0
                 self.onStateChange?()

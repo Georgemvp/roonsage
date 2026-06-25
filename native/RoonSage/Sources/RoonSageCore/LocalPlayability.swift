@@ -9,8 +9,9 @@ import Foundation
 /// were never analysed from a file, so they have no features and can't be
 /// streamed to the phone; the UI flags them and offers to drop them.
 public enum LocalPlayability {
-    /// Result of splitting a track list by local playability.
-    public struct Partition: Sendable, Equatable {
+    /// Result of splitting a track list by local playability. (Not Equatable —
+    /// TrackRecord isn't, and nothing compares partitions.)
+    public struct Partition: Sendable {
         public let playable: [TrackRecord]
         public let blocked: [TrackRecord]
         public init(playable: [TrackRecord], blocked: [TrackRecord]) {
