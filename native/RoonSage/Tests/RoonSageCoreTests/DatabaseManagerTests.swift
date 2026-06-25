@@ -139,6 +139,18 @@ final class DatabaseManagerTests: XCTestCase {
         XCTAssertTrue(resolvedNone.isEmpty)
     }
 
+    func testResolveCurrentTracksAlignedKeepsPositionsForMisses() async throws {
+        try await db.upsertTracks([track("lib1", "In Library", "Artist A")])
+        let saved = [
+            TrackRecord(id: "stale", title: "In Library", artist: "Artist A"),
+            TrackRecord(id: "", title: "Qobuz Only", artist: "Artist B"),  // not in library
+        ]
+        let aligned = try await db.resolveCurrentTracksAligned(saved)
+        XCTAssertEqual(aligned.count, 2, "one element per input, in order")
+        XCTAssertEqual(aligned[0]?.id, "lib1", "library hit resolves to the current row")
+        XCTAssertNil(aligned[1], "non-library track stays a miss so playback can fall back to Qobuz")
+    }
+
     // MARK: - Helpers
 
     private func logOldListens(_ title: String, _ artist: String, times: Int) throws {

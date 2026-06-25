@@ -205,8 +205,17 @@ extension DatabaseManager {
     }
 
     /// Re-resolve a saved track to a CURRENT library track (Roon item_keys change
-    /// across resyncs). Matches by title + artist, case-insensitive.
+    /// across resyncs). Matches by title + artist, case-insensitive. Drops tracks
+    /// that aren't in the library — use `resolveCurrentTracksAligned` when callers
+    /// need to know which ones missed (e.g. to fall back to Qobuz).
     public func resolveCurrentTracks(_ saved: [TrackRecord]) async throws ->[TrackRecord] {
+        try await resolveCurrentTracksAligned(saved).compactMap { $0 }
+    }
+
+    /// Like `resolveCurrentTracks`, but returns one element per input track
+    /// (preserving order): the current-library match, or `nil` when the track
+    /// isn't in the library. Lets playback fall back to Qobuz for the misses.
+    public func resolveCurrentTracksAligned(_ saved: [TrackRecord]) async throws ->[TrackRecord?] {
         guard !saved.isEmpty else { return [] }
         return try await pool.read { db in
             // One query fetching every candidate by title, then resolve in-memory
@@ -225,7 +234,7 @@ extension DatabaseManager {
                 for r in rows { byTitle[r.title.lowercased(), default: []].append(r) }
                 start += chunk
             }
-            return saved.compactMap { s in
+            return saved.map { s in
                 let candidates = byTitle[s.title.lowercased()] ?? []
                 let savedArtist = s.artist?.lowercased()
                 // Mirror the old WHERE: match when saved artist is nil, the

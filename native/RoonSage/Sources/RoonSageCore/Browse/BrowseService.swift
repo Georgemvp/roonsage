@@ -287,10 +287,17 @@ actor BrowseService {
         return Self.trackSectionWords.contains { t.contains($0) }
     }
 
-    private func encodeKeyPart(_ s: String) -> String {
+    static func encodeKeyPart(_ s: String) -> String {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
         return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
+    }
+
+    /// Build the synthetic `qobuz_search::<artist>::<title>` key that `playByBrowse`
+    /// resolves with a fresh Roon global search (which covers Qobuz) at play time.
+    /// Use this to play a track that isn't in the local Roon library.
+    static func qobuzSearchKey(artist: String?, title: String) -> String {
+        qobuzSearchPrefix + encodeKeyPart(artist ?? "") + "::" + encodeKeyPart(title)
     }
 
     /// One step of a `hierarchy: "search"` browse. `input` triggers a fresh
@@ -330,7 +337,7 @@ actor BrowseService {
             let parts = (item.subtitle ?? "").split(separator: "•").map { $0.trimmingCharacters(in: .whitespaces) }
             let artist = parts.first ?? ""
             let album = parts.count > 1 ? parts[1] : nil
-            let key = Self.qobuzSearchPrefix + encodeKeyPart(artist) + "::" + encodeKeyPart(item.title)
+            let key = Self.qobuzSearchKey(artist: artist, title: item.title)
             return SearchResult(
                 title: item.title,
                 artist: artist.isEmpty ? nil : artist,
