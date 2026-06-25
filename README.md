@@ -66,8 +66,9 @@ Design principles:
 - **Generate** — describe a mood/genre/era; the LLM analyses it into filters (sub-styles are mapped onto Roon's coarse genres), picks tracks from your library, and stops at a finished playlist with an **AI title + description**, auto-saved locally — you then pick a zone and play. Warns when a genre intent couldn't be honoured by the library.
 - **Ask** — a lightweight vibe prompt → one LLM call → instantly-playable results (play now / queue next / play all).
 - **Recommend** — album recommendations grounded in your library.
+- **Playlists** — curated sets save locally, survive a resync, and replay (or push to Qobuz) any time.
 - **Save to Qobuz** — push a curated set to a real Qobuz playlist.
-- LLM providers: **Anthropic**, **OpenAI**, **Ollama** (local), and any **OpenAI-compatible** custom endpoint.
+- LLM providers: **Ollama** (local, default), **Anthropic**, **OpenAI**, **Google Gemini**, and any **OpenAI-compatible** custom endpoint.
 
 ### Sonic intelligence (CLAP embeddings)
 The sonic features run over **CLAP sonic embeddings** (512-dim vectors the analyzer extracts per track via Core ML), with a rule-based BPM/Camelot/energy/tag fallback before a track is analyzed.
@@ -77,6 +78,8 @@ The sonic features run over **CLAP sonic embeddings** (512-dim vectors the analy
 - **Song Paths** — the smoothest sonic bridge between two tracks (nearest-neighbour walk / graph search over the embedding space).
 - **Song Alchemy** — add/subtract vector math over the embedding space to blend or steer a selection.
 - **Sonic Radio** — daily, endless artist-seeded stations that refill as they drain, plus a handful of **AI artist radios** saved as stable, auto-refreshed Qobuz playlists (AI-generated titles, genre-coherent ordering).
+- **Sonic Adventure** — a one-shot *journey* (not a station) that starts from the now-playing track and drifts through sonic space to a deliberately distant destination, every hop a smooth transition (reuses the Song Paths walker over the embedding index).
+- **Discovery** — an "Ontdek" hub surfacing library insights: tracks per decade, top genres, and entry points into the sonic features.
 - **Taste Profile** — top artists, genres, tags, and listening stats combining local history with ListenBrainz/Last.fm.
 - **Year in Review** — a recap of your listening (works on thin clients too — pulled from the server).
 
@@ -128,6 +131,7 @@ Only one device registers a Roon extension. RoonClient runs in one of two modes 
   - `GET /settings` — synced settings
   - `GET /playback?zone=…` — live zones / now-playing / queue
   - `POST /command` — play / pause / volume / curate / … (the **playback proxy**)
+  - `GET` / `POST` / `DELETE /playlists` — list, save, and delete locally-stored curated playlists
   - `GET /history` — listening history (so thin clients render history, radios, and taste)
   - `GET /year-review?year=…` — Year in Review stats
   - `GET /health`
@@ -218,4 +222,4 @@ MIT — see [LICENSE](LICENSE).
 - [Last.fm](https://www.last.fm) for music intelligence and community tags
 - [MusicBrainz](https://musicbrainz.org) for open music metadata
 - [Qobuz](https://www.qobuz.com) for the lossless streaming catalogue
-- [Anthropic](https://www.anthropic.com), [OpenAI](https://openai.com), and [Ollama](https://ollama.com) for the LLM backends
+- [Anthropic](https://www.anthropic.com), [OpenAI](https://openai.com), [Google Gemini](https://ai.google.dev), and [Ollama](https://ollama.com) for the LLM backends

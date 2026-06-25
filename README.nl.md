@@ -60,8 +60,9 @@ Ontwerpprincipes:
 - **Generate** — beschrijf een sfeer/genre/tijdperk; de LLM vertaalt dat naar filters (sub-stijlen worden op Roons grove genres gemapt), kiest tracks uit je bibliotheek en stopt bij een afgeronde playlist met een **AI-titel + beschrijving**, lokaal automatisch opgeslagen — daarna kies je een zone en speel je af. Waarschuwt wanneer een genre-intentie niet door de bibliotheek kon worden ingevuld.
 - **Ask** — een lichte vibe-prompt → één LLM-call → direct afspeelbare resultaten (nu afspelen / als volgende in wachtrij / alles afspelen).
 - **Recommend** — albumaanbevelingen geworteld in je bibliotheek.
+- **Playlists** — samengestelde sets worden lokaal opgeslagen, overleven een hersynchronisatie en zijn altijd opnieuw af te spelen (of naar Qobuz te pushen).
 - **Opslaan naar Qobuz** — push een samengestelde set naar een echte Qobuz-playlist.
-- LLM-providers: **Anthropic**, **OpenAI**, **Ollama** (lokaal) en elk **OpenAI-compatibel** custom endpoint.
+- LLM-providers: **Ollama** (lokaal, standaard), **Anthropic**, **OpenAI**, **Google Gemini** en elk **OpenAI-compatibel** custom endpoint.
 
 ### Sonische intelligentie (CLAP-embeddings)
 De sonische functies draaien over **CLAP-embeddings** (512-dim vectoren die de analyzer per track berekent via Core ML), met een rule-based fallback op BPM/Camelot/energie/tags zolang een track nog niet is geanalyseerd.
@@ -71,6 +72,8 @@ De sonische functies draaien over **CLAP-embeddings** (512-dim vectoren die de a
 - **Song Paths** — de soepelste sonische brug tussen twee tracks (nearest-neighbour-wandeling / graafzoektocht over de embeddingruimte).
 - **Song Alchemy** — optellen/aftrekken met vectorrekenen over de embeddingruimte om een selectie te mengen of te sturen.
 - **Sonic Radio** — dagelijkse, eindeloze artiest-gezaaide stations die zichzelf bijvullen, plus enkele **AI-artiesten-radio's** opgeslagen als stabiele, automatisch ververste Qobuz-playlists (AI-gegenereerde titels, genre-coherente volgorde).
+- **Sonic Adventure** — een eenmalige *reis* (geen station) die start vanaf de nu spelende track en door de sonische ruimte drift naar een bewust ver verwijderde bestemming, met elke hop een soepele overgang (hergebruikt de Song Paths-wandelaar over de embedding-index).
+- **Discovery** — een "Ontdek"-hub die bibliotheekinzichten toont: tracks per decennium, topgenres en ingangen naar de sonische functies.
 - **Taste Profile** — top-artiesten, -genres, -tags en luisterstatistieken die lokale historie combineren met ListenBrainz/Last.fm.
 - **Year in Review** — een terugblik op je luistergedrag (werkt ook op thin clients — opgehaald van de server).
 
@@ -122,6 +125,7 @@ Slechts één apparaat registreert een Roon-extensie. RoonClient draait in één
   - `GET /settings` — gesynchroniseerde instellingen
   - `GET /playback?zone=…` — live zones / now-playing / wachtrij
   - `POST /command` — play / pause / volume / curate / … (de **playback-proxy**)
+  - `GET` / `POST` / `DELETE /playlists` — lokaal opgeslagen samengestelde playlists opvragen, bewaren en verwijderen
   - `GET /history` — luistergeschiedenis (zodat thin clients historie, radio's en smaak tonen)
   - `GET /year-review?year=…` — Year in Review-statistieken
   - `GET /health`
@@ -212,4 +216,4 @@ MIT — zie [LICENSE](LICENSE).
 - [Last.fm](https://www.last.fm) voor muziekintelligentie en community-tags
 - [MusicBrainz](https://musicbrainz.org) voor open muziekmetadata
 - [Qobuz](https://www.qobuz.com) voor de lossless streamingcatalogus
-- [Anthropic](https://www.anthropic.com), [OpenAI](https://openai.com) en [Ollama](https://ollama.com) voor de LLM-backends
+- [Anthropic](https://www.anthropic.com), [OpenAI](https://openai.com), [Google Gemini](https://ai.google.dev) en [Ollama](https://ollama.com) voor de LLM-backends
