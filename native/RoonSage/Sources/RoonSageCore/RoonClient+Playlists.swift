@@ -112,16 +112,29 @@ extension RoonClient {
         return tracks
     }
 
-    /// Resolve a saved playlist to current item_keys and play it. Returns the
-    /// number of tracks that resolved + started.
+    /// Play a saved playlist. Tracks in the local Roon library play by their
+    /// current item_key; tracks that aren't (e.g. imported ListenBrainz playlists)
+    /// fall back to a Roon global search — which covers Qobuz — so a playlist of
+    /// non-library tracks is still fully playable. Returns the track count queued.
     @discardableResult
     public func playPlaylist(id: Int64, zoneID: String) async -> Int {
         let saved = await playlistTracks(id: id)
         guard !saved.isEmpty else { return 0 }
-        let current = (try? await database?.resolveCurrentTracks(saved)) ?? []
-        guard !current.isEmpty else { return 0 }
-        await curateTracks(current, zoneID: zoneID)
-        return current.count
+        let aligned = (try? await database?.resolveCurrentTracksAligned(saved)) ?? []
+        var toPlay: [TrackRecord] = []
+        toPlay.reserveCapacity(saved.count)
+        for (i, s) in saved.enumerated() {
+            if i < aligned.count, let lib = aligned[i] {
+                toPlay.append(lib)                       // in the library → play by item_key
+            } else {
+                // Not in the library: resolve via Roon global search (Qobuz) at
+                // play time using a synthetic key.
+                let key = BrowseService.qobuzSearchKey(artist: s.artist, title: s.title)
+                toPlay.append(TrackRecord(id: key, title: s.title, artist: s.artist, album: s.album))
+            }
+        }
+        await curateTracks(toPlay, zoneID: zoneID)
+        return toPlay.count
     }
 
     public func transferZone(fromZoneID: String, toZoneID: String) async {

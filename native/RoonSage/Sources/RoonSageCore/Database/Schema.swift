@@ -295,6 +295,18 @@ enum Schema {
             try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN attributes TEXT")
         }
 
+        // External-source playlists (e.g. ListenBrainz). `external_id` carries a
+        // stable, source-scoped key ("listenbrainz:<playlist_mbid>") so the daily
+        // import can upsert in place instead of piling up a fresh copy each run.
+        // NULL for user-curated playlists — SQLite treats NULLs as distinct, so a
+        // UNIQUE index still allows any number of them.
+        migrator.registerMigration("v21_playlist_external_id") { db in
+            try db.alter(table: "playlists") { t in
+                t.add(column: "external_id", .text)
+            }
+            try db.execute(sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_playlists_external_id ON playlists(external_id)")
+        }
+
         try migrator.migrate(db)
     }
 }

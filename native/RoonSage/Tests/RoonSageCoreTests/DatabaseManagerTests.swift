@@ -139,6 +139,18 @@ final class DatabaseManagerTests: XCTestCase {
         XCTAssertTrue(resolvedNone.isEmpty)
     }
 
+    func testResolveCurrentTracksAlignedKeepsPositionsForMisses() async throws {
+        try await db.upsertTracks([track("lib1", "In Library", "Artist A")])
+        let saved = [
+            TrackRecord(id: "stale", title: "In Library", artist: "Artist A"),
+            TrackRecord(id: "", title: "Qobuz Only", artist: "Artist B"),  // not in library
+        ]
+        let aligned = try await db.resolveCurrentTracksAligned(saved)
+        XCTAssertEqual(aligned.count, 2, "one element per input, in order")
+        XCTAssertEqual(aligned[0]?.id, "lib1", "library hit resolves to the current row")
+        XCTAssertNil(aligned[1], "non-library track stays a miss so playback can fall back to Qobuz")
+    }
+
     // MARK: - Helpers
 
     private func logOldListens(_ title: String, _ artist: String, times: Int) throws {
@@ -258,5 +270,52 @@ extension DatabaseManagerTests {
         XCTAssertEqual(a.topDecades.first?.label, "1990s")
         XCTAssertEqual(a.topLikedArtists, ["Artist X"])
         XCTAssertEqual(a.partsOfDay.map(\.label), ["Ochtend", "Middag", "Avond", "Nacht"])
+    }
+
+    func testSyncExternalPlaylistsIsIdempotentAndScoped() async throws {
+        func ext(_ id: String, _ name: String, _ titles: [String]) -> DatabaseManager.ExternalPlaylist {
+            DatabaseManager.ExternalPlaylist(
+                externalID: "listenbrainz:\(id)",
+                name: name,
+                tracks: titles.map { TrackRecord(id: "", title: $0, artist: "Artist", album: "Album") }
+            )
+        }
+
+        // A user-curated playlist (NULL external_id) must survive every sync.
+        _ = try await db.savePlaylist(name: "Mijn mix", tracks: [track("u1", "Eigen nummer", "Mij")])
+
+        // First import: two LB playlists land alongside the user's.
+        try await db.syncExternalPlaylists(sourcePrefix: "listenbrainz:", playlists: [
+            ext("mbid-a", "Weekly Jams", ["A1", "A2", "A3"]),
+            ext("mbid-b", "Daily Jams", ["B1"]),
+        ])
+        var all = try await db.listPlaylists()
+        XCTAssertEqual(all.count, 3)
+        XCTAssertEqual(all.first(where: { $0.name == "Weekly Jams" })?.trackCount, 3)
+
+        // Re-import identical data: no duplicates (upsert by external_id).
+        try await db.syncExternalPlaylists(sourcePrefix: "listenbrainz:", playlists: [
+            ext("mbid-a", "Weekly Jams", ["A1", "A2", "A3"]),
+            ext("mbid-b", "Daily Jams", ["B1"]),
+        ])
+        all = try await db.listPlaylists()
+        XCTAssertEqual(all.count, 3, "re-import must replace, not duplicate")
+
+        // Upstream changes: 'a' renamed + retracked, 'b' removed. The user mix stays.
+        try await db.syncExternalPlaylists(sourcePrefix: "listenbrainz:", playlists: [
+            ext("mbid-a", "Weekly Jams (nieuw)", ["A1", "A4"]),
+        ])
+        all = try await db.listPlaylists()
+        XCTAssertEqual(all.count, 2)
+        XCTAssertTrue(all.contains { $0.name == "Mijn mix" }, "user playlist untouched")
+        let a = try XCTUnwrap(all.first(where: { $0.name == "Weekly Jams (nieuw)" }))
+        XCTAssertEqual(a.trackCount, 2)
+        let aTracks = try await db.playlistTracks(id: a.id)
+        XCTAssertEqual(aTracks.map(\.title), ["A1", "A4"])
+
+        // Empty import prunes all LB playlists but leaves the user's.
+        try await db.syncExternalPlaylists(sourcePrefix: "listenbrainz:", playlists: [])
+        all = try await db.listPlaylists()
+        XCTAssertEqual(all.map(\.name), ["Mijn mix"])
     }
 }

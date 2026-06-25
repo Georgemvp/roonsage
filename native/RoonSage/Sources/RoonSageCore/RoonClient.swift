@@ -244,6 +244,19 @@ public final class RoonClient {
     /// remotes auto-re-pull when analyses change — WITHOUT a per-poll DB read.
     public var featuresRevision: String = ""
 
+    // MARK: - ListenBrainz playlist sync (server only)
+
+    /// Whether the daily ListenBrainz → playlist-library import is on. Mirrored to
+    /// UserDefaults so it survives launches; observable so Settings stays in sync.
+    public internal(set) var lbPlaylistSyncEnabled: Bool =
+        UserDefaults.standard.bool(forKey: "listenbrainz_playlist_sync_enabled")
+    /// Human-readable status of the last import, shown in Settings.
+    public internal(set) var lbPlaylistSyncStatus: String = ""
+    #if os(macOS)
+    /// The running daily-import loop (nil when disabled).
+    var lbPlaylistSyncTask: Task<Void, Never>?
+    #endif
+
     public init() {
         database = DatabaseManager.open(url: Self.databaseURL)
         // Restore the last explicitly-chosen zone so a play action targets the
@@ -261,6 +274,10 @@ public final class RoonClient {
         let shareEnabled = UserDefaults.standard.object(forKey: "library_share_enabled") as? Bool ?? true
         if shareEnabled {
             setLibrarySharing(enabled: true)
+        }
+        // Resume the daily ListenBrainz playlist import if the user enabled it.
+        if lbPlaylistSyncEnabled {
+            startListenBrainzPlaylistSync()
         }
         #endif
     }
@@ -281,6 +298,28 @@ public final class RoonClient {
     }
 
     public var isLibrarySharing: Bool { shareServer != nil }
+
+    /// Turn the daily ListenBrainz playlist import on/off (persisted). Enabling
+    /// runs an import immediately; disabling stops the loop. No-op off the server.
+    public func setListenBrainzPlaylistSync(enabled: Bool) {
+        lbPlaylistSyncEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "listenbrainz_playlist_sync_enabled")
+        #if os(macOS)
+        if enabled {
+            startListenBrainzPlaylistSync(initialDelay: 0)
+        } else {
+            stopListenBrainzPlaylistSync()
+            lbPlaylistSyncStatus = ""
+        }
+        #endif
+    }
+
+    /// Trigger a one-off ListenBrainz playlist import now (Settings "sync now").
+    public func syncListenBrainzPlaylistsNow() {
+        #if os(macOS)
+        Task { await runListenBrainzPlaylistSync() }
+        #endif
+    }
 
     // MARK: - Database URL
 
