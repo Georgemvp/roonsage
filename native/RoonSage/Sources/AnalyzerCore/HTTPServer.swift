@@ -168,8 +168,14 @@ public final class HTTPServer {
         func err(_ status: String, _ msg: String) -> (String, [String: String], Data) {
             (status, ["Content-Type": "text/plain"], Data(msg.utf8))
         }
-        guard isAuthorized(path: "/audio", request: request, loopback: loopback) else {
-            return err("401 Unauthorized", "unauthorized")
+        // Auth: accept the shared secret in the header OR a `token` query param.
+        // AVPlayer can't attach a custom header without private API, so the
+        // client passes the token in the URL for this (non-secret) endpoint.
+        if let token, !loopback {
+            let provided = Self.headerValue(Self.tokenHeader, in: request) ?? Self.queryValue("token", in: target)
+            guard let provided, Self.constantTimeEquals(provided, token) else {
+                return err("401 Unauthorized", "unauthorized")
+            }
         }
         guard let key = Self.queryValue("match_key", in: target), !key.isEmpty else {
             return err("400 Bad Request", "missing match_key")
