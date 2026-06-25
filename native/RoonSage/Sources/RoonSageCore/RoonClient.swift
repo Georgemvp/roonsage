@@ -252,6 +252,11 @@ public final class RoonClient {
         UserDefaults.standard.bool(forKey: "listenbrainz_playlist_sync_enabled")
     /// Human-readable status of the last import, shown in Settings.
     public internal(set) var lbPlaylistSyncStatus: String = ""
+    /// Whether imported ListenBrainz playlists are also mirrored to Qobuz (as
+    /// "ListenBrainz · <name>" playlists) on each daily import. Requires Qobuz
+    /// credentials. Mirrored to UserDefaults; observable for Settings.
+    public internal(set) var lbQobuzSyncEnabled: Bool =
+        UserDefaults.standard.bool(forKey: "listenbrainz_qobuz_sync_enabled")
     #if os(macOS)
     /// The running daily-import loop (nil when disabled).
     var lbPlaylistSyncTask: Task<Void, Never>?
@@ -319,6 +324,14 @@ public final class RoonClient {
         #if os(macOS)
         Task { await runListenBrainzPlaylistSync() }
         #endif
+    }
+
+    /// Turn mirroring of imported ListenBrainz playlists to Qobuz on/off
+    /// (persisted). When enabled, the next import (and "sync now") also pushes
+    /// them to Qobuz. No-op off the server.
+    public func setListenBrainzQobuzSync(enabled: Bool) {
+        lbQobuzSyncEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "listenbrainz_qobuz_sync_enabled")
     }
 
     // MARK: - Database URL

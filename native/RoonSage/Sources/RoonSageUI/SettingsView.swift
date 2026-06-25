@@ -318,6 +318,16 @@ public struct SettingsView: View {
                 Text("Haalt elke dag je ListenBrainz-playlists (eigen + ‘voor jou samengesteld’) op en zet ze in de playlist-bibliotheek van de server, zodat ze in de Playlists-tab verschijnen.")
                     .font(.caption).foregroundStyle(.secondary)
                 if client.lbPlaylistSyncEnabled {
+                    Toggle("Sync ze ook naar Qobuz", isOn: Binding(
+                        get: { client.lbQobuzSyncEnabled },
+                        set: { client.setListenBrainzQobuzSync(enabled: $0) }
+                    ))
+                    .disabled(!client.qobuzConfigured)
+                    Text(client.qobuzConfigured
+                         ? "Maakt voor elke ListenBrainz-playlist een Qobuz-playlist “ListenBrainz · …” aan en werkt die dagelijks bij."
+                         : "Stel eerst je Qobuz-account in (sectie Qobuz) om dit te kunnen gebruiken.")
+                        .font(.caption).foregroundStyle(.secondary)
+
                     Button("Synchroniseer playlists nu") { client.syncListenBrainzPlaylistsNow() }
                     if !client.lbPlaylistSyncStatus.isEmpty {
                         Text(client.lbPlaylistSyncStatus)

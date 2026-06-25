@@ -115,7 +115,18 @@ public struct PlaylistsView: View {
     private func row(_ pl: DatabaseManager.PlaylistSummary) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(pl.name).font(.headline)
+                HStack(spacing: 6) {
+                    Text(pl.name).font(.headline)
+                    if pl.source == "listenbrainz" {
+                        Text("ListenBrainz")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.roonGold.opacity(0.18), in: Capsule())
+                            .foregroundStyle(Color.roonGold)
+                            .accessibilityLabel("Bron: ListenBrainz")
+                    }
+                }
                 Text("\(pl.trackCount) nummers · \(pl.createdAt.prefix(10))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
