@@ -46,8 +46,10 @@ targets:
           UIColorName: LaunchBackground
           UIImageName: LaunchLogo
           UIImageRespectsSafeAreaInsets: true
-        # Background refresh for widget/zone state updates.
+        # `audio`: keep on-device (local) playback running with the screen
+        # locked / app backgrounded. `fetch`: background widget/zone refresh.
         UIBackgroundModes:
+          - audio
           - fetch
         # BGTaskScheduler task identifiers — must be here (Info.plist), not a build setting.
         BGTaskSchedulerPermittedIdentifiers:

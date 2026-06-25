@@ -432,6 +432,18 @@ extension DatabaseManager {
         }
     }
 
+    /// Match keys that have analysed audio features — the set of tracks playable
+    /// **on this device** (each was analysed from an on-disk file the analyser
+    /// server can stream via `/audio`). Streaming-only library entries (Qobuz)
+    /// were never analysed from a file, so they're absent here.
+    public func playableMatchKeys() async throws -> Set<String> {
+        try await pool.read { db in
+            let keys = try String.fetchAll(
+                db, sql: "SELECT DISTINCT match_key FROM track_audio_features WHERE match_key IS NOT NULL AND match_key != ''")
+            return Set(keys)
+        }
+    }
+
     /// (matchKey, playCount, lastPlayedISO) for tracks the user has actually
     /// played, joining `listening_history` to `tracks` on LOWER(title)+LOWER(artist)
     /// — the v18 expression index keeps this fast. Powers the recency-weighted

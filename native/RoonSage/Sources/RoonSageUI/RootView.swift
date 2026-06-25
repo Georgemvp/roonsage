@@ -17,6 +17,9 @@ public struct ContentView: View {
             if client.connectionState.isConnected || client.hasLiveSession {
                 RootView()
                     .overlay(alignment: .top) { ReconnectingBanner() }
+                    // On-device mini-player, above the tab bar, while local
+                    // ("Deze iPhone") playback is engaged.
+                    .safeAreaInset(edge: .bottom) { LocalPlaybackBar() }
             } else {
                 ConnectView()
             }

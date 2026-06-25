@@ -157,6 +157,11 @@ public final class RoonClient {
     }
     public internal(set) var lastActionError: ActionError?
 
+    /// Result of the most recent "play on this device" attempt — how many tracks
+    /// were locally playable vs. skipped (Qobuz/streaming-only). Drives the
+    /// filter notice in the local-playback UI.
+    public internal(set) var lastLocalPlaybackSummary: LocalPlaybackSummary?
+
     /// Surface a failure from a feature/compute view (DJ set, Sonic DNA, Song
     /// Paths, Music Map, …) in the global error toast, so a failed computation
     /// reads as "something went wrong" instead of a misleading empty state.
