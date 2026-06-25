@@ -18,35 +18,34 @@
 
 ## Quick Start
 
-**If you just want to get started quickly:**
+**The Analyzer is the core of RoonSage.** It connects to Roon, syncs your library, and acts as the server. The macOS and iOS apps are remote apps that connect to it.
 
-1. **Download the macOS app** from [Releases](https://github.com/Georgemvp/roonsage/releases) (look for `RoonSage-x.y.z.dmg`)
-2. **Run the app** — it will discover your Roon Core on the network
-3. **Authorize** when the Roon authorization dialog appears
-4. **Browse your library, generate playlists, and play**
+1. **Download and install the Analyzer** from [Releases](https://github.com/Georgemvp/roonsage/releases) (look for `RoonSageAnalyzerApp-x.y.z.dmg`)
+2. **Point it at your music library folder** and let it scan
+3. **Authorize with Roon** when the Roon dialog appears
+4. **Download the macOS or iOS app** — it connects to the Analyzer as a remote and gives you a full library browser + player UI
 
-For **iOS**, join the TestFlight beta (link in releases) or build from source.
-
-For **Sonic features** (Music Map, Song Paths, Sonic Search), [download the Analyzer](#audio-analyzer) and run it alongside the macOS app.
+The Analyzer should stay running at all times (Mac Mini next to your Roon Core is ideal). The macOS/iOS apps can come and go.
 
 ---
 
 ## System Requirements
 
-### macOS App
-- **macOS 14 (Sonoma)** or later
+### Audio Analyzer (the server — required)
+- **macOS 14 (Sonoma)** or later (runs on the always-on machine, e.g. Mac Mini)
 - **Roon Core** (version 1.8+) running on your network
-- Internet connection (for Qobuz search, LLM, scrobbling, metadata enrichment)
+- **Music library** accessible on disk (FLAC, MP3, M4A)
+- ~5–15 minutes per 1000 tracks for the initial analysis
 
-### iOS App
+### macOS App (remote)
+- **macOS 14 (Sonoma)** or later
+- **Analyzer running** somewhere on your network (or on the same machine)
+- Internet connection (for Qobuz search, LLM features, scrobbling)
+
+### iOS App (remote)
 - **iOS/iPadOS 17** or later
-- **Roon Core** on your network (or a macOS RoonSage server if behind NAT)
+- **Analyzer running** somewhere reachable (same network, or via ZeroTier from outside)
 - Optional: **ZeroTier** (free peer-to-peer VPN) for access outside your home network
-
-### Audio Analyzer (optional, for sonic features)
-- **macOS 14+** or **roonsage-analyzer** CLI on any OS
-- **Music library** accessible on disk (FLAC, MP3, M4A with tags)
-- ~5–15 minutes per 1000 tracks (depends on format; FLAC faster)
 
 ### Roon Core
 - Your own instance running on your network
@@ -56,6 +55,8 @@ For **Sonic features** (Music Map, Song Paths, Sonic Search), [download the Anal
 ---
 
 ## macOS App
+
+The macOS app is a **remote app** — it connects to a running Analyzer and gives you a full library browser + player UI. It does not connect to Roon directly.
 
 ### Installation
 
@@ -68,22 +69,14 @@ The app is **signed and notarized** (gatekeeper approved). If you see a security
 - Right-click the app → "Open" → "Open"
 - Or allow it in System Settings → Privacy & Security
 
-### First Run: Roon Authorization
+### First Run: Connect to the Analyzer
 
-When you first open the app:
+1. Make sure the **Analyzer** is running (on this machine or another on the network)
+2. The macOS app auto-discovers the Analyzer via Bonjour
+3. If not auto-discovered, go to Settings and enter the Analyzer's IP address + port (`5767`)
+4. Once connected you see "✓ Connected" and the library loads
 
-1. It scans your network for Roon Core (via UDP multicast)
-2. If found, displays "Roon found at `192.168.1.x:9330`"
-3. Click **"Authorize"** — the Roon authorization flow opens
-4. **Allow** the RoonSage extension in Roon
-5. You see "✓ Connected" when authorization completes
-
-The app automatically **saves your Roon Core ID and token** in the local database (not synced anywhere).
-
-**If Roon isn't discovered:**
-- Verify Roon Core is running and on the same network
-- Check that your Wi-Fi/firewall allows multicast (UDP 5353 + 23017)
-- Or manually enter the IP + port in Settings
+The macOS app has **no Roon connection of its own** — all library data and playback go through the Analyzer.
 
 ### Upgrading
 
@@ -101,15 +94,15 @@ The app checks for updates and can **auto-install** them overnight or on-demand 
 
 ### Setup
 
-On first launch, the app looks for a **RoonSage server** (the macOS app):
+On first launch, the app looks for a **running Analyzer**:
 
-- **On your home network**: If the macOS app is running, it auto-discovers via Bonjour
+- **On your home network**: The Analyzer is auto-discovered via Bonjour
 - **Outside your network** (iPhone/iPad on cellular): You need to:
   1. Set up a **ZeroTier** peer-to-peer VPN (free, at [zerotier.com](https://zerotier.com))
-  2. In RoonSage Settings, enter the ZeroTier IP of your Mac (e.g. `192.168.192.x`)
-  3. The app then proxies all Roon commands through the secure tunnel
+  2. In RoonSage Settings, enter the ZeroTier IP of the machine running the Analyzer (e.g. `192.168.192.x`)
+  3. All Roon commands then proxy through the Analyzer over the secure tunnel
 
-If you **don't have a server** (running the macOS app), the iOS app can't connect — it's a **thin client** that requires a server build of the macOS app to be always-on.
+If the **Analyzer is not running**, the iOS app can't connect — it's a remote app that requires the Analyzer to be always-on (e.g. on a Mac Mini).
 
 ### Lock Screen, Control Center & Siri
 
@@ -126,14 +119,16 @@ These rely on `MPNowPlayingInfoCenter` and remote command handling.
 
 ## Audio Analyzer
 
-The **Audio Analyzer** walks your music files, extracts BPM, musical key (Camelot), and a 512-dimensional **CLAP sonic embedding** per track. These power Sonic Search, Music Map, Song Paths, DJ tools, and Sonic Radio.
+The **Audio Analyzer** is the heart of RoonSage. It is the **always-on server** that:
 
-### Why it exists
+- Registers with your Roon Core as an extension
+- Syncs your full library into a local database
+- Walks your music files and extracts BPM, musical key (Camelot), and a 512-dimensional **CLAP sonic embedding** per track
+- Serves everything to the macOS and iOS remote apps over HTTP (port `5767` for library/playback, port `5766` for audio features)
 
-- Roon has no way to query "all tracks in the key of G" or "fast-tempo funk"
-- The analyzer fills this gap by indexing your actual audio files
-- It runs locally (all analysis stays on your machine)
-- Results are served via a simple HTTP server that the macOS and iOS apps pull from
+The macOS and iOS apps are remotes — they cannot function without the Analyzer running somewhere.
+
+**Best setup**: run the Analyzer on a Mac Mini or always-on Mac that is near your Roon Core.
 
 ### Installation & Running
 
@@ -141,19 +136,16 @@ The **Audio Analyzer** walks your music files, extracts BPM, musical key (Camelo
 
 1. Download `RoonSageAnalyzerApp-x.y.z.dmg` from [Releases](https://github.com/Georgemvp/roonsage/releases)
 2. Drag to Applications and launch
-3. The app shows a progress bar + task count
-4. When done, it stays running as a background server on port `5766`
+3. **Point it at your music library folder** (e.g. `/Volumes/MyMusic`)
+4. It shows a progress bar while analyzing; once done it stays running as a server
+5. **Authorize with Roon** when the Roon authorization dialog appears — the Analyzer registers as a Roon extension and starts syncing your library
 
 #### Option B: CLI (`roonsage-analyzer`)
 
 1. Build from source: `cd native && swift build -c release --product roonsage-analyzer`
 2. Find the binary at `.build/release/roonsage-analyzer`
 3. Run `roonsage-analyzer analyze /path/to/music` (e.g. `/Volumes/MyMusicDrive/Music`)
-4. Or `roonsage-analyzer serve --port 5766` to start the HTTP server
-
-#### Option C: Docker (if running on a server)
-
-The analyzer is a **pure Swift app** — there's no Dockerfile currently, but you can build and run the binary anywhere Swift runs (macOS, Linux via Swift toolchain).
+4. Or `roonsage-analyzer serve --port 5766` to start only the HTTP server (if already analyzed)
 
 ### Supported Formats
 
@@ -191,55 +183,48 @@ All of this stays on your machine — nothing leaves.
 
 ## Server & Client Architecture
 
-RoonSage uses a **server/client split**:
+RoonSage uses an **Analyzer-as-server** design:
 
 ```
-┌─ Your Network ─────────────────────────────────────┐
-│                                                     │
-│  Roon Core (extension-capable device)              │
-│    ▼                                               │
-│  RoonSage Server (always-on, macOS Mini recommended)
-│    ├─ Registers as Roon extension                  │
-│    ├─ Syncs library → local GRDB database          │
-│    ├─ Listens for zone playback changes            │
-│    ├─ Exposes HTTP:5767 library share              │
-│    ├─ Exposes HTTP:5767 playback proxy             │
-│    └─ Runs analyzer (optional, separate process)   │
-│         └─ HTTP:5766 audio features                │
-│                                                    │
-└─ Thin Clients (iPhone, iPad, or 2nd Mac) ────────┘
-    RoonSage app (client mode)
-    ├─ Pulls library from server (HTTP:5767)
-    ├─ Shows live playback from server
-    └─ Proxies all commands back to server
-    
-    Analyzer app (optional)
-    └─ Pulls features from analyzer (HTTP:5766)
+┌─ Your Network ────────────────────────────────────────────┐
+│                                                           │
+│  Roon Core                                                │
+│    ▼  (Roon Extension API)                                │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │  RoonSage Analyzer  (always-on, Mac Mini ideal)    │  │
+│  │    ├─ Registers as Roon extension                  │  │
+│  │    ├─ Syncs library → local GRDB database          │  │
+│  │    ├─ Analyzes music files (BPM, key, embeddings)  │  │
+│  │    ├─ HTTP :5767  library / playback proxy         │  │
+│  │    └─ HTTP :5766  audio features (BPM, CLAP, …)   │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                                                           │
+└─ Remote Apps ─────────────────────────────────────────────┘
+    macOS App  ──┐
+                 ├──▶  pulls library, settings, playback
+    iOS App    ──┘     proxies all commands back to Analyzer
 ```
 
-### Why split?
+### Why this design?
 
-- **Roon only allows one extension per network** → one device must register with Roon
-- **Thin clients everywhere** — any Mac or iOS device can browse and control once the server is set up
-- **Offline-first** — library and playback are cached locally; thin clients still work if they can reach the server
+- **Roon only allows one extension per network** — the Analyzer holds that slot permanently
+- **Remote apps are lightweight** — any Mac or iOS device instantly has your full library
+- **Always-on means always in sync** — new albums, plays, and scrobbles are captured even when remotes are closed
+- **Audio analysis lives with the data** — the Analyzer stores features next to the library, so features are always available
 
-### Server setup
+### Analyzer setup (do this first)
 
-Run the **macOS app in server mode**:
+1. Install the Analyzer on your always-on Mac (see [Audio Analyzer](#audio-analyzer) above)
+2. Point it at your music directory and let the initial analysis finish
+3. Authorize the Roon extension when prompted
+4. Note the Analyzer's IP address (visible in the Analyzer app, or check System Settings → Network)
 
-1. Place your Mac near your Roon Core (same network, ideally wired Ethernet for reliability)
-2. Open RoonSage Settings → **"Server mode"** toggle → enabled
-3. The app registers as a Roon extension and starts syncing
-4. Other devices can now connect (see [Client setup](#client-setup) below)
+### Remote app setup (macOS or iOS)
 
-The server syncs your library once (5–10 minutes for 100k tracks) and then keeps playback live. It's safe to put it on a Mac Mini and forget about it.
-
-### Client setup (iOS, or secondary Mac)
-
-1. Install RoonSage on your device
-2. It auto-discovers the server on the same network (via Bonjour)
-3. If outside your network, manually enter the server IP in Settings
-4. Once connected, you see a live mirror of the library and can control playback
+1. Install RoonSage on your Mac or iPhone/iPad
+2. It auto-discovers the Analyzer on the same network (via Bonjour)
+3. If on a different network, manually enter the Analyzer's IP + port `5767` in Settings
+4. Once connected, you see a live mirror of the library and can control all Roon zones
 
 ---
 
@@ -277,7 +262,7 @@ The server syncs your library once (5–10 minutes for 100k tracks) and then kee
        }
      }
      ```
-   - Replace `192.168.1.x` with your RoonSage server's IP
+   - Replace `192.168.1.x` with your **Analyzer's** IP
    - Restart Claude Desktop
 
 4. **Test it** — in Claude, type "What's in my library?" or "Generate a playlist"
@@ -502,7 +487,7 @@ Automatic end-of-year recap:
 | Setting | What it does | Default |
 |---------|-------------|---------|
 | **Roon Core IP** | IP:port of your Roon Core (auto-detected but can be manual) | auto (SOOD discovery) |
-| **Server mode** | Register as a Roon extension; expose HTTP server for thin clients | off |
+| **Analyzer URL** | IP:port of the Analyzer (auto-discovered via Bonjour, or enter manually) | auto |
 | **LLM Provider** | Anthropic, OpenAI, Ollama, or custom endpoint | Anthropic |
 | **LLM Model** | Which model to use for generation (per provider) | sonnet-4-5 (Anthropic) |
 | **Theme** | Dark / Light / System | System |
@@ -510,7 +495,6 @@ Automatic end-of-year recap:
 | **Qobuz email/password** | For Qobuz search + playlist save | (blank) |
 | **ListenBrainz token** | For scrobbling | (blank) |
 | **Last.fm username** | For Last.fm scrobbling + tags | (blank) |
-| **Analyzer URL** | HTTP URL of analyzer server (auto-detected on local network) | `http://localhost:5766` |
 | **Database** | Option to reset/backup your local database | (buttons) |
 
 ### iOS App
@@ -519,8 +503,8 @@ Same settings as macOS, plus:
 
 | Setting | What it does |
 |---------|-------------|
-| **Server IP** | Manual IP of RoonSage macOS server (if not auto-discovered) |
-| **ZeroTier IP** | Manual ZeroTier IP of server (for remote access) |
+| **Analyzer IP** | Manual IP of the Analyzer machine (if not auto-discovered) |
+| **ZeroTier IP** | Manual ZeroTier IP of the Analyzer machine (for remote access) |
 | **App lock** | Optionally lock the app with Face ID / Touch ID |
 
 ### Analyzer
@@ -546,37 +530,37 @@ roonsage-analyzer validate /music/dir --reference /labels.csv
 
 ## Troubleshooting
 
-### Roon not found
+### Roon not found / Analyzer can't connect to Roon
 
-**Problem**: The app doesn't see your Roon Core.
+**Problem**: The Analyzer shows "Roon not found" or can't authorize.
 
 **Solutions**:
-1. Verify Roon is running and on the same network
-2. Check that your Wi-Fi allows UDP multicast (some corporate networks don't)
-3. In Settings, manually enter the Roon Core IP + port (default `9330`)
-4. Try wired Ethernet (more reliable than Wi-Fi)
-5. Restart the app and Roon
+1. Verify Roon Core is running and on the same network as the Analyzer
+2. Check that your network allows UDP multicast (some corporate/mesh networks block it)
+3. In the Analyzer's Settings, manually enter the Roon Core IP + port (default `9330`)
+4. Try wired Ethernet on the Analyzer machine (more reliable than Wi-Fi)
+5. Restart the Analyzer and Roon
 
 ### App crashes on launch
 
-**Problem**: RoonSage crashes immediately or on load.
+**Problem**: RoonSage (macOS or iOS remote app) crashes immediately.
 
 **Solutions**:
 1. Check System Preferences → Security & Privacy → allow RoonSage (if notarization fails)
 2. Try deleting the app cache: `rm -rf ~/Library/Caches/com.roonsage.RoonSage`
-3. Try resetting the local database (Settings → Database → Reset)
+3. Try resetting the local database in Settings → Database → Reset
 4. Reinstall the app fresh
 
-### Thin client can't connect to server
+### Remote app can't connect to the Analyzer
 
-**Problem**: The iOS/secondary Mac app can't see the server.
+**Problem**: The iOS or macOS remote app can't find the Analyzer.
 
 **Solutions**:
-1. Verify the server is running in server mode (Settings → Server mode is ON)
-2. Both devices on the same Wi-Fi network? → Try Bonjour discovery again
-3. Different networks? → Set up [ZeroTier](#ios-app) and enter the server's ZeroTier IP
-4. Verify firewall isn't blocking port `5767` (Settings → Firewall & Network)
-5. On the server, check: System Preferences → Network → see the actual IP, then manually enter it on the client
+1. Verify the Analyzer is running (check the Analyzer app window or `roonsage-analyzer serve`)
+2. Both devices on the same Wi-Fi? → Bonjour should auto-discover; wait 10 seconds and retry
+3. Different networks? → Set up [ZeroTier](#ios-app) and enter the Analyzer machine's ZeroTier IP
+4. Verify firewall isn't blocking port `5767` on the Analyzer machine (System Settings → Firewall)
+5. Find the Analyzer's IP in System Preferences → Network, then manually enter it in the remote app Settings
 
 ### Sonic features not working
 
