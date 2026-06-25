@@ -65,12 +65,12 @@ public final class LocalPlaybackController {
     public var onStateChange: (() -> Void)?
 
     #if canImport(AVFoundation)
-    private let player = AVPlayer()
-    private var timeObserver: Any?
-    private var endObserver: NSObjectProtocol?
+    @ObservationIgnored private let player = AVPlayer()
+    @ObservationIgnored private var timeObserver: Any?
+    @ObservationIgnored private var endObserver: NSObjectProtocol?
     #endif
-    private var streamBase: String = ""
-    private var token: String?
+    @ObservationIgnored private var streamBase: String = ""
+    @ObservationIgnored private var token: String?
 
     private init() {
         #if canImport(AVFoundation)

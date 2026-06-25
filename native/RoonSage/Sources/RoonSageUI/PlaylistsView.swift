@@ -149,6 +149,15 @@ public struct PlaylistsView: View {
             .accessibilityLabel("Speel playlist")
             .help(client.selectedZone == nil ? "Kies eerst een zone" : "Speel af in \(client.selectedZone?.displayName ?? "")")
 
+            // Listen on the phone itself (local files only — Qobuz/stream tracks
+            // are skipped and reported).
+            Button { Task { await playLocal(pl) } } label: {
+                Image(systemName: "iphone")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Speel op deze iPhone")
+            .help("Speel lokaal af op deze iPhone")
+
             if client.qobuzConfigured {
                 Button { saveToQobuz(pl) } label: { Image(systemName: "cloud") }
                     .buttonStyle(.borderless)
@@ -217,6 +226,28 @@ public struct PlaylistsView: View {
         } else {
             statusOK = false
             statusBanner = "“\(pl.name)” kon niet starten — geen van de tracks was beschikbaar."
+            Haptics.error()
+        }
+    }
+
+    /// Play a saved playlist on this device. Streaming-only tracks (Qobuz) have
+    /// no on-disk file and are filtered out; the banner reports what was skipped.
+    private func playLocal(_ pl: DatabaseManager.PlaylistSummary) async {
+        Haptics.tap()
+        let tracks = await client.playlistTracks(id: pl.id)
+        guard !tracks.isEmpty else { return }
+        statusOK = nil
+        statusBanner = "“\(pl.name)” lokaal starten…"
+        let summary = await client.playLocally(tracks)
+        if let s = summary, s.playable > 0 {
+            statusOK = true
+            statusBanner = s.blocked > 0
+                ? "“\(pl.name)” speelt op deze iPhone — \(s.playable)/\(s.requested) speelbaar, \(s.blocked) Qobuz/stream overgeslagen."
+                : "“\(pl.name)” speelt op deze iPhone — \(s.playable) nummers."
+            Haptics.success()
+        } else {
+            statusOK = false
+            statusBanner = "Niets om lokaal af te spelen — deze tracks staan niet op schijf (Qobuz/stream)."
             Haptics.error()
         }
     }
