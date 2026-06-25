@@ -65,11 +65,18 @@ extension RoonClient {
             ))
         }
 
+        // A failed/rate-limited LB request (or per-playlist track fetch) also
+        // yields empty results, indistinguishable from "no playlists". If nothing
+        // came back, treat it as a transient outage and keep the last good copies
+        // instead of pruning every imported playlist to nothing.
+        guard !imported.isEmpty else {
+            lbPlaylistSyncStatus = "ListenBrainz gaf niets terug — vorige playlists behouden."
+            return
+        }
+
         do {
             try await db.syncExternalPlaylists(sourcePrefix: Self.lbPlaylistSource, playlists: imported)
-            lbPlaylistSyncStatus = imported.isEmpty
-                ? "Geen ListenBrainz-playlists gevonden."
-                : "\(imported.count) playlist(s) gesynchroniseerd."
+            lbPlaylistSyncStatus = "\(imported.count) playlist(s) gesynchroniseerd."
         } catch {
             lbPlaylistSyncStatus = "Synchronisatie mislukt."
             Log.warning("ListenBrainz playlist sync failed: \(error)", category: .network)

@@ -63,11 +63,20 @@ extension RoonClient {
             ))
         }
 
+        // A failed/rate-limited/unauthorized Last.fm request also yields an empty
+        // list, indistinguishable from a genuinely empty period. If NOTHING came
+        // back across all periods, treat it as a transient outage and keep the
+        // last good playlists rather than pruning them to nothing. (When at least
+        // one period has data, connectivity is proven, so an empty period is real
+        // and is pruned as expected.)
+        guard !imported.isEmpty else {
+            lastfmPlaylistSyncStatus = "Last.fm gaf niets terug — vorige playlists behouden."
+            return
+        }
+
         do {
             try await db.syncExternalPlaylists(sourcePrefix: Self.lastfmPlaylistSource, playlists: imported)
-            lastfmPlaylistSyncStatus = imported.isEmpty
-                ? "Geen Last.fm top-tracks gevonden."
-                : "\(imported.count) playlist(s) gesynchroniseerd."
+            lastfmPlaylistSyncStatus = "\(imported.count) playlist(s) gesynchroniseerd."
         } catch {
             lastfmPlaylistSyncStatus = "Synchronisatie mislukt."
             Log.warning("Last.fm playlist sync failed: \(error)", category: .network)
