@@ -21,6 +21,8 @@ public final class LocalPlaybackController {
     public static let shared = LocalPlaybackController()
 
     /// A queued track. `id` is the library match key — the `/audio` lookup key.
+    /// `streamURLOverride`, when set, is played directly (used for Qobuz: a
+    /// signed CDN URL the phone fetches itself, bypassing the `/audio` server).
     public struct Track: Identifiable, Sendable, Equatable {
         public let id: String
         public let title: String
@@ -28,10 +30,12 @@ public final class LocalPlaybackController {
         public let album: String
         public let imageKey: String?
         public let durationSec: Double?
+        public let streamURLOverride: URL?
         public init(id: String, title: String, artist: String, album: String,
-                    imageKey: String?, durationSec: Double?) {
+                    imageKey: String?, durationSec: Double?, streamURLOverride: URL? = nil) {
             self.id = id; self.title = title; self.artist = artist
             self.album = album; self.imageKey = imageKey; self.durationSec = durationSec
+            self.streamURLOverride = streamURLOverride
         }
     }
 
@@ -185,6 +189,8 @@ public final class LocalPlaybackController {
 
     #if canImport(AVFoundation)
     private func makeItem(for track: Track) -> AVPlayerItem? {
+        // Qobuz (or any direct CDN URL): play it straight, no /audio server.
+        if let override = track.streamURLOverride { return AVPlayerItem(url: override) }
         var comps = URLComponents(string: "\(streamBase)/audio")
         // AVPlayer can't attach a custom auth header without private API, so the
         // token rides in the query (the /audio endpoint accepts both).

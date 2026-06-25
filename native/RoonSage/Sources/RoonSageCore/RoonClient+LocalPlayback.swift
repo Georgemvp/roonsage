@@ -20,6 +20,24 @@ extension RoonClient {
         set { UserDefaults.standard.set(newValue, forKey: "local_output_selected") }
     }
 
+    /// Experimental: also stream Qobuz-in-library tracks to this device via
+    /// Qobuz's unofficial API. Off by default (ToS-gray, needs the app_secret).
+    public var qobuzLocalStreamEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "qobuz_local_stream_enabled") }
+        set { UserDefaults.standard.set(newValue, forKey: "qobuz_local_stream_enabled") }
+    }
+
+    /// The Qobuz web-player `app_secret` used to sign streaming requests. Stored
+    /// in the Keychain; the user pastes the current value (Qobuz rotates it).
+    public var qobuzAppSecret: String? {
+        get { KeychainStore.load(key: "qobuz_app_secret") }
+        set {
+            let v = (newValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if v.isEmpty { KeychainStore.delete(key: "qobuz_app_secret") }
+            else { KeychainStore.save(key: "qobuz_app_secret", value: v) }
+        }
+    }
+
     /// Analyser base that serves `/audio` (and `/features`). Mirrors the feature
     /// sync's resolution: the configured analyzer URL, else the server host on
     /// the analyzer's default port.
@@ -49,30 +67,54 @@ extension RoonClient {
             return nil
         }
         let part = await localPlayabilityPartition(tracks)
-        let summary = LocalPlaybackSummary(
-            requested: tracks.count,
-            playable: part.playable.count,
-            blocked: part.blocked.count,
-            blockedExamples: Array(part.blocked.prefix(3).map(\.title)))
-        lastLocalPlaybackSummary = summary
-        guard !part.playable.isEmpty else {
-            lastActionError = ActionError(
-                message: "Geen van deze nummers staat lokaal op schijf — niets om op deze iPhone af te spelen.")
-            return summary
+        let playableKeys = Set(part.playable.map { LocalPlayability.matchKey(for: $0) })
+
+        // Optional experimental Qobuz fallback for the blocked (streaming-only)
+        // tracks. Best-effort: any that don't resolve simply stay blocked.
+        let qobuzURLs = await resolveQobuzStreams(for: part.blocked)
+
+        // Build the queue in the ORIGINAL order, mixing local-file and Qobuz items.
+        var items: [LocalPlaybackController.Track] = []
+        var blockedTitles: [String] = []
+        for rec in tracks {
+            let key = LocalPlayability.matchKey(for: rec)
+            let artist = rec.artist ?? "", album = rec.album ?? ""
+            if playableKeys.contains(key) {
+                items.append(.init(id: key, title: rec.title, artist: artist, album: album,
+                                   imageKey: rec.imageKey, durationSec: nil))
+            } else if let url = qobuzURLs[key] {
+                items.append(.init(id: key, title: rec.title, artist: artist, album: album,
+                                   imageKey: rec.imageKey, durationSec: nil, streamURLOverride: url))
+            } else {
+                blockedTitles.append(rec.title)
+            }
         }
-        let items = part.playable.map { rec in
-            LocalPlaybackController.Track(
-                id: LocalPlayability.matchKey(for: rec),
-                title: rec.title,
-                artist: rec.artist ?? "",
-                album: rec.album ?? "",
-                imageKey: rec.imageKey,
-                durationSec: nil)
+        let summary = LocalPlaybackSummary(
+            requested: tracks.count, playable: items.count, blocked: blockedTitles.count,
+            blockedExamples: Array(blockedTitles.prefix(3)))
+        lastLocalPlaybackSummary = summary
+        guard !items.isEmpty else {
+            lastActionError = ActionError(
+                message: "Geen van deze nummers is lokaal te spelen op deze iPhone (Qobuz/stream of niet op schijf).")
+            return summary
         }
         localOutputSelected = true
         localPlayback.play(items, streamBase: base,
                            token: LibraryShareServer.configuredToken, startAt: startAt)
         return summary
+    }
+
+    /// Resolve Qobuz CDN URLs for blocked tracks when the experimental toggle is
+    /// on and credentials + app_secret are present. Returns [matchKey: URL].
+    private func resolveQobuzStreams(for blocked: [TrackRecord]) async -> [String: URL] {
+        guard qobuzLocalStreamEnabled, !blocked.isEmpty,
+              let secret = qobuzAppSecret, !secret.isEmpty,
+              let email = KeychainStore.load(key: "qobuz_email"), !email.isEmpty,
+              let pw = KeychainStore.load(key: "qobuz_password"), !pw.isEmpty else { return [:] }
+        let reqs = blocked.map {
+            (key: LocalPlayability.matchKey(for: $0), title: $0.title, artist: $0.artist, album: $0.album)
+        }
+        return await QobuzClient.shared.streamURLs(for: reqs, appSecret: secret, email: email, password: pw)
     }
 
     /// Stop on-device playback and clear the "listen here" choice.

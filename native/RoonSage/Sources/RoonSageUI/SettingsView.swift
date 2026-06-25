@@ -52,6 +52,8 @@ public struct SettingsView: View {
     @State private var qbPassword: String = ""
     @State private var qbBusy = false
     @State private var qbStatus: String = ""
+    @State private var qbStreamLocal = false
+    @State private var qbAppSecret: String = ""
 
     // Audio analyzer
     @State private var analyzerURL: String = ""
@@ -434,6 +436,24 @@ public struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            // Qobuz local streaming (experimental)
+            Section("Qobuz lokaal streamen (experimenteel)") {
+                Toggle("Qobuz-tracks op deze iPhone afspelen", isOn: $qbStreamLocal)
+                    .onChange(of: qbStreamLocal) { _, v in client.qobuzLocalStreamEnabled = v }
+                    .disabled(!client.qobuzConfigured)
+                if qbStreamLocal {
+                    LabeledContent("app_secret") {
+                        SecureField("Qobuz web-player app_secret", text: $qbAppSecret)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    Button("Bewaar app_secret") { client.qobuzAppSecret = qbAppSecret }
+                        .disabled(qbAppSecret.isEmpty)
+                }
+                Text("Speelt Qobuz-nummers uit je bibliotheek lokaal op je telefoon via Qobuz' onofficiële API (vereist een actief abonnement en de huidige web-player app_secret). Niet door Qobuz ondersteund; werkt mogelijk niet en kan wijzigen. Zonder dit blijven Qobuz-tracks overgeslagen bij lokaal afspelen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // Audio analyzer
             Section("Audio-analyzer (BPM / toonsoort / tags)") {
                 LabeledContent("Analyzer-URL") {
@@ -517,6 +537,8 @@ public struct SettingsView: View {
         lfConnected = !(KeychainStore.load(key: "lastfm_session_key") ?? "").isEmpty
         qbEmail    = KeychainStore.load(key: "qobuz_email") ?? ""
         qbPassword = KeychainStore.load(key: "qobuz_password") ?? ""
+        qbStreamLocal = client.qobuzLocalStreamEnabled
+        qbAppSecret = client.qobuzAppSecret ?? ""
         analyzerURL = client.analyzerURL
         let cfg = LLMConfigStore.load()
         llmProvider = cfg.provider

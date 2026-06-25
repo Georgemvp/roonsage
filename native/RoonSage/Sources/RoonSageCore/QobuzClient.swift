@@ -158,6 +158,52 @@ public actor QobuzClient {
     }
     private var loginDisplay: String?
 
+    // MARK: - Streaming (experimental / unofficial — see QobuzStream)
+
+    /// Resolve streamable Qobuz URLs for a batch of tracks, logging in ONCE.
+    /// Keyed by the caller's `key` (the library match key) so results map back
+    /// to the original order. `formatID` 6 = FLAC 16-bit (CD quality). Returns
+    /// only the tracks that resolved; the rest stay "not playable" in the UI.
+    public func streamURLs(
+        for tracks: [(key: String, title: String, artist: String?, album: String?)],
+        formatID: Int = 6,
+        appSecret: String,
+        email: String,
+        password: String
+    ) async -> [String: URL] {
+        guard !appSecret.isEmpty, !tracks.isEmpty,
+              let session = await login(email: email, password: password) else { return [:] }
+        var out: [String: URL] = [:]
+        for t in tracks {
+            guard let id = await resolveTrackID(wantTitle: t.title, wantArtist: t.artist, wantAlbum: t.album, session: session),
+                  let url = await fileURL(trackID: id, formatID: formatID, appSecret: appSecret, session: session)
+            else { continue }
+            out[t.key] = url
+        }
+        return out
+    }
+
+    /// One signed `track/getFileUrl` call → a temporary CDN URL (or nil).
+    private func fileURL(trackID: Int, formatID: Int, appSecret: String, session: Session) async -> URL? {
+        let ts = Int(Date().timeIntervalSince1970)
+        let sig = QobuzStream.requestSignature(
+            formatID: formatID, intent: "stream", trackID: trackID, timestamp: ts, appSecret: appSecret)
+        var comps = URLComponents(string: "\(base)/track/getFileUrl")!
+        comps.queryItems = [
+            .init(name: "request_ts", value: String(ts)),
+            .init(name: "request_sig", value: sig),
+            .init(name: "track_id", value: String(trackID)),
+            .init(name: "format_id", value: String(formatID)),
+            .init(name: "intent", value: "stream"),
+        ]
+        guard let url = comps.url,
+              let (data, resp) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let urlStr = json["url"] as? String, let fileURL = URL(string: urlStr) else { return nil }
+        return fileURL
+    }
+
     // MARK: - Login
 
     private func login(email: String, password: String) async -> Session? {
