@@ -232,6 +232,44 @@ public final class FeatureStore {
         }) ?? "0/0/0/0"
     }
 
+    /// Resolve a streamable on-disk file for a track's match key — backs the
+    /// `/audio` endpoint (local playback on the phone). Tries the stored PK
+    /// first, then falls back to a scan that recomputes the key under the
+    /// CURRENT TrackIdentity scheme: the `/features` export re-keys this way, so
+    /// a client's key can differ from an older stored PK after a normaliser
+    /// change (no re-analysis needed to re-key). Returns nil when nothing maps —
+    /// i.e. the track is not locally playable (e.g. a Qobuz-only library entry
+    /// that was never analysed from a file).
+    public func filePath(forMatchKey key: String) -> String? {
+        if let p = (try? dbQueue.read { db in
+            try String.fetchOne(db, sql: "SELECT file_path FROM track_features WHERE match_key = ?",
+                                arguments: [key])
+        }) ?? nil, !p.isEmpty { return p }
+        return (try? dbQueue.read { db -> String? in
+            let rows = try Row.fetchAll(db, sql: "SELECT artist, album, title, file_path FROM track_features")
+            for r in rows {
+                let k = TrackIdentity.matchKey(artist: r["artist"], album: r["album"], title: r["title"])
+                if k == key, let p = r["file_path"] as String?, !p.isEmpty { return p }
+            }
+            return nil
+        }) ?? nil
+    }
+
+    /// The locally-playable set: every match key (current scheme) that has an
+    /// on-disk file. Every analysed track has a `file_path` (NOT NULL), so this
+    /// is effectively "tracks the analyser walked from disk". Recomputes keys to
+    /// match the `/features` export the client syncs against.
+    public func playableMatchKeys() -> Set<String> {
+        let rows = (try? dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT artist, album, title FROM track_features WHERE file_path IS NOT NULL AND file_path != ''")
+        }) ?? []
+        var set = Set<String>(minimumCapacity: rows.count)
+        for r in rows {
+            set.insert(TrackIdentity.matchKey(artist: r["artist"], album: r["album"], title: r["title"]))
+        }
+        return set
+    }
+
     /// Full row for a (path, mtime), including the embedding BLOB. Used by tests
     /// and the `/embeddings` export.
     public func featureRow(path: String, mtime: Double) -> TrackFeatureRow? {

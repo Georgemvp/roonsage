@@ -7,6 +7,8 @@ import Network
 ///   GET /features → JSON array (keyed by match_key)
 ///   GET /embeddings → binary RSEB bundle
 ///   GET /text-embed?q=… → {"embedding":[…]}  (text→vector for search)
+///   GET /audio?match_key=… → the track's on-disk file (Range-aware) for
+///       local playback on the phone
 ///   GET /health → status
 ///
 /// When `token` is set, every endpoint but `/health` requires it in the
@@ -111,8 +113,16 @@ public final class HTTPServer {
     private func receive(_ conn: NWConnection, loopback: Bool) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, _, _ in
             guard let self, let data, let req = String(data: data, encoding: .utf8) else { conn.cancel(); return }
-            let path = req.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
-            let (status, body, ctype) = self.route(path, request: req, loopback: loopback)
+            let target = req.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+            let path = target.split(separator: "?").first.map(String.init) ?? target
+            // /audio needs Range-aware status + headers (206/416/Content-Range),
+            // so it bypasses the plain-body `route()` path.
+            if path == "/audio" {
+                let (status, headers, body) = self.audioResponse(target: target, request: req, loopback: loopback)
+                self.sendRaw(conn, status: status, headers: headers, body: body)
+                return
+            }
+            let (status, body, ctype) = self.route(target, request: req, loopback: loopback)
             var header = "HTTP/1.1 \(status)\r\n"
             header += "Content-Type: \(ctype)\r\n"
             header += "Content-Length: \(body.count)\r\n"
@@ -125,14 +135,80 @@ public final class HTTPServer {
         }
     }
 
+    /// Send a response with an arbitrary header set (used by `/audio` for
+    /// Range/Content-Range headers). Content-Length is always appended here.
+    private func sendRaw(_ conn: NWConnection, status: String, headers: [String: String], body: Data) {
+        var header = "HTTP/1.1 \(status)\r\n"
+        for (k, v) in headers { header += "\(k): \(v)\r\n" }
+        header += "Content-Length: \(body.count)\r\n"
+        header += "Access-Control-Allow-Origin: *\r\n"
+        header += "Connection: close\r\n\r\n"
+        var out = Data(header.utf8); out.append(body)
+        conn.send(content: out, completion: .contentProcessed { _ in
+            conn.send(content: nil, isComplete: true, completion: .contentProcessed { _ in conn.cancel() })
+        })
+    }
+
+    /// True when the request may proceed: `/health` and loopback callers are
+    /// exempt; otherwise a correct token is required. Mirrors the gate `route()`
+    /// applies, factored so `/audio` reuses it.
+    private func isAuthorized(path: String, request: String, loopback: Bool) -> Bool {
+        guard let token, !path.hasPrefix("/health"), !loopback else { return true }
+        guard let provided = Self.headerValue(Self.tokenHeader, in: request) else { return false }
+        return Self.constantTimeEquals(provided, token)
+    }
+
+    /// Stream a library track's on-disk audio for local playback on the phone.
+    ///   GET /audio?match_key=<key>   (honours a `Range` header)
+    /// The client only ever supplies a match key — the file path is resolved
+    /// server-side from the analyser DB (paths the analyser itself walked), so
+    /// there is no client-controlled path to traverse. Extension + existence
+    /// checks are defence in depth.
+    private func audioResponse(target: String, request: String, loopback: Bool) -> (String, [String: String], Data) {
+        func err(_ status: String, _ msg: String) -> (String, [String: String], Data) {
+            (status, ["Content-Type": "text/plain"], Data(msg.utf8))
+        }
+        guard isAuthorized(path: "/audio", request: request, loopback: loopback) else {
+            return err("401 Unauthorized", "unauthorized")
+        }
+        guard let key = Self.queryValue("match_key", in: target), !key.isEmpty else {
+            return err("400 Bad Request", "missing match_key")
+        }
+        guard let path = store.filePath(forMatchKey: key) else {
+            return err("404 Not Found", "no local file for this track")
+        }
+        guard AudioStreaming.isAllowedExtension((path as NSString).pathExtension) else {
+            return err("415 Unsupported Media Type", "unsupported audio type")
+        }
+        guard let size = AudioStreaming.fileSize(path: path) else {
+            return err("404 Not Found", "file missing")
+        }
+        let ctype = AudioStreaming.contentType(forPath: path)
+        switch AudioStreaming.parseRange(Self.headerValue("Range", in: request), fileSize: size) {
+        case .unsatisfiable:
+            return ("416 Range Not Satisfiable",
+                    ["Content-Type": ctype, "Accept-Ranges": "bytes", "Content-Range": "bytes */\(size)"],
+                    Data())
+        case .full:
+            guard let data = AudioStreaming.readSlice(path: path, start: 0, end: size - 1) else {
+                return err("500 Internal Server Error", "read failed")
+            }
+            return ("200 OK", ["Content-Type": ctype, "Accept-Ranges": "bytes"], data)
+        case let .partial(start, end):
+            guard let data = AudioStreaming.readSlice(path: path, start: start, end: end) else {
+                return err("500 Internal Server Error", "read failed")
+            }
+            return ("206 Partial Content",
+                    ["Content-Type": ctype, "Accept-Ranges": "bytes", "Content-Range": "bytes \(start)-\(end)/\(size)"],
+                    data)
+        }
+    }
+
     private func route(_ path: String, request: String, loopback: Bool) -> (String, Data, String) {
         // Auth: everything but /health requires the token unless the peer is on
         // this machine. A missing or wrong token is rejected.
-        if let token, !path.hasPrefix("/health"), !loopback {
-            let provided = Self.headerValue(Self.tokenHeader, in: request)
-            if provided == nil || !Self.constantTimeEquals(provided!, token) {
-                return ("401 Unauthorized", Data("{\"error\":\"unauthorized\"}".utf8), "application/json")
-            }
+        if !isAuthorized(path: path, request: request, loopback: loopback) {
+            return ("401 Unauthorized", Data("{\"error\":\"unauthorized\"}".utf8), "application/json")
         }
         if path.hasPrefix("/text-embed") {
             guard let clap, clap.canEmbedText, let q = Self.queryValue("q", in: path), !q.isEmpty,
