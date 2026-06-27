@@ -40,6 +40,19 @@ case "tag":
     }
     print("Tagging done: \(store.taggedCount())/\(store.count()).")
 
+case "enrich":
+    // Album-level MusicBrainz genre enrichment + genre hierarchy. Rate-limited
+    // (~1 req/s) and resumable, so it's safe to re-run / interrupt.
+    let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
+    let client = option("--user-agent").map { MusicBrainzClient(userAgent: $0) } ?? MusicBrainzClient.shared
+    print("Enriching \(store.count()) tracks with MusicBrainz genres (resumable)…")
+    await GenreEnricher(store: store, client: client).run { p in
+        if (p.albums % 25 == 0) || (p.checked % 100 == 0) {
+            print("  \(p.albums) albums, \(p.enriched)/\(p.checked) tracks with genres (\(p.total) total)")
+        }
+    }
+    print("Enrichment done: \(store.mbEnrichedCount())/\(store.count()) tracks, \(store.taxonomyCount()) genres in taxonomy.")
+
 case "serve":
     let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
     let port = UInt16(option("--port") ?? "5766") ?? 5766
@@ -98,6 +111,7 @@ case "":
     usage: roonsage-analyzer <command>
       analyze <musicdir> [--db path] [--workers N] [--no-clap]   walk + analyze + store
       tag [--db path] [--ollama url] [--model name]    LLM-tag stored tracks
+      enrich [--db path] [--user-agent ua]             MusicBrainz genre enrichment + hierarchy
       serve [--db path] [--port 5766]                  serve features over HTTP
       stats [--db path]                                show counts
       matchcheck --library <library.db> [--db path]    measure analyzer↔library match rate
