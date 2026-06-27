@@ -307,6 +307,30 @@ enum Schema {
             try db.execute(sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_playlists_external_id ON playlists(external_id)")
         }
 
+        // MusicBrainz genre enrichment, synced from the analyzer alongside audio
+        // features. Two tables, both keyed so they survive a Roon resync (which
+        // clears `tracks`/`track_genres`):
+        //   • track_mb_genres — genres per content `match_key` (like
+        //     track_audio_features), so MB genres aren't wiped when the Roon
+        //     genre pass rewrites track_genres.
+        //   • genre_taxonomy — the parent←subgenre hierarchy, so a filter on a
+        //     parent genre ("Rock") can expand to its subgenres ("Blues Rock").
+        migrator.registerMigration("v22_musicbrainz_genres") { db in
+            try db.create(table: "track_mb_genres", ifNotExists: true) { t in
+                t.column("match_key", .text).notNull()
+                t.column("genre",     .text).notNull()
+                t.primaryKey(["match_key", "genre"])
+            }
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_mb_genres_genre ON track_mb_genres(genre)")
+
+            try db.create(table: "genre_taxonomy", ifNotExists: true) { t in
+                t.primaryKey("genre", .text)
+                t.column("parent", .text)   // NULL/empty = root genre
+                t.column("mbid",   .text)
+            }
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_genre_taxonomy_parent ON genre_taxonomy(parent)")
+        }
+
         try migrator.migrate(db)
     }
 }

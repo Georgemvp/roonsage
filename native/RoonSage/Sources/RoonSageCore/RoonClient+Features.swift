@@ -97,6 +97,13 @@ extension RoonClient {
         return (try? await db.audioFeaturesStats()) ?? (0, 0)
     }
 
+    /// The library's MusicBrainz genre hierarchy (parent → subgenres), for the
+    /// MCP `get_genre_tree` tool and a hierarchical genre picker.
+    public func libraryGenreTree() async -> [DatabaseManager.GenreTreeNode] {
+        guard let db = database else { return [] }
+        return (try? await db.genreTree()) ?? []
+    }
+
     /// Pull all features from the analyzer's HTTP endpoint, upsert them, and
     /// reconcile them against the library (exact match_key + fuzzy fallback).
     /// Returns the match diagnostic, or nil on failure.
@@ -111,11 +118,17 @@ extension RoonClient {
             // Backfill tracks.year from the analyzer's file tags (Roon Browse has no
             // year). After reconcile so fuzzy-rewritten match_keys also resolve.
             try? await db?.applyTrackYears(payload.years)
+            // MusicBrainz genres (keyed by match_key, like features) — the richer
+            // genre set the analyzer enriched.
+            try? await db?.upsertMBGenres(payload.genres)
             return d
         }.value
         // Pull the 512-dim embeddings (binary bundle) after match_keys are
         // reconciled, so they attach to the right rows.
         await pullEmbeddings(from: baseURL)
+        // Pull the genre hierarchy so a filter on a parent genre expands to its
+        // subgenres. Best-effort: older analyzers without /genres yield nothing.
+        await pullGenreTaxonomy(from: baseURL)
         await sonicCache.invalidate()
         return diag
     }
@@ -177,6 +190,27 @@ extension RoonClient {
         _ = await Task.detached { try? await db?.applyEmbeddingsBlob(data) }.value
     }
 
+    /// Fetch the analyzer's `/genres` taxonomy ([{genre, parent?, mbid?}]) and
+    /// upsert it so subgenre expansion works in filters. Best-effort: an older
+    /// analyzer without the endpoint, or an empty taxonomy, is a no-op.
+    private func pullGenreTaxonomy(from baseURL: String) async {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
+        guard let url = URL(string: "\(trimmed)/genres") else { return }
+        var req = URLRequest(url: url)
+        authorizeShareRequest(&req)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
+        let db = database
+        _ = await Task.detached { () -> Void in
+            guard let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+            let nodes: [(genre: String, parent: String?, mbid: String?)] = arr.compactMap { o in
+                guard let g = o["genre"] as? String, !g.isEmpty else { return nil }
+                return (g, o["parent"] as? String, o["mbid"] as? String)
+            }
+            try? await db?.upsertGenreTaxonomy(nodes)
+        }.value
+    }
+
     /// Read-only: fetch features and report the match breakdown WITHOUT mutating
     /// the library (no fuzzy rewrites). For the Settings "Diagnose" action.
     public func diagnoseAudioFeatures(from baseURL: String) async -> DatabaseManager.AudioFeatureDiagnostic? {
@@ -193,6 +227,9 @@ extension RoonClient {
         // (match_key, year) from the analyzer's file tags — Roon's Browse API
         // doesn't expose the release year, so we backfill tracks.year from here.
         var years: [(matchKey: String, year: Int)]
+        // (match_key, MusicBrainz genres) — the richer, hierarchical genre set
+        // the analyzer enriched. Stored in track_mb_genres, joined by match_key.
+        var genres: [(matchKey: String, genres: [String])]
     }
 
     /// Fetch + parse the analyzer `/features` JSON off the main actor.
@@ -208,6 +245,7 @@ extension RoonClient {
             var features: [DatabaseManager.AudioFeatureRow] = []
             var identities: [DatabaseManager.FeatureIdentity] = []
             var years: [(matchKey: String, year: Int)] = []
+            var genres: [(matchKey: String, genres: [String])] = []
             features.reserveCapacity(arr.count); identities.reserveCapacity(arr.count)
             for o in arr {
                 guard let mk = o["match_key"] as? String, !mk.isEmpty else { continue }
@@ -223,8 +261,9 @@ extension RoonClient {
                 identities.append(DatabaseManager.FeatureIdentity(
                     matchKey: mk, artist: o["artist"] as? String, title: o["title"] as? String))
                 if let y = o["year"] as? Int, y > 1900 { years.append((mk, y)) }
+                if let g = o["mb_genres"] as? [String], !g.isEmpty { genres.append((mk, g)) }
             }
-            return FeaturePayload(features: features, identities: identities, years: years)
+            return FeaturePayload(features: features, identities: identities, years: years, genres: genres)
         }.value
     }
 

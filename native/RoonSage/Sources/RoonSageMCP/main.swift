@@ -10,6 +10,7 @@
 ///   roon_transfer_zone  — move now-playing queue from one zone to another
 ///   roon_search_library — search local track database by title/artist/album
 ///   get_library_stats   — genre breakdown, decade distribution, artist/album counts
+///   get_genre_tree      — MusicBrainz genre hierarchy (parent → subgenres)
 ///   get_albums          — search albums in the local library
 ///   filter_tracks       — filter library by genre/decade/artist/keywords → numbered list + session_id
 ///   curate_and_play     — play tracks from a filter session in a Roon zone
@@ -336,6 +337,18 @@ final class MCPServer {
             }
             return lines.joined(separator: "\n")
 
+        case "get_genre_tree":
+            let tree = await client.libraryGenreTree()
+            if tree.isEmpty {
+                return "No MusicBrainz genres synced yet. Run the analyzer's `enrich` step, then sync features."
+            }
+            var lines = ["Genre hierarchy — \(tree.count) parent genres (filter_tracks expands a parent to all its subgenres):"]
+            for node in tree.prefix(80) {
+                if node.subgenres.isEmpty { lines.append("• \(node.genre)") }
+                else { lines.append("• \(node.genre): " + node.subgenres.prefix(25).joined(separator: ", ")) }
+            }
+            return lines.joined(separator: "\n")
+
         // ── Filter tracks ────────────────────────────────────────────────────
 
         case "filter_tracks":
@@ -624,6 +637,9 @@ final class MCPServer {
 
             tool("get_library_stats",
                  "Get an overview of the synced library: total tracks/artists/albums, top genres, and tracks by decade. Call this to understand what music is available before filtering."),
+
+            tool("get_genre_tree",
+                 "List the library's MusicBrainz genre hierarchy (parent genres → subgenres) — far richer than Roon's top-level genres. Use to curate by a specific subgenre. Note: filter_tracks already expands a parent genre to all its subgenres automatically."),
 
             tool("filter_tracks",
                  "Filter the local library and get a numbered track list + session_id for curation. Combine multiple filters: genres AND decades AND artists AND keywords. Returns up to `limit` tracks (default 500).",

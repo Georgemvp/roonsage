@@ -22,9 +22,17 @@ extension DatabaseManager {
             var args: [DatabaseValueConvertible] = []
 
             if !options.genres.isEmpty {
-                let ph = options.genres.map { _ in "?" }.joined(separator: ",")
-                conditions.append("t.id IN (SELECT track_id FROM track_genres WHERE genre IN (\(ph)))")
-                args.append(contentsOf: options.genres as [DatabaseValueConvertible])
+                // Expand to descendant subgenres, then match either source: Roon
+                // genres (track_genres, by track id) OR MusicBrainz genres
+                // (track_mb_genres, by content match_key). Both compared lowercased.
+                let expanded = try Self.expandGenres(db, options.genres)
+                let ph = expanded.map { _ in "?" }.joined(separator: ",")
+                conditions.append("""
+                    (t.id IN (SELECT track_id FROM track_genres WHERE LOWER(genre) IN (\(ph)))
+                     OR t.match_key IN (SELECT match_key FROM track_mb_genres WHERE genre IN (\(ph))))
+                """)
+                args.append(contentsOf: expanded as [DatabaseValueConvertible])   // Roon clause
+                args.append(contentsOf: expanded as [DatabaseValueConvertible])   // MB clause
             }
             if !options.decades.isEmpty {
                 let dc = options.decades.map { _ in "(t.year >= ? AND t.year < ?)" }.joined(separator: " OR ")

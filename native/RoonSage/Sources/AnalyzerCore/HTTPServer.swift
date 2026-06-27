@@ -4,7 +4,8 @@ import Network
 
 /// Minimal HTTP/1.1 server (Network framework, no deps) exposing analyzed
 /// features so the app can pull them over ZeroTier.
-///   GET /features → JSON array (keyed by match_key)
+///   GET /features → JSON array (keyed by match_key, incl. mb_genres)
+///   GET /genres → genre taxonomy [{genre, parent?, mbid?}]
 ///   GET /embeddings → binary RSEB bundle
 ///   GET /text-embed?q=… → {"embedding":[…]}  (text→vector for search)
 ///   GET /audio?match_key=… → the track's on-disk file (Range-aware) for
@@ -230,6 +231,11 @@ public final class HTTPServer {
         if path.hasPrefix("/features") {
             let withEmbedding = path.contains("embed=1")
             return ("200 OK", cachedFeatures(includeEmbedding: withEmbedding), "application/json")
+        }
+        if path.hasPrefix("/genres") {
+            // The MusicBrainz genre hierarchy: [{genre, parent?, mbid?}]. Small
+            // (~2000 rows), so it's served whole and rebuilt cheaply per request.
+            return ("200 OK", store.taxonomyJSON(), "application/json")
         }
         if path.hasPrefix("/health") { return ("200 OK", Data("{\"status\":\"ok\",\"tracks\":\(store.count())}".utf8), "application/json") }
         return ("404 Not Found", Data("not found".utf8), "text/plain")

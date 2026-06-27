@@ -114,6 +114,22 @@ public final class FeatureStore {
             try addColumn("map_x", "REAL")
             try addColumn("map_y", "REAL")
             try addColumn("attributes", "TEXT")
+            // MusicBrainz genre enrichment (analyzer-side). `mb_genres` is a JSON
+            // string array of controlled-vocabulary genres; `mb_checked_at` marks
+            // a row as enriched (incl. "looked up, found nothing") so the worker
+            // is resumable and never re-queries a finished album.
+            try addColumn("mb_genres", "TEXT")
+            try addColumn("mb_checked_at", "TEXT")
+
+            // Genre hierarchy (parent ← subgenre), built from MusicBrainz. `parent`
+            // is NULL for a root genre (or when MB exposes no relation for it).
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS genre_taxonomy (
+                    genre  TEXT PRIMARY KEY,
+                    parent TEXT,
+                    mbid   TEXT
+                )
+            """)
         }
     }
 
@@ -225,11 +241,14 @@ public final class FeatureStore {
     public func contentSignature() -> String {
         (try? dbQueue.read { db in
             let r = try Row.fetchOne(db, sql: """
-                SELECT COUNT(*) AS c, COUNT(embedding) AS e, COUNT(tags) AS t, COUNT(attributes) AS a
+                SELECT COUNT(*) AS c, COUNT(embedding) AS e, COUNT(tags) AS t, COUNT(attributes) AS a,
+                       COUNT(mb_genres) AS g
                 FROM track_features
             """)
-            return "\(r?["c"] as Int? ?? 0)/\(r?["e"] as Int? ?? 0)/\(r?["t"] as Int? ?? 0)/\(r?["a"] as Int? ?? 0)"
-        }) ?? "0/0/0/0"
+            // `g` (MB-enriched count) folded in so a feature-sync re-runs as
+            // enrichment progresses — clients pull the new genres automatically.
+            return "\(r?["c"] as Int? ?? 0)/\(r?["e"] as Int? ?? 0)/\(r?["t"] as Int? ?? 0)/\(r?["a"] as Int? ?? 0)/\(r?["g"] as Int? ?? 0)"
+        }) ?? "0/0/0/0/0"
     }
 
     /// Resolve a streamable on-disk file for a track's match key — backs the
@@ -308,6 +327,160 @@ public final class FeatureStore {
         }
     }
 
+    // MARK: - MusicBrainz genre enrichment
+
+    /// One album's analyzed tracks: a single MB release lookup enriches them all.
+    public struct MBAlbumGroup: Sendable {
+        public let artist: String
+        public let album: String
+        public let matchKeys: [String]
+    }
+
+    /// Up to `limit` albums that still have an un-enriched analyzed track. One MB
+    /// lookup per album (album-level matching); `matchKeys` is every track on the
+    /// album so they're all marked done in one write. Resumable: an interrupted
+    /// run just re-selects the albums it didn't reach.
+    public func albumsNeedingMBGenres(limit: Int) -> [MBAlbumGroup] {
+        (try? dbQueue.read { db in
+            let albums = try Row.fetchAll(db, sql: """
+                SELECT artist, album FROM track_features
+                WHERE mb_checked_at IS NULL AND bpm IS NOT NULL
+                  AND album IS NOT NULL AND album != '' AND artist IS NOT NULL AND artist != ''
+                GROUP BY LOWER(artist), LOWER(album)
+                ORDER BY artist, album
+                LIMIT ?
+            """, arguments: [limit])
+            var out: [MBAlbumGroup] = []
+            for a in albums {
+                guard let artist = a["artist"] as String?, let album = a["album"] as String? else { continue }
+                let mks = try String.fetchAll(db, sql: """
+                    SELECT match_key FROM track_features
+                    WHERE LOWER(artist) = LOWER(?) AND LOWER(album) = LOWER(?)
+                """, arguments: [artist, album])
+                if !mks.isEmpty { out.append(MBAlbumGroup(artist: artist, album: album, matchKeys: mks)) }
+            }
+            return out
+        }) ?? []
+    }
+
+    /// Tracks with no album that still need a recording-level lookup (fallback).
+    public func tracksNeedingMBGenres(limit: Int) -> [TrackFeatureRow] {
+        (try? dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM track_features
+                WHERE mb_checked_at IS NULL AND bpm IS NOT NULL
+                  AND (album IS NULL OR album = '') AND artist IS NOT NULL AND artist != ''
+                LIMIT ?
+            """, arguments: [limit]).map(Self.row)
+        }) ?? []
+    }
+
+    /// Store the genres for a set of tracks and mark them enriched. An empty
+    /// `genres` still stamps `mb_checked_at` (so a fruitless lookup isn't retried)
+    /// but leaves `mb_genres` NULL.
+    public func setMBGenres(matchKeys: [String], genres: [String], checkedAt: String) throws {
+        guard !matchKeys.isEmpty else { return }
+        let value: String? = genres.isEmpty ? nil
+            : (try? JSONSerialization.data(withJSONObject: genres)).flatMap { String(data: $0, encoding: .utf8) }
+        try dbQueue.write { db in
+            // match_keys per album are few; well under SQLite's 999-variable cap.
+            let ph = matchKeys.map { _ in "?" }.joined(separator: ",")
+            var args: [DatabaseValueConvertible?] = [value, checkedAt]
+            args.append(contentsOf: matchKeys as [DatabaseValueConvertible])
+            try db.execute(sql: "UPDATE track_features SET mb_genres = ?, mb_checked_at = ? WHERE match_key IN (\(ph))",
+                           arguments: StatementArguments(args))
+        }
+    }
+
+    public func mbEnrichedCount() -> Int {
+        (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(mb_genres) FROM track_features") ?? 0 }) ?? 0
+    }
+
+    public func mbCheckedCount() -> Int {
+        (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(mb_checked_at) FROM track_features") ?? 0 }) ?? 0
+    }
+
+    /// Distinct genre names appearing across all enriched tracks — the set whose
+    /// parents are worth resolving (we don't fetch relations for the ~2000 genres
+    /// nobody in this library uses).
+    public func genresInUse() -> Set<String> {
+        let rows = (try? dbQueue.read { db in
+            try String.fetchAll(db, sql: "SELECT mb_genres FROM track_features WHERE mb_genres IS NOT NULL")
+        }) ?? []
+        var set = Set<String>()
+        for s in rows {
+            if let d = s.data(using: .utf8), let arr = try? JSONSerialization.jsonObject(with: d) as? [String] {
+                for g in arr { set.insert(g) }
+            }
+        }
+        return set
+    }
+
+    // MARK: - Genre taxonomy
+
+    /// Upsert the flat genre vocabulary (name + MBID), leaving `parent` untouched.
+    public func upsertGenres(_ nodes: [MusicBrainzClient.GenreNode]) throws {
+        guard !nodes.isEmpty else { return }
+        try dbQueue.write { db in
+            for n in nodes {
+                try db.execute(sql: """
+                    INSERT INTO genre_taxonomy (genre, mbid) VALUES (?, ?)
+                    ON CONFLICT(genre) DO UPDATE SET mbid = excluded.mbid
+                """, arguments: [n.name, n.mbid])
+            }
+        }
+    }
+
+    public func setGenreParent(genre: String, parent: String?) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO genre_taxonomy (genre, parent) VALUES (?, ?)
+                ON CONFLICT(genre) DO UPDATE SET parent = excluded.parent
+            """, arguments: [genre, parent])
+        }
+    }
+
+    public func genreMBID(_ genre: String) -> String? {
+        (try? dbQueue.read { db in
+            try String.fetchOne(db, sql: "SELECT mbid FROM genre_taxonomy WHERE genre = ?", arguments: [genre])
+        }) ?? nil
+    }
+
+    /// Of `names`, the genres whose parent relation hasn't been resolved yet —
+    /// no taxonomy row, or `parent IS NULL`. Roots are stamped with an empty
+    /// string (`setGenreParent("")`) so they count as resolved and aren't
+    /// re-queried every run.
+    public func unresolvedParentGenres(_ names: Set<String>) -> [String] {
+        guard !names.isEmpty else { return [] }
+        let resolved = Set((try? dbQueue.read { db in
+            try String.fetchAll(db, sql: "SELECT genre FROM genre_taxonomy WHERE parent IS NOT NULL")
+        }) ?? [])
+        return names.filter { !resolved.contains($0) }
+    }
+
+    public func taxonomyCount() -> Int {
+        (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM genre_taxonomy") ?? 0 }) ?? 0
+    }
+
+    /// The whole genre tree as `[{genre, parent?, mbid?}]` for the `/genres`
+    /// endpoint. Only genres that have a parent OR appear in the library matter
+    /// to clients, but the vocabulary is small (~2000) so we serve it whole.
+    public func taxonomyJSON() -> Data {
+        let rows = (try? dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT genre, parent, mbid FROM genre_taxonomy")
+        }) ?? []
+        var arr: [[String: Any]] = []
+        arr.reserveCapacity(rows.count)
+        for r in rows {
+            guard let g = r["genre"] as String? else { continue }
+            var o: [String: Any] = ["genre": g]
+            if let p = r["parent"] as String? { o["parent"] = p }
+            if let m = r["mbid"] as String? { o["mbid"] = m }
+            arr.append(o)
+        }
+        return (try? JSONSerialization.data(withJSONObject: arr)) ?? Data("[]".utf8)
+    }
+
     /// `includeEmbedding` adds the 512-dim vector as base64 (Float32 LE) per
     /// track — large, so off by default; the binary `/embeddings` endpoint is
     /// the preferred bulk path. `moods` + `embedding_model` are always included
@@ -316,7 +489,7 @@ public final class FeatureStore {
         let rows = (try? dbQueue.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT match_key, artist, title, album, year, bpm, bpm_confidence, camelot, key_root, key_mode, energy, duration,
-                       tags, moods, attributes, embedding_model\(includeEmbedding ? ", embedding" : "")
+                       tags, moods, attributes, mb_genres, embedding_model\(includeEmbedding ? ", embedding" : "")
                 FROM track_features WHERE bpm IS NOT NULL
             """)
         }) ?? []
@@ -343,6 +516,11 @@ public final class FeatureStore {
             ]
             if let year = r["year"] as Int?, year > 0 { obj["year"] = year }
             if let tags = r["tags"] as String? { obj["tags"] = tags }
+            // MusicBrainz genres as an actual array (the app parses it directly).
+            if let mbg = r["mb_genres"] as String?, let d = mbg.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: d) as? [String], !arr.isEmpty {
+                obj["mb_genres"] = arr
+            }
             if let moods = r["moods"] as String? { obj["moods"] = moods }
             if let attributes = r["attributes"] as String? { obj["attributes"] = attributes }
             if let model = r["embedding_model"] as String? { obj["embedding_model"] = model }

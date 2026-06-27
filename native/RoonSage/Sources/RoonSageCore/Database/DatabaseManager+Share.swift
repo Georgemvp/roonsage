@@ -22,6 +22,14 @@ extension DatabaseManager {
                     genresByTrack[id, default: []].append(g)
                 }
             }
+            // MusicBrainz genres are keyed by content match_key, so the importing
+            // device re-attaches them by `mk` (no Roon item_key dependency).
+            var mbByKey: [String: [String]] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT match_key, genre FROM track_mb_genres") {
+                if let k = row["match_key"] as String?, let g = row["genre"] as String? {
+                    mbByKey[k, default: []].append(g)
+                }
+            }
             var tracks: [[String: Any]] = []
             let rows = try Row.fetchAll(db, sql: """
                 SELECT id, title, artist, album, album_key, year, is_live, match_key, image_key, album_fp
@@ -47,6 +55,7 @@ extension DatabaseManager {
                     o["fp"] = al + "|" + (r["artist"] as String? ?? "")
                 }
                 if let id = r["id"] as String?, let g = genresByTrack[id], !g.isEmpty { o["g"] = g }
+                if let mk = r["match_key"] as String?, let mg = mbByKey[mk], !mg.isEmpty { o["mbg"] = mg }
                 tracks.append(o)
             }
             return try JSONSerialization.data(withJSONObject: ["version": 1, "tracks": tracks])
@@ -65,6 +74,7 @@ extension DatabaseManager {
         var records: [TrackRecord] = []
         var fps: [String?] = []
         var genrePairs: [(String, String)] = []
+        var mbGenrePairs: [(String, String)] = []   // (match_key, genre)
         records.reserveCapacity(items.count)
         for (i, o) in items.enumerated() {
             guard let title = o["t"] as? String, !title.isEmpty else { continue }
@@ -99,15 +109,25 @@ extension DatabaseManager {
             if let genres = o["g"] as? [String] {
                 for g in genres { genrePairs.append((id, g)) }
             }
+            // MusicBrainz genres re-attach by content match_key (survive resyncs).
+            if let mk = o["mk"] as? String, !mk.isEmpty, let mbg = o["mbg"] as? [String] {
+                for g in mbg {
+                    let gl = g.lowercased()
+                    if !gl.isEmpty { mbGenrePairs.append((mk, gl)) }
+                }
+            }
         }
         guard !records.isEmpty else { throw ImportError.empty }
 
         // Immutable copies: the async pool.write closure is @Sendable and may not
         // capture the mutable build-up vars (older Swift rejects it as a data race).
-        let outRecords = records, outFps = fps, outGenrePairs = genrePairs
+        let outRecords = records, outFps = fps, outGenrePairs = genrePairs, outMBGenrePairs = mbGenrePairs
         try await pool.write { db in
             try db.execute(sql: "DELETE FROM tracks")
             try db.execute(sql: "DELETE FROM sync_album_checkpoints")
+            // MB genres aren't FK'd to tracks (keyed by match_key), so clear them
+            // explicitly — the import replaces the whole library snapshot.
+            try db.execute(sql: "DELETE FROM track_mb_genres")
 
             let chunk = Self.rowsPerChunk(columns: 10)
             var start = 0
@@ -142,6 +162,20 @@ extension DatabaseManager {
                     sql: "INSERT OR IGNORE INTO track_genres (track_id, genre) VALUES \(placeholders)",
                     arguments: StatementArguments(args))
                 gStart += slice.count
+            }
+
+            // MusicBrainz genres (keyed by match_key).
+            let mbChunk = Self.rowsPerChunk(columns: 2)
+            var mbStart = 0
+            while mbStart < outMBGenrePairs.count {
+                let slice = outMBGenrePairs[mbStart..<min(mbStart + mbChunk, outMBGenrePairs.count)]
+                let placeholders = slice.map { _ in "(?,?)" }.joined(separator: ",")
+                var args: [DatabaseValueConvertible] = []
+                for p in slice { args.append(p.0); args.append(p.1) }
+                try db.execute(
+                    sql: "INSERT OR IGNORE INTO track_mb_genres (match_key, genre) VALUES \(placeholders)",
+                    arguments: StatementArguments(args))
+                mbStart += slice.count
             }
 
             try db.execute(sql: """
