@@ -82,6 +82,38 @@ final class MusicBrainzGenreTests: XCTestCase {
         XCTAssertEqual(tax.first?["parent"] as? String, "rock")
     }
 
+    func testTaxonomyCompletenessFlagGatesVocabularyRefetch() throws {
+        let (store, path) = try makeStore()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        // Fresh store: vocabulary has never been fully fetched.
+        XCTAssertFalse(store.taxonomyComplete())
+        try store.markTaxonomyComplete()
+        XCTAssertTrue(store.taxonomyComplete(), "flag must persist so a partial fetch isn't taken as complete")
+    }
+
+    func testResetProvisionalRootsHealsFalseRoots() throws {
+        let (store, path) = try makeStore()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        // Simulate a prior INCOMPLETE run that stamped a real subgenre as a root
+        // (its parent lived on an unfetched page) and a genuine root.
+        try store.setGenreParent(genre: "blues rock", parent: "")   // false root
+        try store.setGenreParent(genre: "jazz", parent: "")         // would-be real root
+        XCTAssertTrue(store.unresolvedParentGenres(["blues rock", "jazz"]).isEmpty,
+                      "parent='' counts as resolved, so these are never re-queried")
+
+        // Healing reset: both drop back to unresolved so the next pass re-resolves
+        // them against the now-complete vocabulary.
+        try store.resetProvisionalRoots()
+        XCTAssertEqual(Set(store.unresolvedParentGenres(["blues rock", "jazz"])), ["blues rock", "jazz"])
+
+        // A genuinely-resolved parent relation is untouched by the reset.
+        try store.setGenreParent(genre: "blues rock", parent: "rock")
+        try store.resetProvisionalRoots()
+        XCTAssertTrue(store.unresolvedParentGenres(["blues rock"]).isEmpty)
+    }
+
     // MARK: - Library side (DatabaseManager)
 
     private func makeDB() throws -> (DatabaseManager, URL) {

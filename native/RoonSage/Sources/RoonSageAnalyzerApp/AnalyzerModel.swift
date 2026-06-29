@@ -88,6 +88,10 @@ final class AnalyzerModel {
     func refresh() {
         trackCount = store?.count() ?? 0
         taggedCount = store?.taggedCount() ?? 0
+        // Keep the advertised feature revision in step with the store so remotes
+        // re-pull after in-app analysis/backfill completes — not only after a
+        // re-serve. Cheap: refresh() runs at completion, never on the poll path.
+        if isServing, let store { RoonClient.shared.featuresRevision = store.contentSignature() }
     }
 
     /// Called on launch: start analyzing if auto-start is on and a folder is set.
@@ -284,9 +288,12 @@ final class AnalyzerModel {
             server = s
             isServing = true
             status = clapReady ? "Serving on \(p)." : "Serving on \(p) — loading text model…"
-            // Publish a cached feature/embedding signature (one-time COUNTs, not
-            // per-poll) so remotes auto-re-pull when analyses change.
-            RoonClient.shared.featuresRevision = "\(store.count())/\(store.embeddedCount())"
+            // Publish a cached feature signature (computed here, not per-poll) so
+            // remotes auto-re-pull when analyses change. Use the FULL signature
+            // (adds/embeds/tags/attrs + MB genres), not just count/embedded —
+            // otherwise genre-only enrichment never bumps the revision and remotes
+            // never re-pull the new genres/taxonomy.
+            RoonClient.shared.featuresRevision = store.contentSignature()
             // Advertise our own analyzer endpoint so remotes import the correct
             // features URL (loopback is rewritten to the share host on import) —
             // they no longer have to *guess* the port (:5766 vs the share :5767).

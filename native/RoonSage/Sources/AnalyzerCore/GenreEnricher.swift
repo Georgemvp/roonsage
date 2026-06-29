@@ -74,14 +74,27 @@ public final class GenreEnricher {
     func buildTaxonomy() async {
         let inUse = store.genresInUse()
         guard !inUse.isEmpty else { return }
-        if store.taxonomyCount() == 0 {
-            let all = await client.allGenres()
-            try? store.upsertGenres(all)
+
+        // Fetch the controlled vocabulary once — but only trust a cached copy when a
+        // prior run fetched it COMPLETELY. A partial fetch (transient MB/network
+        // failure mid-pagination) must be retried: otherwise genres on the
+        // not-yet-fetched pages look like free-text tags and get stamped as false
+        // roots forever, silently corrupting parent filters and the genre tree.
+        if !store.taxonomyComplete() {
+            let vocab = await client.allGenres()
+            if !vocab.nodes.isEmpty { try? store.upsertGenres(vocab.nodes) }
+            guard vocab.complete else { return }   // incomplete — retry on the next run
+            // First complete fetch: drop any provisional roots so genres an earlier
+            // incomplete run mis-stamped get re-resolved against the whole vocabulary.
+            try? store.resetProvisionalRoots()
+            try? store.markTaxonomyComplete()
         }
+
         for g in store.unresolvedParentGenres(inUse) {
             if cancelled { break }
             guard let mbid = store.genreMBID(g) else {
-                // A free-text tag, not in the controlled vocabulary — keep it flat.
+                // Not in the (now COMPLETE) controlled vocabulary — a genuine
+                // free-text tag. Safe to keep it flat as a root.
                 try? store.setGenreParent(genre: g, parent: "")
                 continue
             }

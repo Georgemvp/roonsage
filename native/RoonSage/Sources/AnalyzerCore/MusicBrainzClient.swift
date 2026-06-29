@@ -93,26 +93,45 @@ public actor MusicBrainzClient {
         public let mbid: String
     }
 
+    /// Outcome of a full-vocabulary fetch. `complete` is true only when pagination
+    /// reached MusicBrainz's advertised end with at least one genre in hand; a
+    /// transient failure mid-pagination (or an empty/parse-failed first page)
+    /// returns the pages gathered so far with `complete == false`, so the caller
+    /// knows NOT to treat the partial set as the whole vocabulary.
+    public struct GenreVocabulary: Sendable {
+        public let nodes: [GenreNode]
+        public let complete: Bool
+    }
+
     /// The full MusicBrainz genre vocabulary (~2000 entries), name + MBID. One
     /// pass, paginated. Forms the flat backbone of the taxonomy before parent
-    /// relations are resolved.
-    public func allGenres(pageSize: Int = 100) async -> [GenreNode] {
+    /// relations are resolved. Any failed/malformed page aborts with
+    /// `complete == false`: a partial result must not masquerade as the complete
+    /// vocabulary, or genres on the not-yet-fetched pages get stamped as false
+    /// roots and the hierarchy stays permanently broken.
+    public func allGenres(pageSize: Int = 100) async -> GenreVocabulary {
         var out: [GenreNode] = []
         var offset = 0
         while true {
             guard let url = url("/genre/all", query: ["limit": "\(pageSize)", "offset": "\(offset)"]),
                   let json = await getJSON(url),
-                  let arr = json["genres"] as? [[String: Any]], !arr.isEmpty else { break }
+                  let arr = json["genres"] as? [[String: Any]] else {
+                return GenreVocabulary(nodes: out, complete: false)   // fetch/parse failed mid-way
+            }
             for g in arr {
                 if let name = (g["name"] as? String)?.lowercased(), let id = g["id"] as? String {
                     out.append(GenreNode(name: name, mbid: id))
                 }
             }
-            let total = json["genre-count"] as? Int ?? out.count
+            let total = json["genre-count"] as? Int ?? 0
             offset += arr.count
-            if offset >= total || arr.count < pageSize { break }
+            // Reached the end cleanly: an empty/short page, or the advertised total.
+            // Treat a totally empty result as INCOMPLETE (MB always has ~2000 genres,
+            // so empty means something failed) — it'll be retried on the next run.
+            if arr.isEmpty || arr.count < pageSize || (total > 0 && offset >= total) {
+                return GenreVocabulary(nodes: out, complete: !out.isEmpty)
+            }
         }
-        return out
     }
 
     /// Parent genre names for a genre MBID, via its `subgenre of` relations

@@ -130,6 +130,16 @@ public final class FeatureStore {
                     mbid   TEXT
                 )
             """)
+
+            // Small key/value table for analyzer-internal flags — e.g. whether the
+            // full MusicBrainz genre vocabulary has been fetched completely (so a
+            // partial fetch is retried instead of cementing a broken hierarchy).
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS analyzer_meta (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """)
         }
     }
 
@@ -460,6 +470,39 @@ public final class FeatureStore {
 
     public func taxonomyCount() -> Int {
         (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM genre_taxonomy") ?? 0 }) ?? 0
+    }
+
+    /// Whether the full MusicBrainz genre vocabulary has been fetched COMPLETELY at
+    /// least once. Until it has, `buildTaxonomy` must not treat a genre missing
+    /// from `genre_taxonomy` as a free-text root — it may simply live on a page a
+    /// transient failure skipped. Replaces the old `taxonomyCount() == 0` guard,
+    /// which let one successful page declare the whole vocabulary done.
+    public func taxonomyComplete() -> Bool {
+        let v = (try? dbQueue.read { db in
+            try String.fetchOne(db, sql: "SELECT value FROM analyzer_meta WHERE key = 'taxonomy_complete'")
+        }) ?? nil
+        return v == "1"
+    }
+
+    public func markTaxonomyComplete() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO analyzer_meta (key, value) VALUES ('taxonomy_complete', '1')
+                ON CONFLICT(key) DO UPDATE SET value = '1'
+            """)
+        }
+    }
+
+    /// Clear provisional root markers (`parent = ''`) so they're re-resolved. Run
+    /// once when the vocabulary first becomes complete: a genre stamped as a root
+    /// by an earlier *incomplete* run may actually be a subgenre whose parent lived
+    /// on a page that hadn't been fetched yet. Resetting costs at most one MB
+    /// relation lookup per current root and heals an already-corrupted tree without
+    /// a manual DB wipe.
+    public func resetProvisionalRoots() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE genre_taxonomy SET parent = NULL WHERE parent = ''")
+        }
     }
 
     /// The whole genre tree as `[{genre, parent?, mbid?}]` for the `/genres`
