@@ -57,6 +57,10 @@ final class AnalyzerModel {
     private var tagger: Tagger?
     private var server: HTTPServer?
     private var clap: CLAPModel?   // loaded off-main once; enables /text-embed
+    /// While serving, periodically re-publishes the feature revision so changes
+    /// made by a SEPARATE process (e.g. `roonsage-analyzer enrich`) writing to the
+    /// shared analyzer.db are picked up — not just in-app analysis/backfill.
+    private var revisionRefreshTask: Task<Void, Never>?
 
     init() {
         store = try? FeatureStore(path: FeatureStore.defaultPath())
@@ -91,7 +95,7 @@ final class AnalyzerModel {
         // Keep the advertised feature revision in step with the store so remotes
         // re-pull after in-app analysis/backfill completes — not only after a
         // re-serve. Cheap: refresh() runs at completion, never on the poll path.
-        if isServing, let store { RoonClient.shared.featuresRevision = store.contentSignature() }
+        publishFeatureRevision()
     }
 
     /// Called on launch: start analyzing if auto-start is on and a folder is set.
@@ -271,6 +275,7 @@ final class AnalyzerModel {
 
     func toggleServe() {
         if isServing {
+            revisionRefreshTask?.cancel(); revisionRefreshTask = nil
             server?.stop(); server = nil; isServing = false; status = "Stopped serving."
             return
         }
@@ -292,8 +297,10 @@ final class AnalyzerModel {
             // remotes auto-re-pull when analyses change. Use the FULL signature
             // (adds/embeds/tags/attrs + MB genres), not just count/embedded —
             // otherwise genre-only enrichment never bumps the revision and remotes
-            // never re-pull the new genres/taxonomy.
-            RoonClient.shared.featuresRevision = store.contentSignature()
+            // never re-pull the new genres/taxonomy. A slow timer keeps it fresh
+            // against out-of-process writes (the `enrich` CLI on the same DB).
+            publishFeatureRevision()
+            startRevisionRefresh()
             // Advertise our own analyzer endpoint so remotes import the correct
             // features URL (loopback is rewritten to the share host on import) —
             // they no longer have to *guess* the port (:5766 vs the share :5767).
@@ -306,5 +313,31 @@ final class AnalyzerModel {
         // loadCLAPIfNeeded() updates status + attaches the model to the server
         // once it finishes; the server starts immediately so /features is up fast.
         loadCLAPIfNeeded()
+    }
+
+    /// Recompute and advertise the full feature signature (adds/embeds/tags/attrs
+    /// + MB genres). Cheap single read; only assigns on change. Called at serve
+    /// start, after in-app analysis/backfill, and on the slow refresh timer —
+    /// never on the per-poll path that the cached revision exists to protect.
+    private func publishFeatureRevision() {
+        guard isServing, let store else { return }
+        let sig = store.contentSignature()
+        if RoonClient.shared.featuresRevision != sig { RoonClient.shared.featuresRevision = sig }
+    }
+
+    /// While serving, re-publish the feature revision on a slow cadence so writes
+    /// from a SEPARATE process (`roonsage-analyzer enrich` against the shared
+    /// analyzer.db) are eventually advertised and remotes re-pull — in-app work
+    /// already republishes synchronously via refresh(). 30s is far off the hot
+    /// path; the signature is a handful of COUNTs.
+    private func startRevisionRefresh() {
+        revisionRefreshTask?.cancel()
+        revisionRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.publishFeatureRevision()
+            }
+        }
     }
 }
