@@ -139,8 +139,8 @@ public struct SonicFingerprintView: View {
     private func recommendationsCard(_ fp: RoonClient.Fingerprint) -> some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             HStack {
-                Text("Aanbevolen voor jou").font(.headline)
-                Spacer()
+                Text("Aanbevolen voor jou").font(.headline).lineLimit(1)
+                Spacer(minLength: Spacing.sm)
                 Button {
                     play { await client.curateTracks(asTracks(fp.recommendations), zoneID: $0) }
                 } label: {

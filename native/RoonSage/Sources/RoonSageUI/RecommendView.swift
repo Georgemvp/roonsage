@@ -194,17 +194,29 @@ public struct RecommendView: View {
             AIResultRow(title: album.album,
                         subtitle: "\(album.artist ?? "Onbekend")\(album.year.map { " · \($0)" } ?? "")",
                         imageKey: album.imageKey) {
-                Button {
-                    guard let zone = client.selectedZone?.id else { return }
-                    Haptics.tap()
-                    Task { await client.playAlbum(albumKey: album.albumKey, zoneID: zone) }
-                } label: {
-                    Image(systemName: "play.fill")
+                HStack(spacing: Spacing.xs) {
+                    Button {
+                        guard let zone = client.selectedZone?.id else { return }
+                        Haptics.tap()
+                        Task { await client.playAlbum(albumKey: album.albumKey, zoneID: zone) }
+                    } label: {
+                        Image(systemName: "play.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(client.selectedZone == nil)
+                    .accessibilityLabel("Speel \(album.album) af")
+                    .help(client.selectedZone == nil ? "Kies eerst een zone" : "Speel dit album af")
+
+                    Button {
+                        Haptics.tap()
+                        Task { await client.playAlbumLocally(albumKey: album.albumKey) }
+                    } label: {
+                        Image(systemName: "iphone")
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("Speel \(album.album) op dit apparaat")
+                    .help("Speel dit album lokaal af op dit apparaat")
                 }
-                .buttonStyle(.bordered)
-                .disabled(client.selectedZone == nil)
-                .accessibilityLabel("Speel \(album.album) af")
-                .help(client.selectedZone == nil ? "Kies eerst een zone" : "Speel dit album af")
             }
         }
     }

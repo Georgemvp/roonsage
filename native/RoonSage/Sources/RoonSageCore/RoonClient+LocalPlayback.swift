@@ -117,6 +117,31 @@ extension RoonClient {
         return await QobuzClient.shared.streamURLs(for: reqs, appSecret: secret, email: email, password: pw)
     }
 
+    /// Map a library-track row to a `TrackRecord` for local playback.
+    private func record(_ t: DatabaseManager.LibraryTrackRow) -> TrackRecord {
+        TrackRecord(id: t.id, title: t.title, artist: t.artist, album: t.album,
+                    year: t.year, isLive: t.isLive)
+    }
+
+    /// Fetch an album's tracks and play them on this device.
+    @discardableResult
+    public func playAlbumLocally(albumKey: String) async -> LocalPlaybackSummary? {
+        let rows = await tracksForAlbum(albumKey)
+        return await playLocally(rows.map(record))
+    }
+
+    /// Fetch all of an artist's tracks (across their albums) and play them on
+    /// this device, in album order.
+    @discardableResult
+    public func playArtistLocally(name: String) async -> LocalPlaybackSummary? {
+        let albums = await albumsByArtist(name)
+        var recs: [TrackRecord] = []
+        for album in albums {
+            recs.append(contentsOf: (await tracksForAlbum(album.albumKey)).map(record))
+        }
+        return await playLocally(recs)
+    }
+
     /// Stop on-device playback and clear the "listen here" choice.
     public func stopLocalPlayback() {
         localPlayback.stop()

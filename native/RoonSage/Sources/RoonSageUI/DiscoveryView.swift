@@ -69,17 +69,22 @@ public struct DiscoveryView: View {
         let subtitle: String?
         let imageKey: String?
         let play: () -> Void
+        let playLocal: () -> Void
     }
 
     private var heroItem: HeroItem? {
         if let t = forgotten.first {
             return HeroItem(title: t.title, subtitle: t.artist, imageKey: t.imageKey) {
                 play { await client.curateTracks([t], zoneID: $0) }
+            } playLocal: {
+                Haptics.tap(); Task { await client.playLocally([t]) }
             }
         }
         if let a = undiscovered.first {
             return HeroItem(title: a.album, subtitle: a.artist, imageKey: a.imageKey) {
                 play { await client.playAlbum(albumKey: a.albumKey, zoneID: $0) }
+            } playLocal: {
+                Haptics.tap(); Task { await client.playAlbumLocally(albumKey: a.albumKey) }
             }
         }
         return nil
@@ -99,12 +104,18 @@ public struct DiscoveryView: View {
                     Text(sub).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: Spacing.sm)
-                Button {
-                    Haptics.tap()
-                    item.play()
-                } label: { Label("Speel nu", systemImage: "play.fill") }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(client.selectedZone == nil)
+                HStack(spacing: Spacing.sm) {
+                    Button {
+                        Haptics.tap()
+                        item.play()
+                    } label: { Label("Speel nu", systemImage: "play.fill") }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(client.selectedZone == nil)
+                    Button { item.playLocal() } label: { Image(systemName: "iphone") }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Speel op dit apparaat")
+                        .help("Speel lokaal af op dit apparaat")
+                }
             }
             Spacer(minLength: 0)
         }
@@ -123,17 +134,22 @@ public struct DiscoveryView: View {
         let subtitle: String?
         let imageKey: String?
         let play: () -> Void
+        let playLocal: () -> Void
     }
 
     private func albumCover(_ a: DatabaseManager.AlbumResult) -> Cover {
         Cover(id: a.albumKey, title: a.album, subtitle: a.artist, imageKey: a.imageKey) {
             play { await client.playAlbum(albumKey: a.albumKey, zoneID: $0) }
+        } playLocal: {
+            Haptics.tap(); Task { await client.playAlbumLocally(albumKey: a.albumKey) }
         }
     }
 
     private func trackCover(_ t: TrackRecord) -> Cover {
         Cover(id: t.id, title: t.title, subtitle: t.artist, imageKey: t.imageKey) {
             play { await client.curateTracks([t], zoneID: $0) }
+        } playLocal: {
+            Haptics.tap(); Task { await client.playLocally([t]) }
         }
     }
 
@@ -179,6 +195,11 @@ public struct DiscoveryView: View {
         .buttonStyle(.plain)
         .disabled(client.selectedZone == nil)
         .accessibilityLabel("Speel \(c.title)\(c.subtitle.map { " van \($0)" } ?? "")")
+        .contextMenu {
+            Button("Speel nu", systemImage: "play.fill") { Haptics.tap(); c.play() }
+                .disabled(client.selectedZone == nil)
+            Button("Speel op dit apparaat", systemImage: "iphone") { c.playLocal() }
+        }
     }
 
     private func playAllButton(_ tracks: [TrackRecord]) -> some View {
@@ -202,11 +223,11 @@ public struct DiscoveryView: View {
     ) -> some View {
         HStack {
             Label {
-                Text(title).font(.headline)
+                Text(title).font(.headline).lineLimit(1)
             } icon: {
                 Image(systemName: icon).foregroundStyle(Color.roonGold)
             }
-            Spacer()
+            Spacer(minLength: Spacing.sm)
             trailing()
         }
     }

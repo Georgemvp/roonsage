@@ -28,6 +28,10 @@ struct AlbumDetailView: View {
                     .contextMenu {
                         Button("Speel nu") { play([track]) }.disabled(client.selectedZone == nil)
                         Button("Zet in wachtrij") { queue([track]) }.disabled(client.selectedZone == nil)
+                        Button("Speel op dit apparaat", systemImage: "iphone") {
+                            Haptics.tap()
+                            Task { await client.playLocally([record(track)]) }
+                        }
                     }
                 }
             }
@@ -55,10 +59,12 @@ struct AlbumDetailView: View {
                     Button { play(tracks) } label: { Label("Speel", systemImage: "play.fill") }
                         .buttonStyle(.borderedProminent).tint(Color.roonGold)
                         .disabled(client.selectedZone == nil || tracks.isEmpty)
-                    Button { queue(tracks) } label: { Label("Wachtrij", systemImage: "text.append") }
+                    // Queue + listen-on-device kept icon-only so the row fits on iPhone.
+                    Button { queue(tracks) } label: { Image(systemName: "text.append") }
                         .buttonStyle(.bordered)
                         .disabled(client.selectedZone == nil || tracks.isEmpty)
-                    // Listen on this device — no zone required.
+                        .accessibilityLabel("Zet in wachtrij")
+                        .help("Zet in wachtrij")
                     LocalPlayButton { tracks.map(record) }
                         .buttonStyle(.bordered)
                         .disabled(tracks.isEmpty)
@@ -115,6 +121,10 @@ struct ArtistDetailView: View {
                     Button { playArtist() } label: { Label("Speel alles", systemImage: "play.fill") }
                         .buttonStyle(.borderedProminent).tint(Color.roonGold)
                         .disabled(client.selectedZone == nil)
+                    Button { playArtistLocal() } label: { Image(systemName: "iphone") }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Speel op dit apparaat")
+                        .help("Speel alles lokaal af op dit apparaat")
                 }
 
                 if isLoading {
@@ -127,6 +137,10 @@ struct ArtistDetailView: View {
                                 .contextMenu {
                                     Button("Speel album") { playAlbum(album) }
                                         .disabled(client.selectedZone == nil)
+                                    Button("Speel op dit apparaat", systemImage: "iphone") {
+                                        Haptics.tap()
+                                        Task { await client.playAlbumLocally(albumKey: album.albumKey) }
+                                    }
                                 }
                         }
                     }
@@ -149,6 +163,11 @@ struct ArtistDetailView: View {
         guard let zone = client.selectedZone else { return }
         Haptics.tap()
         Task { await client.playArtist(name: artist.name, zoneID: zone.id) }
+    }
+
+    private func playArtistLocal() {
+        Haptics.tap()
+        Task { await client.playArtistLocally(name: artist.name) }
     }
 
     private func playAlbum(_ album: DatabaseManager.AlbumResult) {

@@ -377,23 +377,24 @@ public struct GenerateView: View {
     }
 
     private var playRow: some View {
-        HStack(spacing: Spacing.sm) {
-            Button { model.playAll(client: client) } label: {
-                Label("Speel alles", systemImage: "play.fill").frame(minWidth: 120)
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack(spacing: Spacing.sm) {
+                Button { model.playAll(client: client) } label: {
+                    Label("Speel alles", systemImage: "play.fill").frame(minWidth: 100)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(client.selectedZone == nil || model.tracks.isEmpty)
+
+                // Local playback needs no zone — always offered alongside Roon.
+                LocalPlayButton(style: .labeled) { model.tracks }
+                    .buttonStyle(.bordered)
+                    .disabled(model.tracks.isEmpty)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(client.selectedZone == nil || model.tracks.isEmpty)
-
-            // Local playback needs no zone — always offered alongside the Roon play.
-            LocalPlayButton(style: .labeled) { model.tracks }
-                .buttonStyle(.bordered)
-                .disabled(model.tracks.isEmpty)
-
             if client.selectedZone == nil {
-                Text("of speel lokaal op dit apparaat")
+                Text("Geen zone gekozen — “Op dit apparaat” speelt lokaal af.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Spacer()
         }
     }
 

@@ -94,7 +94,7 @@
 - [~] **D6. iOS Widgets + Live Activities** — v1 SHIPPED: `RoonSageWidgets` extension + Live Activity (lock screen + Dynamic Island, system-side elapsed timer; controller keyed on nowPlaying/state/zone). Future: push-token updates (stays live when app suspended), home-screen widget (needs App Group).
 - [ ] **D7. Handoff / Continuity** — build a set on Mac, continue on iPhone.
 - [x] **D8. Export DJ set** — `SetlistExport` (readable tracklist + M3U, with BPM/Camelot) via a ShareLink in the DJ Set view.
-- [ ] **D9. AirPlay / local playback on iOS** (later) — phone as control *and* listening endpoint.
+- [x] **D9. Local playback on iOS/Mac** — phone (or Mac) as control *and* listening endpoint. SHIPPED: `LocalPlaybackController` (own AVPlayer + queue + audio session) streams library tracks from the analyzer `/audio` endpoint; `NowPlayingCenter` routes lock-screen/Control-Center/CarPlay commands; `UIBackgroundModes: audio` keeps it alive when backgrounded. `LocalPlayButton` ("speel op dit apparaat", no zone required) is wired into Generate, library album/artist detail, Discovery, Recommend, Sonic DNA, Song Paths, Song Alchemy and Sonic Search. Only locally-analysed on-disk tracks play (Qobuz/stream-only are skipped and reported); experimental opt-in Qobuz-CDN fallback in Settings. Remaining: native AirPlay route picker.
 
 ---
 

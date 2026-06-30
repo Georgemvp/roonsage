@@ -193,8 +193,8 @@ public struct SongAlchemyView: View {
     private var resultsList: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
-                Text("Alchemieresultaten (\(results.count))").font(.headline)
-                Spacer()
+                Text("Alchemieresultaten (\(results.count))").font(.headline).lineLimit(1)
+                Spacer(minLength: Spacing.sm)
                 if let zone = client.selectedZone {
                     Button {
                         Haptics.success()

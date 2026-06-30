@@ -173,8 +173,8 @@ public struct SongPathsView: View {
     private var pathResult: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
-                Text("Sonisch pad (\(path.count) tracks)").font(.headline)
-                Spacer()
+                Text("Sonisch pad (\(path.count) tracks)").font(.headline).lineLimit(1)
+                Spacer(minLength: Spacing.sm)
                 if let zone = client.selectedZone {
                     Button {
                         Haptics.success()
