@@ -7,13 +7,27 @@ import UIKit
 /// `TabView` proposes an OVER-WIDE region to its scrollable content — ~560pt on a
 /// ~390–430pt iPhone — so VStack/ScrollView content runs off BOTH screen edges
 /// (and a greedy `GeometryReader` or `.frame(maxWidth: .infinity)` only inherits
-/// the same bad 560pt). The fix mirrors `NowPlayingView`: bound the content to the
-/// TRUE window width (read from UIKit, not from the broken layout proposal) and
-/// centre it inside the inflated region — since the region is centred on screen,
-/// content at the real width lands correctly.
+/// the same bad 560pt).
 ///
-/// Apply once at the root of each NavigationStack-pushed/custom-layout view.
-/// No-op-safe on macOS, where the window is sized correctly (plain 560 cap).
+/// ⚠️ UNRELIABLE for pushed/scrolling content. This exact pattern (read the real
+/// UIKit window width, force an exact `.frame(width:)`, re-centre with
+/// `.frame(maxWidth: .infinity)`) is what shipped — and was verified on-device —
+/// for `NowPlayingView`, which is the ROOT of its own NavigationStack with a
+/// HIDDEN nav bar and no ScrollView. Applied to `GenerateView` (reached via
+/// NavigationLink PUSH, with a visible nav bar, wrapping a ScrollView), it was
+/// shipped TWICE (ios-v1.7.35, ios-v1.7.36) and confirmed broken BOTH times on a
+/// real device (iOS 26.6) despite passing every synthetic-inflation check we
+/// could construct on an iOS 26.5 simulator. We don't know why it doesn't
+/// transfer — possibly ScrollView re-applies the bad proposal to its own content
+/// internally, possibly pushed (vs. root) NavigationStack content behaves
+/// differently. GenerateView was rebuilt on `List` instead (which has never
+/// exhibited this bug anywhere in the app — Settings/Playlists/Queue are all
+/// List/Form-based and unaffected) rather than continuing to patch this modifier.
+///
+/// Treat this as proven ONLY for hidden-bar root content shaped like
+/// `NowPlayingView`. For anything else, prefer restructuring onto `List`/`Form`
+/// over reapplying this modifier — and if you do reapply it, get real on-device
+/// (not simulator) confirmation before considering it fixed.
 struct WindowWidthCap: ViewModifier {
     func body(content: Content) -> some View {
         #if os(iOS)

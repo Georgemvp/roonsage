@@ -144,6 +144,11 @@ final class GenerateModel {
 /// pipeline lives in `RoonClient.generatePlaylist` (Core); this view is pure
 /// presentation over `GenerateModel`, with an *editable* result the user can
 /// refine (play/queue/reorder/remove a track) before saving.
+///
+/// Built on `List`/`Section` (not a custom `ScrollView`/`VStack`) — every other
+/// sectioned screen in the app (Settings, Playlists, Queue) uses the same
+/// container, and List clamps its own width correctly, which sidesteps an iOS 26
+/// NavigationStack layout bug that custom ScrollView content was vulnerable to.
 @MainActor
 public struct GenerateView: View {
     public init() {}
@@ -159,65 +164,24 @@ public struct GenerateView: View {
 
     public var body: some View {
         @Bindable var model = model
-        return ScrollView {
-            #if os(iOS)
-            Color.clear.frame(height: 0)
-            #endif
-            VStack(alignment: .leading, spacing: Spacing.xl) {
+        return List {
+            promptSection
+            templatesSection
+            optionsSection
+            generateSection
 
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    Text("Wat voor playlist?").font(.headline)
-                    AIPromptField(text: $model.prompt,
-                                  placeholder: "Beschrijf de sfeer, het genre of de gelegenheid… bijv. “warme jazz voor een regenachtige zondagochtend”")
-                }
-
-                templatesSection
-
-                HStack(spacing: Spacing.lg) {
-                    HStack(spacing: Spacing.xs) {
-                        Text("Tracks").foregroundStyle(.secondary)
-                        Picker("Tracks", selection: $model.targetCount) {
-                            Text("10").tag(10)
-                            Text("20").tag(20)
-                            Text("30").tag(30)
-                            Text("50").tag(50)
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: 200)
-                        .labelsHidden()
-                    }
-                    Spacer()
-                    ZonePicker()
-                }
-
-                generateSection
-
-                if let err = model.errorMessage {
-                    Label(err, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(Color.roonDanger)
-                        .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .transition(.opacity)
-                }
-
-                if model.isGenerating {
-                    GenerationStepper(current: model.phase ?? .analyzing)
-                        .transition(.opacity)
-                }
-
-                if model.isGenerating, model.result == nil {
-                    SkeletonRows(count: min(model.targetCount, 8)).transition(.opacity)
-                } else if let result = model.result {
-                    resultSection(result, name: $model.playlistName)
-                } else {
-                    idleState
-                }
+            if model.isGenerating, model.result == nil {
+                Section { SkeletonRows(count: min(model.targetCount, 8)) }
+                    .listRowSeparator(.hidden)
+                    .transition(.opacity)
+            } else if let result = model.result {
+                resultSection(result, name: $model.playlistName)
+            } else {
+                idleSection
             }
-            .padding(Spacing.xl)
-            .animation(Motion.standard, value: model.result?.title)
-            .animation(Motion.quick, value: model.errorMessage)
         }
-        .windowWidthCapped()
+        .animation(Motion.standard, value: model.result?.title)
+        .animation(Motion.quick, value: model.errorMessage)
         .navigationTitle("Playlist genereren")
         #if os(iOS)
         .scrollDismissesKeyboard(.interactively)
@@ -229,18 +193,18 @@ public struct GenerateView: View {
 
     // MARK: Form
 
+    private var promptSection: some View {
+        Section("Wat voor playlist?") {
+            AIPromptField(text: $model.prompt,
+                          placeholder: "Beschrijf de sfeer, het genre of de gelegenheid… bijv. “warme jazz voor een regenachtige zondagochtend”")
+                .listRowInsets(EdgeInsets())
+                .padding(.vertical, Spacing.xs)
+                .listRowBackground(Color.clear)
+        }
+    }
+
     private var templatesSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack {
-                Text("Snelle sjablonen")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button { showTemplates = true } label: {
-                    Label("Alle sjablonen", systemImage: "square.grid.2x2").font(.caption)
-                }
-                .buttonStyle(.borderless)
-            }
+        Section {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: Spacing.sm) {
                     ForEach(featured) { t in
@@ -258,24 +222,76 @@ public struct GenerateView: View {
                 }
                 .padding(.horizontal, 1)
             }
+            .listRowInsets(EdgeInsets(top: Spacing.xs, leading: Spacing.lg, bottom: Spacing.xs, trailing: 0))
+        } header: {
+            HStack {
+                Text("Snelle sjablonen")
+                Spacer()
+                Button { showTemplates = true } label: {
+                    Label("Alle sjablonen", systemImage: "square.grid.2x2").font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .textCase(nil)
+            }
+        }
+    }
+
+    private var optionsSection: some View {
+        Section {
+            HStack {
+                Text("Aantal tracks")
+                Spacer()
+                Picker("Aantal tracks", selection: $model.targetCount) {
+                    Text("10").tag(10)
+                    Text("20").tag(20)
+                    Text("30").tag(30)
+                    Text("50").tag(50)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 220)
+            }
+            HStack {
+                Text("Afspelen op")
+                Spacer()
+                ZonePicker()
+            }
         }
     }
 
     private var generateSection: some View {
-        HStack(spacing: Spacing.md) {
+        Section {
             Button { model.startGenerate(client: client) } label: {
                 Label(generateButtonTitle, systemImage: "wand.and.stars")
-                    .frame(minWidth: 180)
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .keyboardShortcut(.defaultAction)
             .disabled(!model.canGenerate || model.isGenerating)
+            .listRowInsets(EdgeInsets(top: Spacing.sm, leading: Spacing.lg, bottom: Spacing.sm, trailing: Spacing.lg))
+            .listRowBackground(Color.clear)
 
             if model.isGenerating {
                 Button(role: .cancel) { model.stop() } label: {
-                    Label("Stop", systemImage: "stop.fill")
+                    Label("Stop", systemImage: "stop.fill").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+                .transition(.opacity)
+            }
+
+            if let err = model.errorMessage {
+                Label(err, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(Color.roonDanger)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+            }
+
+            if model.isGenerating {
+                GenerationStepper(current: model.phase ?? .analyzing)
+                    .padding(.vertical, Spacing.xs)
+                    .transition(.opacity)
             }
         }
     }
@@ -285,37 +301,71 @@ public struct GenerateView: View {
         return model.result == nil ? "Genereer playlist" : "Opnieuw genereren"
     }
 
-    private var idleState: some View {
-        VStack(spacing: Spacing.sm) {
-            Image(systemName: "wand.and.stars")
-                .font(.system(size: 34))
-                .foregroundStyle(Color.roonGold.opacity(0.7))
-            Text("Beschrijf wat je wilt horen")
-                .font(.headline)
-            Text("RoonSage analyseert je verzoek, kiest passende tracks uit jouw bibliotheek en stelt een gevarieerde playlist samen — die je daarna kunt bijschaven.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+    /// Mirrors the empty-state idiom used elsewhere (e.g. `PlaylistsView`) so
+    /// every "nothing here yet" screen in the app reads as one family.
+    private var idleSection: some View {
+        Section {
+            ContentUnavailableView {
+                Label("Beschrijf wat je wilt horen", systemImage: "wand.and.stars")
+            } description: {
+                Text("RoonSage analyseert je verzoek, kiest passende tracks uit jouw bibliotheek en stelt een gevarieerde playlist samen — die je daarna kunt bijschaven.")
+            }
+            .listRowBackground(Color.clear)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, Spacing.xl)
+        .listRowSeparator(.hidden)
     }
 
     // MARK: Result
 
     @ViewBuilder
     private func resultSection(_ r: RoonClient.GenerationResult, name: Binding<String>) -> some View {
-        Divider()
-        VStack(alignment: .leading, spacing: Spacing.md) {
+        Section {
             resultHeader(r)
             FilterChips(filters: r.filters, poolSize: r.poolSize)
+                .padding(.vertical, 2)
+        } header: {
+            Text("Resultaat")
+        }
+
+        Section("Bewaren") {
             saveRow(name)
             if let qobuzStatus = model.qobuzStatus {
                 Text(qobuzStatus).font(.caption).foregroundStyle(.secondary)
             }
+        }
+
+        Section("Afspelen") {
             playRow
-            trackList
+        }
+
+        Section("Tracks (\(model.tracks.count))") {
+            ForEach(Array(model.tracks.enumerated()), id: \.element.id) { i, t in
+                AIResultRow(index: i + 1, title: t.title, subtitle: subtitle(t), imageKey: t.imageKey) {
+                    Button { model.playOne(t, client: client) } label: { Image(systemName: "play.fill") }
+                        .buttonStyle(.borderless)
+                        .disabled(client.selectedZone == nil)
+                        .accessibilityLabel("Speel \(t.title)")
+                }
+                .contextMenu {
+                    Button { model.playOne(t, client: client) } label: { Label("Speel nu", systemImage: "play.fill") }
+                        .disabled(client.selectedZone == nil)
+                    Button { model.queueOne(t, next: true, client: client) } label: {
+                        Label("Speel hierna", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    }
+                    .disabled(client.selectedZone == nil)
+                    Divider()
+                    Button { model.move(t, by: -1) } label: { Label("Omhoog", systemImage: "arrow.up") }
+                        .disabled(i == 0)
+                    Button { model.move(t, by: 1) } label: { Label("Omlaag", systemImage: "arrow.down") }
+                        .disabled(i == model.tracks.count - 1)
+                    Divider()
+                    Button(role: .destructive) { model.remove(t) } label: {
+                        Label("Verwijder uit playlist", systemImage: "trash")
+                    }
+                }
+            }
+            .onMove { from, to in model.tracks.move(fromOffsets: from, toOffset: to); Haptics.tap() }
+            .onDelete { idx in model.tracks.remove(atOffsets: idx); Haptics.tap() }
         }
     }
 
@@ -355,33 +405,43 @@ public struct GenerateView: View {
             }
             Spacer()
         }
+        .padding(.vertical, 2)
     }
 
     private func saveRow(_ name: Binding<String>) -> some View {
-        HStack(spacing: Spacing.sm) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             TextField("Naam playlist", text: name)
                 .textFieldStyle(.roundedBorder)
-            Button { model.save(client: client) } label: {
-                Label(model.justSaved ? "Bewaard!" : "Bewaar",
-                      systemImage: model.justSaved ? "checkmark" : "square.and.arrow.down")
-            }
-            .disabled(!model.canSave)
-
-            if client.qobuzConfigured {
-                Button { model.saveToQobuz(client: client) } label: {
-                    Label("Qobuz", systemImage: "cloud")
+            HStack(spacing: Spacing.sm) {
+                Button { model.save(client: client) } label: {
+                    Label(model.justSaved ? "Bewaard!" : "Bewaar",
+                          systemImage: model.justSaved ? "checkmark" : "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
                 .disabled(!model.canSave)
-                .help("Bewaar deze playlist ook in je Qobuz-account")
+
+                if client.qobuzConfigured {
+                    Button { model.saveToQobuz(client: client) } label: {
+                        Label("Qobuz", systemImage: "cloud")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!model.canSave)
+                    .help("Bewaar deze playlist ook in je Qobuz-account")
+                }
             }
         }
+        .padding(.vertical, 2)
     }
 
+    /// Two evenly-split, full-width actions — never overflows regardless of how
+    /// long the zone name or device label is (unlike a free-sizing HStack).
     private var playRow: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             HStack(spacing: Spacing.sm) {
                 Button { model.playAll(client: client) } label: {
-                    Label("Speel alles", systemImage: "play.fill").frame(minWidth: 100)
+                    Label("Speel alles", systemImage: "play.fill").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(client.selectedZone == nil || model.tracks.isEmpty)
@@ -390,53 +450,14 @@ public struct GenerateView: View {
                 LocalPlayButton(style: .labeled) { model.tracks }
                     .buttonStyle(.bordered)
                     .disabled(model.tracks.isEmpty)
-                Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity)
             }
             if client.selectedZone == nil {
                 Text("Geen zone gekozen — “Op dit apparaat” speelt lokaal af.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-    }
-
-    /// Editable track list: drag-to-reorder + swipe-to-delete (List `.onMove`/
-    /// `.onDelete`, scroll disabled so it sits inside the page ScrollView, like
-    /// DJSetView), plus a per-row play button and a context menu (play/queue/
-    /// move/remove) so reordering also works where drag isn't available.
-    private var trackList: some View {
-        List {
-            ForEach(Array(model.tracks.enumerated()), id: \.element.id) { i, t in
-                AIResultRow(index: i + 1, title: t.title, subtitle: subtitle(t), imageKey: t.imageKey) {
-                    Button { model.playOne(t, client: client) } label: { Image(systemName: "play.fill") }
-                        .buttonStyle(.borderless)
-                        .disabled(client.selectedZone == nil)
-                        .accessibilityLabel("Speel \(t.title)")
-                }
-                .listRowInsets(EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4))
-                .contextMenu {
-                    Button { model.playOne(t, client: client) } label: { Label("Speel nu", systemImage: "play.fill") }
-                        .disabled(client.selectedZone == nil)
-                    Button { model.queueOne(t, next: true, client: client) } label: {
-                        Label("Speel hierna", systemImage: "text.line.first.and.arrowtriangle.forward")
-                    }
-                    .disabled(client.selectedZone == nil)
-                    Divider()
-                    Button { model.move(t, by: -1) } label: { Label("Omhoog", systemImage: "arrow.up") }
-                        .disabled(i == 0)
-                    Button { model.move(t, by: 1) } label: { Label("Omlaag", systemImage: "arrow.down") }
-                        .disabled(i == model.tracks.count - 1)
-                    Divider()
-                    Button(role: .destructive) { model.remove(t) } label: {
-                        Label("Verwijder uit playlist", systemImage: "trash")
-                    }
-                }
-            }
-            .onMove { from, to in model.tracks.move(fromOffsets: from, toOffset: to); Haptics.tap() }
-            .onDelete { idx in model.tracks.remove(atOffsets: idx); Haptics.tap() }
-        }
-        .listStyle(.plain)
-        .scrollDisabled(true)
-        .frame(minHeight: CGFloat(model.tracks.count) * 64)
+        .padding(.vertical, 2)
     }
 
     private func subtitle(_ t: TrackRecord) -> String {
