@@ -5,6 +5,7 @@ import RoonSageCore
 /// when connected to a Roon Core, otherwise the connect screen.
 public struct ContentView: View {
     @Environment(RoonClient.self) private var client
+    @State private var ambient = AmbientTheme()
 
     public init() {}
 
@@ -28,6 +29,10 @@ public struct ContentView: View {
         .animation(Motion.standard, value: client.hasLiveSession)
         .overlay(alignment: .bottom) { ActionErrorToast() }
         .roonSageAppearance()
+        // Share the now-playing album-art tint with every tab, refreshed whenever
+        // the current track's artwork changes.
+        .environment(ambient)
+        .task(id: client.selectedZone?.nowPlaying?.imageKey) { await ambient.update(from: client) }
     }
 }
 
@@ -301,6 +306,7 @@ struct RootView: View {
         } detail: {
             detailView(for: selection)
                 .environment(\.navigateTo, NavigateAction { selection = $0 })
+                .ambientSurface()
         }
         .navigationTitle("")
         .toolbar { navToolbar }
@@ -346,18 +352,19 @@ struct RootView: View {
                     .navigationTitle("Bibliotheek (\(client.trackCount))")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar { navToolbar }
+                    .ambientSurface()
             }
             .tabItem { Label("Bibliotheek", systemImage: "music.note.list") }
             .tag(SidebarItem.library)
 
             NavigationStack {
-                iOSCreateHub.toolbar { navToolbar }
+                iOSCreateHub.toolbar { navToolbar }.ambientSurface()
             }
             .tabItem { Label("Maak", systemImage: "wand.and.stars") }
             .tag(SidebarItem.generate)
 
             NavigationStack {
-                iOSExploreHub.toolbar { navToolbar }
+                iOSExploreHub.toolbar { navToolbar }.ambientSurface()
             }
             .tabItem { Label("Ontdek", systemImage: "sparkles") }
             .tag(SidebarItem.discovery)
@@ -367,6 +374,7 @@ struct RootView: View {
                     .navigationTitle("Instellingen")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar { navToolbar }
+                    .ambientSurface()
             }
             .tabItem { Label("Instellingen", systemImage: "gearshape") }
             .tag(SidebarItem.settings)
