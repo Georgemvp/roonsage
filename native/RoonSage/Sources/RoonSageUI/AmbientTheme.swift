@@ -58,6 +58,23 @@ public struct AmbientBackdrop: View {
     }
 }
 
+/// Tinted card behind each List/Form row: a faint lift so the row reads as a
+/// raised surface, washed with the now-playing colour so the cards themselves
+/// wear the tint (not just the gaps around them). Falls back to a neutral dark
+/// card when nothing plays.
+public struct AmbientCard: View {
+    let color: Color?
+    public init(color: Color?) { self.color = color }
+
+    public var body: some View {
+        ZStack {
+            Color.white.opacity(0.06)                 // surface lift, theme-neutral
+            (color ?? .clear).opacity(0.20)           // now-playing tint
+        }
+        .animation(Motion.ambient, value: color)
+    }
+}
+
 private struct AmbientSurface: ViewModifier {
     @Environment(AmbientTheme.self) private var ambient
     func body(content: Content) -> some View {
@@ -66,6 +83,9 @@ private struct AmbientSurface: ViewModifier {
             // the opaque system grouped background). Propagates to descendant
             // scroll views, so pushed screens inherit it too.
             .scrollContentBackground(.hidden)
+            // Tint the row cards themselves (propagates to rows in descendant
+            // Lists/Forms), so the surface is colour-aware too — not just the gaps.
+            .listRowBackground(AmbientCard(color: ambient.color))
             .background(AmbientBackdrop(color: ambient.color))
     }
 }
