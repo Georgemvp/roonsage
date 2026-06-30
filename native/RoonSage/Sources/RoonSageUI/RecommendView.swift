@@ -65,6 +65,7 @@ public struct RecommendView: View {
             .padding(Spacing.xl)
             .animation(Motion.standard, value: albums.map(\.albumKey))
         }
+        .windowWidthCapped()
         .navigationTitle("Aanbevelen")
         .confirmationDialog(
             "Aanbeveling verwijderen?",

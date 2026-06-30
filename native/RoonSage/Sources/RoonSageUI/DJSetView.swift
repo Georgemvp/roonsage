@@ -83,6 +83,7 @@ public struct DJSetView: View {
             }
             .padding(24)
         }
+        .windowWidthCapped()
         .navigationTitle("DJ Set")
         .onAppear { if selectedZoneID == nil { selectedZoneID = client.selectedZone?.id } }
         .task { stats = await client.audioFeaturesStats() }

@@ -43,6 +43,7 @@ public struct SonicSearchView: View {
             }
             .padding()
         }
+        .windowWidthCapped()
         .navigationTitle("Sonisch zoeken")
     }
 

@@ -52,6 +52,7 @@ public struct TasteProfileView: View {
                 emptyState
             }
         }
+        .windowWidthCapped()
         .navigationTitle("Smaakprofiel")
         .toolbar {
             Button { load(force: true) } label: { Image(systemName: "arrow.clockwise") }

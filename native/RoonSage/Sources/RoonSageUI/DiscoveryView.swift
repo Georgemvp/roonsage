@@ -54,6 +54,7 @@ public struct DiscoveryView: View {
             }
             .padding(Spacing.lg)
         }
+        .windowWidthCapped()
         .navigationTitle("Ontdek")
         .toolbar {
             Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }

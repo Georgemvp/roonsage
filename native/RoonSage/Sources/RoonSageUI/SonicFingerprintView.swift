@@ -30,6 +30,7 @@ public struct SonicFingerprintView: View {
             }
             .padding(Spacing.xl)
         }
+        .windowWidthCapped()
         .navigationTitle("Sonic DNA")
         .toolbar {
             if let shareImage {

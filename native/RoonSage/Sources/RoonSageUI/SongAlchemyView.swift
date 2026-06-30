@@ -66,6 +66,7 @@ public struct SongAlchemyView: View {
             }
             .padding()
         }
+        .windowWidthCapped()
         .navigationTitle("Song Alchemy")
     }
 

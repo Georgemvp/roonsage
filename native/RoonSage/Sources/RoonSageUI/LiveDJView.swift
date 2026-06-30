@@ -61,6 +61,7 @@ public struct LiveDJView: View {
                     description: Text("Start een track in een zone om harmonische vervolgsuggesties te zien."))
             }
         }
+        .windowWidthCapped()
         .navigationTitle("Live DJ")
     }
 

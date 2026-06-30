@@ -69,6 +69,7 @@ public struct AskView: View {
             }
         }
         .padding()
+        .windowWidthCapped()
         .navigationTitle("Vraag het")
         #if os(iOS)
         .scrollDismissesKeyboard(.interactively)

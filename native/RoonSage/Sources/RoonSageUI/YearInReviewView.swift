@@ -51,6 +51,7 @@ public struct YearInReviewView: View {
             }
             .padding()
         }
+        .windowWidthCapped()
         .navigationTitle("Jaaroverzicht \(yearText)")
         .toolbar {
             if stats != nil {

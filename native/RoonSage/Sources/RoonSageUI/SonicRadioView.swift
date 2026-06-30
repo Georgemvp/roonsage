@@ -55,6 +55,7 @@ public struct SonicRadioView: View {
             }
             .padding(Spacing.lg)
         }
+        .windowWidthCapped()
         .navigationTitle("Radio's")
         .toolbar {
             Button {

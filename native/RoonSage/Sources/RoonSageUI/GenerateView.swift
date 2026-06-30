@@ -217,6 +217,7 @@ public struct GenerateView: View {
             .animation(Motion.standard, value: model.result?.title)
             .animation(Motion.quick, value: model.errorMessage)
         }
+        .windowWidthCapped()
         .navigationTitle("Playlist genereren")
         #if os(iOS)
         .scrollDismissesKeyboard(.interactively)

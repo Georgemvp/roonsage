@@ -70,6 +70,7 @@ public struct SongPathsView: View {
             }
             .padding()
         }
+        .windowWidthCapped()
         .navigationTitle("Song Paths")
     }
 
