@@ -13,6 +13,8 @@ final class AnalyzerModel {
     var model: String { didSet { UserDefaults.standard.set(model, forKey: "ollama_model") } }
     var port: String { didSet { UserDefaults.standard.set(port, forKey: "serve_port") } }
     var autoStart: Bool { didSet { UserDefaults.standard.set(autoStart, forKey: "auto_start") } }
+    /// Trickle MusicBrainz genre enrichment in the background (rate-limited, resumable).
+    var autoEnrich: Bool { didSet { UserDefaults.standard.set(autoEnrich, forKey: "auto_enrich") } }
 
     // Analyse-tuning — neemt effect bij de VOLGENDE (re-)analyse, niet met terugwerkende kracht.
     var walkerConcurrency: Int { didSet { UserDefaults.standard.set(walkerConcurrency, forKey: "walker_concurrency") } }
@@ -49,12 +51,16 @@ final class AnalyzerModel {
     private(set) var isAnalyzing = false
     private(set) var tag: TagProgress?
     private(set) var isTagging = false
+    private(set) var enrich: EnrichProgress?
+    private(set) var isEnriching = false
+    private(set) var mbEnrichedCount = 0
     private(set) var isServing = false
     var status = ""
 
     private let store: FeatureStore?
     private var walker: LibraryWalker?
     private var tagger: Tagger?
+    private var enricher: GenreEnricher?
     private var server: HTTPServer?
     private var clap: CLAPModel?   // loaded off-main once; enables /text-embed
     /// While serving, periodically re-publishes the feature revision so changes
@@ -69,6 +75,7 @@ final class AnalyzerModel {
         model = UserDefaults.standard.string(forKey: "ollama_model") ?? "qwen3.5:4b-mlx"
         port = UserDefaults.standard.string(forKey: "serve_port") ?? "5766"
         autoStart = UserDefaults.standard.object(forKey: "auto_start") as? Bool ?? true
+        autoEnrich = UserDefaults.standard.object(forKey: "auto_enrich") as? Bool ?? true
         walkerConcurrency = UserDefaults.standard.object(forKey: "walker_concurrency") as? Int ?? 3
         excerptSeconds = UserDefaults.standard.object(forKey: "excerpt_seconds") as? Double ?? 120
         analysisSampleRate = UserDefaults.standard.object(forKey: "analysis_sample_rate") as? Double ?? 22050
@@ -92,6 +99,7 @@ final class AnalyzerModel {
     func refresh() {
         trackCount = store?.count() ?? 0
         taggedCount = store?.taggedCount() ?? 0
+        mbEnrichedCount = store?.mbEnrichedCount() ?? 0
         // Keep the advertised feature revision in step with the store so remotes
         // re-pull after in-app analysis/backfill completes — not only after a
         // re-serve. Cheap: refresh() runs at completion, never on the poll path.
@@ -120,6 +128,9 @@ final class AnalyzerModel {
             isAnalyzing = false
             refresh()
             status = "Analyzed \(ok), \(failed) failed. \(trackCount) tracks total."
+            // Newly analyzed tracks have no MusicBrainz genres yet — let the
+            // background enricher pick them up (resumable, rate-limited).
+            autoEnrichIfEnabled()
         }
     }
 
@@ -142,6 +153,38 @@ final class AnalyzerModel {
     }
 
     func cancelTag() { tagger?.cancel() }
+
+    // MARK: - MusicBrainz genre enrichment
+
+    /// Enrich the library with hierarchical MusicBrainz genres + taxonomy. Runs
+    /// in-process against the same analyzer.db, so the serving app advertises the
+    /// new genres via the feature-revision signature (no separate CLI needed).
+    /// Album-level (one MB lookup per album), rate-limited ~1 req/s, resumable —
+    /// safe to cancel and re-run; only un-enriched rows are queried.
+    func startEnrich() {
+        guard let store, !isEnriching, trackCount > 0 else { return }
+        isEnriching = true
+        enrich = nil
+        status = "MusicBrainz-genres ophalen…"
+        let e = GenreEnricher(store: store, client: .shared)
+        enricher = e
+        Task {
+            await e.run { p in Task { @MainActor in self.enrich = p } }
+            isEnriching = false
+            refresh()
+            status = "Genre-verrijking: \(mbEnrichedCount)/\(trackCount) tracks verrijkt."
+        }
+    }
+
+    func cancelEnrich() { enricher?.cancel() }
+
+    /// Called on launch and after analysis: trickle genre enrichment in the
+    /// background when enabled. The worker exits fast when there's nothing left to
+    /// do, so this is cheap to call even on a fully enriched library.
+    func autoEnrichIfEnabled() {
+        guard autoEnrich, !isEnriching, store != nil, trackCount > 0 else { return }
+        startEnrich()
+    }
 
     // MARK: - Maintenance & login item
 

@@ -115,6 +115,32 @@ struct AnalyzerView: View {
                     .padding(6)
                 }
 
+                // Genre enrichment — hierarchical MusicBrainz genres + taxonomy.
+                GroupBox("2c · Genres (MusicBrainz)") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Button(model.isEnriching ? "Verrijken…" : "Verrijk genres") {
+                                model.startEnrich()
+                            }
+                            .disabled(model.trackCount == 0 || model.isEnriching)
+                            if model.isEnriching { Button("Annuleer") { model.cancelEnrich() } }
+                            Spacer()
+                            Text("\(model.mbEnrichedCount) / \(model.trackCount) verrijkt")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        if let p = model.enrich, model.isEnriching {
+                            ProgressView(value: p.total > 0 ? Double(p.checked) / Double(p.total) : 0)
+                            Text("\(p.albums) albums · \(p.enriched) tracks met genres · \(p.checked) gecontroleerd")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        Toggle("Automatisch op de achtergrond verrijken", isOn: $model.autoEnrich)
+                            .font(.caption)
+                        Text("Haalt een rijke, hiërarchische genre-woordenschat van MusicBrainz op (album-niveau, ~1 verzoek/s, hervatbaar). Draait vanzelf na een analyse.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(6)
+                }
+
                 // Serve
                 GroupBox("3 · Beschikbaar maken voor de app") {
                     VStack(alignment: .leading, spacing: 8) {
