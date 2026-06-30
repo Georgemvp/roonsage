@@ -3,6 +3,7 @@ import RoonSageCore
 
 /// Connection gate shared by the macOS and iOS apps: shows the main interface
 /// when connected to a Roon Core, otherwise the connect screen.
+@MainActor
 public struct ContentView: View {
     @Environment(RoonClient.self) private var client
     @State private var ambient = AmbientTheme()
