@@ -6,6 +6,11 @@ import SwiftUI
 /// shared request analyzer to map the request to genre/decade/tag filters, then
 /// filters + sonically ranks the local cache. Lighter than the Generate flow:
 /// no second curation stage — built for quick exploration and immediate playback.
+///
+/// Built on `List` + the native `.searchable()` field (same idiom as
+/// `LibraryView`) rather than a hand-rolled search bar in a custom ScrollView —
+/// gets the platform-correct search UI for free and sidesteps the iOS 26
+/// NavigationStack layout bug custom ScrollView content was vulnerable to.
 @MainActor
 public struct AskView: View {
     public init() {}
@@ -22,58 +27,52 @@ public struct AskView: View {
     @State private var savedTask: Task<Void, Never>? = nil
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
-            searchBar
-
-            if let filters, !results.isEmpty {
-                FilterChips(filters: filters, poolSize: results.count)
-            } else if let summary {
-                Text(summary).font(.caption).foregroundStyle(.secondary)
-            }
-
+        List {
             if working && results.isEmpty {
-                SkeletonRows(count: 8)
-                Spacer()
+                Section { SkeletonRows(count: 8) }
+                    .listRowSeparator(.hidden)
             } else if results.isEmpty {
-                ContentUnavailableView("Vraag het je bibliotheek",
-                    systemImage: "text.magnifyingglass",
-                    description: Text("Typ een sfeer, genre of tempo en RoonSage vindt passende tracks uit jouw bibliotheek."))
-                    .frame(maxHeight: .infinity)
+                Section {
+                    ContentUnavailableView {
+                        Label("Vraag het je bibliotheek", systemImage: "text.magnifyingglass")
+                    } description: {
+                        Text(summary ?? "Typ een sfeer, genre of tempo en RoonSage vindt passende tracks uit jouw bibliotheek.")
+                    }
+                    .listRowBackground(Color.clear)
+                }
+                .listRowSeparator(.hidden)
             } else {
-                resultsHeader
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(results, id: \.id) { track in
-                            AIResultRow(title: track.title, subtitle: subtitle(track), imageKey: track.imageKey) {
-                                HStack(spacing: Spacing.sm) {
-                                    Button { queue([track], next: true) } label: {
-                                        Image(systemName: "text.line.first.and.arrowtriangle.forward")
-                                            .tappable44()
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .disabled(client.selectedZone == nil)
-                                    .accessibilityLabel("Zet \(track.title) als volgende in de wachtrij")
-                                    Button { play([track]) } label: {
-                                        Image(systemName: "play.fill")
-                                            .tappable44()
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .disabled(client.selectedZone == nil)
-                                    .accessibilityLabel("Speel \(track.title) nu")
+                resultsActionsSection
+                Section("Resultaten (\(results.count))") {
+                    ForEach(results, id: \.id) { track in
+                        AIResultRow(title: track.title, subtitle: subtitle(track), imageKey: track.imageKey) {
+                            HStack(spacing: Spacing.sm) {
+                                Button { queue([track], next: true) } label: {
+                                    Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                                        .tappable44()
                                 }
+                                .buttonStyle(.borderless)
+                                .disabled(client.selectedZone == nil)
+                                .accessibilityLabel("Zet \(track.title) als volgende in de wachtrij")
+                                Button { play([track]) } label: {
+                                    Image(systemName: "play.fill")
+                                        .tappable44()
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(client.selectedZone == nil)
+                                .accessibilityLabel("Speel \(track.title) nu")
                             }
-                            Divider().opacity(0.4)
                         }
                     }
                 }
             }
         }
-        .padding()
-        .windowWidthCapped()
+        .searchable(text: $prompt, prompt: "Beschrijf een sfeer… bijv. “donker en hypnotisch rond 122 BPM”")
+        .onSubmit(of: .search) { if canSearch { Task { await search() } } }
+        .onChange(of: prompt) { _, newValue in
+            if newValue.isEmpty { results = []; summary = nil; filters = nil }
+        }
         .navigationTitle("Vraag het")
-        #if os(iOS)
-        .scrollDismissesKeyboard(.interactively)
-        #endif
         .alert("Bewaar als playlist", isPresented: $showSaveAlert) {
             TextField("Naam playlist", text: $playlistName)
             Button("Annuleer", role: .cancel) {}
@@ -83,51 +82,36 @@ public struct AskView: View {
         }
     }
 
-    private var searchBar: some View {
-        HStack(spacing: Spacing.sm) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Beschrijf een sfeer… bijv. “donker en hypnotisch rond 122 BPM”", text: $prompt)
-                .textFieldStyle(.plain)
-                .accessibilityLabel("Zoekopdracht")
-                .accessibilityHint("Beschrijf een sfeer, genre of tempo")
-                .onSubmit { if canSearch { Task { await search() } } }
-            if !prompt.isEmpty {
-                Button { prompt = ""; results = []; summary = nil; filters = nil } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Wis zoekopdracht")
-            }
-            Button { Task { await search() } } label: {
-                if working { ProgressView().controlSize(.small) } else { Text("Zoek") }
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
-            .disabled(!canSearch || working)
-        }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .background(Color.platformQuaternaryFill, in: RoundedRectangle(cornerRadius: Radius.md))
-    }
-
     private var canSearch: Bool { !prompt.trimmingCharacters(in: .whitespaces).isEmpty }
 
-    private var resultsHeader: some View {
-        HStack(spacing: Spacing.sm) {
-            Text("\(results.count) nummers").font(.headline)
-            Spacer()
-            ZonePicker()
-            Button {
-                playlistName = "Vraag: \(prompt.prefix(40))"
-                showSaveAlert = true
-            } label: {
-                Label(justSaved ? "Bewaard!" : "Bewaar", systemImage: justSaved ? "checkmark" : "square.and.arrow.down")
+    private var resultsActionsSection: some View {
+        Section {
+            if let filters {
+                FilterChips(filters: filters, poolSize: results.count)
+                    .padding(.vertical, 2)
             }
-            .buttonStyle(.bordered)
-            .help("Bewaar deze tracks als playlist")
-            Button { play(results) } label: { Label("Speel alles", systemImage: "play.fill") }
+            HStack {
+                Text("Afspelen op")
+                Spacer()
+                ZonePicker()
+            }
+            HStack(spacing: Spacing.sm) {
+                Button { play(results) } label: {
+                    Label("Speel alles", systemImage: "play.fill").frame(maxWidth: .infinity)
+                }
                 .buttonStyle(.borderedProminent)
                 .disabled(client.selectedZone == nil)
+
+                Button {
+                    playlistName = "Vraag: \(prompt.prefix(40))"
+                    showSaveAlert = true
+                } label: {
+                    Label(justSaved ? "Bewaard!" : "Bewaar", systemImage: justSaved ? "checkmark" : "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .help("Bewaar deze tracks als playlist")
+            }
         }
     }
 

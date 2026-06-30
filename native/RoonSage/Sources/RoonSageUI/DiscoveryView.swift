@@ -5,6 +5,12 @@ import RoonSageCore
 /// Editorial "Listen Now"-style discovery: a hero rediscover card, cover-forward
 /// shelves, and Swift Charts for the library breakdown — instead of stacked
 /// grey text cards.
+///
+/// Built on `List` used as a (correctly width-clamped, lazily-loaded) vertical
+/// feed of self-styled cards — each row strips the default List chrome via
+/// `.plainCardRow()` so the cards read exactly as before, just hosted in a
+/// container that doesn't fall over to the iOS 26 NavigationStack layout bug a
+/// custom ScrollView did. See `GenerateView` for the full story.
 @MainActor
 public struct DiscoveryView: View {
     public init() {}
@@ -16,45 +22,44 @@ public struct DiscoveryView: View {
     @State private var isLoaded = false
 
     public var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: Spacing.xl) {
-                ZoneHintBanner()
-                if let stats {
-                    if let hero = heroItem { heroCard(hero) }
-                    summaryCards(stats)
-                    if !undiscovered.isEmpty {
-                        shelf("Onontdekte albums", "sparkles",
-                              covers: undiscovered.map(albumCover)) {
-                            Button { Task { undiscovered = await client.undiscoveredAlbums() } } label: {
-                                Image(systemName: "shuffle")
-                            }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Toon een andere selectie")
+        List {
+            ZoneHintBanner().plainCardRow()
+            if let stats {
+                if let hero = heroItem { heroCard(hero).plainCardRow() }
+                summaryCards(stats).plainCardRow()
+                if !undiscovered.isEmpty {
+                    shelf("Onontdekte albums", "sparkles",
+                          covers: undiscovered.map(albumCover)) {
+                        Button { Task { undiscovered = await client.undiscoveredAlbums() } } label: {
+                            Image(systemName: "shuffle")
                         }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Toon een andere selectie")
                     }
-                    if !topTracks.isEmpty {
-                        shelf("Jouw toptracks", "star.fill",
-                              covers: topTracks.map(trackCover)) {
-                            playAllButton(topTracks)
-                        }
-                    }
-                    if forgotten.count > 1 {
-                        shelf("Vergeten favorieten", "clock.arrow.circlepath",
-                              covers: forgotten.dropFirst().map(trackCover)) {
-                            playAllButton(Array(forgotten))
-                        }
-                    }
-                    if !stats.tracksByDecade.isEmpty { decadeCard(stats) }
-                    if !stats.topGenres.isEmpty { genreCard(stats) }
-                } else if !isLoaded {
-                    loadingState
-                } else {
-                    emptyState
+                    .plainCardRow()
                 }
+                if !topTracks.isEmpty {
+                    shelf("Jouw toptracks", "star.fill",
+                          covers: topTracks.map(trackCover)) {
+                        playAllButton(topTracks)
+                    }
+                    .plainCardRow()
+                }
+                if forgotten.count > 1 {
+                    shelf("Vergeten favorieten", "clock.arrow.circlepath",
+                          covers: forgotten.dropFirst().map(trackCover)) {
+                        playAllButton(Array(forgotten))
+                    }
+                    .plainCardRow()
+                }
+                if !stats.tracksByDecade.isEmpty { decadeCard(stats).plainCardRow() }
+                if !stats.topGenres.isEmpty { genreCard(stats).plainCardRow() }
+            } else if !isLoaded {
+                loadingState.plainCardRow()
+            } else {
+                emptyState.plainCardRow()
             }
-            .padding(Spacing.lg)
         }
-        .windowWidthCapped()
         .navigationTitle("Ontdek")
         .toolbar {
             Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }

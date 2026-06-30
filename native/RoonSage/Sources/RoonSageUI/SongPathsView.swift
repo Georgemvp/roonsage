@@ -3,6 +3,9 @@ import SwiftUI
 
 /// Sonic bridge: pick a Start and End track; the engine weaves a path through
 /// the library that transitions from one to the other as smoothly as possible.
+///
+/// Built on `List`/`Section` (not a custom `ScrollView`/`VStack`) — see
+/// `GenerateView` for why.
 @MainActor
 public struct SongPathsView: View {
     public init() {}
@@ -20,22 +23,25 @@ public struct SongPathsView: View {
     @State private var noResult = false
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.lg) {
-                header
+        List {
+            Section {
+                Text("Vind een soepele sonische brug tussen twee tracks via je bibliotheek.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
 
-                ZoneHintBanner()
+            ZoneHintBanner().plainCardRow()
 
-                VStack(spacing: Spacing.md) {
-                    trackPicker(label: "Van", query: $fromQuery,
-                                selected: $fromTrack, results: $fromResults,
-                                onSearch: searchFrom)
-                    trackPicker(label: "Naar", query: $toQuery,
-                                selected: $toTrack, results: $toResults,
-                                onSearch: searchTo)
-                }
+            Section("Kies tracks") {
+                trackPicker(label: "Van", query: $fromQuery,
+                            selected: $fromTrack, results: $fromResults,
+                            onSearch: searchFrom)
+                trackPicker(label: "Naar", query: $toQuery,
+                            selected: $toTrack, results: $toResults,
+                            onSearch: searchTo)
+            }
 
-                if fromTrack != nil && toTrack != nil {
+            if fromTrack != nil && toTrack != nil {
+                Section {
                     VStack(alignment: .leading, spacing: Spacing.sm) {
                         Text("Brugtracks: \(Int(stepCount) - 2)")
                             .font(.caption).foregroundStyle(.secondary)
@@ -52,38 +58,27 @@ public struct SongPathsView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .tint(Color.roonGold)
                     .disabled(loading)
+                    .listRowBackground(Color.clear)
                 }
+            }
 
-                if noResult && !loading {
+            if noResult && !loading {
+                Section {
                     ContentUnavailableView(
                         "Geen brug gevonden",
                         systemImage: "point.topleft.down.curvedto.point.bottomright.up",
                         description: Text("Deze twee tracks liggen sonisch te ver uit elkaar, of er zijn te weinig geanalyseerde tracks. Probeer andere tracks of analyseer meer van je bibliotheek."))
+                    .listRowBackground(Color.clear)
                 }
-
-                if !path.isEmpty {
-                    Divider()
-                    pathResult
-                }
+                .listRowSeparator(.hidden)
             }
-            .padding()
+
+            if !path.isEmpty { pathResultSection }
         }
-        .windowWidthCapped()
         .navigationTitle("Song Paths")
-    }
-
-    // MARK: Header
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            Label("Song Paths",
-                  systemImage: "point.topleft.down.curvedto.point.bottomright.up")
-                .font(.title2.bold())
-            Text("Vind een soepele sonische brug tussen twee tracks via je bibliotheek.")
-                .font(.callout).foregroundStyle(.secondary)
-        }
     }
 
     // MARK: Track picker
@@ -171,68 +166,67 @@ public struct SongPathsView: View {
         }
     }
 
-    private var pathResult: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack {
-                Text("Sonisch pad (\(path.count) tracks)").font(.headline).lineLimit(1)
-                Spacer(minLength: Spacing.sm)
+    private var pathResultSection: some View {
+        Section("Sonisch pad (\(path.count) tracks)") {
+            HStack(spacing: Spacing.sm) {
                 if let zone = client.selectedZone {
                     Button {
                         Haptics.success()
                         Task { await client.curateTracks(pathRecords, zoneID: zone.id) }
-                    } label: { Label("Speel pad", systemImage: "play.fill") }
+                    } label: { Label("Speel pad", systemImage: "play.fill").frame(maxWidth: .infinity) }
                     .buttonStyle(.borderedProminent)
                     .tint(Color.roonGold)
-                    .controlSize(.small)
                 }
                 LocalPlayButton { pathRecords }
                     .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .frame(maxWidth: .infinity)
             }
 
-            ForEach(Array(path.enumerated()), id: \.element.id) { idx, step in
-                HStack(spacing: Spacing.md) {
-                    ZStack {
-                        Circle()
-                            .fill(idx == 0 || idx == path.count - 1
-                                  ? Color.roonGold
-                                  : Color.secondary.opacity(0.3))
-                            .frame(width: 28, height: 28)
-                        Text("\(idx + 1)").font(.caption.bold())
-                            .foregroundStyle(idx == 0 || idx == path.count - 1 ? .black : .primary)
-                    }
-                    AlbumArtView(imageKey: step.track.imageKey, size: 44)
-                        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(step.track.title).font(.callout).lineLimit(1)
-                        if let a = step.track.artist {
-                            Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(path.enumerated()), id: \.element.id) { idx, step in
+                    HStack(spacing: Spacing.md) {
+                        ZStack {
+                            Circle()
+                                .fill(idx == 0 || idx == path.count - 1
+                                      ? Color.roonGold
+                                      : Color.secondary.opacity(0.3))
+                                .frame(width: 28, height: 28)
+                            Text("\(idx + 1)").font(.caption.bold())
+                                .foregroundStyle(idx == 0 || idx == path.count - 1 ? .black : .primary)
                         }
-                        if (step.track.bpm ?? 0) > 0 || !step.track.camelot.isEmpty {
-                            HStack(spacing: Spacing.xs) {
-                                if let bpm = step.track.bpm, bpm > 0 {
-                                    Badge("\(Int(bpm)) BPM")
-                                }
-                                if !step.track.camelot.isEmpty {
-                                    Badge(step.track.camelot, tint: .roonGold)
+                        AlbumArtView(imageKey: step.track.imageKey, size: 44)
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(step.track.title).font(.callout).lineLimit(1)
+                            if let a = step.track.artist {
+                                Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            if (step.track.bpm ?? 0) > 0 || !step.track.camelot.isEmpty {
+                                HStack(spacing: Spacing.xs) {
+                                    if let bpm = step.track.bpm, bpm > 0 {
+                                        Badge("\(Int(bpm)) BPM")
+                                    }
+                                    if !step.track.camelot.isEmpty {
+                                        Badge(step.track.camelot, tint: .roonGold)
+                                    }
                                 }
                             }
                         }
+                        Spacer()
+                        if idx > 0 {
+                            Text("\(Int(step.similarity * 100))%")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(step.similarity > 0.7 ? Color.roonSuccess : .secondary)
+                        }
                     }
-                    Spacer()
-                    if idx > 0 {
-                        Text("\(Int(step.similarity * 100))%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(step.similarity > 0.7 ? Color.roonSuccess : .secondary)
-                    }
-                }
-                .padding(.vertical, 2)
-                if idx < path.count - 1 {
-                    HStack(spacing: 0) {
-                        Spacer().frame(width: 14)
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.2))
-                            .frame(width: 2, height: 16)
+                    .padding(.vertical, 2)
+                    if idx < path.count - 1 {
+                        HStack(spacing: 0) {
+                            Spacer().frame(width: 14)
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.2))
+                                .frame(width: 2, height: 16)
+                        }
                     }
                 }
             }

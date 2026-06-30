@@ -4,6 +4,9 @@ import SwiftUI
 /// Song Alchemy: sonic vector mixing.
 /// ADD tracks that define the vibe; SUBTRACT tracks that represent what to avoid.
 /// Result = mean(add_features) − 0.5 × mean(subtract_features).
+///
+/// Built on `List`/`Section` (not a custom `ScrollView`/`VStack`) — see
+/// `GenerateView` for why.
 @MainActor
 public struct SongAlchemyView: View {
     public init() {}
@@ -21,21 +24,26 @@ public struct SongAlchemyView: View {
     enum Bucket { case add, subtract }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.lg) {
-                header
+        List {
+            Section {
+                Text("Meng sonische profielen: optellen = sfeer overnemen, aftrekken = sfeer vermijden.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
 
-                ZoneHintBanner()
+            ZoneHintBanner().plainCardRow()
 
+            Section("Buckets") {
                 HStack(alignment: .top, spacing: Spacing.md) {
                     bucket(title: "Optellen", tracks: $addTracks, tint: Color.roonSuccess,
                            icon: "plus.circle.fill", bucket: .add)
                     bucket(title: "Aftrekken", tracks: $subtractTracks, tint: Color.roonDanger,
                            icon: "minus.circle.fill", bucket: .subtract)
                 }
+            }
 
-                searchBar
+            Section("Zoek tracks") { searchBar }
 
+            Section {
                 if addTracks.isEmpty {
                     Text("Voeg minimaal één track toe aan Optellen.")
                         .font(.callout).foregroundStyle(.secondary)
@@ -48,37 +56,27 @@ public struct SongAlchemyView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .tint(Color.roonGold)
                     .disabled(loading)
+                    .listRowBackground(Color.clear)
                 }
+            }
 
-                if noResult && !loading {
+            if noResult && !loading {
+                Section {
                     ContentUnavailableView(
                         "Niets te mixen",
                         systemImage: "wand.and.sparkles",
                         description: Text("Geen passende tracks gevonden. Voeg andere tracks toe, of zorg dat je bibliotheek sonisch geanalyseerd en gesynchroniseerd is."))
+                    .listRowBackground(Color.clear)
                 }
-
-                if !results.isEmpty {
-                    Divider()
-                    resultsList
-                }
+                .listRowSeparator(.hidden)
             }
-            .padding()
+
+            if !results.isEmpty { resultsSection }
         }
-        .windowWidthCapped()
         .navigationTitle("Song Alchemy")
-    }
-
-    // MARK: Header
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            Label("Song Alchemy", systemImage: "wand.and.sparkles")
-                .font(.title2.bold())
-            Text("Meng sonische profielen: optellen = sfeer overnemen, aftrekken = sfeer vermijden.")
-                .font(.callout).foregroundStyle(.secondary)
-        }
     }
 
     // MARK: Bucket column
@@ -191,23 +189,20 @@ public struct SongAlchemyView: View {
         }
     }
 
-    private var resultsList: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack {
-                Text("Alchemieresultaten (\(results.count))").font(.headline).lineLimit(1)
-                Spacer(minLength: Spacing.sm)
+    private var resultsSection: some View {
+        Section("Alchemieresultaten (\(results.count))") {
+            HStack(spacing: Spacing.sm) {
                 if let zone = client.selectedZone {
                     Button {
                         Haptics.success()
                         Task { await client.curateTracks(topRecords, zoneID: zone.id) }
-                    } label: { Label("Speel top 20", systemImage: "play.fill") }
+                    } label: { Label("Speel top 20", systemImage: "play.fill").frame(maxWidth: .infinity) }
                     .buttonStyle(.borderedProminent)
                     .tint(Color.roonGold)
-                    .controlSize(.small)
                 }
                 LocalPlayButton { topRecords }
                     .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .frame(maxWidth: .infinity)
             }
             ForEach(results.prefix(30)) { scored in
                 HStack(spacing: Spacing.md) {

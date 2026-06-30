@@ -4,6 +4,9 @@ import SwiftUI
 
 /// "Sonic Wrapped" — a year-in-review of the user's listening history.
 /// Shows top artists, top tracks, plays-by-hour heatmap, and a shareable card.
+///
+/// Built on `List` (used as a feed of self-styled cards via `.plainCardRow()`)
+/// rather than a custom `ScrollView`/`VStack` — see `GenerateView` for why.
 @MainActor
 public struct YearInReviewView: View {
     public init() {}
@@ -24,12 +27,10 @@ public struct YearInReviewView: View {
     private var yearText: String { String(selectedYear) }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.xl) {
-                // Year picker
+        List {
+            Section {
                 HStack {
-                    Label("Jaaroverzicht", systemImage: "calendar.badge.clock")
-                        .font(.title2.bold())
+                    Text("Jaar")
                     Spacer()
                     Picker("Jaar", selection: $selectedYear) {
                         ForEach(years, id: \.self) { Text(verbatim: "\($0)").tag($0) }
@@ -37,21 +38,23 @@ public struct YearInReviewView: View {
                     .pickerStyle(.menu)
                     .tint(Color.roonGold)
                 }
+            }
 
-                if loading {
-                    ProgressView().frame(maxWidth: .infinity, minHeight: 200)
-                } else if let s = stats, s.totalPlays > 0 {
-                    content(s)
-                } else {
+            if loading {
+                Section { ProgressView().frame(maxWidth: .infinity, minHeight: 200) }
+            } else if let s = stats, s.totalPlays > 0 {
+                content(s)
+            } else {
+                Section {
                     ContentUnavailableView(
                         "Geen luistergeschiedenis voor \(yearText)",
                         systemImage: "calendar.badge.exclamationmark",
                         description: Text("Importeer je Last.fm-historie in Instellingen om eerdere jaren te vullen."))
+                    .listRowBackground(Color.clear)
                 }
+                .listRowSeparator(.hidden)
             }
-            .padding()
         }
-        .windowWidthCapped()
         .navigationTitle("Jaaroverzicht \(yearText)")
         .toolbar {
             if stats != nil {
@@ -68,35 +71,40 @@ public struct YearInReviewView: View {
     @ViewBuilder
     private func content(_ s: DatabaseManager.YearStats) -> some View {
         // Hero stats
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: Spacing.md) {
-            statCard(value: "\(s.totalPlays)", label: "Nummers gespeeld", icon: "play.fill", color: Color.roonGold)
-            statCard(value: "\(s.uniqueArtists)", label: "Artiesten", icon: "person.2.fill", color: Color.roonSuccess)
-            statCard(value: "\(s.uniqueTracks)", label: "Unieke nummers", icon: "music.note", color: Color.roonInfo)
-        }
+        Section {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: Spacing.md) {
+                statCard(value: "\(s.totalPlays)", label: "Nummers gespeeld", icon: "play.fill", color: Color.roonGold)
+                statCard(value: "\(s.uniqueArtists)", label: "Artiesten", icon: "person.2.fill", color: Color.roonSuccess)
+                statCard(value: "\(s.uniqueTracks)", label: "Unieke nummers", icon: "music.note", color: Color.roonInfo)
+            }
 
-        if s.longestStreak > 1 {
-            Label("\(s.longestStreak) dagen op rij geluisterd", systemImage: "flame.fill")
-                .font(.callout)
-                .foregroundStyle(Color.roonGold)
+            if s.longestStreak > 1 {
+                Label("\(s.longestStreak) dagen op rij geluisterd", systemImage: "flame.fill")
+                    .font(.callout)
+                    .foregroundStyle(Color.roonGold)
+            }
         }
+        .plainCardRow()
 
         if let first = s.firstListen {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Eerste nummer van \(yearText)")
-                    .font(.caption).foregroundStyle(.secondary)
-                Text(first.title).font(.callout.bold()).lineLimit(1)
-                if let a = first.artist { Text(a).font(.caption).foregroundStyle(.secondary) }
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Eerste nummer van \(yearText)")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text(first.title).font(.callout.bold()).lineLimit(1)
+                    if let a = first.artist { Text(a).font(.caption).foregroundStyle(.secondary) }
+                }
+                .padding(Spacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.md))
             }
-            .padding(Spacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.md))
+            .plainCardRow()
         }
 
         // Top artists
         if !s.topArtists.isEmpty {
-            sectionHeader("Top Artiesten", icon: "person.fill")
             let maxArtistCount = s.topArtists.first?.count ?? 1
-            VStack(spacing: Spacing.sm) {
+            Section("Top Artiesten") {
                 ForEach(Array(s.topArtists.enumerated()), id: \.offset) { idx, a in
                     HStack(spacing: Spacing.md) {
                         Text("\(idx + 1)")
@@ -121,8 +129,7 @@ public struct YearInReviewView: View {
 
         // Top tracks
         if !s.topTracks.isEmpty {
-            sectionHeader("Top Nummers", icon: "music.note")
-            VStack(spacing: Spacing.sm) {
+            Section("Top Nummers") {
                 ForEach(Array(s.topTracks.enumerated()), id: \.offset) { idx, t in
                     HStack(spacing: Spacing.md) {
                         Text("\(idx + 1)")
@@ -142,32 +149,34 @@ public struct YearInReviewView: View {
 
         // Plays by hour
         if s.playsByHour.contains(where: { $0 > 0 }) {
-            sectionHeader("Speelpatroon per uur", icon: "clock")
-            Chart {
-                ForEach(0..<24, id: \.self) { hour in
-                    BarMark(
-                        x: .value("Uur", hour),
-                        y: .value("Nummers", s.playsByHour[hour])
-                    )
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [Color.roonGold, Color.roonGold.opacity(0.4)],
-                            startPoint: .top, endPoint: .bottom)
-                    )
-                    .cornerRadius(3)
+            Section("Speelpatroon per uur") {
+                Chart {
+                    ForEach(0..<24, id: \.self) { hour in
+                        BarMark(
+                            x: .value("Uur", hour),
+                            y: .value("Nummers", s.playsByHour[hour])
+                        )
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [Color.roonGold, Color.roonGold.opacity(0.4)],
+                                startPoint: .top, endPoint: .bottom)
+                        )
+                        .cornerRadius(3)
+                    }
                 }
-            }
-            .chartXAxis {
-                AxisMarks(values: [0, 6, 12, 18, 23]) { val in
-                    AxisGridLine()
-                    AxisValueLabel {
-                        if let h = val.as(Int.self) {
-                            Text("\(h)u").font(.caption)
+                .chartXAxis {
+                    AxisMarks(values: [0, 6, 12, 18, 23]) { val in
+                        AxisGridLine()
+                        AxisValueLabel {
+                            if let h = val.as(Int.self) {
+                                Text("\(h)u").font(.caption)
+                            }
                         }
                     }
                 }
+                .frame(height: 140)
+                .padding(.vertical, Spacing.xs)
             }
-            .frame(height: 140)
         }
     }
 
@@ -180,12 +189,6 @@ public struct YearInReviewView: View {
         .frame(maxWidth: .infinity)
         .padding(Spacing.md)
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.md))
-    }
-
-    private func sectionHeader(_ title: String, icon: String) -> some View {
-        Label(title, systemImage: icon)
-            .font(.headline)
-            .padding(.top, 4)
     }
 
     private var shareText: String {

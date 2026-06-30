@@ -2,6 +2,9 @@ import RoonSageCore
 import SwiftUI
 
 /// Build a beatmatched, harmonically-mixed DJ set from analyzed audio features.
+///
+/// Built on `List`/`Section` (not a custom `ScrollView`/`VStack`) — see
+/// `GenerateView` for why.
 @MainActor
 public struct DJSetView: View {
     public init() {}
@@ -21,69 +24,76 @@ public struct DJSetView: View {
     @State private var stats: (total: Int, matched: Int) = (0, 0)
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                if stats.matched == 0 {
-                    ContentUnavailableView(
-                        "Nog geen geanalyseerde tracks",
-                        systemImage: "waveform.path.ecg",
-                        description: Text("Draai roonsage-analyzer op je muziek-host en synchroniseer daarna in Instellingen → Audio Analyzer.")
-                    )
-                } else {
-                    Text("\(stats.matched) tracks met BPM/toonsoort beschikbaar").font(.caption).foregroundStyle(.secondary)
+        List {
+            if stats.matched == 0 {
+                Section {
+                    ContentUnavailableView {
+                        Label("Nog geen geanalyseerde tracks", systemImage: "waveform.path.ecg")
+                    } description: {
+                        Text("Draai roonsage-analyzer op je muziek-host en synchroniseer daarna in Instellingen → Audio Analyzer.")
+                    }
+                    .listRowBackground(Color.clear)
+                }
+                .listRowSeparator(.hidden)
+            } else {
+                Section {
+                    Text("\(stats.matched) tracks met BPM/toonsoort beschikbaar")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
 
-                    HStack(spacing: 20) {
-                        Stepper("Tracks: \(count)", value: $count, in: 5...60, step: 5)
+                Section("Instellingen") {
+                    Stepper("Tracks: \(count)", value: $count, in: 5...60, step: 5)
+                    HStack {
+                        Text("Curve")
+                        Spacer()
                         Picker("Curve", selection: $curve) {
                             ForEach(DJSetBuilder.Curve.allCases, id: \.self) { Text($0.label).tag($0) }
-                        }.frame(maxWidth: 160)
+                        }
                     }
-
-                    HStack(spacing: 20) {
-                        Stepper("Start: \(Int(startBPM)) BPM", value: $startBPM, in: 60...200, step: 1)
-                        Stepper("Eind: \(Int(endBPM)) BPM", value: $endBPM, in: 60...200, step: 1)
-                    }
-
+                    Stepper("Start: \(Int(startBPM)) BPM", value: $startBPM, in: 60...200, step: 1)
+                    Stepper("Eind: \(Int(endBPM)) BPM", value: $endBPM, in: 60...200, step: 1)
                     HStack {
                         Text("Tags").foregroundStyle(.secondary)
                         TextField("optioneel, kommagescheiden (bijv. driving, deep house)", text: $tagsText)
                             .textFieldStyle(.roundedBorder)
                     }
+                }
 
-                    HStack {
-                        if !client.zones.isEmpty {
+                Section("Zone") {
+                    if !client.zones.isEmpty {
+                        HStack {
+                            Text("Afspelen op")
+                            Spacer()
                             Picker("Zone", selection: $selectedZoneID) {
                                 Text("Kies zone…").tag(Optional<String>.none)
                                 ForEach(client.zones) { z in
                                     Label(z.displayName, systemImage: z.state.icon).tag(Optional(z.id))
                                 }
-                            }.frame(maxWidth: 220)
-                        }
-                        Spacer()
-                        Button {
-                            if set.isEmpty { build() } else { showRebuildConfirm = true }
-                        } label: {
-                            Label("Bouw DJ-set", systemImage: "slider.horizontal.3")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(Color.roonGold)
-                        .confirmationDialog(
-                            "Set opnieuw bouwen? De huidige set wordt vervangen.",
-                            isPresented: $showRebuildConfirm, titleVisibility: .visible
-                        ) {
-                            Button("Opnieuw bouwen", role: .destructive) { build() }
-                            Button("Annuleer", role: .cancel) {}
+                            }
                         }
                     }
-
+                    Button {
+                        if set.isEmpty { build() } else { showRebuildConfirm = true }
+                    } label: {
+                        Label("Bouw DJ-set", systemImage: "slider.horizontal.3").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(Color.roonGold)
+                    .listRowBackground(Color.clear)
+                    .confirmationDialog(
+                        "Set opnieuw bouwen? De huidige set wordt vervangen.",
+                        isPresented: $showRebuildConfirm, titleVisibility: .visible
+                    ) {
+                        Button("Opnieuw bouwen", role: .destructive) { build() }
+                        Button("Annuleer", role: .cancel) {}
+                    }
                     if let status { Text(status).font(.callout).foregroundStyle(.secondary) }
-
-                    if !set.isEmpty { resultView }
                 }
+
+                if !set.isEmpty { resultSections }
             }
-            .padding(24)
         }
-        .windowWidthCapped()
         .navigationTitle("DJ Set")
         .onAppear { if selectedZoneID == nil { selectedZoneID = client.selectedZone?.id } }
         .task { stats = await client.audioFeaturesStats() }
@@ -98,46 +108,51 @@ public struct DJSetView: View {
     }
 
     @ViewBuilder
-    private var resultView: some View {
-        Divider()
-        HStack {
-            Text("Set van \(set.count) tracks").font(.headline)
-            Spacer()
-            TextField("Naam playlist", text: $saveName).textFieldStyle(.roundedBorder).frame(width: 160)
-            Button("Bewaar") {
-                let n = saveName.trimmingCharacters(in: .whitespaces)
-                guard !n.isEmpty else { return }
-                client.saveDJSet(name: n, set: set); status = "Playlist “\(n)” bewaard."
-            }.disabled(saveName.trimmingCharacters(in: .whitespaces).isEmpty)
-            ShareLink(item: setlistText) {
-                Label("Exporteer", systemImage: "square.and.arrow.up")
+    private var resultSections: some View {
+        Section("Set van \(set.count) tracks") {
+            HStack {
+                TextField("Naam playlist", text: $saveName).textFieldStyle(.roundedBorder)
+                Button("Bewaar") {
+                    let n = saveName.trimmingCharacters(in: .whitespaces)
+                    guard !n.isEmpty else { return }
+                    client.saveDJSet(name: n, set: set); status = "Playlist “\(n)” bewaard."
+                }.disabled(saveName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .help("Deel de setlist (met BPM en toonsoort)")
-            Button {
-                guard let z = selectedZoneID else { return }
-                Task { await client.playDJSet(set, zoneID: z) }
-            } label: { Label("Speel", systemImage: "play.fill") }
-            .buttonStyle(.borderedProminent).tint(Color.roonGold).disabled(selectedZoneID == nil)
-            .help(selectedZoneID == nil ? "Kies eerst een zone" : "Speel de set af")
+            HStack(spacing: Spacing.sm) {
+                ShareLink(item: setlistText) {
+                    Label("Exporteer", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .help("Deel de setlist (met BPM en toonsoort)")
+
+                Button {
+                    guard let z = selectedZoneID else { return }
+                    Task { await client.playDJSet(set, zoneID: z) }
+                } label: { Label("Speel", systemImage: "play.fill").frame(maxWidth: .infinity) }
+                .buttonStyle(.borderedProminent).tint(Color.roonGold).disabled(selectedZoneID == nil)
+                .help(selectedZoneID == nil ? "Kies eerst een zone" : "Speel de set af")
+            }
         }
 
         // Set analysis: BPM flow, energy arc, harmonic transitions
-        VStack(alignment: .leading, spacing: 6) {
-            Label("Tempo", systemImage: "metronome").font(.caption).foregroundStyle(.secondary)
-            BPMCurvePreview(bpms: set.map { $0.bpm })
-                .frame(height: 50)
-                .accessibilityElement()
-                .accessibilityLabel("Tempoverloop: \(Int(set.first?.bpm ?? 0)) tot \(Int(set.last?.bpm ?? 0)) BPM over \(set.count) tracks")
-            Label("Energie", systemImage: "bolt.fill").font(.caption).foregroundStyle(.secondary)
-            EnergyCurvePreview(energies: set.map { $0.energy })
-                .frame(height: 34)
-                .accessibilityElement()
-                .accessibilityLabel("Energieboog over \(set.count) tracks")
-            HarmonicTransitionStrip(camelots: set.map { $0.camelot })
+        Section("Analyse") {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Tempo", systemImage: "metronome").font(.caption).foregroundStyle(.secondary)
+                BPMCurvePreview(bpms: set.map { $0.bpm })
+                    .frame(height: 50)
+                    .accessibilityElement()
+                    .accessibilityLabel("Tempoverloop: \(Int(set.first?.bpm ?? 0)) tot \(Int(set.last?.bpm ?? 0)) BPM over \(set.count) tracks")
+                Label("Energie", systemImage: "bolt.fill").font(.caption).foregroundStyle(.secondary)
+                EnergyCurvePreview(energies: set.map { $0.energy })
+                    .frame(height: 34)
+                    .accessibilityElement()
+                    .accessibilityLabel("Energieboog over \(set.count) tracks")
+                HarmonicTransitionStrip(camelots: set.map { $0.camelot })
+            }
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
 
-        List {
+        Section("Tracks (\(set.count))") {
             ForEach(set, id: \.id) { t in
                 let i = set.firstIndex(where: { $0.id == t.id }) ?? 0
                 HStack(spacing: 10) {
@@ -165,12 +180,6 @@ public struct DJSetView: View {
             .onMove { from, to in set.move(fromOffsets: from, toOffset: to) }
             .onDelete { indices in set.remove(atOffsets: indices) }
         }
-        #if os(iOS)
-        .environment(\.editMode, .constant(.active))
-        #endif
-        .listStyle(.plain)
-        .scrollDisabled(true)
-        .frame(minHeight: CGFloat(set.count) * 58)
     }
 
     private func build() {

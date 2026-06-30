@@ -4,6 +4,9 @@ import RoonSageCore
 /// Album-level recommendations: describe a vibe, the LLM picks albums from your
 /// library to explore (library-first). Each recommendation is playable, and the
 /// history is kept so you can revisit earlier sets.
+///
+/// Built on `List`/`Section` (not a custom `ScrollView`/`VStack`) — see
+/// `GenerateView` for why.
 @MainActor
 public struct RecommendView: View {
     public init() {}
@@ -30,42 +33,35 @@ public struct RecommendView: View {
     ]
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.xl) {
-                if client.genreCount == 0 {
+        List {
+            if client.genreCount == 0 {
+                Section {
                     Label("Genres zijn niet gesynchroniseerd. Ga naar Instellingen → “Synchroniseer genres” voor betere aanbevelingen.",
                           systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(Color.roonWarning)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
 
-                promptSection
-                optionsSection
-                recommendSection
+            promptSection
+            optionsSection
+            recommendSection
 
-                if let err = errorMessage {
-                    Label(err, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(Color.roonDanger).font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if !albums.isEmpty {
-                    Divider()
+            if !albums.isEmpty {
+                Section("Aanbevolen albums (\(albums.count))") {
                     if let resultFilters {
-                        FilterChips(filters: resultFilters)
+                        FilterChips(filters: resultFilters).padding(.vertical, 2)
                     }
                     albumList(albums)
-                } else if !isWorking && history.isEmpty {
-                    idleState
                 }
-
-                historySection
+            } else if !isWorking && history.isEmpty {
+                idleSection
             }
-            .padding(Spacing.xl)
-            .animation(Motion.standard, value: albums.map(\.albumKey))
+
+            historySection
         }
-        .windowWidthCapped()
+        .animation(Motion.standard, value: albums.map(\.albumKey))
         .navigationTitle("Aanbevelen")
         .confirmationDialog(
             "Aanbeveling verwijderen?",
@@ -89,62 +85,72 @@ public struct RecommendView: View {
     // MARK: Form
 
     private var promptSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            Text("Waar heb je zin in?").font(.headline)
+        Section("Waar heb je zin in?") {
             AIPromptField(text: $prompt,
                           placeholder: "Beschrijf een sfeer of gelegenheid… bijv. “diepe platen voor een lange avond”",
                           minHeight: 70)
+                .listRowInsets(EdgeInsets())
+                .padding(.vertical, Spacing.xs)
+                .listRowBackground(Color.clear)
             SuggestionChips(ideas) { prompt = $0 }
+                .listRowInsets(EdgeInsets(top: Spacing.xs, leading: Spacing.lg, bottom: Spacing.xs, trailing: 0))
         }
     }
 
     private var optionsSection: some View {
-        HStack(spacing: Spacing.lg) {
-            HStack(spacing: Spacing.xs) {
-                Text("Albums").foregroundStyle(.secondary)
+        Section {
+            HStack {
+                Text("Aantal albums")
+                Spacer()
                 Picker("Albums", selection: $count) {
                     ForEach([5, 8, 12], id: \.self) { Text("\($0)").tag($0) }
                 }
-                .pickerStyle(.segmented).frame(width: 150).labelsHidden()
+                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 180)
             }
-            Spacer()
-            ZonePicker()
+            HStack {
+                Text("Afspelen op")
+                Spacer()
+                ZonePicker()
+            }
         }
     }
 
     private var recommendSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
-            HStack(spacing: Spacing.md) {
-                Button { Task { await recommend() } } label: {
-                    Label(isWorking ? "Denken…" : "Beveel albums aan", systemImage: "sparkles")
-                        .frame(minWidth: 190)
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || isWorking)
-                Spacer()
+        Section {
+            Button { Task { await recommend() } } label: {
+                Label(isWorking ? "Denken…" : "Beveel albums aan", systemImage: "sparkles")
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || isWorking)
+            .listRowBackground(Color.clear)
+
+            if let err = errorMessage {
+                Label(err, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(Color.roonDanger).font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if isWorking {
                 // Shared stepper so Generate / Ask / Recommend feel like one family.
                 GenerationStepper(current: phase, phases: [.analyzing, .candidates, .curating])
+                    .padding(.vertical, Spacing.xs)
             }
         }
     }
 
-    private var idleState: some View {
-        VStack(spacing: Spacing.sm) {
-            Image(systemName: "sparkles.rectangle.stack")
-                .font(.system(size: 32))
-                .foregroundStyle(Color.roonGold.opacity(0.7))
-            Text("Ontdek albums uit je bibliotheek")
-                .font(.headline)
-            Text("Beschrijf een sfeer en RoonSage kiest hele albums die erbij passen — ideaal om van begin tot eind te luisteren.")
-                .font(.callout).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+    private var idleSection: some View {
+        Section {
+            ContentUnavailableView {
+                Label("Ontdek albums uit je bibliotheek", systemImage: "sparkles.rectangle.stack")
+            } description: {
+                Text("Beschrijf een sfeer en RoonSage kiest hele albums die erbij passen — ideaal om van begin tot eind te luisteren.")
+            }
+            .listRowBackground(Color.clear)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, Spacing.lg)
+        .listRowSeparator(.hidden)
     }
 
     // MARK: History
@@ -152,41 +158,40 @@ public struct RecommendView: View {
     @ViewBuilder
     private var historySection: some View {
         if !history.isEmpty {
-            Divider()
-            Text("Eerdere aanbevelingen").font(.headline)
-            ForEach(history, id: \.id) { entry in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.prompt).font(.body).lineLimit(1)
-                            Text("\(entry.albumCount) albums · \(formatDate(entry.createdAt))")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button { Task { await toggleHistory(entry) } } label: {
-                            Image(systemName: expandedHistoryID == entry.id ? "chevron.up" : "chevron.down")
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel(expandedHistoryID == entry.id ? "Inklappen" : "Uitklappen")
-                        Button(role: .destructive) { pendingDelete = entry } label: {
-                            Image(systemName: "trash")
-                        }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.secondary)
-                        .accessibilityLabel("Verwijder aanbeveling")
-                        .help("Verwijder deze aanbeveling")
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { Task { await toggleHistory(entry) } }
-
+            Section("Eerdere aanbevelingen") {
+                ForEach(history, id: \.id) { entry in
+                    historyRow(entry)
                     if expandedHistoryID == entry.id {
-                        albumList(historyAlbums).padding(.top, 4)
+                        albumList(historyAlbums)
                     }
                 }
-                .padding(.vertical, 4)
-                Divider()
             }
         }
+    }
+
+    private func historyRow(_ entry: DatabaseManager.RecommendationSummary) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.prompt).font(.body).lineLimit(1)
+                Text("\(entry.albumCount) albums · \(formatDate(entry.createdAt))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button { Task { await toggleHistory(entry) } } label: {
+                Image(systemName: expandedHistoryID == entry.id ? "chevron.up" : "chevron.down")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(expandedHistoryID == entry.id ? "Inklappen" : "Uitklappen")
+            Button(role: .destructive) { pendingDelete = entry } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Verwijder aanbeveling")
+            .help("Verwijder deze aanbeveling")
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { Task { await toggleHistory(entry) } }
     }
 
     @ViewBuilder

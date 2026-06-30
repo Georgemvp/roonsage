@@ -1,6 +1,9 @@
 import SwiftUI
 import RoonSageCore
 
+/// Built on `List`/`Section` end-to-end (not a `VStack` wrapping a `ScrollView`
+/// or nested `List`s) — see `GenerateView` for why a non-`List` root is risky
+/// even when an inner tab already used `List`.
 @MainActor
 public struct TasteProfileView: View {
     public init() {}
@@ -38,21 +41,17 @@ public struct TasteProfileView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        List {
             AsyncStateView(isLoading: !isLoaded, isEmpty: totalListens == 0,
                            onRetry: { load(force: true) }) {
-                VStack(spacing: 0) {
-                    headerStats
-                    Divider()
-                    tabPicker
-                    Divider()
-                    tabContent
-                }
+                Section { headerStats }.listRowBackground(Color.clear)
+                Section { tabPicker }.listRowBackground(Color.clear)
+                tabContent
             } empty: {
-                emptyState
+                Section { emptyState.listRowBackground(Color.clear) }
+                    .listRowSeparator(.hidden)
             }
         }
-        .windowWidthCapped()
         .navigationTitle("Smaakprofiel")
         .toolbar {
             Button { load(force: true) } label: { Image(systemName: "arrow.clockwise") }
@@ -96,8 +95,6 @@ public struct TasteProfileView: View {
             }
         }
         .pickerStyle(.segmented)
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.sm)
     }
 
     // MARK: - Tab content
@@ -105,75 +102,94 @@ public struct TasteProfileView: View {
     @ViewBuilder
     var tabContent: some View {
         switch selectedTab {
-        case .analyse:    analyseView
-        case .topArtists: artistsList
-        case .recent:     recentList
-        case .lastfm:     lastfmTop
+        case .analyse:    analyseSections
+        case .topArtists: artistsSection
+        case .recent:     recentSection
+        case .lastfm:     lastfmSections
         }
     }
 
     // MARK: - Analyse (taste fingerprint)
 
     @ViewBuilder
-    var analyseView: some View {
+    var analyseSections: some View {
         if let a = analysis {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Spacing.lg) {
-                    // Likes / dislikes
-                    HStack(spacing: Spacing.md) {
-                        feedbackChip(icon: "hand.thumbsup.fill", tint: .roonGold,
-                                     value: a.likeCount, label: "Likes")
-                        feedbackChip(icon: "hand.thumbsdown.fill", tint: .roonDanger,
-                                     value: a.dislikeCount, label: "Dislikes")
-                    }
+            Section {
+                HStack(spacing: Spacing.md) {
+                    feedbackChip(icon: "hand.thumbsup.fill", tint: .roonGold,
+                                 value: a.likeCount, label: "Likes")
+                    feedbackChip(icon: "hand.thumbsdown.fill", tint: .roonDanger,
+                                 value: a.dislikeCount, label: "Dislikes")
+                }
+            }
+            .plainCardRow()
 
-                    if a.peakHour >= 0 {
-                        analysisCard("Wanneer je luistert", systemImage: "clock") {
-                            barList(a.partsOfDay)
-                            Text("Piekuur: rond \(a.peakHour):00")
-                                .font(.caption).foregroundStyle(.secondary)
-                                .padding(.top, Spacing.xs)
-                        }
-                    }
-
-                    if !a.topGenres.isEmpty {
-                        analysisCard("Genres die je het meest hoort", systemImage: "guitars") {
-                            barList(a.topGenres)
-                        }
-                    }
-
-                    if let tags = a.topTags, !tags.isEmpty {
-                        analysisCard("Stijlen & sferen", systemImage: "waveform") {
-                            barList(tags)
-                        }
-                    }
-
-                    if !a.topDecades.isEmpty {
-                        analysisCard("Tijdperken", systemImage: "calendar") {
-                            barList(a.topDecades)
-                        }
-                    }
-
-                    if !a.topLikedArtists.isEmpty {
-                        analysisCard("Je likes wijzen naar", systemImage: "heart") {
-                            Text(a.topLikedArtists.joined(separator: " · "))
-                                .font(.callout)
-                        }
-                    }
-                    if !a.topDislikedArtists.isEmpty {
-                        analysisCard("Minder van", systemImage: "hand.thumbsdown") {
-                            Text(a.topDislikedArtists.joined(separator: " · "))
-                                .font(.callout).foregroundStyle(.secondary)
-                        }
+            if a.peakHour >= 0 {
+                Section {
+                    analysisCard("Wanneer je luistert", systemImage: "clock") {
+                        barList(a.partsOfDay)
+                        Text("Piekuur: rond \(a.peakHour):00")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .padding(.top, Spacing.xs)
                     }
                 }
-                .padding(Spacing.lg)
+                .plainCardRow()
+            }
+
+            if !a.topGenres.isEmpty {
+                Section {
+                    analysisCard("Genres die je het meest hoort", systemImage: "guitars") {
+                        barList(a.topGenres)
+                    }
+                }
+                .plainCardRow()
+            }
+
+            if let tags = a.topTags, !tags.isEmpty {
+                Section {
+                    analysisCard("Stijlen & sferen", systemImage: "waveform") {
+                        barList(tags)
+                    }
+                }
+                .plainCardRow()
+            }
+
+            if !a.topDecades.isEmpty {
+                Section {
+                    analysisCard("Tijdperken", systemImage: "calendar") {
+                        barList(a.topDecades)
+                    }
+                }
+                .plainCardRow()
+            }
+
+            if !a.topLikedArtists.isEmpty {
+                Section {
+                    analysisCard("Je likes wijzen naar", systemImage: "heart") {
+                        Text(a.topLikedArtists.joined(separator: " · "))
+                            .font(.callout)
+                    }
+                }
+                .plainCardRow()
+            }
+            if !a.topDislikedArtists.isEmpty {
+                Section {
+                    analysisCard("Minder van", systemImage: "hand.thumbsdown") {
+                        Text(a.topDislikedArtists.joined(separator: " · "))
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                }
+                .plainCardRow()
             }
         } else if isLoaded {
-            ContentUnavailableView("Analyse nog niet beschikbaar", systemImage: "chart.pie",
-                                   description: Text("Speel meer muziek — je smaakprofiel groeit vanzelf."))
+            Section {
+                ContentUnavailableView("Analyse nog niet beschikbaar", systemImage: "chart.pie",
+                                       description: Text("Speel meer muziek — je smaakprofiel groeit vanzelf."))
+                .listRowBackground(Color.clear)
+            }
+            .listRowSeparator(.hidden)
         } else {
-            ProgressView().frame(maxWidth: .infinity, minHeight: 120)
+            Section { ProgressView().frame(maxWidth: .infinity, minHeight: 120) }
         }
     }
 
@@ -229,33 +245,42 @@ public struct TasteProfileView: View {
     // MARK: - Last.fm live top-lijsten
 
     @ViewBuilder
-    var lastfmTop: some View {
-        VStack(spacing: 0) {
+    var lastfmSections: some View {
+        Section {
             Picker("Periode", selection: $lfPeriod) {
                 ForEach(LastfmClient.Period.allCases, id: \.self) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, Spacing.lg).padding(.top, Spacing.sm)
-
             Picker("Soort", selection: $lfKind) {
                 ForEach(LfKind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.sm)
+        }
+        .listRowBackground(Color.clear)
+        .onChange(of: lfPeriod) { _, _ in loadLastfm() }
+        .onChange(of: lfKind) { _, _ in loadLastfm() }
+        .task { loadLastfm() }
 
-            Divider()
-
-            if !client.lastfmConfigured {
+        if !client.lastfmConfigured {
+            Section {
                 ContentUnavailableView(
                     "Last.fm niet gekoppeld",
                     systemImage: "link",
                     description: Text("Koppel Last.fm in Instellingen om je top-artiesten, -nummers en -albums te zien."))
-            } else if lfLoading {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 120)
-            } else if lfItems.isEmpty {
+                .listRowBackground(Color.clear)
+            }
+            .listRowSeparator(.hidden)
+        } else if lfLoading {
+            Section { ProgressView().frame(maxWidth: .infinity, minHeight: 120) }
+        } else if lfItems.isEmpty {
+            Section {
                 ContentUnavailableView("Geen gegevens", systemImage: "chart.bar")
-            } else {
-                List(lfItems) { item in
+                    .listRowBackground(Color.clear)
+            }
+            .listRowSeparator(.hidden)
+        } else {
+            Section("Last.fm top") {
+                ForEach(lfItems) { item in
                     HStack(spacing: Spacing.md) {
                         Text(item.name).font(.body).lineLimit(1)
                         if let a = item.artist {
@@ -267,16 +292,12 @@ public struct TasteProfileView: View {
                     }
                     .padding(.vertical, 2)
                 }
-                .listStyle(.plain)
             }
         }
-        .onChange(of: lfPeriod) { _, _ in loadLastfm() }
-        .onChange(of: lfKind) { _, _ in loadLastfm() }
-        .task { loadLastfm() }
     }
 
-    var artistsList: some View {
-        List {
+    var artistsSection: some View {
+        Section("Topartiesten") {
             ForEach(Array(topArtists.enumerated()), id: \.offset) { index, item in
                 HStack(spacing: Spacing.md) {
                     Text("\(index + 1)")
@@ -298,50 +319,50 @@ public struct TasteProfileView: View {
                 .padding(.vertical, 2)
             }
         }
-        .listStyle(.plain)
     }
 
-    var recentList: some View {
-        List(Array(recentListens.enumerated()), id: \.offset) { _, entry in
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(entry.title)
-                        .font(.body)
-                        .lineLimit(1)
-                    Spacer()
-                    Text(formatDate(entry.playedAt))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .monospacedDigit()
-                }
-                HStack(spacing: Spacing.xs) {
-                    if let artist = entry.artist {
-                        Text(artist)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+    var recentSection: some View {
+        Section("Recent gespeeld") {
+            ForEach(Array(recentListens.enumerated()), id: \.offset) { _, entry in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(entry.title)
+                            .font(.body)
                             .lineLimit(1)
-                    }
-                    if entry.artist != nil, entry.album != nil {
-                        Text("·").font(.caption).foregroundStyle(.tertiary)
-                    }
-                    if let album = entry.album {
-                        Text(album)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                    if let zone = entry.zoneName {
                         Spacer()
-                        Text(zone)
+                        Text(formatDate(entry.playedAt))
                             .font(.caption2)
-                            .foregroundStyle(.quaternary)
-                            .lineLimit(1)
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                    }
+                    HStack(spacing: Spacing.xs) {
+                        if let artist = entry.artist {
+                            Text(artist)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        if entry.artist != nil, entry.album != nil {
+                            Text("·").font(.caption).foregroundStyle(.tertiary)
+                        }
+                        if let album = entry.album {
+                            Text(album)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                        if let zone = entry.zoneName {
+                            Spacer()
+                            Text(zone)
+                                .font(.caption2)
+                                .foregroundStyle(.quaternary)
+                                .lineLimit(1)
+                        }
                     }
                 }
+                .padding(.vertical, 2)
             }
-            .padding(.vertical, 2)
         }
-        .listStyle(.plain)
     }
 
     // MARK: - Empty state

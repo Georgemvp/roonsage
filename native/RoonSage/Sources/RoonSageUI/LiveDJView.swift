@@ -6,6 +6,9 @@ import SwiftUI
 /// "mix radar": the playing track sits at the centre, candidates orbit at their
 /// wheel position, sized by tempo match and coloured by key. The full list
 /// remains below for detail and VoiceOver.
+///
+/// Built on `List`/`Section` (not a custom `ScrollView`/`VStack`) — see
+/// `GenerateView` for why.
 @MainActor
 public struct LiveDJView: View {
     public init() {}
@@ -20,18 +23,20 @@ public struct LiveDJView: View {
     public var body: some View {
         Group {
             if let zone = client.selectedZone, let np = zone.nowPlaying {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Spacing.lg) {
-                        currentCard(np)
+                List {
+                    Section { currentCard(np) }
 
-                        if loading && suggestions.isEmpty {
-                            SkeletonRows(count: 8)
-                        } else if !hasFeatures {
-                            noFeaturesNote
-                        } else if suggestions.isEmpty {
+                    if loading && suggestions.isEmpty {
+                        Section { SkeletonRows(count: 8) }
+                    } else if !hasFeatures {
+                        Section { noFeaturesNote }
+                    } else if suggestions.isEmpty {
+                        Section {
                             Text("Geen compatibele tracks gevonden in dit tempo.")
                                 .font(.callout).foregroundStyle(.secondary)
-                        } else {
+                        }
+                    } else {
+                        Section {
                             MixRadar(
                                 currentBPM: currentBPM,
                                 currentCamelot: currentCamelot,
@@ -46,13 +51,17 @@ public struct LiveDJView: View {
                                     Task { await client.queueTracks([asRecord(c)], next: true, zoneID: zone.id) }
                                 }
                             )
-
-                            Divider()
-                            header
+                        }
+                        Section {
                             ForEach(suggestions, id: \.id) { row($0, zoneID: zone.id) }
+                        } header: {
+                            HStack {
+                                Text("Mixt hierna goed")
+                                Spacer()
+                                if loading { ProgressView().controlSize(.small) }
+                            }
                         }
                     }
-                    .padding()
                 }
                 .task(id: np.title) { await reload(np) }
             } else {
@@ -61,7 +70,6 @@ public struct LiveDJView: View {
                     description: Text("Start een track in een zone om harmonische vervolgsuggesties te zien."))
             }
         }
-        .windowWidthCapped()
         .navigationTitle("Live DJ")
     }
 
@@ -83,14 +91,6 @@ public struct LiveDJView: View {
                 .padding(.top, 2)
             }
             Spacer()
-        }
-    }
-
-    private var header: some View {
-        HStack {
-            Text("Mixt hierna goed").font(.headline)
-            Spacer()
-            if loading { ProgressView().controlSize(.small) }
         }
     }
 

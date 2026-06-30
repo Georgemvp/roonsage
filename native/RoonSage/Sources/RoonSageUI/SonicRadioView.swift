@@ -3,6 +3,9 @@ import SwiftUI
 
 /// Daily "for you" stations seeded from the artists you play most. Each card
 /// starts an endless sonic radio that refills itself as it drains.
+///
+/// Built on `List` (used as a feed of self-styled cards via `.plainCardRow()`)
+/// rather than a custom `ScrollView`/`VStack` — see `GenerateView` for why.
 @MainActor
 public struct SonicRadioView: View {
     @Environment(RoonClient.self) private var client
@@ -28,34 +31,29 @@ public struct SonicRadioView: View {
     public init() {}
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.lg) {
-                if let radio = client.activeRadio { activeBanner(radio) }
+        List {
+            if let radio = client.activeRadio { activeBanner(radio).plainCardRow() }
 
-                ZoneHintBanner()
+            ZoneHintBanner().plainCardRow()
 
-                header
+            header.plainCardRow()
 
-                adventurousnessTuner
+            adventurousnessTuner.plainCardRow()
 
-                categoryPicker
+            categoryPicker.plainCardRow()
 
-                AsyncStateView(isLoading: isLoading || !loaded, isEmpty: radios.isEmpty,
-                               onRetry: { Task { await load(force: true) } }) {
-                    LazyVGrid(columns: columns, spacing: Spacing.md) {
-                        ForEach(radios) { radioCard($0) }
-                    }
-                } empty: {
-                    emptyState
+            AsyncStateView(isLoading: isLoading || !loaded, isEmpty: radios.isEmpty,
+                           onRetry: { Task { await load(force: true) } }) {
+                LazyVGrid(columns: columns, spacing: Spacing.md) {
+                    ForEach(radios) { radioCard($0) }
                 }
-
-                Divider().padding(.vertical, Spacing.sm)
-
-                qobuzSection
+            } empty: {
+                emptyState
             }
-            .padding(Spacing.lg)
+            .plainCardRow()
+
+            qobuzSection.plainCardRow()
         }
-        .windowWidthCapped()
         .navigationTitle("Radio's")
         .toolbar {
             Button {

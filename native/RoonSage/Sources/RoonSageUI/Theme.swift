@@ -125,6 +125,18 @@ extension View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
     }
+
+    /// Strips a `List` row's default chrome (background, separator, inset) so a
+    /// self-styled card (gradient hero, `.cardStyle()` block, custom shelf) reads
+    /// exactly as it would in a plain `VStack` feed — used when `List` is hosting
+    /// a "dashboard of cards" rather than uniform data rows, purely for its
+    /// correct width-clamping + lazy loading.
+    public func plainCardRow() -> some View {
+        self
+            .listRowInsets(EdgeInsets(top: Spacing.sm, leading: Spacing.lg, bottom: Spacing.sm, trailing: Spacing.lg))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+    }
 }
 
 /// Cross-platform haptics — award-quality iOS apps confirm every meaningful

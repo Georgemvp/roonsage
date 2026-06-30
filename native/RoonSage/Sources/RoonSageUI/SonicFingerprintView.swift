@@ -1,6 +1,8 @@
 import SwiftUI
 import RoonSageCore
 
+/// Built on `List` (used as a feed of self-styled cards via `.plainCardRow()`)
+/// rather than a custom `ScrollView`/`VStack` — see `GenerateView` for why.
 @MainActor
 public struct SonicFingerprintView: View {
     public init() {}
@@ -11,26 +13,28 @@ public struct SonicFingerprintView: View {
     @State private var shareImage: Image?
 
     public var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: Spacing.xl) {
-                if let fp = fingerprint {
-                    profileCard(fp)
-                    if !fp.recommendations.isEmpty { recommendationsCard(fp) }
-                } else if isLoading {
+        List {
+            if let fp = fingerprint {
+                profileCard(fp).plainCardRow()
+                if !fp.recommendations.isEmpty { recommendationsCard(fp).plainCardRow() }
+            } else if isLoading {
+                Section {
                     ContentUnavailableView("Je sonische DNA berekenen…", systemImage: "waveform.path.ecg")
-                        .frame(maxWidth: .infinity, minHeight: 300)
-                } else if loaded {
+                        .listRowBackground(Color.clear)
+                }
+                .listRowSeparator(.hidden)
+            } else if loaded {
+                Section {
                     ContentUnavailableView(
                         "Nog geen geanalyseerde tracks",
                         systemImage: "waveform.path.ecg",
                         description: Text("Draai de audio-analyzer en synchroniseer in Instellingen, dan kan je muzikale DNA berekend worden.")
                     )
-                    .frame(maxWidth: .infinity, minHeight: 300)
+                    .listRowBackground(Color.clear)
                 }
+                .listRowSeparator(.hidden)
             }
-            .padding(Spacing.xl)
         }
-        .windowWidthCapped()
         .navigationTitle("Sonic DNA")
         .toolbar {
             if let shareImage {

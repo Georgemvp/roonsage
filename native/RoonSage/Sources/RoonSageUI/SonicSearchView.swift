@@ -5,6 +5,9 @@ import SwiftUI
 /// the analyzer's CLAP text encoder (/text-embed) and cosine-ranked against the
 /// library's sonic embeddings — so "dreamy late-night piano" finds tracks that
 /// *sound* like that, regardless of tags.
+///
+/// Built on `List`/`Section` (not a custom `ScrollView`/`VStack`) — see
+/// `GenerateView` for why.
 @MainActor
 public struct SonicSearchView: View {
     public init() {}
@@ -19,31 +22,35 @@ public struct SonicSearchView: View {
                             "donkere melancholische synthwave", "warme akoestische zondagochtend"]
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.lg) {
+        List {
+            Section {
                 Text("Beschrijf een sfeer of geluid; de analyzer zet je tekst om in een sonische vector en zoekt nummers die zó klinken.")
                     .font(.callout).foregroundStyle(.secondary)
-
                 searchBar
+                    .listRowInsets(EdgeInsets())
+                    .padding(.vertical, Spacing.xs)
+                    .listRowBackground(Color.clear)
+            }
 
-                ZoneHintBanner()
+            ZoneHintBanner().plainCardRow()
 
-                if !searched && results.isEmpty {
-                    exampleChips
-                } else if loading {
-                    ProgressView().frame(maxWidth: .infinity)
-                } else if results.isEmpty {
+            if !searched && results.isEmpty {
+                Section { exampleChips }
+            } else if loading {
+                Section { ProgressView().frame(maxWidth: .infinity) }
+            } else if results.isEmpty {
+                Section {
                     ContentUnavailableView(
                         "Geen resultaten",
                         systemImage: "sparkle.magnifyingglass",
                         description: Text("Controleer of de analyzer draait met tekst-zoeken aan en of de sonische kenmerken zijn gesynchroniseerd."))
-                } else {
-                    resultsList
+                    .listRowBackground(Color.clear)
                 }
+                .listRowSeparator(.hidden)
+            } else {
+                resultsSection
             }
-            .padding()
         }
-        .windowWidthCapped()
         .navigationTitle("Sonisch zoeken")
     }
 
@@ -82,20 +89,19 @@ public struct SonicSearchView: View {
         }
     }
 
-    private var resultsList: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack {
-                Text("Resultaten (\(results.count))").font(.headline).lineLimit(1)
-                Spacer(minLength: Spacing.sm)
+    private var resultsSection: some View {
+        Section("Resultaten (\(results.count))") {
+            HStack(spacing: Spacing.sm) {
                 if let zone = client.selectedZone {
                     Button {
                         Haptics.success()
                         Task { await client.curateTracks(topRecords, zoneID: zone.id) }
-                    } label: { Label("Speel top 20", systemImage: "play.fill") }
-                    .buttonStyle(.borderedProminent).tint(Color.roonGold).controlSize(.small)
+                    } label: { Label("Speel top 20", systemImage: "play.fill").frame(maxWidth: .infinity) }
+                    .buttonStyle(.borderedProminent).tint(Color.roonGold)
                 }
                 LocalPlayButton { topRecords }
-                    .buttonStyle(.bordered).controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity)
             }
             ForEach(results.prefix(40)) { scored in
                 HStack(spacing: Spacing.md) {
