@@ -182,13 +182,18 @@ public struct DiscoveryView: View {
     }
 
     private func playAllButton(_ tracks: [TrackRecord]) -> some View {
-        Button {
-            Haptics.tap()
-            play { await client.curateTracks(tracks, zoneID: $0) }
-        } label: { Label("Speel alles", systemImage: "play.fill") }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(client.selectedZone == nil)
+        HStack(spacing: Spacing.sm) {
+            Button {
+                Haptics.tap()
+                play { await client.curateTracks(tracks, zoneID: $0) }
+            } label: { Label("Speel alles", systemImage: "play.fill") }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(client.selectedZone == nil)
+            LocalPlayButton { tracks }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+        }
     }
 
     @ViewBuilder

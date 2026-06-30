@@ -384,8 +384,13 @@ public struct GenerateView: View {
             .buttonStyle(.borderedProminent)
             .disabled(client.selectedZone == nil || model.tracks.isEmpty)
 
+            // Local playback needs no zone — always offered alongside the Roon play.
+            LocalPlayButton(style: .labeled) { model.tracks }
+                .buttonStyle(.bordered)
+                .disabled(model.tracks.isEmpty)
+
             if client.selectedZone == nil {
-                Text("Kies een zone om af te spelen")
+                Text("of speel lokaal op dit apparaat")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

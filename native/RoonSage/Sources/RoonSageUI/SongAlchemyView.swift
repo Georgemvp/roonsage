@@ -183,6 +183,13 @@ public struct SongAlchemyView: View {
 
     // MARK: Results
 
+    private var topRecords: [TrackRecord] {
+        results.prefix(20).map {
+            TrackRecord(id: $0.track.id, title: $0.track.title,
+                        artist: $0.track.artist, album: $0.track.album)
+        }
+    }
+
     private var resultsList: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
@@ -191,16 +198,15 @@ public struct SongAlchemyView: View {
                 if let zone = client.selectedZone {
                     Button {
                         Haptics.success()
-                        let records = results.prefix(20).map {
-                            TrackRecord(id: $0.track.id, title: $0.track.title,
-                                        artist: $0.track.artist, album: $0.track.album)
-                        }
-                        Task { await client.curateTracks(Array(records), zoneID: zone.id) }
+                        Task { await client.curateTracks(topRecords, zoneID: zone.id) }
                     } label: { Label("Speel top 20", systemImage: "play.fill") }
                     .buttonStyle(.borderedProminent)
                     .tint(Color.roonGold)
                     .controlSize(.small)
                 }
+                LocalPlayButton { topRecords }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
             ForEach(results.prefix(30)) { scored in
                 HStack(spacing: Spacing.md) {

@@ -54,10 +54,15 @@ struct AlbumDetailView: View {
                 HStack(spacing: Spacing.sm) {
                     Button { play(tracks) } label: { Label("Speel", systemImage: "play.fill") }
                         .buttonStyle(.borderedProminent).tint(Color.roonGold)
+                        .disabled(client.selectedZone == nil || tracks.isEmpty)
                     Button { queue(tracks) } label: { Label("Wachtrij", systemImage: "text.append") }
                         .buttonStyle(.bordered)
+                        .disabled(client.selectedZone == nil || tracks.isEmpty)
+                    // Listen on this device — no zone required.
+                    LocalPlayButton { tracks.map(record) }
+                        .buttonStyle(.bordered)
+                        .disabled(tracks.isEmpty)
                 }
-                .disabled(client.selectedZone == nil || tracks.isEmpty)
             }
         }
     }

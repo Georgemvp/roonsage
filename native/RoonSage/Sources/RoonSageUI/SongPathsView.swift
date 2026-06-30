@@ -163,6 +163,13 @@ public struct SongPathsView: View {
 
     // MARK: Path result
 
+    private var pathRecords: [TrackRecord] {
+        path.map {
+            TrackRecord(id: $0.track.id, title: $0.track.title,
+                        artist: $0.track.artist, album: $0.track.album)
+        }
+    }
+
     private var pathResult: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
@@ -171,16 +178,15 @@ public struct SongPathsView: View {
                 if let zone = client.selectedZone {
                     Button {
                         Haptics.success()
-                        let records = path.map {
-                            TrackRecord(id: $0.track.id, title: $0.track.title,
-                                        artist: $0.track.artist, album: $0.track.album)
-                        }
-                        Task { await client.curateTracks(records, zoneID: zone.id) }
+                        Task { await client.curateTracks(pathRecords, zoneID: zone.id) }
                     } label: { Label("Speel pad", systemImage: "play.fill") }
                     .buttonStyle(.borderedProminent)
                     .tint(Color.roonGold)
                     .controlSize(.small)
                 }
+                LocalPlayButton { pathRecords }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
 
             ForEach(Array(path.enumerated()), id: \.element.id) { idx, step in

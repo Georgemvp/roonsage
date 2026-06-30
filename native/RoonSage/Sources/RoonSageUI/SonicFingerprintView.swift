@@ -148,6 +148,8 @@ public struct SonicFingerprintView: View {
                 }
                 .buttonStyle(.bordered).controlSize(.small)
                 .disabled(client.selectedZone == nil)
+                LocalPlayButton { asTracks(fp.recommendations) }
+                    .buttonStyle(.bordered).controlSize(.small)
             }
             Text("Het dichtst bij jouw smaak, met ruimte voor ontdekking.")
                 .font(.caption).foregroundStyle(.secondary)
