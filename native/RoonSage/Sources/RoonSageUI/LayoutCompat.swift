@@ -17,9 +17,15 @@ import UIKit
 struct WindowWidthCap: ViewModifier {
     func body(content: Content) -> some View {
         #if os(iOS)
+        // EXACT width, not `.frame(maxWidth:)` — a max-width cap alone still lets
+        // the bad 560pt proposal leak through on iOS 26.6 (this was tried and
+        // failed for NowPlayingView in e66452f). Only an exact `.frame(width:)`,
+        // then re-centred via `.frame(maxWidth: .infinity)`, reliably forces the
+        // real width — the pattern that shipped (and was verified on-device) in
+        // 94d63fc.
         content
-            .frame(maxWidth: Self.realWidth)
-            .frame(maxWidth: .infinity)
+            .frame(width: Self.realWidth)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         #else
         // macOS windows are sized correctly — leave the layout untouched.
         content
