@@ -29,15 +29,21 @@ public final class AmbientTheme {
 }
 
 /// Full-bleed backdrop that washes the screen in the now-playing tint, dissolving
-/// into black toward the bottom so list/form content stays legible. Falls back to
-/// plain black when nothing plays, so it's always safe to place behind a tab.
+/// toward the bottom so list/form content stays legible. The base tracks the
+/// active colour scheme — black in dark mode, white in light — so it's always safe
+/// to place behind a tab regardless of the app theme. Falls back to the plain base
+/// when nothing plays.
 public struct AmbientBackdrop: View {
+    @Environment(\.colorScheme) private var scheme
     let color: Color?
     public init(color: Color?) { self.color = color }
 
     public var body: some View {
         ZStack {
-            Color.black
+            // Adaptive base: pure black in dark mode (unchanged), pure white in
+            // light mode so the tint reads as a soft pastel wash instead of a
+            // black slab bleeding over the light theme.
+            (scheme == .dark ? Color.black : Color.white)
             if let color {
                 // Tinted at the top, settling onto a faint colour floor toward the
                 // bottom (not pure black) — mirrors the Now Playing backdrop so the
@@ -60,15 +66,19 @@ public struct AmbientBackdrop: View {
 
 /// Tinted card behind each List/Form row: a faint lift so the row reads as a
 /// raised surface, washed with the now-playing colour so the cards themselves
-/// wear the tint (not just the gaps around them). Falls back to a neutral dark
-/// card when nothing plays.
+/// wear the tint (not just the gaps around them). Falls back to a neutral,
+/// scheme-aware card when nothing plays.
 public struct AmbientCard: View {
     let color: Color?
     public init(color: Color?) { self.color = color }
 
     public var body: some View {
         ZStack {
-            Color.white.opacity(0.06)                 // surface lift, theme-neutral
+            // Adaptive lift: `primary` is white in dark mode and black in light,
+            // so the raised card reads correctly on either base (a faint light
+            // lift on black, a faint shadow-lift on white) instead of an invisible
+            // white-on-white card in the light theme.
+            Color.primary.opacity(0.06)               // surface lift, theme-aware
             (color ?? .clear).opacity(0.20)           // now-playing tint
         }
         .animation(Motion.ambient, value: color)
