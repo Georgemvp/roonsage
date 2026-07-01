@@ -9,6 +9,7 @@ import SwiftUI
 /// The server builds and stores it; this view just fetches it (`client.discoverWeekly`)
 /// and can ask the server to rebuild (`client.refreshDiscoverWeekly`). Shared by
 /// macOS + iOS — no platform chrome.
+@MainActor
 public struct DiscoverWeeklyView: View {
     @Environment(RoonClient.self) private var client
 
