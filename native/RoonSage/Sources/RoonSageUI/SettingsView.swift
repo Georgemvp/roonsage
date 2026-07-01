@@ -37,6 +37,10 @@ public struct SettingsView: View {
     @State private var lbToken: String = ""
     @State private var lbSaved = false
 
+    // Discogs (F7 — Discogs Labels discovery producer)
+    @State private var discogsToken: String = ""
+    @State private var discogsSaved = false
+
     // Last.fm
     @State private var lfApiKey: String = ""
     @State private var lfApiSecret: String = ""
@@ -338,6 +342,28 @@ public struct SettingsView: View {
                 }
             }
 
+            // Discogs (F7 — Discogs Labels discovery producer)
+            Section("Discogs") {
+                LabeledContent("Persoonlijke access token") {
+                    HStack(spacing: Spacing.sm) {
+                        SecureField("Plak hier je token", text: $discogsToken)
+                            .textFieldStyle(.roundedBorder)
+                        Button(discogsSaved ? "Bewaard!" : "Bewaar") {
+                            if discogsToken.trimmingCharacters(in: .whitespaces).isEmpty {
+                                KeychainStore.delete(key: "discogs_token")
+                            } else {
+                                KeychainStore.save(key: "discogs_token", value: discogsToken.trimmingCharacters(in: .whitespaces))
+                            }
+                            discogsSaved = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { discogsSaved = false }
+                        }
+                    }
+                }
+                Text("Schakelt de \"Discogs\"-bron in Ontdekkingen in: artiesten op hetzelfde platenlabel als artiesten die je veel speelt. Token aanmaken via discogs.com → instellingen → Developers.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // Last.fm
             Section("Last.fm") {
                 if lfConnected {
@@ -531,6 +557,7 @@ public struct SettingsView: View {
     private func loadSettingsState() {
         refreshLastSync()
         lbToken = KeychainStore.load(key: "listenbrainz_token") ?? ""
+        discogsToken = KeychainStore.load(key: "discogs_token") ?? ""
         lfApiKey    = KeychainStore.load(key: "lastfm_api_key") ?? ""
         lfApiSecret = KeychainStore.load(key: "lastfm_api_secret") ?? ""
         lfUsername  = KeychainStore.load(key: "lastfm_username") ?? ""

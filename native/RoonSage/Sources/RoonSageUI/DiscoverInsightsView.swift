@@ -187,6 +187,7 @@ public enum DiscoveryProducerLabel {
         case "artist-relationships": "Samenwerking"
         case "listenbrainz-radio":   "ListenBrainz"
         case "ai-picks":             "AI"
+        case "discogs-labels":       "Discogs"
         default:                     id
         }
     }

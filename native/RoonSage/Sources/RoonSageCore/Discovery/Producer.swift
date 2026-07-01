@@ -91,12 +91,15 @@ public struct ProducerContext: Sendable {
     /// `AIPicksProducer`) can lean into it. Most producers ignore this — the mood
     /// bias mainly happens upstream, in which SEED artists `DiscoverySeeds` carries.
     public var mood: String?
+    /// F7: Discogs personal access token — gates `DiscogsLabelsProducer`.
+    public var discogsToken: String?
 
     public init(lastfm: LastfmCredentials? = nil, listenBrainz: ListenBrainzCredentials? = nil,
                 musicBrainz: MusicBrainzDiscoveryClient, llmConfig: LLMConfig = LLMConfig(),
-                perProducerLimit: Int = 40, mood: String? = nil) {
+                perProducerLimit: Int = 40, mood: String? = nil, discogsToken: String? = nil) {
         self.lastfm = lastfm; self.listenBrainz = listenBrainz; self.musicBrainz = musicBrainz
-        self.llmConfig = llmConfig; self.perProducerLimit = perProducerLimit; self.mood = mood
+        self.llmConfig = llmConfig; self.perProducerLimit = perProducerLimit
+        self.mood = mood; self.discogsToken = discogsToken
     }
 }
 

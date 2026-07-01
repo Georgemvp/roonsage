@@ -32,7 +32,16 @@ extension RoonClient {
     /// without hand-duplicating them.
     public static var discoveryProducers: [DiscoveryProducer] {
         [SimilarArtistWebProducer(), ChartsProducer(), ReleaseRadarProducer(),
-         GapFillProducer(), ArtistRelationshipsProducer(), ListenBrainzRadioProducer(), AIPicksProducer()]
+         GapFillProducer(), ArtistRelationshipsProducer(), ListenBrainzRadioProducer(), AIPicksProducer(),
+         DiscogsLabelsProducer()]
+    }
+
+    /// Whether a Discogs personal access token is configured (Settings → Externe
+    /// diensten). Gates `DiscogsLabelsProducer` — the producer's own `isEnabled`
+    /// checks the same thing via `ProducerContext.discogsToken`, so a missing
+    /// token degrades to "one fewer producer", same as every other optional source.
+    public var discogsConfigured: Bool {
+        !(KeychainStore.load(key: "discogs_token") ?? "").isEmpty
     }
 
     // MARK: - Tuning (F11) — persisted server-side (this is the analyzer/server
@@ -269,14 +278,16 @@ extension RoonClient {
             guard let username = await ListenBrainzClient.shared.resolveUsername(token: token) else { return nil }
             return ListenBrainzCredentials(username: username, token: token)
         }()
+        let discogsToken = KeychainStore.load(key: "discogs_token").flatMap { $0.isEmpty ? nil : $0 }
         let llmConfig = LLMConfigStore.load()
         // Warm a local Ollama model once up front so the AI-picks producer's first
         // call doesn't eat a cold-start timeout (matches buildRadioPlaylists).
         // No-op for cloud providers.
         await LLMClient.shared.warmUp(config: llmConfig)
+        await DiscogsClient.shared.resetCache()
         let context = ProducerContext(
             lastfm: lastfm, listenBrainz: listenBrainz, musicBrainz: MusicBrainzDiscoveryClient.shared,
-            llmConfig: llmConfig, perProducerLimit: 40, mood: mood)
+            llmConfig: llmConfig, perProducerLimit: 40, mood: mood, discogsToken: discogsToken)
 
         let qobuz: (email: String, password: String)? = {
             guard let e = KeychainStore.load(key: "qobuz_email"), !e.isEmpty,
