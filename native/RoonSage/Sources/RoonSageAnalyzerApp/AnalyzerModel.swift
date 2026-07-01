@@ -259,11 +259,18 @@ final class AnalyzerModel {
     func cancelLoudness() { loudnessBackfill?.cancel() }
 
     /// Trickle the loudness backfill in the background when enabled. Exits fast when
-    /// coverage is complete, so it's cheap to call on every launch. Held off while an
-    /// analysis pass runs so the two don't hammer the (slow external) drive at once —
-    /// it's re-invoked when analysis completes.
+    /// coverage is complete, so it's cheap to call on every launch.
+    ///
+    /// It runs ALONGSIDE the analysis walk rather than waiting for it: the walk
+    /// re-enumerates the whole (large, USB-resident) tree on every launch, which
+    /// would otherwise keep the backfill permanently starved. The backfill is
+    /// single-threaded with a per-file pause, so the extra disk load stays modest
+    /// even during a walk. `refresh()` first so a launch call before the initial
+    /// count is populated still proceeds.
     func autoLoudnessIfEnabled() {
-        guard autoLoudness, !isLoudnessBackfilling, !isAnalyzing, store != nil, trackCount > 0 else { return }
+        guard autoLoudness, !isLoudnessBackfilling, store != nil else { return }
+        if trackCount == 0 { refresh() }
+        guard trackCount > 0 else { return }
         startLoudness()
     }
 
