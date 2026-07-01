@@ -331,6 +331,79 @@ enum Schema {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_genre_taxonomy_parent ON genre_taxonomy(parent)")
         }
 
+        // Discovery engine (outward-facing recommendations — see Discovery/). A
+        // pipeline run stores a *batch* of scored artist/album recommendations that
+        // must resolve to Qobuz to be actionable. All additive (no match_key reset),
+        // so this does NOT force a Roon resync. Lives on the server-of-record; thin
+        // clients pull the feed over /discovery/recommendations and POST accept/reject.
+        migrator.registerMigration("v23_discovery_batches") { db in
+            try db.create(table: "recommendation_batches", ifNotExists: true) { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("created_at", .text).notNull()
+                t.column("status",     .text).notNull().defaults(to: "complete")  // running|complete|failed
+                t.column("trigger",    .text).notNull().defaults(to: "scheduled") // scheduled|manual
+                t.column("item_count", .integer).notNull().defaults(to: 0)
+                t.column("taste_sig",  .text)   // taste-vector signature at run time (skip-if-unchanged)
+            }
+
+            try db.create(table: "recommendation_items", ifNotExists: true) { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("batch_id", .integer).notNull()
+                    .references("recommendation_batches", onDelete: .cascade)
+                t.column("kind",   .text).notNull()          // artist|album
+                t.column("artist", .text).notNull()
+                t.column("artist_mbid", .text)
+                t.column("album",  .text)                    // NULL for kind=artist
+                t.column("release_group_mbid", .text)        // album dedup key
+                t.column("year",   .integer)
+                t.column("qobuz_album_id", .text)            // Qobuz resolution (album-kind); NULL if unmatched
+                t.column("image_url", .text)
+                t.column("score",  .double).notNull().defaults(to: 0)
+                t.column("score_json",   .text).notNull().defaults(to: "{}")
+                t.column("sources_json", .text).notNull().defaults(to: "[]")
+                t.column("genres_json",  .text).notNull().defaults(to: "[]")
+                t.column("explanation",     .text)           // AI card, cached
+                t.column("explanation_sig", .text)
+                t.column("status", .text).notNull().defaults(to: "pending")  // pending|accepted|rejected
+                t.column("rejected_at", .text)
+                t.column("dedup_key",  .text).notNull()
+                t.column("created_at", .text).notNull()
+            }
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_recitems_batch  ON recommendation_items(batch_id)")
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_recitems_status ON recommendation_items(status)")
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_recitems_dedup  ON recommendation_items(dedup_key)")
+        }
+
+        // Artists the user follows for Release-Radar (a producer that surfaces their
+        // NEW releases). Populated when an album/artist recommendation is accepted,
+        // or manually. `last_seen_rg` records the newest release-group already
+        // surfaced so the radar only emits genuinely new ones.
+        migrator.registerMigration("v24_artist_watchlist") { db in
+            try db.create(table: "artist_watchlist", ifNotExists: true) { t in
+                t.primaryKey("artist", .text)          // lowercased canonical name
+                t.column("artist_mbid",  .text)
+                t.column("display_name", .text).notNull()
+                t.column("added_at", .text).notNull()
+                t.column("source",   .text).notNull().defaults(to: "accept")  // accept|manual
+                t.column("last_seen_rg", .text)
+            }
+        }
+
+        // Persistent reject memory + cooldown, decoupled from the ephemeral items
+        // table (which is pruned as old batches age out). A rejection must outlive
+        // the batch it came from so the Filter keeps honouring the cooldown / block.
+        migrator.registerMigration("v25_discovery_rejections") { db in
+            try db.create(table: "discovery_rejections", ifNotExists: true) { t in
+                t.primaryKey("dedup_key", .text)       // same form as recommendation_items.dedup_key
+                t.column("kind",   .text).notNull()    // artist|album
+                t.column("artist", .text).notNull()
+                t.column("album",  .text)
+                t.column("rejected_at", .text).notNull()
+                t.column("permanent",   .integer).notNull().defaults(to: 0)  // 1 = never show this again
+            }
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_rejections_kind ON discovery_rejections(kind)")
+        }
+
         try migrator.migrate(db)
     }
 }

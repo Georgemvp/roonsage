@@ -52,13 +52,19 @@ public actor QobuzClient {
     /// artist-radio sync so a refresh updates the SAME Qobuz playlist instead of
     /// piling up duplicates. The exact `name` is the stable identity key — keep it
     /// stable across refreshes (callers cache the AI title for this reason).
+    /// `forceReplace` skips the catastrophic-shrink guard (step 3) — used for a
+    /// deliberate one-time correction when a playlist's Qobuz copy is known to be
+    /// stale/bloated (e.g. residue from the pre-fix `deletePlaylistTracks`, which
+    /// could leave a playlist not fully cleared before adding the next refresh on
+    /// top). Never set this from a routine/automatic sync path.
     public func syncPlaylist(
         name: String,
         description: String,
         tracks: [(title: String, artist: String?, album: String?)],
         email: String,
         password: String,
-        knownPlaylistID: String? = nil
+        knownPlaylistID: String? = nil,
+        forceReplace: Bool = false
     ) async -> SaveResult? {
         guard let session = await login(email: email, password: password) else { return nil }
 
@@ -74,6 +80,8 @@ public actor QobuzClient {
         ids = Self.dedupePreservingOrder(ids)
         guard !ids.isEmpty else {
             // Never clear/create an empty playlist — leave whatever exists intact.
+            Log.warning("Qobuz sync '\(name)': 0/\(tracks.count) tracks matched on Qobuz — skipping",
+                         category: .network)
             return nil
         }
 
@@ -95,9 +103,11 @@ public actor QobuzClient {
         //    libraries still update (new ≈ current is not a cliff). Refresh only the
         //    NAME (the stable identity) — NOT the description, which now describes a
         //    tracklist we deliberately didn't install — then bail.
-        if let pid = existingID {
+        if let pid = existingID, !forceReplace {
             let current = await playlistTrackCount(playlistID: pid, session: session)
             if current > 4, ids.count * 2 < current {
+                Log.warning("Qobuz sync '\(name)': catastrophic-shrink guard — \(ids.count) resolved from \(tracks.count) candidates vs \(current) existing, keeping existing tracks",
+                             category: .network)
                 await updatePlaylist(playlistID: pid, name: name, description: nil, session: session)
                 return nil
             }
@@ -111,16 +121,31 @@ public actor QobuzClient {
         } else if let created = await createPlaylist(name: name, description: description, session: session) {
             playlistID = created
         } else {
+            Log.warning("Qobuz sync '\(name)': playlist/create failed on Qobuz", category: .network)
             return nil
         }
 
-        // 5. Replace contents. Qobuz `deleteTracks` takes positional IDs and may
-        //    shift positions per pass, so loop until empty (bounded), then add the
-        //    fresh set in our flow-sequenced order.
-        for _ in 0..<4 {
-            let count = await playlistTrackCount(playlistID: playlistID, session: session)
-            if count == 0 { break }
-            await deletePlaylistTracks(playlistID: playlistID, count: count, session: session)
+        // 5. Replace contents. `deleteTracks` requires each track's opaque
+        //    `playlist_track_id` (assigned per slot when added) — NOT a raw
+        //    0-based position. An earlier version of this code sent synthetic
+        //    positions instead, which Qobuz silently rejected: every "replace"
+        //    quietly failed to clear anything, so the next sync's `addTracks`
+        //    piled on top — the actual cause of playlists bloating unbounded
+        //    over time. Loop (re-fetching real ids each pass) until confirmed
+        //    empty; bail WITHOUT adding if we still can't after a few tries, so
+        //    we never compound the residue further.
+        var clearPasses = 0
+        while clearPasses < 5 {
+            let ptIDs = await playlistTrackIDs(playlistID: playlistID, session: session)
+            if ptIDs.isEmpty { break }
+            await deletePlaylistTracks(playlistID: playlistID, playlistTrackIDs: ptIDs, session: session)
+            clearPasses += 1
+        }
+        let remaining = await playlistTrackIDs(playlistID: playlistID, session: session)
+        guard remaining.isEmpty else {
+            Log.warning("Qobuz sync '\(name)': could not fully clear existing tracks (\(remaining.count) left after \(clearPasses) passes) — aborting to avoid piling on top",
+                         category: .network)
+            return nil
         }
         await addTracks(playlistID: playlistID, trackIDs: ids, session: session)
         return SaveResult(matched: ids.count, total: tracks.count, playlistID: playlistID)
@@ -208,21 +233,32 @@ public actor QobuzClient {
 
     private func login(email: String, password: String) async -> Session? {
         let pwMd5 = Insecure.MD5.hash(data: Data(password.utf8)).map { String(format: "%02x", $0) }.joined()
+        var lastFailure: String?
         for appId in knownAppIds {
             for pw in [password, pwMd5] {
-                if let s = await tryLogin(email: email, password: pw, appId: appId) { return s }
+                switch await tryLogin(email: email, password: pw, appId: appId) {
+                case .success(let s): return s
+                case .failure(let reason): lastFailure = reason
+                }
             }
         }
+        // Every (app_id, password-form) combination failed — surface why the LAST
+        // one failed so a stale password / dead app_id / Qobuz-side outage is
+        // distinguishable from downstream track-matching failures in the log.
+        Log.warning("Qobuz login failed for all \(knownAppIds.count) known app_ids: \(lastFailure ?? "unknown reason")",
+                     category: .network)
         return nil
     }
 
-    private func tryLogin(email: String, password: String, appId: String) async -> Session? {
+    private enum LoginAttempt { case success(Session), failure(String) }
+
+    private func tryLogin(email: String, password: String, appId: String) async -> LoginAttempt {
         // app_id is not a secret and stays in the query; the credentials go in
         // the POST body so the email/password never land in a URL query string
         // (which leaks into server access logs and any TLS-terminating proxy).
         var comps = URLComponents(string: "\(base)/user/login")!
         comps.queryItems = [.init(name: "app_id", value: appId)]
-        guard let url = comps.url else { return nil }
+        guard let url = comps.url else { return .failure("could not build login URL") }
         var bodyComps = URLComponents()
         bodyComps.queryItems = [
             .init(name: "email", value: email),
@@ -233,12 +269,20 @@ public actor QobuzClient {
         req.setValue(ua, forHTTPHeaderField: "User-Agent")
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         req.httpBody = bodyComps.percentEncodedQuery.map { Data($0.utf8) }
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let token = json["user_auth_token"] as? String, !token.isEmpty else { return nil }
+        guard let (data, resp) = try? await URLSession.shared.data(for: req) else {
+            return .failure("request failed (network error)")
+        }
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 200 else {
+            let body = String(data: data, encoding: .utf8)?.prefix(200) ?? ""
+            return .failure("app_id \(appId): HTTP \(status) — \(body)")
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = json["user_auth_token"] as? String, !token.isEmpty else {
+            return .failure("app_id \(appId): HTTP 200 but no user_auth_token in response")
+        }
         loginDisplay = (json["user"] as? [String: Any])?["display_name"] as? String
-        return Session(appId: appId, token: token)
+        return .success(Session(appId: appId, token: token))
     }
 
     // MARK: - API
@@ -577,17 +621,58 @@ public actor QobuzClient {
         return 0
     }
 
-    /// Clear `count` tracks. Qobuz `deleteTracks` takes positional IDs within the
-    /// playlist (0-based slots), NOT catalog track IDs — pass every slot to empty
-    /// it. The caller loops in case positions shift between passes.
-    private func deletePlaylistTracks(playlistID: String, count: Int, session: Session) async {
-        guard count > 0, let url = URL(string: "\(base)/playlist/deleteTracks") else { return }
-        let positions = (0..<count).map(String.init).joined(separator: ",")
-        var req = authedRequest(url, session: session)
-        req.httpMethod = "POST"
-        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.httpBody = form(["playlist_id": playlistID, "playlist_track_ids": positions])
-        _ = try? await URLSession.shared.data(for: req)
+    /// Every track's opaque `playlist_track_id` — the id Qobuz assigns a track
+    /// when it's added to a specific playlist slot. This is what `deleteTracks`
+    /// actually requires (confirmed against the legacy Python client, which
+    /// reads `t["playlist_track_id"]` from this same `tracks.items` payload) —
+    /// NOT a raw 0-based position, which is what an earlier version of this
+    /// method sent and which Qobuz silently rejected. Paginated since a large
+    /// playlist's `items` page is capped.
+    private func playlistTrackIDs(playlistID: String, session: Session) async -> [String] {
+        var ids: [String] = []
+        var offset = 0
+        let pageSize = 500
+        while true {
+            var comps = URLComponents(string: "\(base)/playlist/get")!
+            comps.queryItems = [
+                .init(name: "playlist_id", value: playlistID),
+                .init(name: "extra", value: "tracks"),
+                .init(name: "limit", value: String(pageSize)),
+                .init(name: "offset", value: String(offset)),
+            ]
+            guard let url = comps.url,
+                  let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tracks = json["tracks"] as? [String: Any],
+                  let items = tracks["items"] as? [[String: Any]], !items.isEmpty else { break }
+            for item in items {
+                if let pt = item["playlist_track_id"] as? Int { ids.append(String(pt)) }
+                else if let pt = item["playlist_track_id"] as? String { ids.append(pt) }
+            }
+            if items.count < pageSize { break }
+            offset += pageSize
+        }
+        return ids
+    }
+
+    /// Max playlist_track_ids per `deleteTracks` call — keeps each request small
+    /// and reliable rather than naming every slot of a large playlist at once.
+    private let deleteBatchSize = 100
+
+    /// Clear the given `playlist_track_id`s, in batches.
+    private func deletePlaylistTracks(playlistID: String, playlistTrackIDs ids: [String], session: Session) async {
+        guard !ids.isEmpty, let url = URL(string: "\(base)/playlist/deleteTracks") else { return }
+        var start = 0
+        while start < ids.count {
+            let end = min(start + deleteBatchSize, ids.count)
+            let batch = ids[start..<end].joined(separator: ",")
+            var req = authedRequest(url, session: session)
+            req.httpMethod = "POST"
+            req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            req.httpBody = form(["playlist_id": playlistID, "playlist_track_ids": batch])
+            _ = try? await URLSession.shared.data(for: req)
+            start = end
+        }
     }
 
     private func addTracks(playlistID: String, trackIDs: [Int], session: Session) async {
@@ -612,5 +697,191 @@ public actor QobuzClient {
         }
         let body: String = pairs.joined(separator: "&")
         return Data(body.utf8)
+    }
+}
+
+// MARK: - Album resolution (discovery engine)
+//
+// The discovery pipeline resolves each recommended album to a Qobuz album so it's
+// playable/saveable (RoonSage's library-first constitution — it can't download).
+// Qobuz album search doubles as the recency signal (`released_at`) and cover art.
+// Same-file extension so it can reuse the private track-matching primitives
+// (`titleForms`/`artistForm`/`versionPenalty`) and playlist helpers.
+extension QobuzClient {
+
+    /// A resolved, playable Qobuz album.
+    public struct ResolvedAlbum: Sendable {
+        public let id: String
+        public let title: String
+        public let artist: String
+        public let coverURL: URL?
+        public let releaseDate: String?   // "YYYY-MM-DD" when known
+    }
+
+    /// Resolve a batch of (artist, album) wants to Qobuz albums, logging in ONCE.
+    /// Keyed by the caller's `key` (the recommendation dedup key). Only albums that
+    /// pass the match gate are returned; the rest stay unresolved (stored but not
+    /// actionable in the feed).
+    public func resolveAlbums(
+        _ wants: [(key: String, artist: String, album: String)],
+        email: String, password: String
+    ) async -> [String: ResolvedAlbum] {
+        guard !wants.isEmpty, let session = await login(email: email, password: password) else { return [:] }
+        var out: [String: ResolvedAlbum] = [:]
+        for w in wants {
+            if let r = await resolveAlbum(wantArtist: w.artist, wantAlbum: w.album, session: session) {
+                out[w.key] = r
+            }
+        }
+        return out
+    }
+
+    /// Append a whole Qobuz album's tracks to a find-or-create playlist (the
+    /// "Ontdekkingen" accept action). Additive — never replaces existing contents,
+    /// so accepting a second album doesn't wipe the first. Returns false on failure.
+    @discardableResult
+    public func appendAlbumToPlaylist(
+        name: String, description: String, albumID: String,
+        email: String, password: String
+    ) async -> Bool {
+        guard let session = await login(email: email, password: password) else { return false }
+        let ids = Self.dedupePreservingOrder(await albumTrackIDs(albumID: albumID, session: session))
+        guard !ids.isEmpty else { return false }
+        let plID: String
+        if let existing = await findPlaylist(named: name, session: session) {
+            plID = existing
+        } else if let created = await createPlaylist(name: name, description: description, session: session) {
+            plID = created
+        } else {
+            return false
+        }
+        await addTracks(playlistID: plID, trackIDs: ids, session: session)
+        return true
+    }
+
+    /// (title, performer) pairs for a Qobuz album — used to build synthetic
+    /// `qobuz_search::` play keys so an accepted album can be played/queued in Roon.
+    public func albumTrackTitles(albumID: String, email: String, password: String) async -> [(title: String, artist: String?)] {
+        guard let session = await login(email: email, password: password) else { return [] }
+        var comps = URLComponents(string: "https://www.qobuz.com/api.json/0.2/album/get")!
+        comps.queryItems = [.init(name: "album_id", value: albumID), .init(name: "extra", value: "tracks")]
+        guard let url = comps.url,
+              let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = (json["tracks"] as? [String: Any])?["items"] as? [[String: Any]] else { return [] }
+        let albumArtist = (json["artist"] as? [String: Any])?["name"] as? String
+        return items.compactMap { it in
+            guard let t = it["title"] as? String, !t.isEmpty else { return nil }
+            let performer = (it["performer"] as? [String: Any])?["name"] as? String ?? albumArtist
+            return (title: t, artist: performer)
+        }
+    }
+
+    // MARK: Private
+
+    private func resolveAlbum(wantArtist: String?, wantAlbum: String, session: Session) async -> ResolvedAlbum? {
+        let query = [wantArtist, wantAlbum].compactMap { $0 }.joined(separator: " ")
+        guard let items = await searchAlbums(query: query, session: session) else { return nil }
+        var best: (album: ResolvedAlbum, score: Int)?
+        for item in items {
+            let title = item["title"] as? String ?? ""
+            let artist = (item["artist"] as? [String: Any])?["name"] as? String
+                ?? (item["performer"] as? [String: Any])?["name"] as? String
+            let m = Self.scoreAlbumCandidate(qobuzTitle: title, qobuzArtist: artist,
+                                             wantAlbum: wantAlbum, wantArtist: wantArtist)
+            guard m.accept, let id = Self.albumID(item) else { continue }
+            if best == nil || m.score > best!.score {
+                best = (ResolvedAlbum(id: id, title: title, artist: artist ?? wantArtist ?? "",
+                                      coverURL: Self.albumCover(item),
+                                      releaseDate: Self.albumReleaseDate(item)), m.score)
+            }
+        }
+        return best?.album
+    }
+
+    private func searchAlbums(query: String, session: Session) async -> [[String: Any]]? {
+        var comps = URLComponents(string: "https://www.qobuz.com/api.json/0.2/album/search")!
+        comps.queryItems = [.init(name: "query", value: query), .init(name: "limit", value: "10")]
+        guard let url = comps.url,
+              let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = (json["albums"] as? [String: Any])?["items"] as? [[String: Any]],
+              !items.isEmpty else { return nil }
+        return items
+    }
+
+    /// Track ids of a Qobuz album (for the playlist-append accept action).
+    private func albumTrackIDs(albumID: String, session: Session) async -> [Int] {
+        var comps = URLComponents(string: "https://www.qobuz.com/api.json/0.2/album/get")!
+        comps.queryItems = [.init(name: "album_id", value: albumID), .init(name: "extra", value: "tracks")]
+        guard let url = comps.url,
+              let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = (json["tracks"] as? [String: Any])?["items"] as? [[String: Any]] else { return [] }
+        return items.compactMap { Self.itemID($0) }
+    }
+
+    private static func albumID(_ item: [String: Any]) -> String? {
+        if let id = item["id"] as? String, !id.isEmpty { return id }
+        if let id = item["id"] as? Int { return String(id) }
+        return nil
+    }
+
+    private static func albumCover(_ item: [String: Any]) -> URL? {
+        if let img = item["image"] as? [String: Any] {
+            for k in ["large", "small", "thumbnail"] {
+                if let s = img[k] as? String, let u = URL(string: s) { return u }
+            }
+        }
+        if let s = item["image"] as? String, let u = URL(string: s) { return u }
+        return nil
+    }
+
+    private static func albumReleaseDate(_ item: [String: Any]) -> String? {
+        // Prefer the ISO "YYYY-MM-DD" original date; fall back to a unix `released_at`.
+        for k in ["release_date_original", "release_date_stream", "release_date_download"] {
+            if let s = item[k] as? String, !s.isEmpty { return s }
+        }
+        if let ts = item["released_at"] as? Int {
+            let d = Date(timeIntervalSince1970: TimeInterval(ts))
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = TimeZone(identifier: "UTC")
+            return f.string(from: d)
+        }
+        return nil
+    }
+
+    /// Pure album match gate — reuses the track scorer's primitives. Requires the
+    /// artist to be confirmed and the album title to match (exact or substantial
+    /// substring), with no different-recording version penalty. Returns whether to
+    /// accept and a rank score to pick the best among candidates.
+    nonisolated static func scoreAlbumCandidate(
+        qobuzTitle: String, qobuzArtist: String?, wantAlbum: String, wantArtist: String?
+    ) -> (accept: Bool, score: Int) {
+        let want = titleForms(wantAlbum)
+        let cand = titleForms(qobuzTitle)
+        var titleScore = 0
+        if !cand.full.isEmpty, cand.full == want.full || cand.clean == want.clean {
+            titleScore = 4
+        } else if !want.clean.isEmpty, !cand.clean.isEmpty,
+                  min(want.clean.count, cand.clean.count) >= minSubstringText,
+                  cand.clean.contains(want.clean) || want.clean.contains(cand.clean) {
+            titleScore = 1
+        }
+
+        var artistConfirmed = false, artistExact = false
+        let wantA = artistForm(wantArtist), candA = artistForm(qobuzArtist)
+        if !wantA.isEmpty, !candA.isEmpty {
+            if candA == wantA { artistConfirmed = true; artistExact = true }
+            else if min(candA.count, wantA.count) >= minSubstringArtist,
+                    candA.contains(wantA) || wantA.contains(candA) { artistConfirmed = true }
+        }
+
+        // Penalise a different-recording marker in the album title (live/karaoke/…)
+        // unless we asked for it.
+        let penalty = versionPenalty(candidateTitle: qobuzTitle, wantTitle: wantAlbum)
+        // Accept only a confirmed-artist, title-matching, unpenalised candidate.
+        let accept = titleScore >= 1 && artistConfirmed && penalty == 0
+        let score = titleScore * 10 + (artistExact ? 3 : 0)
+        return (accept, score)
     }
 }

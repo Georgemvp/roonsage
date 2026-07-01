@@ -19,6 +19,10 @@ import Network
 ///   DELETE /playlists?id=n → delete a saved playlist
 ///   GET  /playlist-tracks?id=n → [TrackRecord] (stored tracks of a playlist)
 ///   GET  /artist-radios → [SonicRadioPlaylist] (last synced AI radios → Qobuz)
+///   GET  /discovery/recommendations?kind=&limit= → [RecommendationItemDTO]
+///   POST /discovery/accept | /discovery/play | /discovery/reject → DiscoveryActionRequest
+///   POST /discovery/run    → kick a pipeline pass ({"ok":true})
+///   GET  /discovery/run-status → DiscoveryRunStatus
 ///   GET  /health   → {"tracks": n}
 public final class LibraryShareServer: @unchecked Sendable {
     public static let defaultPort: UInt16 = 5767   // 5766 is the analyzer
@@ -303,6 +307,27 @@ public final class LibraryShareServer: @unchecked Sendable {
             let category = RoonClient.RadioCategory(rawValue: raw) ?? .artist
             let data = await RoonClient.shared.artistRadiosData(category: category)
             return ("200 OK", data, "application/json")
+        }
+        // Discovery engine (see RoonClient+Discovery). accept/play/reject run the
+        // side-effects against the server's live Roon+Qobuz session; run kicks a
+        // detached pipeline pass; recommendations/run-status serve the feed.
+        if method == "POST",
+           path.hasPrefix("/discovery/accept") || path.hasPrefix("/discovery/play") || path.hasPrefix("/discovery/reject") {
+            let ok = await RoonClient.shared.handleDiscoveryAction(path, body: body)
+            return ok ? ("200 OK", Data("{\"ok\":true}".utf8), "application/json")
+                      : ("400 Bad Request", Data("bad discovery action".utf8), "text/plain")
+        }
+        if method == "POST", path.hasPrefix("/discovery/run") {
+            await RoonClient.shared.runDiscoveryNow()
+            return ("200 OK", Data("{\"ok\":true}".utf8), "application/json")
+        }
+        if path.hasPrefix("/discovery/run-status") {
+            return ("200 OK", await RoonClient.shared.discoveryRunStatusData(), "application/json")
+        }
+        if path.hasPrefix("/discovery/recommendations") {
+            let kind = RecommendationKind(rawValue: Self.queryValue("kind", in: target) ?? "all")  // nil = all
+            let limit = Int(Self.queryValue("limit", in: target) ?? "") ?? 60
+            return ("200 OK", await RoonClient.shared.discoveryRecommendationsData(kind: kind, limit: limit), "application/json")
         }
         if path.hasPrefix("/health") {
             let n = (try? await database.trackCount()) ?? 0

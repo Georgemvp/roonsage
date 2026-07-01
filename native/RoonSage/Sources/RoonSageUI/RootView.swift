@@ -147,7 +147,8 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case songPaths   = "Song Paths"
     case alchemy     = "Song Alchemy"
     case sonicSearch = "Sonic Search"
-    case discovery   = "Discovery"
+    case discover    = "Discoveries"   // outward-facing recommendation engine ("Ontdekkingen")
+    case discovery   = "Discovery"     // inward editorial "Listen Now" (library stats)
     case taste        = "Taste Profile"
     case yearInReview = "Year in Review"
     case settings    = "Settings"
@@ -173,6 +174,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .songPaths:   "Song Paths"
         case .alchemy:     "Song Alchemy"
         case .sonicSearch: "Sonisch zoeken"
+        case .discover:    "Ontdekkingen"
         case .discovery:   "Ontdek"
         case .taste:       "Smaakprofiel"
         case .yearInReview: "Jaaroverzicht"
@@ -197,6 +199,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .songPaths:   "point.topleft.down.curvedto.point.bottomright.up"
         case .alchemy:     "wand.and.sparkles"
         case .sonicSearch: "sparkle.magnifyingglass"
+        case .discover:    "wand.and.stars.inverse"
         case .discovery:   "sparkles"
         case .taste:       "chart.radar"
         case .yearInReview: "calendar.badge.clock"
@@ -248,7 +251,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         switch self {
         case .playback: [.nowPlaying, .queue, .library]
         case .create:   [.ask, .generate, .recommend, .playlists, .djSet, .liveDJ]
-        case .explore:  [.discovery, .radios, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
+        case .explore:  [.discover, .discovery, .radios, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
         case .settings: [.settings]
         }
     }
@@ -391,7 +394,7 @@ struct RootView: View {
 
     private var iOSTabSelection: Binding<SidebarItem> {
         let createItems: Set<SidebarItem> = [.generate, .ask, .recommend, .djSet, .liveDJ, .queue, .playlists]
-        let exploreItems: Set<SidebarItem> = [.discovery, .radios, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
+        let exploreItems: Set<SidebarItem> = [.discover, .discovery, .radios, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
         return Binding(
             get: {
                 if createItems.contains(selection) { return .generate }
@@ -441,6 +444,9 @@ struct RootView: View {
     private var iOSExploreHub: some View {
         List {
             Section("Ontdekken") {
+                NavigationLink { DiscoverFeedView().navigationTitle("Ontdekkingen").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Ontdekkingen", systemImage: SidebarItem.discover.icon)
+                }
                 NavigationLink { DiscoveryView().navigationTitle("Ontdek").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Ontdek", systemImage: SidebarItem.discovery.icon)
                 }
@@ -496,6 +502,7 @@ struct RootView: View {
         case .songPaths:   SongPathsView()
         case .alchemy:     SongAlchemyView()
         case .sonicSearch: SonicSearchView()
+        case .discover:    DiscoverFeedView()
         case .discovery:   DiscoveryView()
         case .radios:      SonicRadioView()
         case .taste:       TasteProfileView()

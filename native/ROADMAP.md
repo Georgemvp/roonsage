@@ -123,6 +123,30 @@
 
 ---
 
+## Track F — Discovery Engine ("Ontdekkingen")
+
+**Outcome:** an *outward*-facing recommendation engine — artists/albums you don't
+own yet — adapting [digarr](https://github.com/iuliandita/digarr)'s 7-stage
+pipeline (Collect→Discover→Resolve→Score→Filter→Store) to Roon+Qobuz. Distinct
+from `DiscoveryView`/"Ontdek" (editorial, library-only). Server-of-record only
+(`RoonSageCore/Discovery/`); clients fetch the feed + POST accept/play/reject over
+`LibraryShareServer` (5767). Full plan + scoring formula in the session that shipped it.
+
+- [x] **F1. Pipeline skeleton + storage.** Migrations v23–v25 (`recommendation_batches`/`_items`, `artist_watchlist`, `discovery_rejections` — additive, no forced resync). Pure stages: `DiscoveryScoring` (digarr's weighted composite: 0.30 consensus/0.25 similarity/0.20 genre/0.15 AI/0.10 feedback + ±0.15 album modifier), `DiscoveryFilter` (in-library/listened/blocked/cooldown/threshold), `DiscoveryPipeline` (merge→resolve→score→filter). New `MusicBrainzDiscoveryClient` (RoonSageCore-local; `AnalyzerCore`'s MB client is genre-only and unreachable from here) — artist resolve + studio release-groups + relationships, reusing the analyzer's rate-limit reservation pattern. `QobuzClient` gained album resolution (`resolveAlbums`/`scoreAlbumCandidate`/`appendAlbumToPlaylist`) — Qobuz is the primary "is-it-playable" resolver (search gives free cover art + release date); MB handles dedup/relationships/gap-fill. 30 unit tests.
+- [x] **F2. Producers (buildable now — no new accounts needed).** `SimilarArtistWebProducer` (Last.fm `artist.getsimilar`), `ChartsProducer` (`chart.gettopartists`), `ReleaseRadarProducer` (watchlist → MB studio release-groups newer than a per-artist `last_seen_rg` watermark — pure `newReleasesSinceSeen`, tested), `GapFillProducer` (top-played artists' missing studio albums, `gapPriority=1.0`), `ArtistRelationshipsProducer` (MB collaboration graph, `member of band`/`collaboration` only), `ListenBrainzRadioProducer` (LB's own similarity graph via `/1/lb-radio/artist/{mbid}` + `/1/user/{u}/similar-users` — a second, independent discovery angle from Last.fm). 6 tests.
+  - **Scoped out (not a bug — a real follow-up):** LB **Tag Radio** (`/1/lb-radio/tags`) returns recordings, not artists — needs a per-recording MB `lookupRecording` resolve (a second rate-limited pass); revisit once F1's MB budget has headroom.
+- [x] **F3. Accept/reject actions.** Accept = save album to the stable Qobuz "Ontdekkingen" playlist (additive `appendAlbumToPlaylist`, never replaces) + follow the artist (watchlist, feeds F2's release-radar). Play = separate action (queue/play now via the existing `qobuz_search::` synthetic-key path — no new command wiring). Reject = persistent block/cooldown (`discovery_rejections`, 60-day default).
+- [x] **F4. UI.** New `SidebarItem.discover` ("Ontdekkingen", `wand.and.stars.inverse`) — deliberately separate from the existing `.discovery`/"Ontdek". `DiscoverFeedView`: cards (art/score-chip/source-badges/explanation/Accept·Play·Reject), kind filter, empty/loading states, "Ververs" → `/discovery/run`.
+- [x] **F5. AI producer + explanation cards.** `AIPicksProducer`: LLM-proposed artists/albums from the taste profile (top/liked/disliked artists), `aiConfidence`-scored; still MB-validated in Resolve like every other producer, so a hallucinated name just drops rather than becoming a wrong recommendation. `DiscoveryExplanations`: one BATCHED LLM call per run writes a short Dutch "waarom past dit" per item, cached by `explanation_sig` (artist+album+sources+genres, FNV-1a via the existing `RoonClient.seed64`) keyed on the persistent `dedup_key` — a recommendation that keeps reappearing across daily runs is explained once, not regenerated every day. LLM down/unreachable → templated Dutch fallback, never blocks the batch. Reuses `LLMClient`/`LLMConfigStore` — no new provider code. 16 tests.
+- [x] **F6. Scheduler.** Daily auto-run wired (`startDiscoveryRefresh`, `.direct`-gated, from `RoonSageAnalyzerApp`). Skip-if-unchanged guard (`DiscoveryPipeline.tasteSignature` + `shouldSkipRun`, pure/tested): a stable, order-independent hash over top/liked/disliked artists + watchlist is compared to the last stored batch's `taste_sig`; if unchanged AND that batch is still fresh, the whole MB/LLM-costed pipeline is skipped and the existing batch id is returned. One guard serves both gaps — scheduled runs get a 6h grace (so charts/new-releases still drift-refresh even with static taste) and manual "Ververs" gets 30 min (mainly guards against impatient repeat taps); a genuine taste change always forces a full run regardless of recency. 10 tests.
+- [ ] **F7. Gated producers** (each needs a NEW client + the user's own account — ship one at a time): Discogs **Labels**, Deezer **Flow**, Spotify **Saved Albums** (OAuth — biggest lift, sequence last).
+
+**Acceptance:** `curl localhost:5767/discovery/run` then `/discovery/recommendations` returns MB-validated, Qobuz-resolved albums from ≥4 independent producers; accept lands one in "Ontdekkingen" + the artist on the watchlist; reject survives a re-run (cooldown honoured).
+
+**Relation to D2/D5 above:** F1–F4 give the native app its first artist-watchlist / "new releases from artists you follow" primitive (`artist_watchlist`, Release-Radar) — the sliver of **D5** that's release-driven. D5's *scheduler/automations* (cron playlist regen, trigger-action workflows) remain unported. **D2** ("Sonic Radio++, learns from skips/likes") is a different, in-library radio concept — untouched by Track F.
+
+---
+
 ## Recommended sequencing
 
 ```

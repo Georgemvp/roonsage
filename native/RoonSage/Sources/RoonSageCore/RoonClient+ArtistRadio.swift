@@ -776,7 +776,7 @@ extension RoonClient {
     /// ids before syncing — used by the per-radio selection so artist radios (which
     /// ignore `restrictKeys`) can also be filtered down to the chosen ones.
     @discardableResult
-    public func syncRadiosToQobuz(category: RadioCategory, restrictKeys: [String]? = nil, restrictIDs: Set<String>? = nil, reconcile: Bool = true) async -> Int {
+    public func syncRadiosToQobuz(category: RadioCategory, restrictKeys: [String]? = nil, restrictIDs: Set<String>? = nil, reconcile: Bool = true, forceReplace: Bool = false) async -> Int {
         guard let email = KeychainStore.load(key: "qobuz_email"), !email.isEmpty,
               let pw = KeychainStore.load(key: "qobuz_password"), !pw.isEmpty else {
             reportError("Qobuz is niet ingesteld — vul je inloggegevens in bij Instellingen.")
@@ -799,7 +799,7 @@ extension RoonClient {
             let knownID = UserDefaults.standard.string(forKey: Self.qobuzIDKey(pl.id))
             if let result = await QobuzClient.shared.syncPlaylist(
                 name: name, description: pl.description, tracks: pairs, email: email, password: pw,
-                knownPlaylistID: knownID) {
+                knownPlaylistID: knownID, forceReplace: forceReplace) {
                 UserDefaults.standard.set(result.playlistID, forKey: Self.qobuzIDKey(pl.id))
                 synced += 1
                 Log.info("AI radio (\(category.rawValue)) gesynct naar Qobuz: '\(name)' (\(result.matched)/\(result.total) tracks)",

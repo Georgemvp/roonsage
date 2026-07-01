@@ -38,7 +38,9 @@ extension RoonClient {
 
     /// Pull the user's Last.fm top tracks per period and reconcile them into the
     /// playlist library. Idempotent: re-running replaces the derived set.
-    func runLastfmPlaylistSync() async {
+    /// `forceReplace` bypasses the Qobuz shrink guard for a deliberate one-time
+    /// correction — never pass true from the routine daily path.
+    func runLastfmPlaylistSync(forceReplace: Bool = false) async {
         guard lastfmPlaylistSyncEnabled else { return }
         guard let db = database else { return }
         guard lastfmConfigured else {
@@ -84,7 +86,7 @@ extension RoonClient {
         }
 
         if lastfmQobuzSyncEnabled {
-            let n = await mirrorExternalPlaylistsToQobuz(imported, namePrefix: Self.lastfmQobuzNamePrefix)
+            let n = await mirrorExternalPlaylistsToQobuz(imported, namePrefix: Self.lastfmQobuzNamePrefix, forceReplace: forceReplace)
             lastfmPlaylistSyncStatus += n < 0 ? " (Qobuz niet ingesteld.)" : " \(n) naar Qobuz."
         }
     }

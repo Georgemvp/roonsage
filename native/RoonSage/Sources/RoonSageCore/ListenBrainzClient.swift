@@ -95,6 +95,74 @@ public actor ListenBrainzClient {
         }
     }
 
+    // MARK: - Radio / discovery (discovery engine)
+
+    public enum RadioMode: String, Sendable { case easy, medium, hard }
+
+    /// A similar artist surfaced by LB Radio, position-decay scored (first ≈ 0.97,
+    /// floors at 0.3 by position 24 — LB's radio endpoint gives no numeric score).
+    public struct RadioArtist: Sendable { public let name: String; public let mbid: String; public let score: Double }
+
+    /// `GET /1/lb-radio/artist/{mbid}` — ListenBrainz's own similar-artist radio,
+    /// independent of Last.fm's graph. Response is keyed by (arbitrary) recording
+    /// group; every value is a list of recordings from ONE similar artist, so we
+    /// flatten + dedupe by that artist's mbid, excluding the seed itself.
+    public func artistRadio(mbid: String, mode: RadioMode = .medium, token: String) async -> [RadioArtist] {
+        guard !mbid.isEmpty else { return [] }
+        let path = "/1/lb-radio/artist/\(mbid)?mode=\(mode.rawValue)&max_similar_artists=25&max_recordings_per_artist=2&pop_begin=0&pop_end=100"
+        guard let data = await get(path, token: token),
+              let res = try? JSONDecoder().decode([String: [RadioRecording]].self, from: data) else { return [] }
+        var seen = Set<String>()
+        var out: [RadioArtist] = []
+        var position = 0
+        for recordings in res.values {
+            for r in recordings {
+                guard r.similar_artist_mbid != mbid, seen.insert(r.similar_artist_mbid).inserted else { continue }
+                position += 1
+                out.append(RadioArtist(name: r.similar_artist_name, mbid: r.similar_artist_mbid,
+                                       score: max(0.3, 1 - Double(position) * 0.03)))
+            }
+        }
+        return out
+    }
+
+    private struct RadioRecording: Decodable {
+        let similar_artist_mbid: String
+        let similar_artist_name: String
+    }
+
+    public struct SimilarUser: Sendable { public let username: String; public let similarity: Double }
+
+    /// `GET /1/user/{username}/similar-users` — the LB social graph: users whose
+    /// listening overlaps yours, most similar first.
+    public func similarUsers(username: String, token: String) async -> [SimilarUser] {
+        let user = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? username
+        guard let data = await get("/1/user/\(user)/similar-users", token: token) else { return [] }
+        struct Response: Decodable { struct U: Decodable { let user_name: String; let similarity: Double }; let payload: [U]? }
+        guard let r = try? JSONDecoder().decode(Response.self, from: data) else { return [] }
+        return (r.payload ?? []).map { SimilarUser(username: $0.user_name, similarity: $0.similarity) }
+            .sorted { $0.similarity > $1.similarity }
+    }
+
+    public struct LBTopArtist: Sendable { public let name: String; public let mbid: String?; public let playCount: Int }
+
+    /// `GET /1/stats/user/{username}/artists?range=` — any user's top artists (used
+    /// both to seed User Radio and to read a similar user's taste). 404/empty when
+    /// LB hasn't computed stats for that user yet.
+    public func topArtists(username: String, range: String = "month", token: String) async -> [LBTopArtist] {
+        let user = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? username
+        guard let data = await get("/1/stats/user/\(user)/artists?range=\(range)", token: token) else { return [] }
+        struct Response: Decodable {
+            struct A: Decodable { let artist_name: String; let artist_mbid: String?; let listen_count: Int }
+            struct Payload: Decodable { let artists: [A]? }
+            let payload: Payload?
+        }
+        guard let r = try? JSONDecoder().decode(Response.self, from: data) else { return [] }
+        return (r.payload?.artists ?? []).map {
+            LBTopArtist(name: $0.artist_name, mbid: ($0.artist_mbid?.isEmpty == false) ? $0.artist_mbid : nil, playCount: $0.listen_count)
+        }
+    }
+
     // MARK: - Internal
 
     private func fetchPlaylistList(_ path: String, token: String) async -> [PlaylistRef] {

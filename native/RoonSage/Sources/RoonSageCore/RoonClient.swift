@@ -118,6 +118,13 @@ public final class RoonClient {
     /// (see RoonClient+ArtistRadio). A stored property here because extensions
     /// can't add stored state.
     var artistRadioRefreshTask: Task<Void, Never>?
+    /// Periodic discovery-engine run on the always-on server build (see
+    /// RoonClient+Discovery). Declared unconditionally (extensions can't add stored
+    /// state) but only assigned on the `.direct` server path.
+    var discoveryRefreshTask: Task<Void, Never>?
+    /// Guards against overlapping pipeline runs (a manual /discovery/run while the
+    /// scheduled one is mid-flight).
+    var discoveryRunning = false
     /// The last successfully synced set of AI radios, keyed by `RadioCategory`
     /// rawValue. Served to client apps via /artist-radios?category=… so iOS/macOS
     /// always show the same playlists as Qobuz.
@@ -306,6 +313,31 @@ public final class RoonClient {
         // Resume the daily Last.fm top-tracks playlist import if enabled.
         if lastfmPlaylistSyncEnabled {
             startLastfmPlaylistSync()
+        }
+        // One-time forced Qobuz resync: set via `defaults write <bundle-id>
+        // qobuz_force_resync_once -bool YES` before a restart. Corrects playlists
+        // whose Qobuz copy bloated from the (now-fixed) incomplete-clear bug in
+        // QobuzClient.deletePlaylistTracks by bypassing the shrink guard exactly
+        // once. Self-clears immediately so a later ordinary restart never re-runs
+        // it automatically.
+        if UserDefaults.standard.bool(forKey: "qobuz_force_resync_once") {
+            UserDefaults.standard.set(false, forKey: "qobuz_force_resync_once")
+            Task { [weak self] in
+                // Long delay so this never overlaps the routine startup syncs
+                // (LB/Last.fm ~15-20s, AI radios ~20s) — running concurrently with
+                // them caused a ListenBrainz API race that silently emptied one
+                // of the two fetches (its "transient outage, keep existing" guard
+                // fired instead of erroring), skipping the forced Qobuz mirror.
+                try? await Task.sleep(nanoseconds: 150_000_000_000)
+                guard let self else { return }
+                Log.notice("Eenmalige geforceerde Qobuz-resync gestart (bloat-fix)", category: .network)
+                if self.lbQobuzSyncEnabled { await self.runListenBrainzPlaylistSync(forceReplace: true) }
+                if self.lastfmQobuzSyncEnabled { await self.runLastfmPlaylistSync(forceReplace: true) }
+                for cat in RadioCategory.allCases {
+                    await self.syncRadiosToQobuz(category: cat, forceReplace: true)
+                }
+                Log.notice("Eenmalige geforceerde Qobuz-resync klaar", category: .network)
+            }
         }
         #endif
     }

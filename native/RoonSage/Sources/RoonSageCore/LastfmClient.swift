@@ -250,4 +250,54 @@ public actor LastfmClient {
         let imageURL = (urlStr?.isEmpty == false) ? URL(string: urlStr!) : nil
         return TopItem(name: name, artist: artist, playcount: playcount, imageURL: imageURL)
     }
+
+    // MARK: - Similar artists / charts (discovery engine)
+
+    /// A neighbour artist. `match` is Last.fm's 0…1 similarity (nil for charts,
+    /// where the producer assigns a rank-based similarity instead).
+    public struct RelatedArtist: Sendable {
+        public let name: String
+        public let mbid: String?
+        public let match: Double?
+    }
+
+    /// `artist.getSimilar` — sonically/statistically similar artists, best first.
+    /// Unsigned GET (only an api_key). Backs the Similar-Artist-Web producer.
+    public func getSimilarArtists(artist: String, apiKey: String, limit: Int = 30) async -> [RelatedArtist] {
+        let params = [
+            "method": "artist.getsimilar", "artist": artist, "api_key": apiKey,
+            "format": "json", "limit": String(limit), "autocorrect": "1",
+        ]
+        guard let json = await get(params),
+              let sim = json["similarartists"] as? [String: Any] else { return [] }
+        let arr = (sim["artist"] as? [[String: Any]]) ?? []
+        return arr.compactMap { d in
+            guard let name = d["name"] as? String, !name.isEmpty else { return nil }
+            let mbid = (d["mbid"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let match = Double(d["match"] as? String ?? "")
+            return RelatedArtist(name: name, mbid: mbid, match: match)
+        }
+    }
+
+    /// `geo.getTopArtists` — trending artists for a country (or global). Unsigned
+    /// GET. Backs the Charts producer. `country` is the Last.fm country NAME
+    /// ("United States"), not an ISO code; empty → global (`chart.getTopArtists`).
+    public func getTopArtistsByCountry(country: String, apiKey: String, limit: Int = 50) async -> [RelatedArtist] {
+        let trimmed = country.trimmingCharacters(in: .whitespaces)
+        var params = ["api_key": apiKey, "format": "json", "limit": String(limit)]
+        let container: String
+        if trimmed.isEmpty || trimmed.lowercased() == "global" {
+            params["method"] = "chart.gettopartists"; container = "artists"
+        } else {
+            params["method"] = "geo.gettopartists"; params["country"] = trimmed; container = "topartists"
+        }
+        guard let json = await get(params),
+              let top = json[container] as? [String: Any],
+              let arr = top["artist"] as? [[String: Any]] else { return [] }
+        return arr.compactMap { d in
+            guard let name = d["name"] as? String, !name.isEmpty else { return nil }
+            let mbid = (d["mbid"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return RelatedArtist(name: name, mbid: mbid, match: nil)
+        }
+    }
 }

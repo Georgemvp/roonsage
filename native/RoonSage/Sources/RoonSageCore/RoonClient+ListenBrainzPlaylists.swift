@@ -33,8 +33,10 @@ extension RoonClient {
 
     /// Pull every ListenBrainz playlist (the user's own + "created for you") and
     /// reconcile them into the playlist library. Idempotent: re-running replaces
-    /// the imported set rather than duplicating it.
-    func runListenBrainzPlaylistSync() async {
+    /// the imported set rather than duplicating it. `forceReplace` bypasses the
+    /// Qobuz shrink guard for a deliberate one-time correction — never pass true
+    /// from the routine daily path.
+    func runListenBrainzPlaylistSync(forceReplace: Bool = false) async {
         guard lbPlaylistSyncEnabled else { return }
         guard let db = database else { return }
         guard let token = KeychainStore.load(key: "listenbrainz_token"), !token.isEmpty else {
@@ -84,7 +86,7 @@ extension RoonClient {
         }
 
         if lbQobuzSyncEnabled {
-            let n = await mirrorExternalPlaylistsToQobuz(imported, namePrefix: Self.lbQobuzNamePrefix)
+            let n = await mirrorExternalPlaylistsToQobuz(imported, namePrefix: Self.lbQobuzNamePrefix, forceReplace: forceReplace)
             lbPlaylistSyncStatus += n < 0 ? " (Qobuz niet ingesteld.)" : " \(n) naar Qobuz."
         }
     }
@@ -94,9 +96,11 @@ extension RoonClient {
     /// exact name and replaces contents, so daily runs update in place rather than
     /// duplicating; orphans (playlists gone upstream) are removed. Returns the
     /// number synced, or -1 when Qobuz isn't configured. Shared by the Last.fm
-    /// playlist sync.
+    /// playlist sync. `forceReplace` bypasses the shrink guard — see
+    /// `QobuzClient.syncPlaylist`; only ever pass true for a deliberate one-time
+    /// correction, never from the routine daily path.
     func mirrorExternalPlaylistsToQobuz(
-        _ playlists: [DatabaseManager.ExternalPlaylist], namePrefix: String
+        _ playlists: [DatabaseManager.ExternalPlaylist], namePrefix: String, forceReplace: Bool = false
     ) async -> Int {
         // Never reconcile to nothing on an empty import (a transient hiccup
         // shouldn't wipe the Qobuz copies).
@@ -116,7 +120,8 @@ extension RoonClient {
                 name: name,
                 description: "Gesynchroniseerd door RoonSage",
                 tracks: tracks,
-                email: email, password: password
+                email: email, password: password,
+                forceReplace: forceReplace
             )
             if result != nil { synced += 1 }
         }

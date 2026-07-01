@@ -39,6 +39,8 @@ struct RoonSageAnalyzerApp: App {
             .task { await lastfmSyncLoop() }
             // The server keeps the AI artist radios fresh on Qobuz (every 3h).
             .task { client.startArtistRadioRefresh() }
+            // The server builds the daily "Ontdekkingen" discovery feed.
+            .task { client.startDiscoveryRefresh() }
             // Pull analyzed features (tags/year/embeddings) into library.db so they
             // reach the library without the manual Settings "Sync features" button.
             .task { client.startServerFeatureSync() }
