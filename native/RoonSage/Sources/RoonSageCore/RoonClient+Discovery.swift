@@ -33,7 +33,7 @@ extension RoonClient {
     public static var discoveryProducers: [DiscoveryProducer] {
         [SimilarArtistWebProducer(), ChartsProducer(), ReleaseRadarProducer(),
          GapFillProducer(), ArtistRelationshipsProducer(), ListenBrainzRadioProducer(), AIPicksProducer(),
-         DiscogsLabelsProducer()]
+         DiscogsLabelsProducer(), QobuzCatalogProducer()]
     }
 
     /// Whether a Discogs personal access token is configured (Settings → Externe
@@ -220,12 +220,36 @@ extension RoonClient {
         await ensureFeedbackLoaded()
 
         // Seeds (taste profile).
-        var topArtists = ((try? await db.topArtistsListened(limit: 60)) ?? []).map { $0.artist }
+        let playCounts = (try? await db.topArtistsListened(limit: 60)) ?? []
+        var topArtists = playCounts.map { $0.artist }
         let hints = await feedbackArtistHints()
         let libraryArtists = (try? await db.libraryArtistSet()) ?? []
         let libraryGenres = (try? await db.libraryGenreSet()) ?? []
         let libraryAlbumKeys = (try? await db.libraryAlbumKeySet()) ?? []
         let watchlist = (try? await db.watchlistArtists()) ?? []
+
+        // F2: re-rank the seed artists by CLAP taste representativeness (the artists
+        // most central to your sonic core, not just your play-count leaders), so every
+        // outward producer expands from your taste rather than raw play counts. Also
+        // carries the taste vector into `DiscoverySeeds` for producers that can use it.
+        // Requires embeddings; falls back to the play-count order when absent.
+        var tasteVector: [Float]?
+        if let index = await activeIndex(db) {
+            let lib = await radioLibrary()
+            tasteVector = await personalTasteVector(lib: lib, index: index)
+            if let tv = tasteVector, !lib.isEmpty {
+                let playByArtist = Dictionary(playCounts.map { ($0.artist.lowercased(), $0.count) },
+                                              uniquingKeysWith: { a, _ in a })
+                let ranked = TasteSeeds.rankArtists(
+                    library: lib, tasteVector: tv, playCountByArtist: playByArtist, limit: 60)
+                if !ranked.isEmpty {
+                    var merged = ranked
+                    let seen = Set(ranked.map { $0.lowercased() })
+                    for a in topArtists where !seen.contains(a.lowercased()) { merged.append(a) }
+                    topArtists = merged
+                }
+            }
+        }
 
         // F12a: replace the top-played seed with artists whose OWNED tracks best
         // fit the requested mood, so every producer traverses from a mood-
@@ -242,7 +266,7 @@ extension RoonClient {
         let seeds = DiscoverySeeds(
             topArtists: topArtists, likedArtists: hints.liked, dislikedArtists: hints.disliked,
             libraryArtists: libraryArtists, libraryGenres: libraryGenres, libraryAlbumKeys: libraryAlbumKeys,
-            watchlist: watchlist, tasteVector: nil)
+            watchlist: watchlist, tasteVector: tasteVector)
 
         guard !topArtists.isEmpty || !hints.liked.isEmpty || !watchlist.isEmpty else {
             Log.info("Ontdekkingen: nog geen luistergeschiedenis/feedback om op te seeden — overgeslagen", category: .roon)
@@ -285,15 +309,17 @@ extension RoonClient {
         // No-op for cloud providers.
         await LLMClient.shared.warmUp(config: llmConfig)
         await DiscogsClient.shared.resetCache()
-        let context = ProducerContext(
-            lastfm: lastfm, listenBrainz: listenBrainz, musicBrainz: MusicBrainzDiscoveryClient.shared,
-            llmConfig: llmConfig, perProducerLimit: 40, mood: mood, discogsToken: discogsToken)
 
         let qobuz: (email: String, password: String)? = {
             guard let e = KeychainStore.load(key: "qobuz_email"), !e.isEmpty,
                   let p = KeychainStore.load(key: "qobuz_password"), !p.isEmpty else { return nil }
             return (e, p)
         }()
+
+        let context = ProducerContext(
+            lastfm: lastfm, listenBrainz: listenBrainz, musicBrainz: MusicBrainzDiscoveryClient.shared,
+            llmConfig: llmConfig, perProducerLimit: 40, mood: mood, discogsToken: discogsToken,
+            qobuz: qobuz.map { QobuzCredentials(email: $0.email, password: $0.password) })
 
         let filterCtx = DiscoveryFilterContext(
             libraryArtists: libraryArtists, libraryAlbumKeys: libraryAlbumKeys,

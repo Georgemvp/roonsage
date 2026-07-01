@@ -93,14 +93,26 @@ public struct ProducerContext: Sendable {
     public var mood: String?
     /// F7: Discogs personal access token — gates `DiscogsLabelsProducer`.
     public var discogsToken: String?
+    /// F2: Qobuz login — gates `QobuzCatalogProducer`, which discovers not-owned
+    /// albums straight from the Qobuz catalogue (no MusicBrainz round-trip).
+    public var qobuz: QobuzCredentials?
 
     public init(lastfm: LastfmCredentials? = nil, listenBrainz: ListenBrainzCredentials? = nil,
                 musicBrainz: MusicBrainzDiscoveryClient, llmConfig: LLMConfig = LLMConfig(),
-                perProducerLimit: Int = 40, mood: String? = nil, discogsToken: String? = nil) {
+                perProducerLimit: Int = 40, mood: String? = nil, discogsToken: String? = nil,
+                qobuz: QobuzCredentials? = nil) {
         self.lastfm = lastfm; self.listenBrainz = listenBrainz; self.musicBrainz = musicBrainz
         self.llmConfig = llmConfig; self.perProducerLimit = perProducerLimit
-        self.mood = mood; self.discogsToken = discogsToken
+        self.mood = mood; self.discogsToken = discogsToken; self.qobuz = qobuz
     }
+}
+
+/// Qobuz login for catalogue discovery (email + password, like the existing
+/// playlist-save path). Passed per producer via `ProducerContext`.
+public struct QobuzCredentials: Sendable {
+    public var email: String
+    public var password: String
+    public init(email: String, password: String) { self.email = email; self.password = password }
 }
 
 /// Last.fm read credentials (api key + username), passed per call like the

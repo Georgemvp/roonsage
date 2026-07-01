@@ -188,6 +188,7 @@ public enum DiscoveryProducerLabel {
         case "listenbrainz-radio":   "ListenBrainz"
         case "ai-picks":             "AI"
         case "discogs-labels":       "Discogs"
+        case "qobuz-catalog":        "Qobuz"
         default:                     id
         }
     }

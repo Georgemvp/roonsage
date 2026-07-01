@@ -802,6 +802,33 @@ extension QobuzClient {
         return true
     }
 
+    /// Discover a seed artist's albums straight from the Qobuz catalogue — the
+    /// discovery source for `QobuzCatalogProducer` (Feature 2). Returns albums whose
+    /// performer matches `artist` (normalised), deduped by title, newest-search-order
+    /// first, capped to `limit`. Logs in ONCE. The pipeline still MB-resolves the
+    /// artist and re-resolves the album id downstream, so this only needs to surface
+    /// real, catalogue-present albums to feed the funnel.
+    public func searchArtistAlbums(
+        artist: String, email: String, password: String, limit: Int = 6
+    ) async -> [ResolvedAlbum] {
+        guard !artist.isEmpty, let session = await login(email: email, password: password),
+              let items = await searchAlbums(query: artist, session: session) else { return [] }
+        let wantForm = Self.artistForm(artist)
+        var out: [ResolvedAlbum] = []
+        var seen = Set<String>()
+        for item in items {
+            let title = item["title"] as? String ?? ""
+            let candArtist = (item["artist"] as? [String: Any])?["name"] as? String
+                ?? (item["performer"] as? [String: Any])?["name"] as? String
+            guard !title.isEmpty, Self.artistForm(candArtist) == wantForm,
+                  let id = Self.albumID(item), seen.insert(title.lowercased()).inserted else { continue }
+            out.append(ResolvedAlbum(id: id, title: title, artist: candArtist ?? artist,
+                                     coverURL: Self.albumCover(item), releaseDate: Self.albumReleaseDate(item)))
+            if out.count >= max(1, limit) { break }
+        }
+        return out
+    }
+
     /// (title, performer) pairs for a Qobuz album — used to build synthetic
     /// `qobuz_search::` play keys so an accepted album can be played/queued in Roon.
     public func albumTrackTitles(albumID: String, email: String, password: String) async -> [(title: String, artist: String?)] {
