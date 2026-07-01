@@ -432,6 +432,24 @@ public actor QobuzClient {
         return n.isEmpty ? rawCollapsed(TrackIdentity.primaryArtist(s)) : n
     }
 
+    /// Every credited artist on a name string, each ASCII-normalised — so a
+    /// collaboration ("David Byrne & Brian Eno"), a "feat." credit, or a
+    /// comma-list ("Herbie Hancock, Wayne Shorter") confirms a match on ANY of
+    /// its members, not just the leading one. Splits on the same separators
+    /// `primaryArtist` cuts at, plus feat/ft/featuring. Empty parts are dropped.
+    private nonisolated static func creditedArtistForms(_ s: String?) -> Set<String> {
+        guard let s, !s.isEmpty else { return [] }
+        let deFeat = s.replacingOccurrences(
+            of: #"\s+(feat\.?|ft\.?|featuring)\s+"#, with: ",",
+            options: [.regularExpression, .caseInsensitive])
+        var out: Set<String> = []
+        for part in deFeat.components(separatedBy: CharacterSet(charactersIn: ",;/&")) {
+            let n = TrackIdentity.normalise(part)
+            if !n.isEmpty { out.insert(n) }
+        }
+        return out
+    }
+
     /// Substring confirmation needs a substantial shared string so a single shared
     /// leading token can't false-confirm ("Simon" ← "Simon & Garfunkel" must NOT
     /// match "Simon Says"); short names must match exactly.
@@ -805,7 +823,20 @@ extension QobuzClient {
     // MARK: Private
 
     private func resolveAlbum(wantArtist: String?, wantAlbum: String, session: Session) async -> ResolvedAlbum? {
-        let query = [wantArtist, wantAlbum].compactMap { $0 }.joined(separator: " ")
+        let combined = [wantArtist, wantAlbum].compactMap { $0 }.joined(separator: " ")
+        if let r = await bestAlbumMatch(query: combined, wantArtist: wantArtist, wantAlbum: wantAlbum, session: session) {
+            return r
+        }
+        // Fallback: some releases only surface under an album-title-only query —
+        // the combined "artist album" string over-constrains Qobuz's search
+        // ranking. Acceptance still gates on the artist, so this only widens the
+        // candidate net, it doesn't loosen what counts as a match.
+        guard let wantArtist, !wantArtist.isEmpty else { return nil }
+        return await bestAlbumMatch(query: wantAlbum, wantArtist: wantArtist, wantAlbum: wantAlbum, session: session)
+    }
+
+    /// Best accepted Qobuz album for one query (exact title beats a substring hit).
+    private func bestAlbumMatch(query: String, wantArtist: String?, wantAlbum: String, session: Session) async -> ResolvedAlbum? {
         guard let items = await searchAlbums(query: query, session: session) else { return nil }
         var best: (album: ResolvedAlbum, score: Int)?
         for item in items {
@@ -826,7 +857,7 @@ extension QobuzClient {
 
     private func searchAlbums(query: String, session: Session) async -> [[String: Any]]? {
         var comps = URLComponents(string: "https://www.qobuz.com/api.json/0.2/album/search")!
-        comps.queryItems = [.init(name: "query", value: query), .init(name: "limit", value: "10")]
+        comps.queryItems = [.init(name: "query", value: query), .init(name: "limit", value: "20")]
         guard let url = comps.url,
               let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -899,6 +930,15 @@ extension QobuzClient {
             if candA == wantA { artistConfirmed = true; artistExact = true }
             else if min(candA.count, wantA.count) >= minSubstringArtist,
                     candA.contains(wantA) || wantA.contains(candA) { artistConfirmed = true }
+        }
+        // Loosened for collaborations / "feat." credits / compilations: also
+        // confirm when the wanted artist is ANY of the album's credited artists,
+        // not just Qobuz's LEADING name ("David Byrne & Brian Eno" ← want "Brian
+        // Eno"). Safe because the title still has to match (titleScore >= 1), so
+        // this can't confirm a different album by a shared collaborator.
+        if !artistConfirmed,
+           !creditedArtistForms(wantArtist).isDisjoint(with: creditedArtistForms(qobuzArtist)) {
+            artistConfirmed = true
         }
 
         // Penalise a different-recording marker in the album title (live/karaoke/…)
