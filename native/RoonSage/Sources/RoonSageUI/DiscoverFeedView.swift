@@ -17,6 +17,8 @@ public struct DiscoverFeedView: View {
     @State private var refreshing = false
     @State private var kind: KindFilter = .all
     @State private var acted = Set<Int64>()   // optimistic hide after accept/reject
+    @State private var undoItem: RecommendationItemDTO?   // last skipped, shown in the undo bar
+    @State private var rejectTask: Task<Void, Never>?     // delayed reject POST — cancelling it IS the undo
 
     enum KindFilter: String, CaseIterable, Identifiable {
         case all, artist, album
@@ -65,11 +67,10 @@ public struct DiscoverFeedView: View {
                             }
                             .tint(.roonSuccess)
                         }
-                        // Reveal-and-tap (no full-swipe): the trailing edge offers
-                        // two choices AND "Overslaan" is a 60-day cooldown, so a
-                        // stray full swipe shouldn't fire it. Full-swipe returns
-                        // with an undo affordance (Fase 1b).
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        // Full-swipe fires the FIRST action (Overslaan). Safe now
+                        // that a stray skip is recoverable via the undo bar; Speel
+                        // stays as a revealed second button.
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button { reject(item) } label: {
                                 Label("Overslaan", systemImage: "hand.thumbsdown")
                             }
@@ -96,6 +97,35 @@ public struct DiscoverFeedView: View {
             }
         }
         .task { await load() }
+        .overlay(alignment: .bottom) { undoBanner }
+        .onDisappear { commitPendingRejectNow() }
+    }
+
+    /// Floating "undo skip" bar. Present while a reject is still within its
+    /// cancellation window — tapping it restores the card and cancels the POST.
+    @ViewBuilder private var undoBanner: some View {
+        if let item = undoItem {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "hand.thumbsdown")
+                    .foregroundStyle(.secondary)
+                Text("\(item.album ?? item.artist) overgeslagen")
+                    .font(.subheadline)
+                    .lineLimit(1)
+                Spacer(minLength: Spacing.md)
+                Button("Ongedaan maken") { undoReject() }
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.roonGold)
+            }
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.md)
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(.separator))
+            .shadow(color: .roonShadow, radius: 8, y: 2)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.bottom, Spacing.sm)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 
     private var emptyState: some View {
@@ -104,7 +134,7 @@ public struct DiscoverFeedView: View {
         } description: {
             Text(refreshing
                  ? "De server bouwt een nieuwe set — dit kan even duren."
-                 : "De server bouwt dagelijks een verse set aanbevelingen op basis van je smaak.")
+                 : "Ontdekkingen zoekt artiesten en albums búiten je bibliotheek, op basis van je smaak en meteen speelbaar via Qobuz. (Ontdek laat juist zien wat je al hebt.) De server bouwt dagelijks een verse set — veeg om te bewaren of over te slaan.")
         } actions: {
             Button { Task { await refresh() } } label: {
                 Label(refreshing ? "Bezig…" : "Ververs", systemImage: "arrow.clockwise")
@@ -125,6 +155,7 @@ public struct DiscoverFeedView: View {
     /// reload. Falls back to a plain reload if the run doesn't report progress.
     private func refresh() async {
         guard !refreshing else { return }
+        commitPendingRejectNow()   // don't let a reload resurrect an in-flight skip
         refreshing = true
         defer { refreshing = false }
         await client.triggerDiscoveryRun()
@@ -151,9 +182,43 @@ public struct DiscoverFeedView: View {
         Task { await client.playRecommendation(item.id, zoneID: client.selectedZone?.id) }
     }
 
+    /// Optimistically hide the card, then POST the reject after a short grace
+    /// window so the undo bar can cancel it. Only one skip is "in flight" at a
+    /// time — a new skip commits the previous one first.
     private func reject(_ item: RecommendationItemDTO) {
         Haptics.tap()
-        withAnimation { _ = acted.insert(item.id) }
+        commitPendingRejectNow()
+        withAnimation(Motion.quick) {
+            _ = acted.insert(item.id)
+            undoItem = item
+        }
+        rejectTask = Task {
+            try? await Task.sleep(for: .seconds(4.5))
+            if Task.isCancelled { return }
+            await client.rejectRecommendation(item.id, permanent: false)
+            if undoItem?.id == item.id {
+                withAnimation(Motion.quick) { undoItem = nil }
+            }
+        }
+    }
+
+    /// Cancel the pending POST and bring the card back.
+    private func undoReject() {
+        guard let item = undoItem else { return }
+        Haptics.tap()
+        rejectTask?.cancel(); rejectTask = nil
+        withAnimation(Motion.quick) {
+            _ = acted.remove(item.id)
+            undoItem = nil
+        }
+    }
+
+    /// Flush an in-flight skip immediately (on a new skip, refresh, or leaving
+    /// the view) so a pending reject is never silently dropped.
+    private func commitPendingRejectNow() {
+        guard let item = undoItem else { return }
+        rejectTask?.cancel(); rejectTask = nil
+        undoItem = nil
         Task { await client.rejectRecommendation(item.id, permanent: false) }
     }
 }
