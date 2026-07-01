@@ -736,6 +736,31 @@ extension QobuzClient {
         return out
     }
 
+    /// Resolve a batch of ARTIST-only wants to a representative Qobuz cover image
+    /// — used for `.artist`-kind recommendations, which have no specific album to
+    /// resolve/play (unlike `.album`-kind, handled by `resolveAlbums`). Takes the
+    /// first search hit whose artist name matches (normalised — no fuzzy title
+    /// scoring, since there's no album title to match against). Logs in ONCE.
+    public func resolveArtistCovers(
+        _ wants: [(key: String, artist: String)],
+        email: String, password: String
+    ) async -> [String: URL] {
+        guard !wants.isEmpty, let session = await login(email: email, password: password) else { return [:] }
+        var out: [String: URL] = [:]
+        for w in wants {
+            guard let items = await searchAlbums(query: w.artist, session: session) else { continue }
+            let wantForm = Self.artistForm(w.artist)
+            for item in items {
+                let candidateArtist = (item["artist"] as? [String: Any])?["name"] as? String
+                    ?? (item["performer"] as? [String: Any])?["name"] as? String
+                guard Self.artistForm(candidateArtist) == wantForm, let cover = Self.albumCover(item) else { continue }
+                out[w.key] = cover
+                break
+            }
+        }
+        return out
+    }
+
     /// Append a whole Qobuz album's tracks to a find-or-create playlist (the
     /// "Ontdekkingen" accept action). Additive — never replaces existing contents,
     /// so accepting a second album doesn't wipe the first. Returns false on failure.
