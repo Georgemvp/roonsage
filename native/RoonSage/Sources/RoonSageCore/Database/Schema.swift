@@ -411,6 +411,26 @@ enum Schema {
             try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN popularity INTEGER")
         }
 
+        // "Ontdek Wekelijks" — the library-first weekly discovery playlist. One row
+        // per ISO week (idempotent): a stable seed set, an AI title/description, and
+        // the fully DENORMALIZED tracklist (title/artist/album per track, plus a
+        // `not_in_library` flag for Qobuz/ListenBrainz enrichment picks). Denormalized
+        // so the playlist survives a Roon resync (which wipes `tracks`) and stays
+        // replayable by re-resolving title+artist — same contract as saved playlists.
+        // Lives on the server-of-record; thin clients pull it over /discover-weekly.
+        migrator.registerMigration("v27_discover_weekly") { db in
+            try db.create(table: "discover_weekly", ifNotExists: true) { t in
+                t.primaryKey("week_key", .text)              // ISO week, e.g. "2026-W27"
+                t.column("generated_at", .text).notNull()    // ISO8601 build timestamp
+                t.column("title",        .text).notNull()
+                t.column("description",  .text).notNull()
+                t.column("image_key",    .text)
+                t.column("seed_match_keys", .text).notNull().defaults(to: "[]")  // JSON [String]
+                t.column("tracks",       .text).notNull().defaults(to: "[]")     // JSON [DiscoverWeeklyTrack]
+            }
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_discover_weekly_generated ON discover_weekly(generated_at DESC)")
+        }
+
         try migrator.migrate(db)
     }
 }

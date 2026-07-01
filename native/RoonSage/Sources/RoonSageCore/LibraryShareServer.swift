@@ -19,6 +19,8 @@ import Network
 ///   DELETE /playlists?id=n → delete a saved playlist
 ///   GET  /playlist-tracks?id=n → [TrackRecord] (stored tracks of a playlist)
 ///   GET  /artist-radios → [SonicRadioPlaylist] (last synced AI radios → Qobuz)
+///   GET  /discover-weekly → DiscoverWeeklyPlaylist? (library-first weekly, or null)
+///   POST /discover-weekly/refresh → rebuild this week now → DiscoverWeeklyPlaylist?
 ///   GET  /discovery/recommendations?kind=&limit= → [RecommendationItemDTO]
 ///   POST /discovery/accept | /discovery/play | /discovery/reject → DiscoveryActionRequest
 ///   POST /discovery/run    → kick a pipeline pass ({"ok":true})
@@ -307,6 +309,17 @@ public final class LibraryShareServer: @unchecked Sendable {
             let category = RoonClient.RadioCategory(rawValue: raw) ?? .artist
             let data = await RoonClient.shared.artistRadiosData(category: category)
             return ("200 OK", data, "application/json")
+        }
+        // "Ontdek Wekelijks" — the library-first weekly discovery playlist (see
+        // RoonClient+DiscoverWeekly). GET serves the latest built playlist (or null);
+        // POST .../refresh rebuilds this week now and returns the fresh set. The
+        // refresh prefix is checked FIRST (it also matches "/discover-weekly").
+        if method == "POST", path.hasPrefix("/discover-weekly/refresh") {
+            let pl = await RoonClient.shared.refreshDiscoverWeekly()
+            return ("200 OK", (try? JSONEncoder().encode(pl)) ?? Data("null".utf8), "application/json")
+        }
+        if path.hasPrefix("/discover-weekly") {
+            return ("200 OK", await RoonClient.shared.discoverWeeklyData(), "application/json")
         }
         // Discovery engine (see RoonClient+Discovery). accept/play/reject run the
         // side-effects against the server's live Roon+Qobuz session; run kicks a

@@ -45,6 +45,9 @@ struct RoonSageAnalyzerApp: App {
             // …and, on the configured weekday, bundles the week's best pending
             // recommendations into a dated Qobuz digest playlist.
             .task { client.startDigestSchedule() }
+            // The library-first weekly discovery playlist ("Ontdek Wekelijks"):
+            // regenerated at most once per interval, hourly due-check.
+            .task { client.startDiscoverWeeklySchedule() }
             // Pull analyzed features (tags/year/embeddings) into library.db so they
             // reach the library without the manual Settings "Sync features" button.
             .task { client.startServerFeatureSync() }

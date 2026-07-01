@@ -38,7 +38,7 @@ public struct DiscoverFeedView: View {
     public var body: some View {
         Group {
             if loading {
-                ProgressView("Ontdekkingen laden…")
+                ProgressView("Nieuwe Ontdekkingen laden…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if visible.isEmpty {
                 emptyState
@@ -86,7 +86,7 @@ public struct DiscoverFeedView: View {
                 .listStyle(.plain)
             }
         }
-        .navigationTitle("Ontdekkingen")
+        .navigationTitle("Nieuwe Ontdekkingen")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { showInsights = true } label: {
@@ -166,7 +166,7 @@ public struct DiscoverFeedView: View {
         } description: {
             Text(refreshing
                  ? "De server bouwt een nieuwe set — dit kan even duren."
-                 : "Ontdekkingen zoekt artiesten en albums búiten je bibliotheek, op basis van je smaak en meteen speelbaar via Qobuz. (Ontdek laat juist zien wat je al hebt.) De server bouwt dagelijks een verse set — veeg om te bewaren of over te slaan.")
+                 : "Nieuwe Ontdekkingen zoekt artiesten en albums búiten je bibliotheek, op basis van je smaak en meteen speelbaar via Qobuz. (Ontdek Wekelijks put juist uit wat je al hebt.) De server bouwt dagelijks een verse set — veeg om te bewaren of over te slaan.")
         } actions: {
             Button { Task { await refresh() } } label: {
                 Label(refreshing ? "Bezig…" : "Ververs", systemImage: "arrow.clockwise")

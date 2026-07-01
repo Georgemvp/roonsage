@@ -24,6 +24,7 @@ public struct DiscoveryView: View {
     public var body: some View {
         List {
             ZoneHintBanner().plainCardRow()
+            weeklyInstap.plainCardRow()
             if let stats {
                 if let hero = heroItem { heroCard(hero).plainCardRow() }
                 summaryCards(stats).plainCardRow()
@@ -66,6 +67,34 @@ public struct DiscoveryView: View {
                 .help("Ververs")
         }
         .task(id: client.trackCount) { await load() }
+    }
+
+    // MARK: - "Ontdek Wekelijks" instap
+
+    /// A prominent entry into the library-first weekly discovery playlist.
+    private var weeklyInstap: some View {
+        NavigationLink {
+            DiscoverWeeklyView()
+        } label: {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "sparkles")
+                    .font(.title2)
+                    .foregroundStyle(Color.roonGold)
+                    .frame(width: 44, height: 44)
+                    .background(Color.roonGold.opacity(0.15), in: RoundedRectangle(cornerRadius: Radius.lg))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ontdek Wekelijks").font(.headline)
+                    Text("Verse ontdekkingen uit je eigen bibliotheek — elke week vernieuwd.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(Spacing.md)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Hero "rediscover" card

@@ -174,7 +174,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .songPaths:   "Song Paths"
         case .alchemy:     "Song Alchemy"
         case .sonicSearch: "Sonisch zoeken"
-        case .discover:    "Ontdekkingen"
+        case .discover:    "Nieuwe Ontdekkingen"   // outward: music you don't own yet
         case .discovery:   "Ontdek"
         case .taste:       "Smaakprofiel"
         case .yearInReview: "Jaaroverzicht"
@@ -444,11 +444,14 @@ struct RootView: View {
     private var iOSExploreHub: some View {
         List {
             Section("Ontdekken") {
-                NavigationLink { DiscoverFeedView().navigationTitle("Ontdekkingen").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Ontdekkingen", systemImage: SidebarItem.discover.icon)
+                NavigationLink { DiscoverWeeklyView().navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Ontdek Wekelijks", systemImage: "sparkles")
                 }
                 NavigationLink { DiscoveryView().navigationTitle("Ontdek").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Ontdek", systemImage: SidebarItem.discovery.icon)
+                }
+                NavigationLink { DiscoverFeedView().navigationTitle("Nieuwe Ontdekkingen").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Nieuwe Ontdekkingen", systemImage: SidebarItem.discover.icon)
                 }
                 NavigationLink { SonicRadioView().navigationTitle("Radio's").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Radio's", systemImage: SidebarItem.radios.icon)

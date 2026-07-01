@@ -135,6 +135,13 @@ public final class RoonClient {
     /// Periodic server-side ingest of analyzer features (tags/year/embeddings)
     /// into library.db on the always-on build (see RoonClient+Features).
     var serverFeatureSyncTask: Task<Void, Never>?
+    /// Hourly "is a new weekly due?" watch for "Ontdek Wekelijks" on the always-on
+    /// server build (see RoonClient+DiscoverWeekly). Same declared-unconditionally-
+    /// but-.direct-only pattern as `digestScheduleTask`.
+    var discoverWeeklyTask: Task<Void, Never>?
+    /// The last built/loaded weekly discovery playlist, served to client apps via
+    /// /discover-weekly so iOS/macOS always show the same set as the server.
+    var cachedDiscoverWeekly: DiscoverWeeklyPlaylist?
 
     // MARK: - Control mode (playback proxy)
     /// `.direct` = talk to Roon over the WebSocket (the server build).
