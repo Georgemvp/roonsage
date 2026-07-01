@@ -54,6 +54,31 @@ public struct DiscoverFeedView: View {
                             onPlay: { play(item) },
                             onReject: { reject(item) })
                         .plainCardRow()
+                        // Native List swipes — the digarr gesture, but width-safe
+                        // (a custom ZStack card-stack would re-trigger the iOS-26
+                        // over-wide NavigationStack bug these views were rebuilt to
+                        // dodge). Buttons stay for macOS / accessibility.
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            Button { accept(item) } label: {
+                                Label(item.kind == .album ? "Bewaar" : "Volg",
+                                      systemImage: "plus.circle.fill")
+                            }
+                            .tint(.roonSuccess)
+                        }
+                        // Reveal-and-tap (no full-swipe): the trailing edge offers
+                        // two choices AND "Overslaan" is a 60-day cooldown, so a
+                        // stray full swipe shouldn't fire it. Full-swipe returns
+                        // with an undo affordance (Fase 1b).
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button { reject(item) } label: {
+                                Label("Overslaan", systemImage: "hand.thumbsdown")
+                            }
+                            .tint(.roonWarning)
+                            Button { play(item) } label: {
+                                Label("Speel", systemImage: "play.fill")
+                            }
+                            .tint(.roonInfo)
+                        }
                     }
                 }
                 .listStyle(.plain)
@@ -143,33 +168,91 @@ private struct RecommendationCard: View {
     let onReject: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
-            artwork
+        VStack(alignment: .leading, spacing: 0) {
+            heroArt
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 Text(item.album ?? item.artist)
-                    .font(.headline)
+                    .font(Typography.heading)
                     .lineLimit(2)
                 if item.album != nil {
-                    Text(item.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    Text(item.artist)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
 
-                HStack(spacing: Spacing.sm) {
-                    Badge("\(Int((item.score * 100).rounded()))%", tint: scoreTint)
-                    if let y = item.year { Badge(String(y)) }
-                    ForEach(sourceLabels, id: \.self) { Badge($0, tint: .roonInfo) }
+                if item.year != nil || !sourceLabels.isEmpty {
+                    HStack(spacing: Spacing.sm) {
+                        if let y = item.year { Badge(String(y)) }
+                        ForEach(sourceLabels, id: \.self) { Badge($0, tint: .roonInfo) }
+                    }
                 }
 
                 if let why = item.explanation, !why.isEmpty {
-                    Text(why).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                    Text(why)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if item.kind == .album, (item.qobuzAlbumID ?? "").isEmpty {
-                    Text("Niet op Qobuz gevonden").font(.caption2).foregroundStyle(.secondary)
+                    Label("Niet op Qobuz gevonden", systemImage: "exclamationmark.triangle")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let c = item.components {
+                    ScoreBreakdownView(components: c)
+                        .padding(.top, Spacing.xs)
                 }
 
                 actionRow
+                    .padding(.top, Spacing.xs)
             }
+            .padding(Spacing.lg)
         }
-        .cardStyle()
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+    }
+
+    /// Full-width hero banner: cached cover, a legibility scrim, and the total
+    /// score as a chip — discovery is a visual act, so the art leads. A fixed
+    /// container + overlaid image (rather than sizing the image directly) avoids
+    /// the infinite-width proposal that makes an aspect-fill image lay out wrong.
+    private var heroArt: some View {
+        Rectangle()
+            .fill(.background.tertiary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 190)
+            .overlay {
+                CachedArtImage(url: item.imageURL.flatMap { URL(string: $0) }) {
+                    heroPlaceholder
+                }
+            }
+            .clipped()
+            .overlay(alignment: .bottom) {
+                LinearGradient(colors: [.clear, .black.opacity(0.35)],
+                               startPoint: .center, endPoint: .bottom)
+                    .frame(height: 60)
+                    .allowsHitTesting(false)
+            }
+            .overlay(alignment: .topTrailing) { scoreChip }
+    }
+
+    private var heroPlaceholder: some View {
+        Image(systemName: item.kind == .album ? "opticaldisc" : "music.mic")
+            .font(.largeTitle)
+            .foregroundStyle(.secondary)
+    }
+
+    private var scoreChip: some View {
+        Text("\(Int((item.score * 100).rounded()))%")
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .background(.ultraThinMaterial, in: Capsule())
+            .foregroundStyle(scoreTint)
+            .padding(Spacing.sm)
     }
 
     private var actionRow: some View {
@@ -193,37 +276,9 @@ private struct RecommendationCard: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .accessibilityLabel("Afwijzen")
-            .help("Afwijzen — even niet meer tonen")
+            .accessibilityLabel("Overslaan")
+            .help("Overslaan — even niet meer tonen")
         }
-        .padding(.top, 2)
-    }
-
-    @ViewBuilder
-    private var artwork: some View {
-        let size: CGFloat = 64
-        if let s = item.imageURL, let url = URL(string: s) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let img): img.resizable().aspectRatio(contentMode: .fill)
-                default: placeholder
-                }
-            }
-            .frame(width: size, height: size)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.md))
-        } else {
-            placeholder.frame(width: size, height: size)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.md))
-        }
-    }
-
-    private var placeholder: some View {
-        RoundedRectangle(cornerRadius: Radius.md)
-            .fill(.background.tertiary)
-            .overlay {
-                Image(systemName: item.kind == .album ? "opticaldisc" : "music.mic")
-                    .foregroundStyle(.secondary)
-            }
     }
 
     private var scoreTint: Color {
@@ -253,5 +308,60 @@ private struct RecommendationCard: View {
         case "ai-picks":             "AI"
         default:                     id
         }
+    }
+}
+
+// MARK: - Score breakdown
+
+/// The persisted `ScoreComponents` rendered as a compact equaliser so the feed
+/// SHOWS why something scored as it did — the data was already stored in
+/// `score_json`, just never surfaced. Bars are the raw per-signal strengths
+/// (0…1: "how strong is each signal"), not the weighted contributions.
+@MainActor
+private struct ScoreBreakdownView: View {
+    let components: ScoreComponents
+
+    private var rows: [(label: String, value: Double)] {
+        [("Consensus", components.consensus),
+         ("Gelijkenis", components.similarity),
+         ("Genre", components.genreOverlap),
+         ("AI", components.aiConfidence),
+         ("Feedback", components.feedbackBoost)]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("Score-opbouw")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+            ForEach(rows, id: \.label) { row in
+                HStack(spacing: Spacing.sm) {
+                    Text(row.label)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 74, alignment: .leading)
+                    ScoreBar(value: row.value)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Score-opbouw")
+    }
+}
+
+/// One 0…1 bar. GeometryReader is constrained to 5 pt tall, so it reads the
+/// row's (already width-clamped) content width for a proportional fill without
+/// the greedy-sizing pitfalls of an unconstrained reader.
+private struct ScoreBar: View {
+    let value: Double
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.quaternary)
+                Capsule().fill(Color.roonGold)
+                    .frame(width: max(0, min(1, value)) * geo.size.width)
+            }
+        }
+        .frame(height: 5)
     }
 }
