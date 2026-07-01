@@ -55,6 +55,25 @@ extension RoonClient {
         return (try? await database?.latestBatchStatus()) ?? DiscoveryRunStatus(status: "idle", itemCount: 0, createdAt: nil)
     }
 
+    /// Aggregate stats for the "Ontdek-inzichten" dashboard. Server reads its DB;
+    /// clients pull `/discovery/stats`.
+    public func discoveryStats() async -> DiscoveryStatsDTO {
+        if isRemote { return await fetchDiscoveryStatsFromServer() }
+        return await localDiscoveryStats()
+    }
+
+    /// Build the stats DTO from the local DB (server path + the server HTTP helper).
+    private func localDiscoveryStats() async -> DiscoveryStatsDTO {
+        let now = ISO8601DateFormatter().string(from: Date())
+        guard let db = database, let inp = try? await db.discoveryStatsInputs() else {
+            return DiscoveryStatsDTO(accepted: 0, rejected: 0, pending: 0, approvalRate: 0,
+                                     producers: [], topGenres: [], generatedAt: now)
+        }
+        return DiscoveryStatsBuilder.build(items: inp.facts, lifetimeAccepted: inp.accepted,
+                                           lifetimeRejected: inp.rejected, latestPending: inp.latestPending,
+                                           generatedAt: now)
+    }
+
     /// Kick a fresh pipeline run. Server runs it detached; clients POST the trigger.
     public func triggerDiscoveryRun() async {
         if isRemote {
@@ -321,6 +340,11 @@ extension RoonClient {
         return (try? JSONEncoder().encode(status)) ?? Data("{}".utf8)
     }
 
+    public func discoveryStatsData() async -> Data {
+        let stats = await localDiscoveryStats()
+        return (try? JSONEncoder().encode(stats)) ?? Data("{}".utf8)
+    }
+
     public func handleDiscoveryAction(_ path: String, body: Data) async -> Bool {
         guard let req = try? JSONDecoder().decode(DiscoveryActionRequest.self, from: body) else { return false }
         switch path {
@@ -357,6 +381,18 @@ extension RoonClient {
             return DiscoveryRunStatus(status: "idle", itemCount: 0, createdAt: nil)
         }
         return status
+    }
+
+    private func fetchDiscoveryStatsFromServer() async -> DiscoveryStatsDTO {
+        let empty = DiscoveryStatsDTO(accepted: 0, rejected: 0, pending: 0, approvalRate: 0,
+                                      producers: [], topGenres: [], generatedAt: "")
+        guard let base = remoteBaseURL, let url = URL(string: "\(base)/discovery/stats") else { return empty }
+        var req = URLRequest(url: url); req.timeoutInterval = 12
+        authorizeShareRequest(&req)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let stats = try? JSONDecoder().decode(DiscoveryStatsDTO.self, from: data) else { return empty }
+        return stats
     }
 
     @discardableResult

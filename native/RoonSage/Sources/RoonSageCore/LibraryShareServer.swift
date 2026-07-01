@@ -329,6 +329,9 @@ public final class LibraryShareServer: @unchecked Sendable {
             let limit = Int(Self.queryValue("limit", in: target) ?? "") ?? 60
             return ("200 OK", await RoonClient.shared.discoveryRecommendationsData(kind: kind, limit: limit), "application/json")
         }
+        if path.hasPrefix("/discovery/stats") {
+            return ("200 OK", await RoonClient.shared.discoveryStatsData(), "application/json")
+        }
         if path.hasPrefix("/health") {
             let n = (try? await database.trackCount()) ?? 0
             return ("200 OK", Data("{\"status\":\"ok\",\"tracks\":\(n)}".utf8), "application/json")

@@ -101,6 +101,49 @@ public struct DiscoveryRunStatus: Codable, Sendable {
     }
 }
 
+/// Aggregate stats for the "Ontdek-inzichten" dashboard (`GET /discovery/stats`).
+/// Headline counts come from the persistent accept (watchlist) + reject tables so
+/// they survive batch-pruning; the producer/genre breakdowns are over the retained
+/// batches ("recent"), which is all the item-level history that's kept.
+public struct DiscoveryStatsDTO: Codable, Sendable {
+    public var accepted: Int           // lifetime saved (followed) artists
+    public var rejected: Int           // lifetime skipped recommendations
+    public var pending: Int            // size of the current (newest) feed
+    public var approvalRate: Double    // accepted / (accepted + rejected), 0 when none
+    public var producers: [ProducerStat]
+    public var topGenres: [GenreStat]
+    public var generatedAt: String
+
+    /// Per-producer effectiveness over the retained batches.
+    public struct ProducerStat: Codable, Sendable, Identifiable {
+        public var producer: String    // stable id, e.g. "ai-picks"
+        public var contributions: Int  // recs this producer surfaced (retained)
+        public var accepted: Int
+        public var rejected: Int
+        public var acceptRate: Double? // nil until there's ≥1 decision on its recs
+        public var id: String { producer }
+        public init(producer: String, contributions: Int, accepted: Int, rejected: Int, acceptRate: Double?) {
+            self.producer = producer; self.contributions = contributions
+            self.accepted = accepted; self.rejected = rejected; self.acceptRate = acceptRate
+        }
+    }
+
+    /// A genre and how often it appears among your saved (else current) recs.
+    public struct GenreStat: Codable, Sendable, Identifiable {
+        public var genre: String
+        public var count: Int
+        public var id: String { genre }
+        public init(genre: String, count: Int) { self.genre = genre; self.count = count }
+    }
+
+    public init(accepted: Int, rejected: Int, pending: Int, approvalRate: Double,
+                producers: [ProducerStat], topGenres: [GenreStat], generatedAt: String) {
+        self.accepted = accepted; self.rejected = rejected; self.pending = pending
+        self.approvalRate = approvalRate; self.producers = producers
+        self.topGenres = topGenres; self.generatedAt = generatedAt
+    }
+}
+
 // MARK: - Dedup key
 
 public enum DiscoveryKey {

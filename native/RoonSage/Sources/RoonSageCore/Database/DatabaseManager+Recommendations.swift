@@ -201,6 +201,35 @@ extension DatabaseManager {
         }
     }
 
+    /// Raw inputs for the "Ontdek-inzichten" dashboard (fed to
+    /// `DiscoveryStatsBuilder.build`). Headline accept/reject counts come from the
+    /// persistent watchlist + rejections tables (prune-proof); the per-item facts
+    /// are every retained batch's items — all the item-level history that's kept.
+    public func discoveryStatsInputs() async throws
+        -> (accepted: Int, rejected: Int, facts: [DiscoveryStatsBuilder.ItemFacts], latestPending: Int) {
+        try await pool.read { db in
+            let accepted = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM artist_watchlist WHERE source = 'accept'") ?? 0
+            let rejected = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM discovery_rejections") ?? 0
+            let dec = JSONDecoder()
+            let rows = try Row.fetchAll(db, sql: "SELECT status, sources_json, genres_json FROM recommendation_items")
+            let facts = rows.map { row -> DiscoveryStatsBuilder.ItemFacts in
+                let producers = (row["sources_json"] as String?).flatMap { $0.data(using: .utf8) }
+                    .flatMap { try? dec.decode([SourceRef].self, from: $0) }?.map(\.producer) ?? []
+                let genres = (row["genres_json"] as String?).flatMap { $0.data(using: .utf8) }
+                    .flatMap { try? dec.decode([String].self, from: $0) } ?? []
+                return DiscoveryStatsBuilder.ItemFacts(
+                    status: row["status"] as String? ?? "pending", producers: producers, genres: genres)
+            }
+            var latestPending = 0
+            if let batchID = try Self.latestCompleteBatchID(db) {
+                latestPending = try Int.fetchOne(db,
+                    sql: "SELECT COUNT(*) FROM recommendation_items WHERE batch_id = ? AND status = 'pending'",
+                    arguments: [batchID]) ?? 0
+            }
+            return (accepted, rejected, facts, latestPending)
+        }
+    }
+
     // MARK: - Rejections (block + cooldown)
 
     public func recordRejection(dedupKey: String, kind: RecommendationKind, artist: String,

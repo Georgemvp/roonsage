@@ -19,6 +19,7 @@ public struct DiscoverFeedView: View {
     @State private var acted = Set<Int64>()   // optimistic hide after accept/reject
     @State private var undoItem: RecommendationItemDTO?   // last skipped, shown in the undo bar
     @State private var rejectTask: Task<Void, Never>?     // delayed reject POST — cancelling it IS the undo
+    @State private var showInsights = false               // Ontdek-inzichten sheet
 
     enum KindFilter: String, CaseIterable, Identifiable {
         case all, artist, album
@@ -88,6 +89,13 @@ public struct DiscoverFeedView: View {
         .navigationTitle("Ontdekkingen")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Button { showInsights = true } label: {
+                    Image(systemName: "chart.bar")
+                }
+                .help("Ontdek-inzichten")
+                .accessibilityLabel("Ontdek-inzichten")
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button { Task { await refresh() } } label: {
                     Image(systemName: "arrow.clockwise")
                 }
@@ -99,6 +107,16 @@ public struct DiscoverFeedView: View {
         .task { await load() }
         .overlay(alignment: .bottom) { undoBanner }
         .onDisappear { commitPendingRejectNow() }
+        .sheet(isPresented: $showInsights) {
+            NavigationStack {
+                DiscoverInsightsView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Klaar") { showInsights = false }
+                        }
+                    }
+            }
+        }
     }
 
     /// Floating "undo skip" bar. Present while a reject is still within its
@@ -362,18 +380,7 @@ private struct RecommendationCard: View {
         return out
     }
 
-    private static func producerLabel(_ id: String) -> String {
-        switch id {
-        case "similar-artist-web":   "Vergelijkbaar"
-        case "charts":               "Charts"
-        case "release-radar":        "Nieuw"
-        case "gap-fill":             "Aanvulling"
-        case "artist-relationships": "Samenwerking"
-        case "listenbrainz-radio":   "ListenBrainz"
-        case "ai-picks":             "AI"
-        default:                     id
-        }
-    }
+    private static func producerLabel(_ id: String) -> String { DiscoveryProducerLabel.nl(id) }
 }
 
 // MARK: - Score breakdown
