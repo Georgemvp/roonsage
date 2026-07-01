@@ -175,9 +175,10 @@ private struct InsightBar: View {
 // MARK: - Shared producer labels
 
 /// Short Dutch labels for the discovery producers — shared by the feed's source
-/// badges and the insights dashboard so the two never drift.
-enum DiscoveryProducerLabel {
-    static func nl(_ id: String) -> String {
+/// badges, the insights dashboard, and the analyzer's tuning settings so none
+/// of the three drift apart.
+public enum DiscoveryProducerLabel {
+    public static func nl(_ id: String) -> String {
         switch id {
         case "similar-artist-web":   "Vergelijkbaar"
         case "charts":               "Charts"

@@ -52,6 +52,27 @@ public struct ScoringWeights: Sendable {
     public var popularity: Double = 0.0
     public init() {}
     public static let `default` = ScoringWeights()
+
+    /// The "veilig ↔ avontuurlijk" dial (F11): one 0…1 knob, lerped between two
+    /// hand-tuned anchor presets that each already sum to 1.0 (so every
+    /// interpolation does too — `popularity` stays reserved at 0 throughout).
+    /// `t=0` ("veilig") trusts what many sources + your own genre fit agree on;
+    /// `t=1` ("avontuurlijk") leans into similarity's novel-but-related picks and
+    /// the AI producer's reach, and lets consensus/genre-fit matter less.
+    /// `t=default's 0.35` reproduces `.default` closely by construction (both
+    /// anchors were chosen to bracket it), so day-one behaviour barely shifts.
+    public static func tuned(adventurousness: Double) -> ScoringWeights {
+        let t = min(max(adventurousness, 0), 1)
+        func lerp(_ a: Double, _ b: Double) -> Double { a + (b - a) * t }
+        var w = ScoringWeights()
+        w.consensus     = lerp(0.40, 0.15)
+        w.similarity    = lerp(0.20, 0.30)
+        w.genreOverlap  = lerp(0.30, 0.10)
+        w.aiConfidence  = lerp(0.05, 0.30)
+        w.feedbackBoost = lerp(0.05, 0.15)
+        w.popularity    = 0
+        return w
+    }
 }
 
 /// One recommendation as served to clients (`GET /discovery/recommendations`) and

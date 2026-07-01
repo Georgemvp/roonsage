@@ -78,4 +78,60 @@ final class DiscoveryScoringTests: XCTestCase {
         // Clamped to [0,1].
         XCTAssertEqual(DiscoveryScoring.applyAlbumModifier(base: 0.95, recency: 1, popularity: 1, gapPriority: 1), 1.0, accuracy: 1e-9)
     }
+
+    // MARK: tuned weights (F11 "veilig ↔ avontuurlijk" dial)
+
+    private func sum(_ w: ScoringWeights) -> Double {
+        w.consensus + w.similarity + w.genreOverlap + w.aiConfidence + w.feedbackBoost + w.popularity
+    }
+
+    func testTunedWeightsAlwaysSumToOne() {
+        for t in stride(from: 0.0, through: 1.0, by: 0.1) {
+            XCTAssertEqual(sum(ScoringWeights.tuned(adventurousness: t)), 1.0, accuracy: 1e-9, "t=\(t)")
+        }
+    }
+
+    func testTunedWeightsClampOutOfRangeInput() {
+        XCTAssertEqual(ScoringWeights.tuned(adventurousness: -5).consensus,
+                       ScoringWeights.tuned(adventurousness: 0).consensus, accuracy: 1e-9)
+        XCTAssertEqual(ScoringWeights.tuned(adventurousness: 5).consensus,
+                       ScoringWeights.tuned(adventurousness: 1).consensus, accuracy: 1e-9)
+    }
+
+    func testSafeAnchorTrustsConsensusAndGenreOverSimilarityAndAI() {
+        let safe = ScoringWeights.tuned(adventurousness: 0)
+        XCTAssertEqual(safe.consensus, 0.40, accuracy: 1e-9)
+        XCTAssertEqual(safe.genreOverlap, 0.30, accuracy: 1e-9)
+        XCTAssertEqual(safe.aiConfidence, 0.05, accuracy: 1e-9)
+        XCTAssertGreaterThan(safe.consensus, safe.aiConfidence)
+    }
+
+    func testBoldAnchorShiftsWeightToSimilarityAndAI() {
+        let bold = ScoringWeights.tuned(adventurousness: 1)
+        XCTAssertEqual(bold.similarity, 0.30, accuracy: 1e-9)
+        XCTAssertEqual(bold.aiConfidence, 0.30, accuracy: 1e-9)
+        XCTAssertEqual(bold.genreOverlap, 0.10, accuracy: 1e-9)
+        XCTAssertGreaterThan(bold.aiConfidence, ScoringWeights.tuned(adventurousness: 0).aiConfidence)
+    }
+
+    func testTunedIsMonotonicBetweenAnchors() {
+        // consensus strictly decreases and aiConfidence strictly increases as the
+        // dial moves from "veilig" to "avontuurlijk" — no reversal in between.
+        let steps = stride(from: 0.0, through: 1.0, by: 0.1).map { ScoringWeights.tuned(adventurousness: $0) }
+        for (a, b) in zip(steps, steps.dropFirst()) {
+            XCTAssertLessThanOrEqual(b.consensus, a.consensus + 1e-9)
+            XCTAssertGreaterThanOrEqual(b.aiConfidence, a.aiConfidence - 1e-9)
+        }
+    }
+
+    func testDefaultAdventurousnessStaysCloseToOldHardcodedDefault() {
+        // The dial's neutral point (0.35, shared with the radio dial) shouldn't
+        // wildly diverge from the pre-F11 hardcoded `.default` on day one.
+        let atDefault = ScoringWeights.tuned(adventurousness: 0.35)
+        let old = ScoringWeights.default
+        XCTAssertEqual(atDefault.consensus, old.consensus, accuracy: 0.1)
+        XCTAssertEqual(atDefault.similarity, old.similarity, accuracy: 0.1)
+        XCTAssertEqual(atDefault.genreOverlap, old.genreOverlap, accuracy: 0.1)
+        XCTAssertEqual(atDefault.aiConfidence, old.aiConfidence, accuracy: 0.1)
+    }
 }

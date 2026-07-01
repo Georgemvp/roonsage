@@ -20,10 +20,50 @@ extension RoonClient {
 
     /// The producers that run each pipeline pass. Ships every Last.fm/MusicBrainz/
     /// ListenBrainz/AI producer; the gated Deezer/Spotify/Discogs producers (each
-    /// needs a new client + the user's own account) land later.
-    static var discoveryProducers: [DiscoveryProducer] {
+    /// needs a new client + the user's own account) land later. Public so the
+    /// analyzer's tuning settings can list `id`s for the enable/disable toggles
+    /// without hand-duplicating them.
+    public static var discoveryProducers: [DiscoveryProducer] {
         [SimilarArtistWebProducer(), ChartsProducer(), ReleaseRadarProducer(),
          GapFillProducer(), ArtistRelationshipsProducer(), ListenBrainzRadioProducer(), AIPicksProducer()]
+    }
+
+    // MARK: - Tuning (F11) — persisted server-side (this is the analyzer/server
+    // build's own UserDefaults; configured from DiscoverySettingsView there, same
+    // as the sonic-radio dial). No client push exists (mirrors `/settings` being
+    // GET-only) — Mac/iOS just render the resulting feed.
+
+    /// "Veilig ↔ avontuurlijk" — feeds `ScoringWeights.tuned(adventurousness:)`.
+    /// Shares `defaultAdventurousness` (0.35) with the radio dial so an untouched
+    /// install's first Ontdekkingen run scores close to the old hardcoded `.default`.
+    public var discoveryAdventurousness: Double {
+        get { (UserDefaults.standard.object(forKey: "discovery_adventurousness") as? Double) ?? Self.defaultAdventurousness }
+        set { UserDefaults.standard.set(min(1, max(0, newValue)), forKey: "discovery_adventurousness") }
+    }
+
+    /// Producer ids (`DiscoveryProducer.id`) turned off by the user. Empty by
+    /// default so an untouched install runs every producer, unchanged.
+    public var discoveryDisabledProducers: Set<String> {
+        get { Set((UserDefaults.standard.array(forKey: "discovery_disabled_producers") as? [String]) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: "discovery_disabled_producers") }
+    }
+
+    /// Days a rejected recommendation stays hidden before it's eligible to
+    /// resurface. Default 60 (the prior hardcoded value).
+    public var discoveryRejectionCooldownDays: Int {
+        get { (UserDefaults.standard.object(forKey: "discovery_cooldown_days") as? Int) ?? 60 }
+        set { UserDefaults.standard.set(max(0, newValue), forKey: "discovery_cooldown_days") }
+    }
+
+    /// The producers to actually run: every shipped producer minus the disabled
+    /// ones — unless that would empty the set entirely (a user disabling every
+    /// producer would otherwise leave Ontdekkingen permanently blank), in which
+    /// case the disable list is ignored for this run.
+    var activeDiscoveryProducers: [DiscoveryProducer] {
+        let disabled = discoveryDisabledProducers
+        guard !disabled.isEmpty else { return Self.discoveryProducers }
+        let filtered = Self.discoveryProducers.filter { !disabled.contains($0.id) }
+        return filtered.isEmpty ? Self.discoveryProducers : filtered
     }
 
     // MARK: - Wire DTO
@@ -185,11 +225,12 @@ extension RoonClient {
             libraryArtists: libraryArtists, libraryAlbumKeys: libraryAlbumKeys,
             listenedArtists: (try? await db.listenedArtistSet()) ?? [],
             rejections: (try? await db.activeRejections()) ?? [:],
-            cooldownDays: 60, scoreThreshold: 0.35, now: Date())
+            cooldownDays: discoveryRejectionCooldownDays, scoreThreshold: 0.35, now: Date())
 
         let rates = await feedbackGenreRates()
 
-        let pipeline = DiscoveryPipeline(producers: Self.discoveryProducers)
+        let pipeline = DiscoveryPipeline(producers: activeDiscoveryProducers,
+                                         weights: .tuned(adventurousness: discoveryAdventurousness))
         let stored = await pipeline.run(
             seeds: seeds, context: context, qobuzCreds: qobuz,
             libraryGenres: libraryGenres, feedbackGenreRates: rates,
