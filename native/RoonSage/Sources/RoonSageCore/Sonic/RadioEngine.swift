@@ -140,6 +140,20 @@ public enum RadioEngine {
 
         let adv = options.adventurousness
 
+        // Popularity normalisation over the candidate pool. Deezer `rank` is
+        // heavy-tailed (a handful of megahits dwarf everything), so normalise on a
+        // LOG scale, bounded to the pool's own range — a station's "popular" is
+        // relative to its candidates, not the global chart. Tracks without a
+        // popularity value (not yet enriched, or Deezer-unknown) score neutral.
+        let popLogs = hits.compactMap { $0.track.popularity }.filter { $0 > 0 }
+            .map { log10(Double($0) + 1) }
+        let popLo = popLogs.min() ?? 0
+        let popSpan = max(1e-6, (popLogs.max() ?? 0) - popLo)
+        func popNorm(_ t: DatabaseManager.SonicTrack) -> Double {
+            guard let p = t.popularity, p > 0 else { return 0.5 }   // unknown = neutral
+            return min(1, max(0, (log10(Double(p) + 1) - popLo) / popSpan))
+        }
+
         // Score each candidate: centroid+anchor relevance, plus familiarity /
         // discovery bonuses gated by the dial, plus a tiny daily jitter.
         struct Scored { let track: DatabaseManager.SonicTrack; let emb: [Float]; let score: Double; let nearestAnchor: Int; let anchorSim: Double }
@@ -166,10 +180,15 @@ public enum RadioEngine {
             let distanceNovelty = 1 - relAnchor                 // farther = more novel
             let familiarBonus = (1 - adv) * 0.15 * (isKnown ? 1 : 0)
             let discoveryBonus = adv * (0.18 * (isKnown ? 0 : 1) + 0.12 * distanceNovelty)
+            // Global-popularity steer: a low dial leans toward hits, a high dial
+            // toward deep cuts. Centred at 0.5 so an average-popularity (or
+            // unknown) track adds nothing — the term only tilts the extremes.
+            let pn = popNorm(h.track)
+            let popularityBonus = popularityBias * ((1 - adv) * pn + adv * (1 - pn) - 0.5)
             let jitter = salt.isEmpty ? 0
                 : Double(RoonClient.seed64("\(salt)\u{1f}\(h.track.id)") % 1000) / 1000.0 * 0.04
 
-            let score = relevance + familiarBonus + discoveryBonus + jitter
+            let score = relevance + familiarBonus + discoveryBonus + popularityBonus + jitter
             scored.append(Scored(track: h.track, emb: emb, score: score,
                                   nearestAnchor: bestAnchor, anchorSim: relAnchor))
         }
@@ -281,6 +300,7 @@ public enum RadioEngine {
     private static let tasteBias: Float = 0.30        // pull toward liked centroid
     private static let tasteVectorBias: Float = 0.35  // pull toward the recency-weighted taste vector
     private static let dislikePush: Float = 0.40      // push away from disliked centroid
+    private static let popularityBias = 0.12          // max ± tilt from the hits↔deep-cuts steer
 
     private static func dot(_ a: [Float], _ b: [Float]) -> Double {
         var d: Float = 0

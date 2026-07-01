@@ -120,6 +120,11 @@ public final class FeatureStore {
             // is resumable and never re-queries a finished album.
             try addColumn("mb_genres", "TEXT")
             try addColumn("mb_checked_at", "TEXT")
+            // Deezer global popularity (`rank`, ~0…1_000_000). `popularity_checked_at`
+            // marks a row as looked up (incl. "found nothing" → popularity NULL) so
+            // the worker is resumable and never re-queries a finished track.
+            try addColumn("popularity", "INTEGER")
+            try addColumn("popularity_checked_at", "TEXT")
 
             // Genre hierarchy (parent ← subgenre), built from MusicBrainz. `parent`
             // is NULL for a root genre (or when MB exposes no relation for it).
@@ -252,13 +257,14 @@ public final class FeatureStore {
         (try? dbQueue.read { db in
             let r = try Row.fetchOne(db, sql: """
                 SELECT COUNT(*) AS c, COUNT(embedding) AS e, COUNT(tags) AS t, COUNT(attributes) AS a,
-                       COUNT(mb_genres) AS g
+                       COUNT(mb_genres) AS g, COUNT(popularity) AS p
                 FROM track_features
             """)
-            // `g` (MB-enriched count) folded in so a feature-sync re-runs as
-            // enrichment progresses — clients pull the new genres automatically.
-            return "\(r?["c"] as Int? ?? 0)/\(r?["e"] as Int? ?? 0)/\(r?["t"] as Int? ?? 0)/\(r?["a"] as Int? ?? 0)/\(r?["g"] as Int? ?? 0)"
-        }) ?? "0/0/0/0/0"
+            // `g` (MB-enriched count) + `p` (popularity count) folded in so a
+            // feature-sync re-runs as enrichment progresses — clients pull the new
+            // genres/popularity automatically.
+            return "\(r?["c"] as Int? ?? 0)/\(r?["e"] as Int? ?? 0)/\(r?["t"] as Int? ?? 0)/\(r?["a"] as Int? ?? 0)/\(r?["g"] as Int? ?? 0)/\(r?["p"] as Int? ?? 0)"
+        }) ?? "0/0/0/0/0/0"
     }
 
     /// Resolve a streamable on-disk file for a track's match key — backs the
@@ -406,6 +412,53 @@ public final class FeatureStore {
         (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(mb_genres) FROM track_features") ?? 0 }) ?? 0
     }
 
+    // MARK: - Deezer popularity enrichment
+
+    /// One analyzed track still needing a popularity lookup.
+    public struct PopularityTrack: Sendable {
+        public let matchKey: String
+        public let artist: String
+        public let title: String
+    }
+
+    /// Up to `limit` analyzed tracks whose popularity hasn't been looked up yet.
+    /// One Deezer search per track; resumable — an interrupted run just re-selects
+    /// the tracks it didn't reach (rows with `popularity_checked_at IS NULL`).
+    public func tracksNeedingPopularity(limit: Int) -> [PopularityTrack] {
+        (try? dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT match_key, artist, title FROM track_features
+                WHERE popularity_checked_at IS NULL AND bpm IS NOT NULL
+                  AND artist IS NOT NULL AND artist != '' AND title IS NOT NULL AND title != ''
+                LIMIT ?
+            """, arguments: [limit])
+        })?.compactMap { r in
+            guard let mk = r["match_key"] as String?,
+                  let artist = r["artist"] as String?, let title = r["title"] as String? else { return nil }
+            return PopularityTrack(matchKey: mk, artist: artist, title: title)
+        } ?? []
+    }
+
+    /// Store a track's popularity and mark it looked up. A nil `popularity` still
+    /// stamps `popularity_checked_at` (so a fruitless lookup isn't retried) but
+    /// leaves the value NULL.
+    public func setPopularity(matchKey: String, popularity: Int?, checkedAt: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE track_features SET popularity = ?, popularity_checked_at = ? WHERE match_key = ?",
+                           arguments: [popularity, checkedAt, matchKey])
+        }
+    }
+
+    /// Tracks looked up (incl. fruitless) — drives the enricher's progress UI.
+    public func popularityCheckedCount() -> Int {
+        (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(popularity_checked_at) FROM track_features") ?? 0 }) ?? 0
+    }
+
+    /// Tracks that got a non-NULL popularity value.
+    public func popularityCount() -> Int {
+        (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(popularity) FROM track_features") ?? 0 }) ?? 0
+    }
+
     public func mbCheckedCount() -> Int {
         (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(mb_checked_at) FROM track_features") ?? 0 }) ?? 0
     }
@@ -532,7 +585,7 @@ public final class FeatureStore {
         let rows = (try? dbQueue.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT match_key, artist, title, album, year, bpm, bpm_confidence, camelot, key_root, key_mode, energy, duration,
-                       tags, moods, attributes, mb_genres, embedding_model\(includeEmbedding ? ", embedding" : "")
+                       tags, moods, attributes, mb_genres, popularity, embedding_model\(includeEmbedding ? ", embedding" : "")
                 FROM track_features WHERE bpm IS NOT NULL
             """)
         }) ?? []
@@ -566,6 +619,7 @@ public final class FeatureStore {
             }
             if let moods = r["moods"] as String? { obj["moods"] = moods }
             if let attributes = r["attributes"] as String? { obj["attributes"] = attributes }
+            if let pop = r["popularity"] as Int?, pop > 0 { obj["popularity"] = pop }
             if let model = r["embedding_model"] as String? { obj["embedding_model"] = model }
             if includeEmbedding, let blob = r["embedding"] as Data? {
                 obj["embedding"] = blob.base64EncodedString()

@@ -17,12 +17,15 @@ extension DatabaseManager {
         public var tags: String?
         public var moods: String?     // JSON {"happy":0.4,…}, from the analyzer
         public var attributes: String? // JSON {"valence":0.6,…}, from the analyzer
+        public var popularity: Int?   // Deezer global rank (~0…1_000_000), from the analyzer
         public init(matchKey: String, bpm: Double?, camelot: String?, keyRoot: String?,
                     keyMode: String?, energy: Double?, duration: Double?, tags: String?,
-                    moods: String? = nil, bpmConfidence: Double? = nil, attributes: String? = nil) {
+                    moods: String? = nil, bpmConfidence: Double? = nil, attributes: String? = nil,
+                    popularity: Int? = nil) {
             self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot; self.keyRoot = keyRoot
             self.keyMode = keyMode; self.energy = energy; self.duration = duration; self.tags = tags
             self.moods = moods; self.bpmConfidence = bpmConfidence; self.attributes = attributes
+            self.popularity = popularity
         }
     }
 
@@ -87,28 +90,30 @@ extension DatabaseManager {
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) async throws {
         guard !rows.isEmpty else { return }
         let iso = Self.isoFormatter.string(from: Date())
-        let chunk = Self.rowsPerChunk(columns: 12)
+        let chunk = Self.rowsPerChunk(columns: 13)
         try await pool.write { db in
             var start = 0
             while start < rows.count {
                 let slice = rows[start..<min(start + chunk, rows.count)]
-                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
                 var args: [DatabaseValueConvertible?] = []
-                args.reserveCapacity(slice.count * 12)
+                args.reserveCapacity(slice.count * 13)
                 for r in slice {
                     args.append(contentsOf: [r.matchKey, r.bpm, r.camelot, r.keyRoot,
                                              r.keyMode, r.energy, r.duration, r.tags, r.moods,
-                                             r.bpmConfidence, r.attributes, iso] as [DatabaseValueConvertible?])
+                                             r.bpmConfidence, r.attributes, r.popularity, iso] as [DatabaseValueConvertible?])
                 }
                 try db.execute(sql: """
                     INSERT INTO track_audio_features
-                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, attributes, synced_at)
+                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, attributes, popularity, synced_at)
                     VALUES \(placeholders)
                     ON CONFLICT(match_key) DO UPDATE SET
                       bpm=excluded.bpm, camelot=excluded.camelot, key_root=excluded.key_root,
                       key_mode=excluded.key_mode, energy=excluded.energy, duration=excluded.duration,
                       tags=excluded.tags, moods=excluded.moods, bpm_confidence=excluded.bpm_confidence,
-                      attributes=excluded.attributes, synced_at=excluded.synced_at
+                      attributes=excluded.attributes,
+                      popularity=COALESCE(excluded.popularity, track_audio_features.popularity),
+                      synced_at=excluded.synced_at
                 """, arguments: StatementArguments(args))
                 start += chunk
             }
@@ -354,17 +359,18 @@ extension DatabaseManager {
         public var attributes: [String: Float]  // valence/danceability/… (zero-shot)
         public var mapX: Double?             // PCA-2D projection (Music Map)
         public var mapY: Double?
+        public var popularity: Int?          // Deezer global rank (~0…1_000_000)
 
         public init(id: String, title: String, artist: String?, album: String?, imageKey: String?,
                     matchKey: String, bpm: Double?, camelot: String, energy: Double?, tags: [String],
                     embedding: [Float]? = nil, moods: [String: Float] = [:],
                     mapX: Double? = nil, mapY: Double? = nil, bpmConfidence: Double? = nil,
-                    attributes: [String: Float] = [:]) {
+                    attributes: [String: Float] = [:], popularity: Int? = nil) {
             self.id = id; self.title = title; self.artist = artist; self.album = album
             self.imageKey = imageKey; self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot
             self.energy = energy; self.tags = tags; self.embedding = embedding; self.moods = moods
             self.mapX = mapX; self.mapY = mapY; self.bpmConfidence = bpmConfidence
-            self.attributes = attributes
+            self.attributes = attributes; self.popularity = popularity
         }
     }
 
@@ -374,7 +380,7 @@ extension DatabaseManager {
         try await pool.read { db in
             var sql = """
                 SELECT t.id, t.title, t.artist, t.album, t.image_key, t.match_key,
-                       f.bpm, f.bpm_confidence, f.camelot, f.energy, f.tags, f.embedding, f.moods, f.attributes, f.map_x, f.map_y
+                       f.bpm, f.bpm_confidence, f.camelot, f.energy, f.tags, f.embedding, f.moods, f.attributes, f.map_x, f.map_y, f.popularity
                 FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
                 WHERE f.match_key IS NOT NULL
             """
@@ -408,7 +414,7 @@ extension DatabaseManager {
                     imageKey: r["image_key"], matchKey: r["match_key"] ?? "",
                     bpm: r["bpm"], camelot: r["camelot"] ?? "", energy: r["energy"], tags: tags,
                     embedding: embedding, moods: moods, mapX: r["map_x"], mapY: r["map_y"],
-                    bpmConfidence: r["bpm_confidence"], attributes: attributes
+                    bpmConfidence: r["bpm_confidence"], attributes: attributes, popularity: r["popularity"]
                 ))
             }
             return out

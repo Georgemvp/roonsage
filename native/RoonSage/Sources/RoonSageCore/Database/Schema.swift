@@ -404,6 +404,13 @@ enum Schema {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_rejections_kind ON discovery_rejections(kind)")
         }
 
+        // Deezer global popularity (`rank`), synced from the analyzer's /features
+        // export. Steers the smart-radio adventurousness dial toward hits (low
+        // dial) or deep cuts (high dial). NULL until the analyzer looks a track up.
+        migrator.registerMigration("v26_track_popularity") { db in
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN popularity INTEGER")
+        }
+
         try migrator.migrate(db)
     }
 }

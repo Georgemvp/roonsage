@@ -15,6 +15,8 @@ final class AnalyzerModel {
     var autoStart: Bool { didSet { UserDefaults.standard.set(autoStart, forKey: "auto_start") } }
     /// Trickle MusicBrainz genre enrichment in the background (rate-limited, resumable).
     var autoEnrich: Bool { didSet { UserDefaults.standard.set(autoEnrich, forKey: "auto_enrich") } }
+    /// Trickle Deezer popularity enrichment in the background (rate-limited, resumable).
+    var autoPopularity: Bool { didSet { UserDefaults.standard.set(autoPopularity, forKey: "auto_popularity") } }
 
     // Analyse-tuning — neemt effect bij de VOLGENDE (re-)analyse, niet met terugwerkende kracht.
     var walkerConcurrency: Int { didSet { UserDefaults.standard.set(walkerConcurrency, forKey: "walker_concurrency") } }
@@ -54,6 +56,9 @@ final class AnalyzerModel {
     private(set) var enrich: EnrichProgress?
     private(set) var isEnriching = false
     private(set) var mbEnrichedCount = 0
+    private(set) var popularity: PopularityProgress?
+    private(set) var isPopularityEnriching = false
+    private(set) var popularityCount = 0
     private(set) var isServing = false
     var status = ""
 
@@ -61,6 +66,7 @@ final class AnalyzerModel {
     private var walker: LibraryWalker?
     private var tagger: Tagger?
     private var enricher: GenreEnricher?
+    private var popularityEnricher: PopularityEnricher?
     private var server: HTTPServer?
     private var clap: CLAPModel?   // loaded off-main once; enables /text-embed
     /// While serving, periodically re-publishes the feature revision so changes
@@ -76,6 +82,7 @@ final class AnalyzerModel {
         port = UserDefaults.standard.string(forKey: "serve_port") ?? "5766"
         autoStart = UserDefaults.standard.object(forKey: "auto_start") as? Bool ?? true
         autoEnrich = UserDefaults.standard.object(forKey: "auto_enrich") as? Bool ?? true
+        autoPopularity = UserDefaults.standard.object(forKey: "auto_popularity") as? Bool ?? true
         walkerConcurrency = UserDefaults.standard.object(forKey: "walker_concurrency") as? Int ?? 3
         excerptSeconds = UserDefaults.standard.object(forKey: "excerpt_seconds") as? Double ?? 120
         analysisSampleRate = UserDefaults.standard.object(forKey: "analysis_sample_rate") as? Double ?? 22050
@@ -100,6 +107,7 @@ final class AnalyzerModel {
         trackCount = store?.count() ?? 0
         taggedCount = store?.taggedCount() ?? 0
         mbEnrichedCount = store?.mbEnrichedCount() ?? 0
+        popularityCount = store?.popularityCount() ?? 0
         // Keep the advertised feature revision in step with the store so remotes
         // re-pull after in-app analysis/backfill completes — not only after a
         // re-serve. Cheap: refresh() runs at completion, never on the poll path.
@@ -128,9 +136,10 @@ final class AnalyzerModel {
             isAnalyzing = false
             refresh()
             status = "Analyzed \(ok), \(failed) failed. \(trackCount) tracks total."
-            // Newly analyzed tracks have no MusicBrainz genres yet — let the
-            // background enricher pick them up (resumable, rate-limited).
+            // Newly analyzed tracks have no MusicBrainz genres / popularity yet —
+            // let the background enrichers pick them up (resumable, rate-limited).
             autoEnrichIfEnabled()
+            autoPopularityIfEnabled()
         }
     }
 
@@ -184,6 +193,37 @@ final class AnalyzerModel {
     func autoEnrichIfEnabled() {
         guard autoEnrich, !isEnriching, store != nil, trackCount > 0 else { return }
         startEnrich()
+    }
+
+    // MARK: - Deezer popularity enrichment
+
+    /// Attach Deezer's global popularity (`rank`) to each analyzed track. Runs
+    /// in-process against the same analyzer.db and bumps the feature-revision
+    /// signature so serving clients re-pull. Rate-limited (~6 req/s), resumable —
+    /// safe to cancel and re-run; only un-checked rows are queried. No auth needed
+    /// (Deezer's public API is keyless — unlike Last.fm/Spotify).
+    func startPopularity() {
+        guard let store, !isPopularityEnriching, trackCount > 0 else { return }
+        isPopularityEnriching = true
+        popularity = nil
+        status = "Populariteit ophalen (Deezer)…"
+        let e = PopularityEnricher(store: store, client: .shared)
+        popularityEnricher = e
+        Task {
+            await e.run { p in Task { @MainActor in self.popularity = p } }
+            isPopularityEnriching = false
+            refresh()
+            status = "Populariteit: \(popularityCount)/\(trackCount) tracks."
+        }
+    }
+
+    func cancelPopularity() { popularityEnricher?.cancel() }
+
+    /// Trickle popularity enrichment in the background when enabled. Exits fast
+    /// when there's nothing left to do, so it's cheap to call on every launch.
+    func autoPopularityIfEnabled() {
+        guard autoPopularity, !isPopularityEnriching, store != nil, trackCount > 0 else { return }
+        startPopularity()
     }
 
     // MARK: - Maintenance & login item
