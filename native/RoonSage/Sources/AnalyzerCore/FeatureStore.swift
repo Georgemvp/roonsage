@@ -26,6 +26,7 @@ public struct TrackFeatureRow: Sendable {
     public var camelot: String
     public var energy: Double
     public var duration: Double
+    public var loudness: Double?      // K-weighted LUFS (BS.1770); nil when uncomputed
     public var tags: String?
     public var analyzedAt: String
     // Track E5 — sonic embedding. `embedding` nil when CLAP unavailable/failed;
@@ -38,14 +39,14 @@ public struct TrackFeatureRow: Sendable {
     public init(matchKey: String, artist: String?, title: String?, album: String?, year: Int?,
                 filePath: String, fileMtime: Double, bpm: Double, bpmConfidence: Double,
                 keyRoot: String, keyMode: String, camelot: String, energy: Double, duration: Double,
-                tags: String?, analyzedAt: String,
+                tags: String?, analyzedAt: String, loudness: Double? = nil,
                 embedding: [Float]? = nil, embeddingModel: String? = nil, moods: String? = nil,
                 attributes: String? = nil) {
         self.matchKey = matchKey; self.artist = artist; self.title = title; self.album = album
         self.year = year; self.filePath = filePath; self.fileMtime = fileMtime; self.bpm = bpm
         self.bpmConfidence = bpmConfidence; self.keyRoot = keyRoot; self.keyMode = keyMode
         self.camelot = camelot; self.energy = energy; self.duration = duration; self.tags = tags
-        self.analyzedAt = analyzedAt
+        self.analyzedAt = analyzedAt; self.loudness = loudness
         self.embedding = embedding; self.embeddingModel = embeddingModel; self.moods = moods
         self.attributes = attributes
     }
@@ -125,6 +126,10 @@ public final class FeatureStore {
             // the worker is resumable and never re-queries a finished track.
             try addColumn("popularity", "INTEGER")
             try addColumn("popularity_checked_at", "TEXT")
+            // F3: perceptual loudness (K-weighted LUFS, BS.1770) — a separate factor
+            // in the DJ-set sequencer, alongside BPM/Camelot/energy. NULL until a
+            // (re-)analysis computes it; the DJ builder falls back when absent.
+            try addColumn("loudness", "REAL")
 
             // Genre hierarchy (parent ← subgenre), built from MusicBrainz. `parent`
             // is NULL for a root genre (or when MB exposes no relation for it).
@@ -231,8 +236,8 @@ public final class FeatureStore {
                     INSERT INTO track_features
                       (match_key, artist, title, album, year, file_path, file_mtime,
                        bpm, bpm_confidence, key_root, key_mode, camelot, energy, duration, tags, analyzed_at,
-                       embedding, embedding_model, moods, attributes)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       embedding, embedding_model, moods, attributes, loudness)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(match_key) DO UPDATE SET
                       artist=excluded.artist, title=excluded.title, album=excluded.album, year=excluded.year,
                       file_path=excluded.file_path, file_mtime=excluded.file_mtime,
@@ -240,11 +245,11 @@ public final class FeatureStore {
                       key_root=excluded.key_root, key_mode=excluded.key_mode, camelot=excluded.camelot,
                       energy=excluded.energy, duration=excluded.duration, analyzed_at=excluded.analyzed_at,
                       embedding=excluded.embedding, embedding_model=excluded.embedding_model, moods=excluded.moods,
-                      attributes=excluded.attributes
+                      attributes=excluded.attributes, loudness=excluded.loudness
                 """, arguments: [
                     r.matchKey, r.artist, r.title, r.album, r.year, r.filePath, r.fileMtime,
                     r.bpm, r.bpmConfidence, r.keyRoot, r.keyMode, r.camelot, r.energy, r.duration, r.tags, r.analyzedAt,
-                    r.embedding.map(Self.blob), r.embeddingModel, r.moods, r.attributes,
+                    r.embedding.map(Self.blob), r.embeddingModel, r.moods, r.attributes, r.loudness,
                 ])
             }
         }
@@ -611,6 +616,7 @@ public final class FeatureStore {
                 "duration": r["duration"] as Double? ?? 0,
             ]
             if let year = r["year"] as Int?, year > 0 { obj["year"] = year }
+            if let loudness = r["loudness"] as Double? { obj["loudness"] = loudness }
             if let tags = r["tags"] as String? { obj["tags"] = tags }
             // MusicBrainz genres as an actual array (the app parses it directly).
             if let mbg = r["mb_genres"] as String?, let d = mbg.data(using: .utf8),
@@ -670,6 +676,7 @@ public final class FeatureStore {
             bpm: r["bpm"] ?? 0, bpmConfidence: r["bpm_confidence"] ?? 0,
             keyRoot: r["key_root"] ?? "", keyMode: r["key_mode"] ?? "", camelot: r["camelot"] ?? "",
             energy: r["energy"] ?? 0, duration: r["duration"] ?? 0, tags: r["tags"], analyzedAt: r["analyzed_at"] ?? "",
+            loudness: r["loudness"],
             embedding: (r["embedding"] as Data?).map(FeatureStore.floats),
             embeddingModel: r["embedding_model"], moods: r["moods"], attributes: r["attributes"]
         )

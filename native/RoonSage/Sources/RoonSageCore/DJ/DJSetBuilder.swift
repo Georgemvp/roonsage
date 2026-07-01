@@ -28,18 +28,20 @@ public struct DJSetBuilder {
         var result: [DatabaseManager.DJCandidate] = []
         var recentArtists: [String] = []
         var prevCamelot: String?
+        var prevLoudness: Double?
 
         for i in 0..<n {
             var bestIdx = 0
             var bestScore = Double.infinity
             for (idx, c) in pool.enumerated() {
                 let s = score(c, targetBPM: bpmTargets[i], targetEnergy: energyTargets[i],
-                              prevCamelot: prevCamelot, recentArtists: recentArtists)
+                              prevCamelot: prevCamelot, prevLoudness: prevLoudness, recentArtists: recentArtists)
                 if s < bestScore { bestScore = s; bestIdx = idx }
             }
             let chosen = pool.remove(at: bestIdx)
             result.append(chosen)
             prevCamelot = chosen.camelot
+            prevLoudness = chosen.loudness
             recentArtists.append(chosen.artist ?? "")
             if recentArtists.count > 8 { recentArtists.removeFirst() }
             if pool.isEmpty { break }
@@ -55,7 +57,7 @@ public struct DJSetBuilder {
 
     private static func score(
         _ c: DatabaseManager.DJCandidate, targetBPM: Double, targetEnergy: Double,
-        prevCamelot: String?, recentArtists: [String]
+        prevCamelot: String?, prevLoudness: Double?, recentArtists: [String]
     ) -> Double {
         let bpm = effectiveBPM(c.bpm, target: targetBPM)
         let bpmPen = abs(bpm - targetBPM) / 4.0
@@ -71,7 +73,19 @@ public struct DJSetBuilder {
             if c.camelot == prev { harmonic = -0.05 }
             else if Camelot.compatible(prev).contains(c.camelot) { harmonic = -0.25 }
         }
-        return 1.2 * bpmPen + 0.8 * energyPen + artistPen + harmonic
+
+        // Loudness continuity (F3): a SMALL nudge away from big perceived-level jumps
+        // between consecutive tracks, so a quiet ballad doesn't slam into a loud
+        // banger. A separate concern from the energy arc (which tracks a target
+        // curve); this only compares to the previous pick. Fully skipped — behaviour
+        // identical to before — when either track lacks a loudness value (~6 LU is a
+        // clearly audible jump; capped so an outlier can't dominate the score).
+        var loudnessPen = 0.0
+        if let prev = prevLoudness, let cur = c.loudness {
+            loudnessPen = min(1.5, abs(cur - prev) / 6.0)
+        }
+
+        return 1.2 * bpmPen + 0.8 * energyPen + artistPen + harmonic + 0.25 * loudnessPen
     }
 
     // MARK: - Curves

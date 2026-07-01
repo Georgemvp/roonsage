@@ -431,6 +431,14 @@ enum Schema {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_discover_weekly_generated ON discover_weekly(generated_at DESC)")
         }
 
+        // F3: perceptual loudness (K-weighted LUFS, BS.1770), synced from the
+        // analyzer's /features export. A separate factor in the DJ-set sequencer
+        // (alongside BPM/Camelot/energy) to smooth level jumps between tracks. NULL
+        // until the analyzer computes it; the DJ builder falls back when absent.
+        migrator.registerMigration("v28_track_loudness") { db in
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN loudness REAL")
+        }
+
         try migrator.migrate(db)
     }
 }

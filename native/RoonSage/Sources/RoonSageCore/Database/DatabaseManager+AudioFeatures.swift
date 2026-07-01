@@ -18,14 +18,15 @@ extension DatabaseManager {
         public var moods: String?     // JSON {"happy":0.4,…}, from the analyzer
         public var attributes: String? // JSON {"valence":0.6,…}, from the analyzer
         public var popularity: Int?   // Deezer global rank (~0…1_000_000), from the analyzer
+        public var loudness: Double?  // K-weighted LUFS (BS.1770), from the analyzer
         public init(matchKey: String, bpm: Double?, camelot: String?, keyRoot: String?,
                     keyMode: String?, energy: Double?, duration: Double?, tags: String?,
                     moods: String? = nil, bpmConfidence: Double? = nil, attributes: String? = nil,
-                    popularity: Int? = nil) {
+                    popularity: Int? = nil, loudness: Double? = nil) {
             self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot; self.keyRoot = keyRoot
             self.keyMode = keyMode; self.energy = energy; self.duration = duration; self.tags = tags
             self.moods = moods; self.bpmConfidence = bpmConfidence; self.attributes = attributes
-            self.popularity = popularity
+            self.popularity = popularity; self.loudness = loudness
         }
     }
 
@@ -90,22 +91,22 @@ extension DatabaseManager {
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) async throws {
         guard !rows.isEmpty else { return }
         let iso = Self.isoFormatter.string(from: Date())
-        let chunk = Self.rowsPerChunk(columns: 13)
+        let chunk = Self.rowsPerChunk(columns: 14)
         try await pool.write { db in
             var start = 0
             while start < rows.count {
                 let slice = rows[start..<min(start + chunk, rows.count)]
-                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
                 var args: [DatabaseValueConvertible?] = []
-                args.reserveCapacity(slice.count * 13)
+                args.reserveCapacity(slice.count * 14)
                 for r in slice {
                     args.append(contentsOf: [r.matchKey, r.bpm, r.camelot, r.keyRoot,
                                              r.keyMode, r.energy, r.duration, r.tags, r.moods,
-                                             r.bpmConfidence, r.attributes, r.popularity, iso] as [DatabaseValueConvertible?])
+                                             r.bpmConfidence, r.attributes, r.popularity, r.loudness, iso] as [DatabaseValueConvertible?])
                 }
                 try db.execute(sql: """
                     INSERT INTO track_audio_features
-                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, attributes, popularity, synced_at)
+                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, attributes, popularity, loudness, synced_at)
                     VALUES \(placeholders)
                     ON CONFLICT(match_key) DO UPDATE SET
                       bpm=excluded.bpm, camelot=excluded.camelot, key_root=excluded.key_root,
@@ -113,6 +114,7 @@ extension DatabaseManager {
                       tags=excluded.tags, moods=excluded.moods, bpm_confidence=excluded.bpm_confidence,
                       attributes=excluded.attributes,
                       popularity=COALESCE(excluded.popularity, track_audio_features.popularity),
+                      loudness=COALESCE(excluded.loudness, track_audio_features.loudness),
                       synced_at=excluded.synced_at
                 """, arguments: StatementArguments(args))
                 start += chunk
@@ -301,6 +303,7 @@ extension DatabaseManager {
         public var bpm: Double
         public var camelot: String
         public var energy: Double
+        public var loudness: Double?    // K-weighted LUFS; nil → loudness ignored in sequencing
         public var tags: String?
         public var imageKey: String?
     }
@@ -310,7 +313,7 @@ extension DatabaseManager {
     public func djCandidates(minBPM: Double, maxBPM: Double, tags: [String], excludeLive: Bool) async throws -> [DJCandidate] {
         try await pool.read { db in
             var sql = """
-                SELECT t.id, t.title, t.artist, t.album, t.image_key, f.bpm, f.camelot, f.energy, f.tags
+                SELECT t.id, t.title, t.artist, t.album, t.image_key, f.bpm, f.camelot, f.energy, f.loudness, f.tags
                 FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
                 WHERE f.bpm IS NOT NULL AND (
                       (f.bpm BETWEEN ? AND ?) OR (f.bpm/2.0 BETWEEN ? AND ?) OR (f.bpm*2.0 BETWEEN ? AND ?)
@@ -334,7 +337,8 @@ extension DatabaseManager {
                 seen.insert(dedup)
                 result.append(DJCandidate(
                     id: r["id"] ?? "", title: title, artist: artist, album: r["album"],
-                    bpm: r["bpm"] ?? 0, camelot: r["camelot"] ?? "", energy: r["energy"] ?? 0.5, tags: r["tags"],
+                    bpm: r["bpm"] ?? 0, camelot: r["camelot"] ?? "", energy: r["energy"] ?? 0.5,
+                    loudness: r["loudness"], tags: r["tags"],
                     imageKey: r["image_key"]
                 ))
             }

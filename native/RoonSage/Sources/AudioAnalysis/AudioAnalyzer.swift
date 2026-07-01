@@ -9,6 +9,7 @@ public struct AudioFeatures: Sendable, Codable {
     public var camelot: String       // "8A", "5B", …
     public var energy: Double        // RMS, 0…1-ish
     public var durationSec: Double
+    public var loudness: Double?     // K-weighted LUFS (BS.1770); nil when uncomputed
 
     // v13-era sonic embedding (Track E5). Empty when CLAP is unavailable.
     public var embedding: [Float] = []                 // 512-dim, L2-normalized
@@ -17,13 +18,13 @@ public struct AudioFeatures: Sendable, Codable {
     public var embeddingModelVersion: String = ""      // e.g. "clap-…-v1"
 
     public init(bpm: Double, bpmConfidence: Double, keyRoot: String, keyMode: String,
-                camelot: String, energy: Double, durationSec: Double,
+                camelot: String, energy: Double, durationSec: Double, loudness: Double? = nil,
                 embedding: [Float] = [], moods: [String: Float] = [:],
                 attributes: [String: Float] = [:],
                 embeddingModelVersion: String = "") {
         self.bpm = bpm; self.bpmConfidence = bpmConfidence
         self.keyRoot = keyRoot; self.keyMode = keyMode; self.camelot = camelot
-        self.energy = energy; self.durationSec = durationSec
+        self.energy = energy; self.durationSec = durationSec; self.loudness = loudness
         self.embedding = embedding; self.moods = moods; self.attributes = attributes
         self.embeddingModelVersion = embeddingModelVersion
     }
@@ -42,6 +43,7 @@ public struct AudioFeatures: Sendable, Codable {
         moods = try c.decodeIfPresent([String: Float].self, forKey: .moods) ?? [:]
         attributes = try c.decodeIfPresent([String: Float].self, forKey: .attributes) ?? [:]
         embeddingModelVersion = try c.decodeIfPresent(String.self, forKey: .embeddingModelVersion) ?? ""
+        loudness = try c.decodeIfPresent(Double.self, forKey: .loudness)
     }
 }
 
@@ -91,6 +93,7 @@ public struct AudioAnalyzer {
             camelot: Camelot.code(rootIndex: key.rootIndex, mode: key.mode),
             energy: rms(audio.samples),
             durationSec: audio.fullDurationSec > 0 ? audio.fullDurationSec : audio.duration,
+            loudness: LoudnessAnalyzer.integratedLUFS(audio.samples, sampleRate: audio.sampleRate),
             embedding: embedding,
             moods: moods,
             attributes: attributes,

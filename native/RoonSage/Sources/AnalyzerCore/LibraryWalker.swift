@@ -161,7 +161,7 @@ public final class LibraryWalker {
                 filePath: url.path, fileMtime: mtime,
                 bpm: f.bpm, bpmConfidence: f.bpmConfidence, keyRoot: f.keyRoot, keyMode: f.keyMode,
                 camelot: f.camelot, energy: f.energy, duration: f.durationSec,
-                tags: nil, analyzedAt: isoFormatter.string(from: Date()),
+                tags: nil, analyzedAt: isoFormatter.string(from: Date()), loudness: f.loudness,
                 embedding: f.embedding.isEmpty ? nil : f.embedding,
                 // Stamp the current model version whenever CLAP ran (even on a
                 // failed embed) so the file isn't re-tried every walk; nil when
