@@ -41,6 +41,9 @@ struct RoonSageAnalyzerApp: App {
             .task { client.startArtistRadioRefresh() }
             // The server builds the daily "Ontdekkingen" discovery feed.
             .task { client.startDiscoveryRefresh() }
+            // …and, on the configured weekday, bundles the week's best pending
+            // recommendations into a dated Qobuz digest playlist.
+            .task { client.startDigestSchedule() }
             // Pull analyzed features (tags/year/embeddings) into library.db so they
             // reach the library without the manual Settings "Sync features" button.
             .task { client.startServerFeatureSync() }

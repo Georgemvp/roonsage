@@ -17,6 +17,13 @@ extension RoonClient {
     nonisolated static let discoveryRefreshInterval: UInt64 = 24 * 60 * 60 * 1_000_000_000
     /// Max recommendations kept per batch.
     nonisolated static let discoveryMaxItems = 60
+    /// Batches kept after pruning (F12b: the weekly digest draws from every
+    /// retained batch, so this must span at least a week of daily runs).
+    nonisolated static let discoveryBatchRetention = 14
+    /// How often the digest scheduler checks whether today is digest day.
+    nonisolated static let discoveryDigestCheckInterval: UInt64 = 60 * 60 * 1_000_000_000
+    /// Albums kept in the weekly digest playlist.
+    nonisolated static let discoveryDigestSize = 20
 
     /// The producers that run each pipeline pass. Ships every Last.fm/MusicBrainz/
     /// ListenBrainz/AI producer; the gated Deezer/Spotify/Discogs producers (each
@@ -64,6 +71,33 @@ extension RoonClient {
         guard !disabled.isEmpty else { return Self.discoveryProducers }
         let filtered = Self.discoveryProducers.filter { !disabled.contains($0.id) }
         return filtered.isEmpty ? Self.discoveryProducers : filtered
+    }
+
+    // MARK: - Weekly digest (F12b)
+
+    /// Which weekday builds the digest playlist (`Calendar` weekday numbering:
+    /// 1 = Sunday … 7 = Saturday, Gregorian). Default 2 (Monday).
+    public var discoveryDigestWeekday: Int {
+        get { (UserDefaults.standard.object(forKey: "discovery_digest_weekday") as? Int) ?? 2 }
+        set { UserDefaults.standard.set(min(7, max(1, newValue)), forKey: "discovery_digest_weekday") }
+    }
+
+    /// The most recently built digest (nil until the first one runs). Single
+    /// JSON-encoded value rather than four scalar keys — one source of truth for
+    /// both the server's own bookkeeping and the `/discovery/digest-status` wire
+    /// format (same struct, no separate DTO).
+    public var discoveryLastDigest: DiscoveryDigestStatus? {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: "discovery_last_digest") else { return nil }
+            return try? JSONDecoder().decode(DiscoveryDigestStatus.self, from: data)
+        }
+        set {
+            guard let newValue, let data = try? JSONEncoder().encode(newValue) else {
+                UserDefaults.standard.removeObject(forKey: "discovery_last_digest")
+                return
+            }
+            UserDefaults.standard.set(data, forKey: "discovery_last_digest")
+        }
     }
 
     // MARK: - Wire DTO
@@ -282,7 +316,10 @@ extension RoonClient {
             return nil
         }
         let batchID = try? await db.storeRecommendationBatch(stored, trigger: effectiveTrigger, tasteSig: tasteSig)
-        try? await db.pruneOldBatches(keeping: 3)
+        // Kept at 14 (not 3) so the weekly digest (F12b) — which draws from every
+        // RETAINED batch, not just the newest — has a full week of daily runs to
+        // pick highlights from even right before its own scheduled day.
+        try? await db.pruneOldBatches(keeping: Self.discoveryBatchRetention)
         Log.info("Ontdekkingen (\(effectiveTrigger)): \(stored.count) aanbevelingen opgeslagen (batch \(batchID.map(String.init) ?? "?"))", category: .roon)
         if batchID != nil { await generateExplanations(db: db, llmConfig: llmConfig, count: stored.count) }
         return batchID
@@ -536,5 +573,100 @@ extension RoonClient {
     public func stopDiscoveryRefresh() {
         discoveryRefreshTask?.cancel()
         discoveryRefreshTask = nil
+    }
+
+    // MARK: - Weekly digest scheduler (F12b, server build)
+
+    /// Hourly-checked weekday watch for the digest. Hourly (not daily-exact) so a
+    /// server that was asleep/offline right at midnight still catches "today is
+    /// the day" within the hour, same posture as the discovery refresh's own
+    /// startup grace.
+    public func startDigestSchedule() {
+        guard controlMode == .direct, digestScheduleTask == nil else { return }
+        digestScheduleTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)   // let the library settle first
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.buildWeeklyDigestIfDue()
+                try? await Task.sleep(nanoseconds: Self.discoveryDigestCheckInterval)
+            }
+        }
+        Log.info("Ontdekkingen-digest scheduler gestart (elk uur gecontroleerd)", category: .roon)
+    }
+
+    public func stopDigestSchedule() {
+        digestScheduleTask?.cancel()
+        digestScheduleTask = nil
+    }
+
+    /// Builds this week's digest playlist if today is the configured weekday AND
+    /// this ISO week hasn't been built yet. The strongest still-pending album
+    /// recommendations across every retained batch (`DigestSelection.top`) are
+    /// saved into a dated Qobuz playlist ("Ontdekkingen — 2026-W27"); `appendAlbumToPlaylist`
+    /// finds-or-creates by exact name, so repeat calls within the same week are
+    /// additive/idempotent-safe rather than duplicating a playlist. On any skip
+    /// path the watermark is left untouched so the next hourly check retries —
+    /// only a successful (or genuinely empty) build advances it.
+    func buildWeeklyDigestIfDue(now: Date = Date()) async {
+        guard controlMode == .direct, let db = database else { return }
+        guard Calendar.current.component(.weekday, from: now) == discoveryDigestWeekday else { return }
+        let weekKey = DigestSelection.weekKey(for: now)
+        guard discoveryLastDigest?.week != weekKey else { return }   // already built this week
+
+        let candidates = (try? await db.recentPendingAlbumRecommendations()) ?? []
+        let top = DigestSelection.top(candidates, limit: Self.discoveryDigestSize)
+        let builtAt = ISO8601DateFormatter().string(from: now)
+
+        guard !top.isEmpty else {
+            discoveryLastDigest = DiscoveryDigestStatus(week: weekKey, count: 0, playlistName: nil, builtAt: builtAt)
+            Log.info("Ontdekkingen-digest (\(weekKey)): geen wachtende albums om te bundelen", category: .roon)
+            return
+        }
+        guard let email = KeychainStore.load(key: "qobuz_email"), !email.isEmpty,
+              let password = KeychainStore.load(key: "qobuz_password"), !password.isEmpty else {
+            Log.info("Ontdekkingen-digest (\(weekKey)): Qobuz niet ingesteld — overgeslagen (watermark niet gezet, volgende controle probeert opnieuw)", category: .roon)
+            return
+        }
+
+        let playlistName = "Ontdekkingen — \(weekKey)"
+        var saved = 0
+        for candidate in top {
+            guard let qid = candidate.qobuzAlbumID, !qid.isEmpty else { continue }
+            let ok = await QobuzClient.shared.appendAlbumToPlaylist(
+                name: playlistName, description: "Wekelijkse Ontdekkingen-selectie van RoonSage.",
+                albumID: qid, email: email, password: password)
+            if ok { saved += 1 }
+        }
+        guard saved > 0 else {
+            Log.warning("Ontdekkingen-digest (\(weekKey)): Qobuz-opslag mislukte voor alle \(top.count) albums — watermark niet gezet", category: .network)
+            return
+        }
+        discoveryLastDigest = DiscoveryDigestStatus(week: weekKey, count: saved, playlistName: playlistName, builtAt: builtAt)
+        Log.info("Ontdekkingen-digest (\(weekKey)): \(saved) albums opgeslagen naar '\(playlistName)'", category: .roon)
+    }
+
+    // MARK: - Digest status (client + server)
+
+    /// The most recent digest. Server reads its own bookkeeping; clients pull
+    /// `/discovery/digest-status`.
+    public func discoveryDigestStatus() async -> DiscoveryDigestStatus {
+        if isRemote { return await fetchDigestStatusFromServer() }
+        return discoveryLastDigest ?? DiscoveryDigestStatus(week: nil, count: 0, playlistName: nil, builtAt: nil)
+    }
+
+    public func discoveryDigestStatusData() async -> Data {
+        let status = discoveryLastDigest ?? DiscoveryDigestStatus(week: nil, count: 0, playlistName: nil, builtAt: nil)
+        return (try? JSONEncoder().encode(status)) ?? Data("{}".utf8)
+    }
+
+    private func fetchDigestStatusFromServer() async -> DiscoveryDigestStatus {
+        let empty = DiscoveryDigestStatus(week: nil, count: 0, playlistName: nil, builtAt: nil)
+        guard let base = remoteBaseURL, let url = URL(string: "\(base)/discovery/digest-status") else { return empty }
+        var req = URLRequest(url: url); req.timeoutInterval = 10
+        authorizeShareRequest(&req)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let status = try? JSONDecoder().decode(DiscoveryDigestStatus.self, from: data) else { return empty }
+        return status
     }
 }

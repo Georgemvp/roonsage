@@ -165,6 +165,21 @@ public struct DiscoveryStatsDTO: Codable, Sendable {
     }
 }
 
+/// The most recent weekly digest (F12b) — persisted server-side (`RoonClient.
+/// discoveryLastDigest`) and served over `GET /discovery/digest-status`. Each
+/// client compares `week` against its OWN locally-acknowledged week to decide
+/// whether to fire a local "N new discoveries" notification, so a Mac + iPhone
+/// both notify independently without a shared "seen" flag.
+public struct DiscoveryDigestStatus: Codable, Sendable {
+    public var week: String?          // ISO week key, e.g. "2026-W27"; nil = none built yet
+    public var count: Int             // albums saved into that week's playlist
+    public var playlistName: String?
+    public var builtAt: String?
+    public init(week: String?, count: Int, playlistName: String?, builtAt: String?) {
+        self.week = week; self.count = count; self.playlistName = playlistName; self.builtAt = builtAt
+    }
+}
+
 // MARK: - Dedup key
 
 public enum DiscoveryKey {

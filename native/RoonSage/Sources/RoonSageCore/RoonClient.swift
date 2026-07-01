@@ -125,6 +125,9 @@ public final class RoonClient {
     /// Guards against overlapping pipeline runs (a manual /discovery/run while the
     /// scheduled one is mid-flight).
     var discoveryRunning = false
+    /// Hourly weekday watch for the weekly digest (F12b). Same declared-
+    /// unconditionally-but-.direct-only pattern as `discoveryRefreshTask`.
+    var digestScheduleTask: Task<Void, Never>?
     /// The last successfully synced set of AI radios, keyed by `RadioCategory`
     /// rawValue. Served to client apps via /artist-radios?category=… so iOS/macOS
     /// always show the same playlists as Qobuz.

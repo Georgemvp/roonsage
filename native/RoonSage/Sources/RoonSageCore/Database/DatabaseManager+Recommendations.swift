@@ -230,6 +230,27 @@ extension DatabaseManager {
         }
     }
 
+    /// Pending album-kind recommendations, Qobuz-resolved, across EVERY retained
+    /// batch (not just the newest) — the material the weekly digest (F12b) picks
+    /// its highlights from. `DigestSelection.top` handles dedup + ranking.
+    public func recentPendingAlbumRecommendations(limit: Int = 300) async throws -> [DigestSelection.Candidate] {
+        try await pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT dedup_key, artist, album, qobuz_album_id, score FROM recommendation_items
+                WHERE kind = 'album' AND status = 'pending'
+                  AND qobuz_album_id IS NOT NULL AND qobuz_album_id <> ''
+                ORDER BY score DESC LIMIT ?
+            """, arguments: [limit])
+            return rows.compactMap { r -> DigestSelection.Candidate? in
+                guard let dedup = r["dedup_key"] as String?, let artist = r["artist"] as String?,
+                      let album = r["album"] as String? else { return nil }
+                return DigestSelection.Candidate(dedupKey: dedup, artist: artist, album: album,
+                                                 qobuzAlbumID: r["qobuz_album_id"] as String?,
+                                                 score: r["score"] as Double? ?? 0)
+            }
+        }
+    }
+
     // MARK: - Rejections (block + cooldown)
 
     public func recordRejection(dedupKey: String, kind: RecommendationKind, artist: String,

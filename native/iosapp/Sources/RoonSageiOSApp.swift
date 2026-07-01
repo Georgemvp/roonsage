@@ -85,6 +85,7 @@ struct RoonSageiOSApp: App {
                     if client.hasInterruptedSync, client.connectionState.isConnected {
                         client.startSync()
                     }
+                    Task { await DiscoveryDigestNotifier.checkOnForeground(client: client) }
                 }
                 .onChange(of: client.connectionState.isConnected) { _, connected in
                     if connected, scenePhase == .active, client.hasInterruptedSync {

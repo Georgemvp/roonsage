@@ -30,6 +30,7 @@ struct RoonSageApp: App {
                     }
                 }
                 .task { await checkForUpdatesOnLaunch() }
+                .task { await DiscoveryDigestNotifier.checkOnForeground(client: client) }
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
