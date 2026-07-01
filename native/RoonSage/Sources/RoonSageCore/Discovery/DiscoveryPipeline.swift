@@ -109,17 +109,20 @@ struct DiscoveryPipeline {
             }
         }
 
-        // 3c. Resolve artist-kind items to a representative Qobuz cover — they
-        // have no specific album to play, so the feed would otherwise show a
-        // placeholder icon for every artist recommendation (the large majority
-        // of a typical batch).
+        // 3c. Backfill a representative Qobuz cover for every item still missing
+        // art — both `.artist`-kind (which never had a specific album to resolve)
+        // and `.album`-kind items whose exact album didn't match on Qobuz in 3b
+        // (strict title+artist scoring, so a fair share legitimately miss). Both
+        // would otherwise show a placeholder icon; the artist's cover is a good
+        // enough stand-in and keeps the feed visual. Album-kind items keep their
+        // (still-nil) qobuzAlbumID here — this only fills art, not playability.
         if let creds = qobuzCreds {
-            let artistWants = resolved.enumerated().compactMap { idx, it -> (key: String, artist: String)? in
-                guard it.kind == .artist, it.imageURL == nil else { return nil }
+            let coverWants = resolved.enumerated().compactMap { idx, it -> (key: String, artist: String)? in
+                guard it.imageURL == nil else { return nil }
                 return (key: String(idx), artist: it.artist)
             }
-            if !artistWants.isEmpty {
-                let covers = await QobuzClient.shared.resolveArtistCovers(artistWants, email: creds.email, password: creds.password)
+            if !coverWants.isEmpty {
+                let covers = await QobuzClient.shared.resolveArtistCovers(coverWants, email: creds.email, password: creds.password)
                 for (keyStr, url) in covers {
                     guard let idx = Int(keyStr), resolved.indices.contains(idx) else { continue }
                     resolved[idx].imageURL = url.absoluteString
