@@ -86,12 +86,17 @@ public struct ProducerContext: Sendable {
     /// Max candidates a single producer should emit per run (keeps MB resolve
     /// within its rate budget).
     public var perProducerLimit: Int
+    /// F12a mood-seeded run: the raw CLAP mood key (e.g. "sad", "aggressive") the
+    /// user asked for, so a producer that can reason about vibe (currently just
+    /// `AIPicksProducer`) can lean into it. Most producers ignore this — the mood
+    /// bias mainly happens upstream, in which SEED artists `DiscoverySeeds` carries.
+    public var mood: String?
 
     public init(lastfm: LastfmCredentials? = nil, listenBrainz: ListenBrainzCredentials? = nil,
                 musicBrainz: MusicBrainzDiscoveryClient, llmConfig: LLMConfig = LLMConfig(),
-                perProducerLimit: Int = 40) {
+                perProducerLimit: Int = 40, mood: String? = nil) {
         self.lastfm = lastfm; self.listenBrainz = listenBrainz; self.musicBrainz = musicBrainz
-        self.llmConfig = llmConfig; self.perProducerLimit = perProducerLimit
+        self.llmConfig = llmConfig; self.perProducerLimit = perProducerLimit; self.mood = mood
     }
 }
 

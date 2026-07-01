@@ -41,10 +41,16 @@ public struct AIPicksProducer: DiscoveryProducer {
         recommending the artist generally. "confidence" is your certainty this fits their taste, 0.0-1.0. \
         NEVER repeat an artist already listed as known. Prefer real, existing artists/albums only.
         """
+        // F12a mood-seeded run: nudge the picks toward the requested vibe without
+        // abandoning taste-fit — "still sounds like them, just moodier", not "any
+        // artist that is generically \(mood)".
+        let moodLine = context.mood.map {
+            "\nLean the picks toward a \($0) mood/vibe, while still fitting the taste profile above."
+        } ?? ""
         let user = """
         Artists already known (do not repeat): \(knownList.prefix(40).joined(separator: ", "))
         Artists they particularly like: \(liked.isEmpty ? "n/a" : liked.joined(separator: ", "))
-        Artists they dislike (avoid similar): \(disliked.isEmpty ? "n/a" : disliked.joined(separator: ", "))
+        Artists they dislike (avoid similar): \(disliked.isEmpty ? "n/a" : disliked.joined(separator: ", "))\(moodLine)
         """
 
         guard let raw = try? await LLMClient.shared.complete(

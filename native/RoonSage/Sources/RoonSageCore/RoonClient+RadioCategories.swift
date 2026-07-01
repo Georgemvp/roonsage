@@ -168,9 +168,16 @@ extension RoonClient {
 
     // MARK: Mood
 
+    /// The mood keys the shipped CLAP model actually scores (`clap_mel.json`'s
+    /// `mood_labels`) — a small, real subset of the defensive translation table
+    /// below, which also covers labels a future model config might add. This is
+    /// the list to offer as PICKABLE options (e.g. the Discovery mood-seed menu);
+    /// `moodLabel` remains the general-purpose translator for any key.
+    public nonisolated static let knownMoodKeys = ["danceable", "aggressive", "happy", "party", "relaxed", "sad"]
+
     /// Dutch labels for the analyzer's mood dimensions; falls back to a capitalised
     /// key for any mood we don't have a translation for.
-    private nonisolated static func moodLabel(_ key: String) -> String {
+    public nonisolated static func moodLabel(_ key: String) -> String {
         let map: [String: String] = [
             "happy": "Vrolijk", "sad": "Melancholisch", "melancholic": "Melancholisch",
             "energetic": "Energiek", "calm": "Kalm", "relaxed": "Ontspannen",

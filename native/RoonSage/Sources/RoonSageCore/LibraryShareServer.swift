@@ -318,7 +318,10 @@ public final class LibraryShareServer: @unchecked Sendable {
                       : ("400 Bad Request", Data("bad discovery action".utf8), "text/plain")
         }
         if method == "POST", path.hasPrefix("/discovery/run") {
-            await RoonClient.shared.runDiscoveryNow()
+            // F12a: an optional mood seed rides along in the body. Absent/
+            // undecodable body → nil mood, identical to the pre-F12a behaviour.
+            let mood = (try? JSONDecoder().decode(RoonClient.DiscoveryRunRequest.self, from: body))?.mood
+            await RoonClient.shared.runDiscoveryNow(mood: mood)
             return ("200 OK", Data("{\"ok\":true}".utf8), "application/json")
         }
         if path.hasPrefix("/discovery/run-status") {

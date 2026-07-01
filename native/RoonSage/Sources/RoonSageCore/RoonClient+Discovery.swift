@@ -78,6 +78,15 @@ extension RoonClient {
         }
     }
 
+    /// POST body for `/discovery/run` (F12a: optional mood seed).
+    public struct DiscoveryRunRequest: Codable, Sendable {
+        public var trigger: String
+        public var mood: String?
+        public init(trigger: String = "manual", mood: String? = nil) {
+            self.trigger = trigger; self.mood = mood
+        }
+    }
+
     // MARK: - Public API (client + server)
 
     /// The current recommendation feed (newest complete batch). Server reads its
@@ -115,18 +124,21 @@ extension RoonClient {
     }
 
     /// Kick a fresh pipeline run. Server runs it detached; clients POST the trigger.
-    public func triggerDiscoveryRun() async {
+    /// `mood` (F12a): a raw CLAP mood key (`RoonClient.knownMoodKeys`) that biases
+    /// the seed toward artists whose owned tracks best fit that vibe — "iets als X
+    /// maar donkerder". Nil runs exactly as before.
+    public func triggerDiscoveryRun(mood: String? = nil) async {
         if isRemote {
             guard let base = remoteBaseURL, let url = URL(string: "\(base)/discovery/run") else { return }
             var req = URLRequest(url: url); req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = Data("{\"trigger\":\"manual\"}".utf8)
+            req.httpBody = try? JSONEncoder().encode(DiscoveryRunRequest(trigger: "manual", mood: mood))
             req.timeoutInterval = 15
             authorizeShareRequest(&req)
             _ = try? await URLSession.shared.data(for: req)
             return
         }
-        runDiscoveryNow()
+        runDiscoveryNow(mood: mood)
     }
 
     public func acceptRecommendation(_ id: Int64) async {
@@ -147,15 +159,17 @@ extension RoonClient {
     // MARK: - Server: pipeline run
 
     /// Fire-and-forget manual run (server build). Guarded against overlap.
-    public func runDiscoveryNow() {
+    public func runDiscoveryNow(mood: String? = nil) {
         guard controlMode == .direct else { return }
-        Task { [weak self] in _ = await self?.runDiscoveryPipeline(trigger: "manual") }
+        Task { [weak self] in _ = await self?.runDiscoveryPipeline(trigger: "manual", mood: mood) }
     }
 
     /// Assemble the pipeline inputs from the DB + Keychain + feedback, run it, and
-    /// store the batch. Returns the new batch id (or nil on skip/failure).
+    /// store the batch. Returns the new batch id (or nil on skip/failure). `mood`
+    /// (F12a) biases the seed toward artists whose owned tracks best fit that vibe;
+    /// nil runs exactly as before F12a.
     @discardableResult
-    func runDiscoveryPipeline(trigger: String) async -> Int64? {
+    func runDiscoveryPipeline(trigger: String, mood: String? = nil) async -> Int64? {
         guard controlMode == .direct, !discoveryRunning, let db = database else { return nil }
         discoveryRunning = true
         defer { discoveryRunning = false }
@@ -163,12 +177,25 @@ extension RoonClient {
         await ensureFeedbackLoaded()
 
         // Seeds (taste profile).
-        let topArtists = ((try? await db.topArtistsListened(limit: 60)) ?? []).map { $0.artist }
+        var topArtists = ((try? await db.topArtistsListened(limit: 60)) ?? []).map { $0.artist }
         let hints = await feedbackArtistHints()
         let libraryArtists = (try? await db.libraryArtistSet()) ?? []
         let libraryGenres = (try? await db.libraryGenreSet()) ?? []
         let libraryAlbumKeys = (try? await db.libraryAlbumKeySet()) ?? []
         let watchlist = (try? await db.watchlistArtists()) ?? []
+
+        // F12a: replace the top-played seed with artists whose OWNED tracks best
+        // fit the requested mood, so every producer traverses from a mood-
+        // appropriate starting point. Falls back to the unbiased seed above when
+        // the library has no presence for this mood (never a hard failure) — the
+        // AI producer still leans into the vibe via `context.mood` regardless.
+        if let mood {
+            let tracks = await sonicCache.allTracks(from: db)
+            let facts = tracks.map { MoodSeeding.TrackMoodFacts(artist: $0.artist, moods: $0.moods) }
+            let moodArtists = MoodSeeding.topArtists(facts, mood: mood, limit: 25)
+            if !moodArtists.isEmpty { topArtists = moodArtists }
+        }
+
         let seeds = DiscoverySeeds(
             topArtists: topArtists, likedArtists: hints.liked, dislikedArtists: hints.disliked,
             libraryArtists: libraryArtists, libraryGenres: libraryGenres, libraryAlbumKeys: libraryAlbumKeys,
@@ -184,11 +211,13 @@ extension RoonClient {
         // batch and that batch is still fresh enough for this trigger (scheduled:
         // 6h grace so charts/new-releases still refresh periodically even with
         // static taste; manual: 30 min, mainly guarding against repeat "Ververs"
-        // taps). A genuine taste change always forces a full run regardless.
+        // taps). A genuine taste change always forces a full run regardless. A
+        // mood-seeded run (F12a) always bypasses this — it's a deliberate, one-off
+        // request for a specific vibe, never a redundant repeat tap.
         let tasteSig = DiscoveryPipeline.tasteSignature(
             topArtists: topArtists, liked: hints.liked, disliked: hints.disliked,
             watchlist: watchlist.map(\.artist))
-        if let last = try? await db.latestBatchInfo(),
+        if mood == nil, let last = try? await db.latestBatchInfo(),
            DiscoveryPipeline.shouldSkipRun(trigger: trigger, tasteSig: tasteSig,
                                           lastBatchSig: last.tasteSig, lastBatchCreatedAt: last.createdAt, now: Date()) {
             Log.info("Ontdekkingen (\(trigger)): smaak ongewijzigd sinds recente batch — overgeslagen", category: .roon)
@@ -213,7 +242,7 @@ extension RoonClient {
         await LLMClient.shared.warmUp(config: llmConfig)
         let context = ProducerContext(
             lastfm: lastfm, listenBrainz: listenBrainz, musicBrainz: MusicBrainzDiscoveryClient.shared,
-            llmConfig: llmConfig, perProducerLimit: 40)
+            llmConfig: llmConfig, perProducerLimit: 40, mood: mood)
 
         let qobuz: (email: String, password: String)? = {
             guard let e = KeychainStore.load(key: "qobuz_email"), !e.isEmpty,
@@ -244,13 +273,17 @@ extension RoonClient {
         // (ReleaseRadarProducer already fetched these same artists/albums).
         await advanceWatchlistWatermarks(seeds.watchlist, musicBrainz: context.musicBrainz, db: db)
 
+        // Encode the mood into the stored trigger (existing TEXT column, no schema
+        // change) so a mood batch is identifiable in the DB/logs — "mood:sad" etc.
+        let effectiveTrigger = mood.map { "mood:\($0)" } ?? trigger
+
         guard !stored.isEmpty else {
-            Log.info("Ontdekkingen (\(trigger)): 0 aanbevelingen na resolve/score/filter", category: .roon)
+            Log.info("Ontdekkingen (\(effectiveTrigger)): 0 aanbevelingen na resolve/score/filter", category: .roon)
             return nil
         }
-        let batchID = try? await db.storeRecommendationBatch(stored, trigger: trigger, tasteSig: tasteSig)
+        let batchID = try? await db.storeRecommendationBatch(stored, trigger: effectiveTrigger, tasteSig: tasteSig)
         try? await db.pruneOldBatches(keeping: 3)
-        Log.info("Ontdekkingen (\(trigger)): \(stored.count) aanbevelingen opgeslagen (batch \(batchID.map(String.init) ?? "?"))", category: .roon)
+        Log.info("Ontdekkingen (\(effectiveTrigger)): \(stored.count) aanbevelingen opgeslagen (batch \(batchID.map(String.init) ?? "?"))", category: .roon)
         if batchID != nil { await generateExplanations(db: db, llmConfig: llmConfig, count: stored.count) }
         return batchID
     }

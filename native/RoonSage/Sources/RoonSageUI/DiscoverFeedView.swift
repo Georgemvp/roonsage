@@ -96,6 +96,20 @@ public struct DiscoverFeedView: View {
                 .accessibilityLabel("Ontdek-inzichten")
             }
             ToolbarItem(placement: .primaryAction) {
+                // F12a: "iets als mijn smaak, maar [stemming]" — a one-off mood-
+                // seeded run. Disabled while any run is in flight, same as Ververs.
+                Menu {
+                    ForEach(RoonClient.knownMoodKeys, id: \.self) { key in
+                        Button(RoonClient.moodLabel(key)) { Task { await refresh(mood: key) } }
+                    }
+                } label: {
+                    Image(systemName: "theatermasks")
+                }
+                .disabled(refreshing)
+                .help("Ontdek op stemming")
+                .accessibilityLabel("Ontdek op stemming")
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button { Task { await refresh() } } label: {
                     Image(systemName: "arrow.clockwise")
                 }
@@ -171,12 +185,14 @@ public struct DiscoverFeedView: View {
 
     /// Trigger a server run, then poll status until it completes (bounded), and
     /// reload. Falls back to a plain reload if the run doesn't report progress.
-    private func refresh() async {
+    /// `mood` (F12a): a raw CLAP mood key from `RoonClient.knownMoodKeys`, or nil
+    /// for the ordinary taste-based refresh.
+    private func refresh(mood: String? = nil) async {
         guard !refreshing else { return }
         commitPendingRejectNow()   // don't let a reload resurrect an in-flight skip
         refreshing = true
         defer { refreshing = false }
-        await client.triggerDiscoveryRun()
+        await client.triggerDiscoveryRun(mood: mood)
         // Poll up to ~2 minutes for the batch to finish (MB resolve is slow).
         for _ in 0..<24 {
             try? await Task.sleep(nanoseconds: 5 * 1_000_000_000)
