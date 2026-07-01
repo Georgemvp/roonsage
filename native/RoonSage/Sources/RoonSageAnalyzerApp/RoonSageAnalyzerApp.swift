@@ -31,6 +31,7 @@ struct RoonSageAnalyzerApp: App {
             .task { model.autoStartIfEnabled() }
             .task { model.autoEnrichIfEnabled() }   // trickle MusicBrainz genres in the background
             .task { model.autoPopularityIfEnabled() }   // trickle Deezer popularity in the background
+            .task { model.autoLoudnessIfEnabled() }   // backfill F3 loudness on pre-F3 tracks (disk-gentle)
             .task { model.loadCLAPIfNeeded() }   // start loading CLAP immediately — clapReady gates backfill
             .task { model.startServingIfNeeded() }
             // This app IS the server: connect to Roon on launch so the library

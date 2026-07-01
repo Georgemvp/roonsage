@@ -129,7 +129,11 @@ public final class FeatureStore {
             // F3: perceptual loudness (K-weighted LUFS, BS.1770) — a separate factor
             // in the DJ-set sequencer, alongside BPM/Camelot/energy. NULL until a
             // (re-)analysis computes it; the DJ builder falls back when absent.
+            // `loudness_checked_at` marks a row the LoudnessBackfill has attempted
+            // (incl. a failed decode → value stays NULL) so it's resumable and never
+            // re-decodes a finished/unreadable file.
             try addColumn("loudness", "REAL")
+            try addColumn("loudness_checked_at", "TEXT")
 
             // Genre hierarchy (parent ← subgenre), built from MusicBrainz. `parent`
             // is NULL for a root genre (or when MB exposes no relation for it).
@@ -466,6 +470,50 @@ public final class FeatureStore {
 
     public func mbCheckedCount() -> Int {
         (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(mb_checked_at) FROM track_features") ?? 0 }) ?? 0
+    }
+
+    // MARK: - Loudness backfill (F3)
+
+    /// One analyzed track still needing its perceptual loudness computed. Carries
+    /// the on-disk path + mtime so the backfill can decode the same excerpt a live
+    /// analysis would.
+    public struct LoudnessTrack: Sendable {
+        public let matchKey: String
+        public let filePath: String
+        public let mtime: Double
+    }
+
+    /// Up to `limit` analyzed tracks whose loudness hasn't been computed yet.
+    /// Resumable: rows the backfill already attempted carry `loudness_checked_at`
+    /// (even a failed decode), so an interrupted run continues where it left off and
+    /// an unreadable file is never retried in a loop. Freshly-analyzed rows already
+    /// have `loudness` set, so they're excluded up front.
+    public func tracksNeedingLoudness(limit: Int) -> [LoudnessTrack] {
+        (try? dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT match_key, file_path, file_mtime FROM track_features
+                WHERE loudness IS NULL AND loudness_checked_at IS NULL
+                  AND bpm IS NOT NULL AND file_path IS NOT NULL AND file_path != ''
+                LIMIT ?
+            """, arguments: [limit])
+        })?.compactMap { r in
+            guard let mk = r["match_key"] as String?, let p = r["file_path"] as String? else { return nil }
+            return LoudnessTrack(matchKey: mk, filePath: p, mtime: r["file_mtime"] as Double? ?? 0)
+        } ?? []
+    }
+
+    /// Store a track's loudness and mark it attempted. A nil `loudness` (decode
+    /// failed) still stamps `loudness_checked_at` so the file isn't re-decoded.
+    public func setLoudness(matchKey: String, loudness: Double?, checkedAt: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE track_features SET loudness = ?, loudness_checked_at = ? WHERE match_key = ?",
+                           arguments: [loudness, checkedAt, matchKey])
+        }
+    }
+
+    /// Tracks that have a non-NULL loudness value — drives the backfill progress UI.
+    public func loudnessCount() -> Int {
+        (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(loudness) FROM track_features") ?? 0 }) ?? 0
     }
 
     /// Distinct genre names appearing across all enriched tracks — the set whose

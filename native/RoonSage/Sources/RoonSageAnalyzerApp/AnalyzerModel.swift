@@ -17,6 +17,9 @@ final class AnalyzerModel {
     var autoEnrich: Bool { didSet { UserDefaults.standard.set(autoEnrich, forKey: "auto_enrich") } }
     /// Trickle Deezer popularity enrichment in the background (rate-limited, resumable).
     var autoPopularity: Bool { didSet { UserDefaults.standard.set(autoPopularity, forKey: "auto_popularity") } }
+    /// Trickle the F3 loudness backfill in the background (decodes pre-F3 tracks,
+    /// disk-gentle, resumable).
+    var autoLoudness: Bool { didSet { UserDefaults.standard.set(autoLoudness, forKey: "auto_loudness") } }
 
     // Analyse-tuning — neemt effect bij de VOLGENDE (re-)analyse, niet met terugwerkende kracht.
     var walkerConcurrency: Int { didSet { UserDefaults.standard.set(walkerConcurrency, forKey: "walker_concurrency") } }
@@ -59,6 +62,9 @@ final class AnalyzerModel {
     private(set) var popularity: PopularityProgress?
     private(set) var isPopularityEnriching = false
     private(set) var popularityCount = 0
+    private(set) var loudness: LoudnessProgress?
+    private(set) var isLoudnessBackfilling = false
+    private(set) var loudnessCount = 0
     private(set) var isServing = false
     var status = ""
 
@@ -67,6 +73,7 @@ final class AnalyzerModel {
     private var tagger: Tagger?
     private var enricher: GenreEnricher?
     private var popularityEnricher: PopularityEnricher?
+    private var loudnessBackfill: LoudnessBackfill?
     private var server: HTTPServer?
     private var clap: CLAPModel?   // loaded off-main once; enables /text-embed
     /// While serving, periodically re-publishes the feature revision so changes
@@ -83,6 +90,7 @@ final class AnalyzerModel {
         autoStart = UserDefaults.standard.object(forKey: "auto_start") as? Bool ?? true
         autoEnrich = UserDefaults.standard.object(forKey: "auto_enrich") as? Bool ?? true
         autoPopularity = UserDefaults.standard.object(forKey: "auto_popularity") as? Bool ?? true
+        autoLoudness = UserDefaults.standard.object(forKey: "auto_loudness") as? Bool ?? true
         walkerConcurrency = UserDefaults.standard.object(forKey: "walker_concurrency") as? Int ?? 3
         excerptSeconds = UserDefaults.standard.object(forKey: "excerpt_seconds") as? Double ?? 120
         analysisSampleRate = UserDefaults.standard.object(forKey: "analysis_sample_rate") as? Double ?? 22050
@@ -108,6 +116,7 @@ final class AnalyzerModel {
         taggedCount = store?.taggedCount() ?? 0
         mbEnrichedCount = store?.mbEnrichedCount() ?? 0
         popularityCount = store?.popularityCount() ?? 0
+        loudnessCount = store?.loudnessCount() ?? 0
         // Keep the advertised feature revision in step with the store so remotes
         // re-pull after in-app analysis/backfill completes — not only after a
         // re-serve. Cheap: refresh() runs at completion, never on the poll path.
@@ -140,6 +149,8 @@ final class AnalyzerModel {
             // let the background enrichers pick them up (resumable, rate-limited).
             autoEnrichIfEnabled()
             autoPopularityIfEnabled()
+            // Analysis done → the disk is free; fill loudness on the pre-F3 backlog.
+            autoLoudnessIfEnabled()
         }
     }
 
@@ -224,6 +235,36 @@ final class AnalyzerModel {
     func autoPopularityIfEnabled() {
         guard autoPopularity, !isPopularityEnriching, store != nil, trackCount > 0 else { return }
         startPopularity()
+    }
+
+    /// Backfill perceptual loudness (F3) onto tracks analyzed before it existed.
+    /// Disk-gentle (single file at a time), resumable, and idempotent — safe to
+    /// cancel and re-run. Uses the current excerpt/sample-rate so backfilled values
+    /// match a live analysis.
+    func startLoudness() {
+        guard let store, !isLoudnessBackfilling, trackCount > 0 else { return }
+        isLoudnessBackfilling = true
+        loudness = nil
+        status = "Loudness berekenen (voor DJ-sets)…"
+        let b = LoudnessBackfill(store: store, excerptSeconds: excerptSeconds, sampleRate: analysisSampleRate)
+        loudnessBackfill = b
+        Task {
+            await b.run { p in Task { @MainActor in self.loudness = p } }
+            isLoudnessBackfilling = false
+            refresh()
+            status = "Loudness: \(loudnessCount)/\(trackCount) tracks."
+        }
+    }
+
+    func cancelLoudness() { loudnessBackfill?.cancel() }
+
+    /// Trickle the loudness backfill in the background when enabled. Exits fast when
+    /// coverage is complete, so it's cheap to call on every launch. Held off while an
+    /// analysis pass runs so the two don't hammer the (slow external) drive at once —
+    /// it's re-invoked when analysis completes.
+    func autoLoudnessIfEnabled() {
+        guard autoLoudness, !isLoudnessBackfilling, !isAnalyzing, store != nil, trackCount > 0 else { return }
+        startLoudness()
     }
 
     // MARK: - Maintenance & login item
