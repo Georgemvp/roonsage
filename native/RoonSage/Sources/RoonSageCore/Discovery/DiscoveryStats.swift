@@ -62,9 +62,11 @@ public enum DiscoveryStatsBuilder {
         }
 
         // Genre trend: count genres among ACCEPTED items; fall back to all retained
-        // items when nothing's been saved yet, so day-one isn't blank.
-        let accepted = items.filter { $0.status == "accepted" }
-        let genreSource = accepted.isEmpty ? items : accepted
+        // items when nothing genre-tagged has been saved yet, so the section isn't
+        // blank on day one — or when the only saved items predate genre enrichment
+        // (their genres are empty, which would otherwise pin the trend at 0).
+        let acceptedWithGenres = items.filter { $0.status == "accepted" && !$0.genres.isEmpty }
+        let genreSource = acceptedWithGenres.isEmpty ? items : acceptedWithGenres
         var genreCounts: [String: Int] = [:]
         for it in genreSource {
             for g in Set(it.genres.map { $0.lowercased().trimmingCharacters(in: .whitespaces) }) where !g.isEmpty {

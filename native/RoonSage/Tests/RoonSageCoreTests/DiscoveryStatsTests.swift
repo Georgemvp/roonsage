@@ -91,4 +91,20 @@ final class DiscoveryStatsTests: XCTestCase {
         XCTAssertEqual(s.topGenres.first?.genre, "ambient")
         XCTAssertEqual(s.topGenres.first?.count, 2)
     }
+
+    /// When the only accepted items predate genre enrichment (empty genres), the
+    /// trend must fall back to all items rather than pinning at 0 — otherwise the
+    /// "Meest bewaarde genres" section stays blank even though fresh, genre-tagged
+    /// recommendations exist.
+    func testGenreTrendFallsBackWhenAcceptedItemsHaveNoGenres() {
+        let items = [
+            item("accepted", ["x"], []),            // saved before genre enrichment
+            item("pending", ["x"], ["Indie Rock"]),
+            item("pending", ["x"], ["Indie Rock"]),
+        ]
+        let s = DiscoveryStatsBuilder.build(items: items, lifetimeAccepted: 1, lifetimeRejected: 0,
+                                            latestPending: 2, generatedAt: "t")
+        XCTAssertEqual(s.topGenres.first?.genre, "indie rock")
+        XCTAssertEqual(s.topGenres.first?.count, 2)
+    }
 }
