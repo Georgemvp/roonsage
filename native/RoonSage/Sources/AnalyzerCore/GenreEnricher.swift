@@ -62,6 +62,25 @@ public final class GenreEnricher {
             }
         }
 
+        // Phase B2 — artist-level fallback for tracks the album + recording passes
+        // left genre-less (MB's per-release genre coverage is sparse — the majority
+        // of tracks). The artist almost always carries tags, so this recovers genres
+        // for a large share of the otherwise-blank backlog. One MB lookup per artist
+        // covers all their genre-less tracks; resumable via `mb_artist_checked_at`, so
+        // it also sweeps the existing checked-but-empty rows from before this phase.
+        while !cancelled {
+            let artists = store.artistsNeedingMBGenres(limit: albumBatch)
+            if artists.isEmpty { break }
+            for group in artists {
+                if cancelled { break }
+                let genres = await client.genresForArtist(artist: group.artist)
+                try? store.setArtistMBGenres(matchKeys: group.matchKeys, genres: genres, checkedAt: Self.now())
+                albumsDone += 1
+                onProgress(EnrichProgress(enriched: store.mbEnrichedCount(), checked: store.mbCheckedCount(),
+                                          albums: albumsDone, total: total))
+            }
+        }
+
         // Phase C — genre hierarchy for the vocabulary in use.
         await buildTaxonomy()
     }

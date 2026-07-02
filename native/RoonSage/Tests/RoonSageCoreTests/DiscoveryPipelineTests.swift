@@ -68,4 +68,27 @@ final class DiscoveryPipelineTests: XCTestCase {
             DiscoveryPipeline.preKey(kind: .artist, artist: "Sigur Rós", album: nil),
             DiscoveryPipeline.preKey(kind: .artist, artist: "sigur ros", album: nil))
     }
+
+    // MARK: - Genre-from-tags distillation (fixes the "0 genres" empty inputs)
+
+    func testGenresFromTagsFiltersNoiseAgainstVocabulary() {
+        let tags = ["rock", "british", "blues rock", "1980s", "classic rock", "seen live"]
+        let vocab: Set<String> = ["rock", "blues rock", "classic rock", "country rock"]
+        // Keeps only real genres, in the original vote-ranked order.
+        XCTAssertEqual(DiscoveryPipeline.genresFromTags(tags, vocabulary: vocab),
+                       ["rock", "blues rock", "classic rock"])
+    }
+
+    func testGenresFromTagsFallsBackToRawTagsWhenVocabularyEmpty() {
+        // Taxonomy not synced yet → don't stay blank; use the raw tags (capped at 6).
+        let tags = ["a", "b", "c", "d", "e", "f", "g"]
+        XCTAssertEqual(DiscoveryPipeline.genresFromTags(tags, vocabulary: []),
+                       ["a", "b", "c", "d", "e", "f"])
+    }
+
+    func testGenresFromTagsCapsAtSix() {
+        let tags = ["rock", "pop", "jazz", "blues", "folk", "soul", "funk", "disco"]
+        let vocab = Set(tags)
+        XCTAssertEqual(DiscoveryPipeline.genresFromTags(tags, vocabulary: vocab).count, 6)
+    }
 }

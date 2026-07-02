@@ -38,6 +38,11 @@ public actor MusicBrainzDiscoveryClient {
         public var name: String
         public var mbid: String
         public var disambiguation: String?
+        /// Folksonomy tags from the search hit, lowercased and ordered by vote count
+        /// (most-agreed first). A mix of genres ("rock", "blues rock") and noise
+        /// ("british", "1980s", "seen live") — the pipeline filters these against the
+        /// MB genre taxonomy so only real genres reach scoring/display.
+        public var tags: [String] = []
     }
 
     public struct MBReleaseGroup: Sendable {
@@ -78,9 +83,14 @@ public actor MusicBrainzDiscoveryClient {
                 guard let id = a["id"] as? String, let nm = a["name"] as? String else { continue }
                 let score = a["score"] as? Int ?? 0
                 let exact = TrackIdentity.normalise(nm) == wantNorm
-                if exact { best = MBArtistMatch(name: nm, mbid: id, disambiguation: a["disambiguation"] as? String); break }
+                if exact {
+                    best = MBArtistMatch(name: nm, mbid: id, disambiguation: a["disambiguation"] as? String,
+                                         tags: Self.parseTags(a))
+                    break
+                }
                 if best == nil, score >= 90 {
-                    best = MBArtistMatch(name: nm, mbid: id, disambiguation: a["disambiguation"] as? String)
+                    best = MBArtistMatch(name: nm, mbid: id, disambiguation: a["disambiguation"] as? String,
+                                         tags: Self.parseTags(a))
                 }
             }
             match = best
@@ -89,6 +99,22 @@ public actor MusicBrainzDiscoveryClient {
         }
         artistCache[key] = match
         return match
+    }
+
+    /// Extract an artist search hit's `tags` array into lowercased names ordered by
+    /// vote count (highest first), dropping unvoted/zero-count noise. Best-effort:
+    /// an artist with no tags simply yields `[]`.
+    private static func parseTags(_ artist: [String: Any]) -> [String] {
+        guard let raw = artist["tags"] as? [[String: Any]] else { return [] }
+        return raw
+            .compactMap { t -> (name: String, count: Int)? in
+                guard let name = (t["name"] as? String)?.lowercased().trimmingCharacters(in: .whitespaces),
+                      !name.isEmpty else { return nil }
+                return (name, t["count"] as? Int ?? 0)
+            }
+            .filter { $0.count > 0 }
+            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.name < $1.name }
+            .map(\.name)
     }
 
     // MARK: - Studio release-groups (gap-fill + release-radar)

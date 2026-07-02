@@ -1,3 +1,4 @@
+import AudioAnalysis
 import Foundation
 
 /// MusicBrainz web-service client used by the analyzer to enrich tracks with a
@@ -68,6 +69,31 @@ public actor MusicBrainzClient {
               let recs = json["recordings"] as? [[String: Any]], let first = recs.first,
               let recID = first["id"] as? String else { return [] }
         return await genresForEntity("recording", id: recID, minVotes: minVotes, limit: limit) ?? []
+    }
+
+    /// Controlled-vocabulary genres (or free-text tags) for an ARTIST — the last
+    /// fallback when both the album and recording lookups came back empty. MB's
+    /// artist-level genre/tag coverage is far denser than its per-release coverage,
+    /// so this recovers genres for a large share of the otherwise-blank backlog. The
+    /// genres are the artist's overall style, a reasonable proxy for any of their
+    /// tracks. Resolves the artist by exact-ish name match, then reads its genres.
+    public func genresForArtist(artist: String, minVotes: Int = 1, limit: Int = 6) async -> [String] {
+        let a = artist.trimmingCharacters(in: .whitespaces)
+        guard !a.isEmpty else { return [] }
+        guard let url = url("/artist", query: ["query": "artist:\(lucene(a))", "limit": "3"]),
+              let json = await getJSON(url),
+              let artists = json["artists"] as? [[String: Any]] else { return [] }
+        // Prefer an exact normalized-name hit; else a high-scoring top result — same
+        // discipline as the discovery resolver, to avoid attaching a namesake's genres.
+        let wantNorm = TrackIdentity.normalise(a)
+        var chosenID: String?
+        for cand in artists {
+            guard let id = cand["id"] as? String, let nm = cand["name"] as? String else { continue }
+            if TrackIdentity.normalise(nm) == wantNorm { chosenID = id; break }
+            if chosenID == nil, (cand["score"] as? Int ?? 0) >= 90 { chosenID = id }
+        }
+        guard let artistID = chosenID else { return [] }
+        return await genresForEntity("artist", id: artistID, minVotes: minVotes, limit: limit) ?? []
     }
 
     /// Genres on a specific MB entity (`release-group` / `release` / `recording`),

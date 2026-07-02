@@ -121,6 +121,13 @@ public final class FeatureStore {
             // is resumable and never re-queries a finished album.
             try addColumn("mb_genres", "TEXT")
             try addColumn("mb_checked_at", "TEXT")
+            // Artist-level genre fallback: when neither the album nor the recording
+            // lookup found genres (MB's release/recording genre coverage is sparse —
+            // ~58% of tracks came back empty), the artist almost always carries tags.
+            // `mb_artist_checked_at` marks a row as having had that fallback attempted
+            // (incl. "found nothing") so it's resumable and re-runs over the existing
+            // checked-but-empty backlog without re-doing album lookups.
+            try addColumn("mb_artist_checked_at", "TEXT")
             // Deezer global popularity (`rank`, ~0…1_000_000). `popularity_checked_at`
             // marks a row as looked up (incl. "found nothing" → popularity NULL) so
             // the worker is resumable and never re-queries a finished track.
@@ -421,6 +428,57 @@ public final class FeatureStore {
         (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(mb_genres) FROM track_features") ?? 0 }) ?? 0
     }
 
+    /// One artist whose tracks still lack genres after the album + recording passes.
+    public struct MBArtistGroup: Sendable {
+        public let artist: String
+        public let matchKeys: [String]
+    }
+
+    /// Up to `limit` artists whose analyzed tracks were checked (album/recording)
+    /// but got no genres, and haven't had the artist-level fallback tried yet. One
+    /// MB lookup per artist covers all their genre-less tracks. Resumable via
+    /// `mb_artist_checked_at`; re-runs over the existing checked-but-empty backlog.
+    public func artistsNeedingMBGenres(limit: Int) -> [MBArtistGroup] {
+        (try? dbQueue.read { db in
+            let artists = try Row.fetchAll(db, sql: """
+                SELECT artist FROM track_features
+                WHERE mb_genres IS NULL AND mb_checked_at IS NOT NULL AND mb_artist_checked_at IS NULL
+                  AND bpm IS NOT NULL AND artist IS NOT NULL AND artist != ''
+                GROUP BY LOWER(artist)
+                ORDER BY artist
+                LIMIT ?
+            """, arguments: [limit])
+            var out: [MBArtistGroup] = []
+            for a in artists {
+                guard let artist = a["artist"] as String? else { continue }
+                let mks = try String.fetchAll(db, sql: """
+                    SELECT match_key FROM track_features
+                    WHERE LOWER(artist) = LOWER(?) AND mb_genres IS NULL AND mb_artist_checked_at IS NULL
+                """, arguments: [artist])
+                if !mks.isEmpty { out.append(MBArtistGroup(artist: artist, matchKeys: mks)) }
+            }
+            return out
+        }) ?? []
+    }
+
+    /// Store artist-level genres for a set of tracks and mark the artist fallback
+    /// attempted. An empty `genres` still stamps `mb_artist_checked_at` (so a
+    /// fruitless lookup isn't retried) but leaves `mb_genres` NULL.
+    public func setArtistMBGenres(matchKeys: [String], genres: [String], checkedAt: String) throws {
+        guard !matchKeys.isEmpty else { return }
+        let value: String? = genres.isEmpty ? nil
+            : (try? JSONSerialization.data(withJSONObject: genres)).flatMap { String(data: $0, encoding: .utf8) }
+        try dbQueue.write { db in
+            for chunk in stride(from: 0, to: matchKeys.count, by: 400).map({ Array(matchKeys[$0..<min($0 + 400, matchKeys.count)]) }) {
+                let ph = chunk.map { _ in "?" }.joined(separator: ",")
+                var args: [DatabaseValueConvertible?] = [value, checkedAt]
+                args.append(contentsOf: chunk as [DatabaseValueConvertible])
+                try db.execute(sql: "UPDATE track_features SET mb_genres = ?, mb_artist_checked_at = ? WHERE match_key IN (\(ph))",
+                               arguments: StatementArguments(args))
+            }
+        }
+    }
+
     // MARK: - Deezer popularity enrichment
 
     /// One analyzed track still needing a popularity lookup.
@@ -638,7 +696,7 @@ public final class FeatureStore {
         let rows = (try? dbQueue.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT match_key, artist, title, album, year, bpm, bpm_confidence, camelot, key_root, key_mode, energy, duration,
-                       tags, moods, attributes, mb_genres, popularity, embedding_model\(includeEmbedding ? ", embedding" : "")
+                       tags, moods, attributes, mb_genres, popularity, loudness, embedding_model\(includeEmbedding ? ", embedding" : "")
                 FROM track_features WHERE bpm IS NOT NULL
             """)
         }) ?? []

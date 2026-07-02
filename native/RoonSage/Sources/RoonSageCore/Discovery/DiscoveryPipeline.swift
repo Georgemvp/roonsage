@@ -52,6 +52,7 @@ struct DiscoveryPipeline {
         context: ProducerContext,
         qobuzCreds: (email: String, password: String)?,
         libraryGenres: Set<String>,
+        genreVocabulary: Set<String> = [],
         feedbackGenreRates: [String: (approve: Double, strongNeg: Double)],
         producerReliability: [String: Double] = [:],
         adventurousness: Double = 0.35,
@@ -88,6 +89,18 @@ struct DiscoveryPipeline {
             guard let match = await context.musicBrainz.resolveArtist(name: item.artist) else { continue }
             item.artist = match.name
             item.artistMbid = match.mbid
+            // Attach the artist's genres from MB's search tags (free — no extra
+            // request) when the producers left the candidate genre-less, which is
+            // almost always: the web/LB/AI producers emit bare artist/album names.
+            // Without this, genreOverlap + feedbackBoost scoring get empty inputs
+            // (dead no-ops) and the "Ontdek-inzichten" genre trend reads 0. Filter
+            // the noisy folksonomy tags ("british", "1980s", "seen live") down to
+            // real genres via the MB taxonomy; keep the top handful by vote count.
+            // When the taxonomy isn't synced yet the vocabulary is empty — fall back
+            // to the raw tags so the feature still populates rather than staying blank.
+            if item.genres.isEmpty, !match.tags.isEmpty {
+                item.genres = Self.genresFromTags(match.tags, vocabulary: genreVocabulary)
+            }
             resolved.append(item)
         }
         resolved = Self.rededupe(resolved)
@@ -297,6 +310,16 @@ struct DiscoveryPipeline {
             }
         }
         return Array(byKey.values)
+    }
+
+    /// Distil an artist's MB folksonomy tags down to real genres: keep only tags
+    /// present in the MB genre `vocabulary` (drops "british"/"1980s"/"seen live"),
+    /// preserving the vote-ranked order, and cap at 6. When the vocabulary is empty
+    /// (taxonomy not synced yet) fall back to the raw tags so genres still populate
+    /// rather than staying blank. Pure — unit-tested in DiscoveryPipelineTests.
+    static func genresFromTags(_ tags: [String], vocabulary: Set<String>) -> [String] {
+        let genres = vocabulary.isEmpty ? tags : tags.filter { vocabulary.contains($0) }
+        return Array(genres.prefix(6))
     }
 
     static func preKey(kind: RecommendationKind, artist: String, album: String?) -> String {

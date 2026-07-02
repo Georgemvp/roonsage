@@ -225,6 +225,7 @@ extension RoonClient {
         let hints = await feedbackArtistHints()
         let libraryArtists = (try? await db.libraryArtistSet()) ?? []
         let libraryGenres = (try? await db.libraryGenreSet()) ?? []
+        let genreVocabulary = (try? await db.genreVocabularySet()) ?? []
         let libraryAlbumKeys = (try? await db.libraryAlbumKeySet()) ?? []
         let watchlist = (try? await db.watchlistArtists()) ?? []
 
@@ -346,7 +347,7 @@ extension RoonClient {
                                          weights: .tuned(adventurousness: discoveryAdventurousness))
         let stored = await pipeline.run(
             seeds: seeds, context: context, qobuzCreds: qobuz,
-            libraryGenres: libraryGenres, feedbackGenreRates: rates,
+            libraryGenres: libraryGenres, genreVocabulary: genreVocabulary, feedbackGenreRates: rates,
             producerReliability: producerReliability, adventurousness: discoveryAdventurousness,
             filterContext: filterCtx, maxItems: Self.discoveryMaxItems, now: Date())
 

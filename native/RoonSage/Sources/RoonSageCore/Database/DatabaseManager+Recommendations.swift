@@ -339,6 +339,20 @@ extension DatabaseManager {
         }
     }
 
+    /// The full MusicBrainz genre vocabulary (lowercased) from `genre_taxonomy` —
+    /// the reference set the pipeline filters candidate artist tags against, so only
+    /// real genres (not "british"/"1980s"/"seen live") reach scoring + the insights
+    /// genre trend. Empty until MB enrichment has synced the taxonomy (graceful).
+    public func genreVocabularySet() async throws -> Set<String> {
+        try await pool.read { db in
+            var out = Set<String>()
+            for g in try String.fetchAll(db, sql: "SELECT genre FROM genre_taxonomy") {
+                out.insert(g.lowercased())
+            }
+            return out
+        }
+    }
+
     /// Distinct library artists, lowercased (for in-library filtering).
     public func libraryArtistSet() async throws -> Set<String> {
         try await pool.read { db in

@@ -206,6 +206,11 @@ public final class RoonClient {
     public internal(set) var trackCount = 0
     public internal(set) var isGenreSyncing = false
     public internal(set) var genreCount = 0
+    /// Distinct MusicBrainz genres (`track_mb_genres`) — the fine-grained vocabulary
+    /// (hundreds of styles) added by analyzer enrichment, far richer than Roon's ~21
+    /// broad buckets. Surfaced alongside `genreCount` so the UI reflects the real
+    /// genre depth, not just Roon's coarse top-level list.
+    public internal(set) var mbGenreCount = 0
     /// Identities of tracks used by recent AI generations (newest last), lightly
     /// de-prioritised so re-running a prompt doesn't return the same playlist.
     /// Lives on the client (not view `@State`) so it survives tab-switches —
@@ -844,10 +849,11 @@ public final class RoonClient {
     }
 
     func refreshGenreCount() {
-        guard let db = database else { genreCount = 0; return }
+        guard let db = database else { genreCount = 0; mbGenreCount = 0; return }
         Task { [weak self] in
-            let count = (try? await db.genreCount()) ?? 0
-            self?.genreCount = count
+            let counts = (try? await db.genreCounts()) ?? (roon: 0, musicbrainz: 0)
+            self?.genreCount = counts.roon
+            self?.mbGenreCount = counts.musicbrainz
         }
     }
 }

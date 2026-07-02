@@ -33,6 +33,17 @@ public struct SettingsView: View {
         self.role = role
     }
 
+    /// "21 + 452 via MusicBrainz" — the coarse Roon buckets plus the fine-grained MB
+    /// vocabulary, so the depth added by analyzer enrichment is visible rather than
+    /// hidden behind Roon's ~21 top-level genres.
+    private var genreCountLabel: String {
+        if client.genreCount == 0 && client.mbGenreCount == 0 { return "Niet gesynchroniseerd" }
+        if client.mbGenreCount > 0 {
+            return "\(client.genreCount) + \(client.mbGenreCount) via MusicBrainz"
+        }
+        return "\(client.genreCount)"
+    }
+
     // ListenBrainz
     @State private var lbToken: String = ""
     @State private var lbSaved = false
@@ -168,7 +179,7 @@ public struct SettingsView: View {
             // Library — counts always; sync/share controls only on the server.
             Section("Bibliotheek") {
                 LabeledContent("Tracks in database", value: "\(client.trackCount)")
-                LabeledContent("Genres in database", value: client.genreCount == 0 ? "Niet gesynchroniseerd" : "\(client.genreCount)")
+                LabeledContent("Genres in database", value: genreCountLabel)
                 LabeledContent("Laatste sync", value: lastSync)
 
                 if role == .server {
