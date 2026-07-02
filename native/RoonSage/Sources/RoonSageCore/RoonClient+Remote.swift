@@ -138,12 +138,24 @@ extension RoonClient {
         // and never shares the server's library.db on the same machine.
         databaseFileOverride = "client-library.db"
         shared.controlMode = .server
+        // A thin client must not run (or advertise) a share server: the macOS
+        // autostart happens during init while the mode still looks `.direct`, so
+        // stop it now that we know this is a client. Otherwise the client would
+        // find its own Bonjour advertisement and "connect" to localhost.
+        shared.setLibrarySharing(enabled: false)
     }
 
     /// "Connect" in server mode: find the RoonSage server and start polling its
     /// playback state. Safe to call repeatedly.
     func startServerMode() async {
         guard isRemote else { return }
+        // A client must never target loopback — that's its own (legacy) share
+        // server, not the real one. Drop a remembered localhost so we re-discover
+        // the actual server; also self-heals a bad value persisted by an earlier
+        // build that discovered itself.
+        if let base = remoteBaseURL, let h = URL(string: base)?.host, Self.isLoopback(h) {
+            remoteBaseURL = nil
+        }
         // Re-discover when we have no server yet OR the remembered one has gone
         // quiet — a server that moved to a new DHCP address is found again via
         // Bonjour without the user re-typing anything. (Split out so the `await`
@@ -158,12 +170,14 @@ extension RoonClient {
             connectionState = .discovering
             if let found = await discoverShareServer() {
                 remoteBaseURL = found
-            } else if remoteBaseURL == nil {
-                remoteBaseURL = UserDefaults.standard.string(forKey: "library_import_url")
+            } else if remoteBaseURL == nil,
+                      let saved = UserDefaults.standard.string(forKey: "library_import_url"),
+                      let h = URL(string: saved)?.host, !Self.isLoopback(h) {
+                remoteBaseURL = saved
             }
             // Remember the live address so the connect screen and next launch
-            // reconnect straight to it.
-            if let base = remoteBaseURL, let host = URL(string: base)?.host {
+            // reconnect straight to it (never a loopback address).
+            if let base = remoteBaseURL, let host = URL(string: base)?.host, !Self.isLoopback(host) {
                 persistHost(host, port: LibraryShareServer.defaultPort)
                 UserDefaults.standard.set(base, forKey: "library_import_url")
             }

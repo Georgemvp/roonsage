@@ -129,7 +129,9 @@ extension RoonClient {
         func addHost(fromURL s: String?) {
             guard let s else { return }
             let h = RoonClient.normalizeHost(s)
-            if !h.isEmpty { hosts.append(h) }
+            // A client never imports from itself: skip loopback so we don't pick
+            // this device's own (legacy) share server.
+            if !h.isEmpty, !RoonClient.isLoopback(h) { hosts.append(h) }
         }
         // Bonjour first: it resolves to the server's *current* IP, so it wins over
         // a stale saved host after a DHCP change. The known hosts below stay as a

@@ -89,14 +89,18 @@ public enum BonjourDiscovery {
     private static func hostString(_ host: NWEndpoint.Host) -> String? {
         switch host {
         case .name(let name, _):
-            return name
+            return name.lowercased() == "localhost" ? nil : name
         case .ipv4(let addr):
             // Network tags addresses with an interface scope ("10.0.0.5%en1");
             // the '%' is illegal in a URL host, so strip it.
-            return "\(addr)".split(separator: "%").first.map(String.init)
+            let s = "\(addr)".split(separator: "%").first.map(String.init) ?? "\(addr)"
+            // Never hand back loopback: a client that also runs a share server
+            // would otherwise "discover" itself and connect to localhost.
+            return s.hasPrefix("127.") ? nil : s
         case .ipv6(let addr):
             let s = "\(addr)".split(separator: "%").first.map(String.init) ?? "\(addr)"
             if s.lowercased().hasPrefix("fe80") { return nil }   // link-local
+            if s == "::1" { return nil }                         // loopback
             return "[\(s)]"
         @unknown default:
             return nil
