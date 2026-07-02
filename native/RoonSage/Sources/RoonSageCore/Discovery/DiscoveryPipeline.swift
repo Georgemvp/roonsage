@@ -133,9 +133,29 @@ struct DiscoveryPipeline {
             }
         }
 
-        // 3d. C2: attach a popularity signal from Last.fm listeners, when configured.
-        // Bounded + graceful — no Last.fm (or a failed call) leaves `popularity` nil,
-        // so scoring behaves exactly as before this feature.
+        // 3d. Drop identity-rejected candidates (in-library / already-listened /
+        // blocked / cooldown — none of which depend on score) BEFORE the Last.fm
+        // popularity fetch, not after. These rules are a meaningful fraction of a
+        // typical run (seeds are drawn from top/liked/watchlisted artists, so many
+        // resolved candidates ARE already-owned by construction — e.g. gap-fill's
+        // whole job is proposing albums by owned artists) — fetching popularity for
+        // items that are guaranteed to be filtered out regardless of score just
+        // burns Last.fm calls and wall-clock for nothing. The final Score/Filter
+        // step below re-applies the full rule set (now effectively a no-op for
+        // rules 1-4, since only survivors reach it) plus the real threshold check.
+        resolved = resolved.filter { it in
+            let dedup = DiscoveryKey.dedupKey(kind: it.kind, artist: it.artist, album: it.album,
+                                              artistMbid: it.artistMbid, releaseGroupMbid: it.releaseGroupMbid)
+            // A score that can never trip the (score-dependent) threshold rule, so
+            // only the identity-based rejections (1-4) can fire here.
+            return DiscoveryFilter.keep(kind: it.kind, artist: it.artist, album: it.album,
+                                        dedupKey: dedup, score: .greatestFiniteMagnitude, context: filterContext)
+        }
+
+        // 3e. C2: attach a popularity signal from Last.fm listeners, when
+        // configured, now scoped to candidates that can actually survive filtering.
+        // Bounded + graceful — no Last.fm (or a failed call) leaves `popularity`
+        // nil, so scoring behaves exactly as before this feature.
         if let creds = context.lastfm {
             resolved = await attachPopularity(resolved, apiKey: creds.apiKey)
         }
