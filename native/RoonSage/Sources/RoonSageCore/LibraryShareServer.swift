@@ -32,6 +32,11 @@ import UIKit
 public final class LibraryShareServer: @unchecked Sendable {
     public static let defaultPort: UInt16 = 5767   // 5766 is the analyzer
 
+    /// Bonjour service type this server advertises on the LAN so clients can find
+    /// it by name instead of a hard-coded IP — a browse resolves to our *current*
+    /// address, so a changed DHCP lease no longer strands the clients.
+    public static let bonjourType = "_roonsage._tcp"
+
     // MARK: - Access token
     //
     // The server exposes the full library AND the synced settings — which carry
@@ -236,6 +241,10 @@ public final class LibraryShareServer: @unchecked Sendable {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
         let listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+        // Advertise on the LAN so clients auto-discover us at our current IP even
+        // after a DHCP address change (see BonjourDiscovery). Named after the
+        // device so a user with several servers can tell them apart.
+        listener.service = NWListener.Service(name: Self.thisDeviceName, type: Self.bonjourType)
         listener.newConnectionHandler = { [weak self] conn in self?.handle(conn) }
         listener.start(queue: .global())
         self.listener = listener

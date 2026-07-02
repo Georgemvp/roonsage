@@ -131,6 +131,10 @@ extension RoonClient {
             let h = RoonClient.normalizeHost(s)
             if !h.isEmpty { hosts.append(h) }
         }
+        // Bonjour first: it resolves to the server's *current* IP, so it wins over
+        // a stale saved host after a DHCP change. The known hosts below stay as a
+        // fallback for networks where multicast/Bonjour is blocked.
+        for r in await BonjourDiscovery.discover() { hosts.append(r.host) }
         if let h = savedHost { addHost(fromURL: h) }
         addHost(fromURL: analyzerURL)
         addHost(fromURL: LLMConfigStore.load().baseURL)

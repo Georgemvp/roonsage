@@ -35,6 +35,10 @@ targets:
         # iOS requires a local-network usage string to reach the Roon Core
         # (direct TCP to the saved host, incl. over ZeroTier).
         NSLocalNetworkUsageDescription: "RoonSage verbindt met je Roon Core op het lokale netwerk om je muziek te bedienen."
+        # Bonjour: lets the app auto-discover the RoonSage server on the LAN so a
+        # changed DHCP address of the serving Mac no longer breaks the connection.
+        NSBonjourServices:
+          - _roonsage._tcp
         UIApplicationSupportsIndirectInputEvents: YES
         # Live Activity (lock screen / Dynamic Island now-playing).
         NSSupportsLiveActivities: YES

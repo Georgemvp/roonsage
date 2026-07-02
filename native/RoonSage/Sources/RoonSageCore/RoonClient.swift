@@ -533,7 +533,9 @@ public final class RoonClient {
     }
 
     public func discoverAndConnect() async {
-        if isRemote { await startServerMode(); return }
+        // Explicit "find server" in client mode: drop the remembered address so
+        // we do a fresh Bonjour browse rather than re-trying a stale IP.
+        if isRemote { remoteBaseURL = nil; await startServerMode(); return }
         connectionState = .discovering
         let preferredID = RoonClientAuth.loadCoreID()
         let cores = await SoodDiscovery.discover(coreID: preferredID)

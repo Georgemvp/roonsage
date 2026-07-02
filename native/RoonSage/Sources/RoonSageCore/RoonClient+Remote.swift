@@ -144,10 +144,29 @@ extension RoonClient {
     /// playback state. Safe to call repeatedly.
     func startServerMode() async {
         guard isRemote else { return }
-        if remoteBaseURL == nil {
+        // Re-discover when we have no server yet OR the remembered one has gone
+        // quiet — a server that moved to a new DHCP address is found again via
+        // Bonjour without the user re-typing anything. (Split out so the `await`
+        // isn't inside a `||` autoclosure, which the compiler rejects.)
+        let needsDiscovery: Bool
+        if let base = remoteBaseURL {
+            needsDiscovery = !(await shareServerReachable(base))
+        } else {
+            needsDiscovery = true
+        }
+        if needsDiscovery {
             connectionState = .discovering
-            remoteBaseURL = await discoverShareServer()
-                ?? UserDefaults.standard.string(forKey: "library_import_url")
+            if let found = await discoverShareServer() {
+                remoteBaseURL = found
+            } else if remoteBaseURL == nil {
+                remoteBaseURL = UserDefaults.standard.string(forKey: "library_import_url")
+            }
+            // Remember the live address so the connect screen and next launch
+            // reconnect straight to it.
+            if let base = remoteBaseURL, let host = URL(string: base)?.host {
+                persistHost(host, port: LibraryShareServer.defaultPort)
+                UserDefaults.standard.set(base, forKey: "library_import_url")
+            }
         }
         guard remoteBaseURL != nil else {
             connectionState = .failed("Geen RoonSage-server gevonden op het netwerk.")
@@ -155,6 +174,17 @@ extension RoonClient {
         }
         startRemotePolling()
         await pollPlaybackOnce()
+    }
+
+    /// Quick liveness probe of a share-server base URL (`/health` → 200). Used to
+    /// decide whether the remembered server is still there before trusting it.
+    private func shareServerReachable(_ base: String) async -> Bool {
+        guard let url = URL(string: "\(base)/health") else { return false }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 3
+        guard let (_, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return false }
+        return true
     }
 
     private func startRemotePolling() {

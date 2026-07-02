@@ -28,6 +28,10 @@
 	<false/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>RoonSage verbindt met je Roon Core op het lokale netwerk om je muziek te bedienen.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_roonsage._tcp</string>
+	</array>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
