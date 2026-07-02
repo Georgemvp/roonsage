@@ -69,6 +69,29 @@ public struct NowPlayingView: View {
     }
 }
 
+// MARK: - Shared playback-option helpers
+
+/// Roon loop-mode cycling + labels, shared by the Now Playing hero and the
+/// Queue toolbar so the two surfaces never drift.
+enum NowPlayingHeroOptions {
+    /// Cycle Roon's loop setting: off → all → one → off.
+    static func nextLoop(_ current: String) -> String {
+        switch current {
+        case "disabled": "loop"
+        case "loop":     "loop_one"
+        default:         "disabled"
+        }
+    }
+
+    static func loopLabel(_ loop: String) -> String {
+        switch loop {
+        case "loop":     "Herhaal alles"
+        case "loop_one": "Herhaal deze track"
+        default:         "Herhalen uit"
+        }
+    }
+}
+
 // MARK: - Backdrop (blurred art + scrim)
 
 /// Full-bleed backdrop: the album art, heavily blurred and dimmed behind a
@@ -199,8 +222,11 @@ private struct NowPlayingHero: View {
     @State private var anchorDate: Date = .init()
     @State private var isSeeking = false
     @State private var feat: (bpm: Double, camelot: String, tags: [String])?
+    @State private var attrs: [String: Float] = [:]
     @State private var startingRadio = false
     @State private var startingAdventure = false
+    @State private var showLyrics = false
+    @AppStorage("showVisualizer") private var showVisualizer = true
 
     /// The real width to bound the hero to. On iOS we read the active window's
     /// width directly (capped for iPad) instead of trusting the layout proposal,
@@ -233,8 +259,10 @@ private struct NowPlayingHero: View {
             Spacer(minLength: 0)
             trackInfo
             featureRow
+            visualizer
             scrubber
             transport
+            optionsRow
             volumeRow
             footerRow
         }
@@ -251,6 +279,7 @@ private struct NowPlayingHero: View {
         .onChange(of: zone.nowPlaying?.title) { _, _ in refreshFeatures() }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in tickPosition() }
         .task { await client.ensureFeedbackLoaded() }
+        .sheet(isPresented: $showLyrics) { LyricsView(zone: zone) }
     }
 
     // MARK: Track info
@@ -405,6 +434,25 @@ private struct NowPlayingHero: View {
         return out
     }
 
+    // MARK: Visualizer — beat-driven equalizer fed by the analyzer's BPM/energy/
+    // valence (no audio tap needed; works for any Roon zone). Only while a track
+    // with a known tempo is loaded, and opt-out via Settings → Verschijning.
+
+    @ViewBuilder
+    private var visualizer: some View {
+        if showVisualizer, zone.nowPlaying != nil, let f = feat, f.bpm > 0 {
+            BeatVisualizer(
+                bpm: f.bpm,
+                intensity: Double(attrs["danceability"] ?? attrs["energy"] ?? 0.55),
+                warmth: Double(attrs["valence"] ?? 0.5),
+                isPlaying: zone.state == .playing,
+                reduceMotion: reduceMotion
+            )
+            .padding(.horizontal, Spacing.sm)
+            .transition(.opacity)
+        }
+    }
+
     // MARK: Scrubber — custom, bounded progress bar (the system Slider rendered
     // full-bleed here). Clear track, gold fill, draggable thumb, elapsed/remaining.
 
@@ -508,6 +556,46 @@ private struct NowPlayingHero: View {
         }
     }
 
+    // MARK: Shuffle / repeat
+    //
+    // Roon exposes these via zone.settings; the state reflects the live snapshot
+    // so the icons stay in sync when changed from Roon itself or another remote.
+    // (setShuffle/setRepeat already existed in Core but were never wired to any
+    // SwiftUI view — only the remote/MCP command path.)
+
+    private var optionsRow: some View {
+        let shuffleOn = zone.shuffle ?? false
+        let loop = zone.loopMode ?? "disabled"
+        return HStack(spacing: Spacing.xxl) {
+            Button {
+                Haptics.tap()
+                Task { await client.setShuffle(zoneID: zone.id, enabled: !shuffleOn) }
+            } label: {
+                Image(systemName: "shuffle")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(shuffleOn ? Color.roonGold : .secondary)
+                    .tappable44()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Shuffle")
+            .accessibilityValue(shuffleOn ? "aan" : "uit")
+            .accessibilityAddTraits(shuffleOn ? .isSelected : [])
+
+            Button {
+                Haptics.tap()
+                Task { await client.setRepeat(zoneID: zone.id, mode: NowPlayingHeroOptions.nextLoop(loop)) }
+            } label: {
+                Image(systemName: loop == "loop_one" ? "repeat.1" : "repeat")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(loop == "disabled" ? .secondary : Color.roonGold)
+                    .tappable44()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(NowPlayingHeroOptions.loopLabel(loop))
+            .accessibilityAddTraits(loop == "disabled" ? [] : .isSelected)
+        }
+    }
+
     // MARK: Volume
 
     @ViewBuilder
@@ -584,6 +672,18 @@ private struct NowPlayingHero: View {
                 .accessibilityLabel("Vind ik niet leuk — sla over en leer ervan")
                 .accessibilityAddTraits(current == .dislike ? .isSelected : [])
 
+                Button {
+                    Haptics.tap()
+                    showLyrics = true
+                } label: {
+                    Image(systemName: "quote.bubble")
+                        .font(.title3)
+                        .foregroundStyle(.primary)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Songtekst")
+
                 if let next = nextUpItem {
                     Spacer(minLength: Spacing.sm)
                     // Lower layout priority so a long "up next" title never
@@ -650,8 +750,10 @@ private struct NowPlayingHero: View {
     private func refreshFeatures() {
         if let np = zone.nowPlaying {
             feat = client.featuresFor(title: np.title, artist: np.artist, album: np.album)
+            attrs = client.attributesFor(title: np.title, artist: np.artist, album: np.album)
         } else {
             feat = nil
+            attrs = [:]
         }
     }
 }

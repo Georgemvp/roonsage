@@ -77,7 +77,7 @@ public actor MusicBrainzDiscoveryClient {
 
         let match: MBArtistMatch?
         if let url = url("/artist", query: ["query": "artist:\(lucene(name))", "limit": "5"]),
-           let json = await getJSON(url),
+           let json = await cachedJSON(url, key: "mb.artist.\(key)", ttl: TTL.artist),
            let artists = json["artists"] as? [[String: Any]], !artists.isEmpty {
             let wantNorm = key
             var best: MBArtistMatch?
@@ -170,22 +170,31 @@ public actor MusicBrainzDiscoveryClient {
         if let cached = coverCache[releaseGroupMbid] { return cached }
 
         var result: URL?
-        if let url = URL(string: "https://coverartarchive.org/release-group/\(releaseGroupMbid)") {
+        let cacheKey = "mb.cover.\(releaseGroupMbid)"
+        // Serve the CAA manifest from the persistent cache when possible (art is
+        // immutable once present); only positive (200) responses are stored, so a
+        // still-artless release-group is re-checked next run rather than cached "no".
+        var json: [String: Any]?
+        if let data = await DiscoveryHTTPCache.shared.data(forKey: cacheKey, ttl: TTL.cover) {
+            json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        } else if let url = URL(string: "https://coverartarchive.org/release-group/\(releaseGroupMbid)") {
             var req = URLRequest(url: url, timeoutInterval: 20)
             req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
             req.setValue("application/json", forHTTPHeaderField: "Accept")
             if let (data, resp) = try? await URLSession.shared.data(for: req),
-               (resp as? HTTPURLResponse)?.statusCode == 200,
-               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-               let images = json["images"] as? [[String: Any]], !images.isEmpty {
-                // Prefer the flagged front image; fall back to the first available.
-                let pick = images.first(where: { ($0["front"] as? Bool) == true }) ?? images.first
-                let thumbs = pick?["thumbnails"] as? [String: Any]
-                let candidate = (thumbs?["500"] as? String)
-                    ?? (thumbs?["large"] as? String)
-                    ?? (pick?["image"] as? String)
-                if let s = candidate { result = URL(string: s) }
+               (resp as? HTTPURLResponse)?.statusCode == 200 {
+                await DiscoveryHTTPCache.shared.store(data, forKey: cacheKey)
+                json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             }
+        }
+        if let images = json?["images"] as? [[String: Any]], !images.isEmpty {
+            // Prefer the flagged front image; fall back to the first available.
+            let pick = images.first(where: { ($0["front"] as? Bool) == true }) ?? images.first
+            let thumbs = pick?["thumbnails"] as? [String: Any]
+            let candidate = (thumbs?["500"] as? String)
+                ?? (thumbs?["large"] as? String)
+                ?? (pick?["image"] as? String)
+            if let s = candidate { result = URL(string: s) }
         }
         coverCache[releaseGroupMbid] = result
         return result
@@ -197,7 +206,7 @@ public actor MusicBrainzDiscoveryClient {
     public func relatedArtists(artistMbid: String) async -> [MBRelatedArtist] {
         guard !artistMbid.isEmpty,
               let url = url("/artist/\(artistMbid)", query: ["inc": "artist-rels"]),
-              let json = await getJSON(url),
+              let json = await cachedJSON(url, key: "mb.related.\(artistMbid)", ttl: TTL.related),
               let rels = json["relations"] as? [[String: Any]] else { return [] }
         var out: [MBRelatedArtist] = []
         var seen = Set<String>()
@@ -213,7 +222,16 @@ public actor MusicBrainzDiscoveryClient {
 
     // MARK: - HTTP (mirrors AnalyzerCore/MusicBrainzClient)
 
-    private func getJSON(_ url: URL) async -> [String: Any]? {
+    /// Cross-run TTLs for the immutable-ish lookups. Studio release-groups are
+    /// deliberately absent: the release-radar must see new albums the day they land.
+    private enum TTL {
+        static let artist: TimeInterval = 30 * 24 * 3600
+        static let related: TimeInterval = 30 * 24 * 3600
+        static let cover: TimeInterval = 30 * 24 * 3600
+    }
+
+    /// Rate-limited raw fetch (200 → body, one retry on 503).
+    private func getData(_ url: URL) async -> Data? {
         for attempt in 0..<2 {
             await awaitSlot()
             var req = URLRequest(url: url, timeoutInterval: 30)
@@ -221,11 +239,28 @@ public actor MusicBrainzDiscoveryClient {
             req.setValue("application/json", forHTTPHeaderField: "Accept")
             guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return nil }
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            if code == 200 { return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] }
+            if code == 200 { return data }
             if code == 503, attempt == 0 { try? await Task.sleep(nanoseconds: 2_000_000_000); continue }
             return nil
         }
         return nil
+    }
+
+    private func getJSON(_ url: URL) async -> [String: Any]? {
+        guard let data = await getData(url) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    /// `getJSON` fronted by the persistent cross-run cache. On a hit within `ttl`
+    /// no network call (and no rate-limit slot) is spent at all.
+    private func cachedJSON(_ url: URL, key: String, ttl: TimeInterval) async -> [String: Any]? {
+        if let data = await DiscoveryHTTPCache.shared.data(forKey: key, ttl: ttl),
+           let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            return obj
+        }
+        guard let data = await getData(url) else { return nil }
+        await DiscoveryHTTPCache.shared.store(data, forKey: key)
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     private func awaitSlot() async {

@@ -17,8 +17,10 @@ public struct SettingsView: View {
     private let role: SettingsRole
     @Environment(RoonClient.self) private var client
     @Environment(\.openURL) private var openURL
+    @AppStorage("themePreset") private var themePreset: ThemePreset = .custom
     @AppStorage("themeMode") private var themeMode: ThemeMode = .system
     @AppStorage("accentChoice") private var accent: AccentChoice = .gold
+    @AppStorage("showVisualizer") private var showVisualizer = true
     @State private var lastSync: String = "—"
 
     // Server sync (client role: pull settings + library + features from the server)
@@ -93,21 +95,40 @@ public struct SettingsView: View {
         Form {
             // Appearance
             Section("Verschijning") {
-                Picker("Thema", selection: $themeMode) {
-                    ForEach(ThemeMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                }
-                Picker("Accentkleur", selection: $accent) {
-                    ForEach(AccentChoice.allCases) { choice in
+                Picker("Thema", selection: $themePreset) {
+                    ForEach(ThemePreset.allCases) { preset in
                         Label {
-                            Text(choice.label)
+                            Text(preset.label)
                         } icon: {
-                            Circle().fill(choice.color).frame(width: 12, height: 12)
+                            Circle()
+                                .fill(LinearGradient(colors: preset.swatch,
+                                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                                .frame(width: 14, height: 14)
+                                .overlay(Circle().strokeBorder(.separator, lineWidth: 0.5))
                         }
-                        .tag(choice)
+                        .tag(preset)
                     }
                 }
+                // The custom accent + light/dark pickers only apply to "Aangepast";
+                // a named preset pins its own accent and scheme.
+                if themePreset == .custom {
+                    Picker("Lichtmodus", selection: $themeMode) {
+                        ForEach(ThemeMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    Picker("Accentkleur", selection: $accent) {
+                        ForEach(AccentChoice.allCases) { choice in
+                            Label {
+                                Text(choice.label)
+                            } icon: {
+                                Circle().fill(choice.color).frame(width: 12, height: 12)
+                            }
+                            .tag(choice)
+                        }
+                    }
+                }
+                Toggle("Visualizer bij 'Nu speelt'", isOn: $showVisualizer)
             }
 
             // Connection

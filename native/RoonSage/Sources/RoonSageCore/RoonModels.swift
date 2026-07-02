@@ -9,6 +9,11 @@ public struct Zone: Identifiable, Equatable, Sendable, Codable {
     public var outputs: [Output]
     public var nowPlaying: NowPlaying?
     public var seekPosition: Double?    // seconds
+    // Playback settings from Roon's `zone.settings`. Optional so a snapshot from
+    // an older server (which never encoded them) still decodes cleanly — a nil
+    // simply reads as "unknown" and the toggle shows its neutral state.
+    public var shuffle: Bool?
+    public var loopMode: String?        // Roon: "disabled" | "loop" | "loop_one"
 
     public init(from dict: [String: Any]) {
         id = dict["zone_id"] as? String ?? ""
@@ -22,6 +27,10 @@ public struct Zone: Identifiable, Equatable, Sendable, Codable {
         if let seek = dict["now_playing"] as? [String: Any],
            let pos = seek["seek_position"] as? Double {
             seekPosition = pos
+        }
+        if let settings = dict["settings"] as? [String: Any] {
+            shuffle = settings["shuffle"] as? Bool
+            loopMode = settings["loop"] as? String
         }
     }
 }

@@ -7,6 +7,7 @@ import RoonSageCore
 public struct ContentView: View {
     @Environment(RoonClient.self) private var client
     @State private var ambient = AmbientTheme()
+    @State private var sleepTimer = SleepTimer()
 
     public init() {}
 
@@ -33,6 +34,7 @@ public struct ContentView: View {
         // Share the now-playing album-art tint with every tab, refreshed whenever
         // the current track's artwork changes.
         .environment(ambient)
+        .environment(sleepTimer)
         .task(id: client.selectedZone?.nowPlaying?.imageKey) { await ambient.update(from: client) }
     }
 }
@@ -268,7 +270,10 @@ struct RootView: View {
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #endif
+    @Environment(SleepTimer.self) private var sleepTimer
     @State private var selection: SidebarItem = .nowPlaying
+    @State private var showPalette = false
+    @State private var showShortcuts = false
     @AppStorage("lastZoneID") private var lastZoneID: String = ""
 
     /// `List` selection must be optional on iOS; the rest of the view keeps a
@@ -278,6 +283,35 @@ struct RootView: View {
     }
 
     var body: some View {
+        platformShell
+            // Cmd/Ctrl+K opens the command palette from anywhere in the app.
+            .background {
+                Button("") { showPalette.toggle() }
+                    .keyboardShortcut("k", modifiers: .command)
+                    .opacity(0)
+                    .accessibilityHidden(true)
+            }
+            .sheet(isPresented: $showPalette) {
+                paletteSheet
+            }
+            .sheet(isPresented: $showShortcuts) { ShortcutsCheatSheet() }
+    }
+
+    @ViewBuilder
+    private var paletteSheet: some View {
+        let palette = CommandPaletteView(
+            navigate: { selection = $0; showPalette = false },
+            showShortcuts: { showShortcuts = true }
+        )
+        #if os(iOS)
+        palette.presentationDetents([.large])
+        #else
+        palette
+        #endif
+    }
+
+    @ViewBuilder
+    private var platformShell: some View {
         #if os(iOS)
         if horizontalSizeClass == .compact {
             tabView
@@ -551,6 +585,23 @@ struct RootView: View {
             #else
             ToolbarItem(placement: .topBarLeading) { zonePicker }
             #endif
+        }
+        if sleepTimer.isActive, let endsAt = sleepTimer.endsAt {
+            ToolbarItem(placement: .automatic) {
+                Button { sleepTimer.cancel() } label: {
+                    Label(endsAt.formatted(date: .omitted, time: .shortened), systemImage: "moon.zzz.fill")
+                        .font(.caption)
+                        .foregroundStyle(Color.roonGold)
+                }
+                .help("Slaaptimer actief tot \(endsAt.formatted(date: .omitted, time: .shortened)) — tik om te annuleren")
+            }
+        }
+        ToolbarItem(placement: .automatic) {
+            Button { showPalette = true } label: {
+                Image(systemName: "command")
+            }
+            .accessibilityLabel("Opdrachtenpalet")
+            .help("Opdrachtenpalet (⌘K)")
         }
         if let zone = client.selectedZone {
             ToolbarItemGroup(placement: .primaryAction) {

@@ -50,9 +50,40 @@ public struct QueueView: View {
             }
         }
         .navigationTitle("Wachtrij")
+        .toolbar { if client.selectedZone != nil { queueOptions } }
         .onAppear(perform: restart)
         .onChange(of: client.selectedZone?.id) { _, _ in restart() }
         .onDisappear { client.stopQueue() }
+    }
+
+    /// Shuffle + repeat for the selected zone, reflecting the live Roon state.
+    @ToolbarContentBuilder
+    private var queueOptions: some ToolbarContent {
+        if let zone = client.selectedZone {
+            let shuffleOn = zone.shuffle ?? false
+            let loop = zone.loopMode ?? "disabled"
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    Haptics.tap()
+                    Task { await client.setShuffle(zoneID: zone.id, enabled: !shuffleOn) }
+                } label: {
+                    Image(systemName: "shuffle")
+                        .foregroundStyle(shuffleOn ? Color.roonGold : .secondary)
+                }
+                .accessibilityLabel("Shuffle")
+                .help(shuffleOn ? "Shuffle staat aan" : "Shuffle staat uit")
+
+                Button {
+                    Haptics.tap()
+                    Task { await client.setRepeat(zoneID: zone.id, mode: NowPlayingHeroOptions.nextLoop(loop)) }
+                } label: {
+                    Image(systemName: loop == "loop_one" ? "repeat.1" : "repeat")
+                        .foregroundStyle(loop == "disabled" ? .secondary : Color.roonGold)
+                }
+                .accessibilityLabel(NowPlayingHeroOptions.loopLabel(loop))
+                .help(NowPlayingHeroOptions.loopLabel(loop))
+            }
+        }
     }
 
     private func restart() {
