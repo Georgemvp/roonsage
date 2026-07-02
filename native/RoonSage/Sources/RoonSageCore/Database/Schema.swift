@@ -439,6 +439,22 @@ enum Schema {
             try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN loudness REAL")
         }
 
+        // Lyrics, fetched from LRCLIB on the server-of-record and served to thin
+        // clients over /lyrics. Keyed by match_key (like features) so it survives a
+        // Roon resync. `synced` holds JSON-encoded [LyricLine] (karaoke); `found`
+        // caches a negative lookup so the backfill doesn't retry a track forever.
+        migrator.registerMigration("v29_track_lyrics") { db in
+            try db.create(table: "track_lyrics", ifNotExists: true) { t in
+                t.primaryKey("match_key", .text)
+                t.column("plain",        .text)                     // plain lyrics, nullable
+                t.column("synced",       .text)                     // JSON [LyricLine], nullable
+                t.column("instrumental", .integer).notNull().defaults(to: 0)
+                t.column("found",        .integer).notNull().defaults(to: 0)  // 1 = a lookup matched
+                t.column("source",       .text)                     // e.g. "lrclib"
+                t.column("fetched_at",   .text).notNull()
+            }
+        }
+
         try migrator.migrate(db)
     }
 }

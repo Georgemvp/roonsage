@@ -520,6 +520,18 @@ public final class LibraryShareServer: @unchecked Sendable {
         if path.hasPrefix("/discovery/digest-status") {
             return ("200 OK", await RoonClient.shared.discoveryDigestStatusData(), "application/json")
         }
+        // Lyrics for the now-playing track. The server checks its DB, fetches from
+        // LRCLIB on a miss, stores the result, and returns it — so a played track is
+        // populated on demand while the background backfill fills the rest.
+        if path.hasPrefix("/lyrics") {
+            let title = Self.queryValue("title", in: target) ?? ""
+            let artist = Self.queryValue("artist", in: target)
+            let album = Self.queryValue("album", in: target)
+            let duration = Int(Self.queryValue("duration", in: target) ?? "")
+            let data = await RoonClient.shared.lyricsData(
+                title: title, artist: artist, album: album, durationSec: duration)
+            return ("200 OK", data, "application/json")
+        }
         if path.hasPrefix("/health") {
             let n = (try? await database.trackCount()) ?? 0
             return ("200 OK", Data("{\"status\":\"ok\",\"tracks\":\(n)}".utf8), "application/json")

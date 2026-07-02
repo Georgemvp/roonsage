@@ -119,7 +119,9 @@ struct LyricsView: View {
     private func load() async {
         guard let np = zone.nowPlaying else { loading = false; return }
         loading = true
-        lyrics = await LyricsService.shared.lyrics(
+        // Ask the server-of-record: it serves the cached DB row or fetches from
+        // LRCLIB on demand and stores it (thin clients never hit LRCLIB directly).
+        lyrics = await client.lyrics(
             title: np.title, artist: np.artist, album: np.album, durationSec: np.length)
         loading = false
     }

@@ -62,6 +62,8 @@ struct RoonSageAnalyzerApp: App {
             // Pull analyzed features (tags/year/embeddings) into library.db so they
             // reach the library without the manual Settings "Sync features" button.
             .task { client.startServerFeatureSync() }
+            // Trickle lyrics (LRCLIB) into library.db for the whole library, gently.
+            .task { client.startLyricsBackfill() }
         }
         .windowResizability(.contentSize)
 

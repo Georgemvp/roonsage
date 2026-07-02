@@ -2,13 +2,13 @@ import Foundation
 
 // MARK: - Lyrics models
 
-public struct LyricLine: Sendable, Equatable {
+public struct LyricLine: Sendable, Equatable, Codable {
     public var time: Double     // seconds from track start
     public var text: String
     public init(time: Double, text: String) { self.time = time; self.text = text }
 }
 
-public struct Lyrics: Sendable, Equatable {
+public struct Lyrics: Sendable, Equatable, Codable {
     public var plain: String?
     /// Timestamped lines when synced (LRC) lyrics exist — enables karaoke mode.
     public var synced: [LyricLine]?
