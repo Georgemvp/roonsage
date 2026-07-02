@@ -46,6 +46,7 @@ public struct DiscoverWeeklyView: View {
             .accessibilityLabel("Ververs de wekelijkse selectie")
         }
         .ambientSurface()
+        .animation(Motion.standard, value: loading)
         .task { await load() }
     }
 

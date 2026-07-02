@@ -68,6 +68,7 @@ public struct DiscoveryView: View {
                 .accessibilityLabel("Ververs ontdek-overzicht")
         }
         .ambientSurface()
+        .animation(Motion.standard, value: isLoaded)
         .task(id: client.trackCount) { await load() }
     }
 
@@ -325,7 +326,7 @@ public struct DiscoveryView: View {
                                 play { await client.playShuffledMix(options: opts, count: 25, zoneID: $0) }
                             }
                             .buttonStyle(.bordered)
-                            .controlSize(.small)
+                            .controlSize(.regular)
                             .disabled(client.selectedZone == nil)
                         }
                     }
@@ -365,7 +366,7 @@ public struct DiscoveryView: View {
                             play { await client.playShuffledMix(options: opts, count: 25, zoneID: $0) }
                         }
                         .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         .disabled(client.selectedZone == nil)
                     }
                 }
@@ -377,7 +378,7 @@ public struct DiscoveryView: View {
     // MARK: - States
 
     var loadingState: some View {
-        SkeletonRows(count: 8)
+        DiscoverySkeleton()
     }
 
     var emptyState: some View {
@@ -397,6 +398,65 @@ public struct DiscoveryView: View {
         async let t = client.topTracks()
         (undiscovered, forgotten, topTracks) = await (u, f, t)
         isLoaded = true
+    }
+}
+
+// MARK: - Loading skeleton
+
+/// A layout-matched placeholder for the Ontdek dashboard — a hero block, three
+/// stat tiles, and a cover shelf — so the loading state previews the real content
+/// instead of eight generic rows that don't resemble what arrives.
+private struct DiscoverySkeleton: View {
+    @State private var pulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.lg) {
+            HStack(spacing: Spacing.lg) {
+                block(width: 120, height: 120, radius: Radius.lg)
+                VStack(alignment: .leading, spacing: Spacing.sm) {
+                    block(width: 80, height: 12)
+                    block(width: 180, height: 22)
+                    block(width: 120, height: 14)
+                    Spacer(minLength: 0)
+                    block(width: 110, height: 30, radius: Radius.md)
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(height: 120)
+
+            HStack(spacing: Spacing.md) {
+                ForEach(0..<3, id: \.self) { _ in
+                    block(height: 64, radius: Radius.lg).frame(maxWidth: .infinity)
+                }
+            }
+
+            block(width: 160, height: 16)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: Spacing.md) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        VStack(alignment: .leading, spacing: Spacing.xs) {
+                            block(width: 130, height: 130, radius: Radius.md)
+                            block(width: 100, height: 11)
+                            block(width: 70, height: 9)
+                        }
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
+        }
+        .opacity(pulse ? 0.5 : 1)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func block(width: CGFloat? = nil, height: CGFloat, radius: CGFloat = Radius.sm) -> some View {
+        RoundedRectangle(cornerRadius: radius)
+            .fill(.quaternary)
+            .frame(width: width, height: height)
     }
 }
 

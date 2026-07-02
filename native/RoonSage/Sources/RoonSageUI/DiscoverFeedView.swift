@@ -122,6 +122,7 @@ public struct DiscoverFeedView: View {
             }
         }
         .ambientSurface()
+        .animation(Motion.standard, value: loading)
         .task { await load() }
         .overlay(alignment: .bottom) { undoBanner }
         .onDisappear { commitPendingRejectNow() }
@@ -352,14 +353,25 @@ private struct RecommendationCard: View {
             .foregroundStyle(.secondary)
     }
 
+    /// Total match score as a compact progress ring over the hero art — reads at a
+    /// glance (how full + what colour) where a bare "74%" made you parse digits.
     private var scoreChip: some View {
-        Text("\(Int((item.score * 100).rounded()))%")
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xs)
-            .background(.ultraThinMaterial, in: Capsule())
-            .foregroundStyle(scoreTint)
-            .padding(Spacing.sm)
+        let pct = Int((item.score * 100).rounded())
+        return ZStack {
+            Circle().stroke(.quaternary, lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: max(0.02, min(1, item.score)))
+                .stroke(scoreTint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text("\(pct)")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.primary)
+        }
+        .frame(width: 30, height: 30)
+        .padding(6)
+        .background(.ultraThinMaterial, in: Circle())
+        .padding(Spacing.sm)
+        .accessibilityLabel("Match \(pct) procent")
     }
 
     private var actionRow: some View {
