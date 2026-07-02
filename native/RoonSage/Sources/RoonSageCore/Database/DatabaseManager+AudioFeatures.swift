@@ -458,19 +458,24 @@ extension DatabaseManager {
     /// played, joining `listening_history` to `tracks` on LOWER(title)+LOWER(artist)
     /// — the v18 expression index keeps this fast. Powers the recency-weighted
     /// personal taste vector that biases every station toward the user's taste.
-    public func playStatsByMatchKey() async throws -> [(matchKey: String, count: Int, lastPlayed: String)] {
+    /// `since` (ISO8601) restricts to plays at/after that moment — the Sonic DNA
+    /// evolution view compares a recent window against all-time.
+    public func playStatsByMatchKey(since: String? = nil) async throws -> [(matchKey: String, count: Int, lastPlayed: String)] {
         try await pool.read { db in
             // COUNT(DISTINCT h.id): the same song often has several `tracks` rows
             // (soundtrack + compilation + duplicate albums) sharing one match_key, so
             // the title+artist join fans one play out across them — COUNT(*) would
             // multiply the true play count by the number of duplicate rows.
+            // played_at is stored ISO8601 (UTC), so a plain string >= compare works.
+            let window = since != nil ? "AND h.played_at >= ?" : ""
+            let args: StatementArguments = since != nil ? [since!] : []
             let rows = try Row.fetchAll(db, sql: """
                 SELECT t.match_key AS mk, COUNT(DISTINCT h.id) AS c, MAX(h.played_at) AS last
                 FROM listening_history h
                 JOIN tracks t ON LOWER(t.title) = LOWER(h.title) AND LOWER(t.artist) = LOWER(h.artist)
-                WHERE t.match_key IS NOT NULL AND t.match_key <> ''
+                WHERE t.match_key IS NOT NULL AND t.match_key <> '' \(window)
                 GROUP BY t.match_key
-            """)
+            """, arguments: args)
             return rows.compactMap { r in
                 guard let mk = r["mk"] as String?, let c = r["c"] as Int? else { return nil }
                 return (mk, c, (r["last"] as String?) ?? "")

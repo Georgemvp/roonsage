@@ -16,6 +16,8 @@ public struct SonicFingerprintView: View {
         List {
             if let fp = fingerprint {
                 profileCard(fp).plainCardRow()
+                if !fp.evolution.isEmpty { evolutionCard(fp).plainCardRow() }
+                if !fp.cores.isEmpty { coresCard(fp).plainCardRow() }
                 if !fp.recommendations.isEmpty { recommendationsCard(fp).plainCardRow() }
             } else if isLoading {
                 Section {
@@ -65,7 +67,9 @@ public struct SonicFingerprintView: View {
                 .font(.title2.bold())
                 .foregroundStyle(Color.roonGold)
                 .accessibilityLabel("Je muzikale persoonlijkheid: \(Self.personality(p))")
-            Text("Gemiddeld over je \(fp.seedCount) meest gespeelde geanalyseerde tracks.")
+            Text(fp.usedHistory
+                 ? "Gewogen naar je luistergeschiedenis — recente en veelgespeelde tracks tellen zwaarder (\(fp.seedCount) tracks)."
+                 : "Nog geen luistergeschiedenis — dit profiel is een doorsnede van je bibliotheek.")
                 .font(.caption).foregroundStyle(.secondary)
 
             // Wraps to a column on a narrow (iPhone) layout, stays side-by-side
@@ -85,26 +89,25 @@ public struct SonicFingerprintView: View {
         .cardStyle()
     }
 
-    private func radar(_ p: SonicEngine.Profile) -> some View {
-        RadarChart(axes: [
-            ("Energie", p.energy),
-            ("Tempo", p.tempo),
-            ("Majeur", p.majorAffinity),
-            ("Variatie", p.tempoVariety),
-            ("Tags", p.tagRichness),
-        ])
-        .frame(width: 240, height: 240)
+    private func radar(_ p: SonicDNA.Profile) -> some View {
+        RadarChart(axes: p.axes)
+            .frame(width: 240, height: 240)
     }
 
-    private func stats(_ p: SonicEngine.Profile) -> some View {
+    private func stats(_ p: SonicDNA.Profile) -> some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            statRow("Gem. tempo", "\(Int(p.avgBPM)) BPM")
+            if p.avgBPM > 0 { statRow("Gem. tempo", "\(Int(p.avgBPM)) BPM") }
             statRow("Energie", percent(p.energy))
-            statRow("Voorkeur majeur", percent(p.majorAffinity))
-            statRow("Tempovariatie", percent(p.tempoVariety))
-            if !p.topTags.isEmpty {
-                Text("Kenmerkende tags").font(.caption).foregroundStyle(.secondary).padding(.top, Spacing.xs)
-                DriftingTags(tags: p.topTags.map { $0.tag })
+            statRow("Dansbaarheid", percent(p.danceability))
+            statRow("Zonnigheid", percent(p.valence))
+            statRow("Mainstream", percent(p.mainstream))
+            if !p.topGenres.isEmpty {
+                Text("Jouw genre-DNA").font(.caption).foregroundStyle(.secondary).padding(.top, Spacing.xs)
+                DriftingTags(tags: p.topGenres.map { $0.name })
+            }
+            if !p.topMoods.isEmpty {
+                Text("Stemming: " + p.topMoods.map { $0.name }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: 260, alignment: .leading)
@@ -120,22 +123,100 @@ public struct SonicFingerprintView: View {
     }
 
     /// One-line "personality" derived from the profile — playful but precise.
-    static func personality(_ p: SonicEngine.Profile) -> String {
-        var parts: [String] = []
+    static func personality(_ p: SonicDNA.Profile) -> String {
+        let adj: String
         switch p.energy {
-        case 0.66...:    parts.append("Energiek")
-        case 0.33..<0.66: parts.append("Gebalanceerd")
-        default:         parts.append("Ingetogen")
+        case 0.66...:    adj = "Energieke"
+        case 0.33..<0.66: adj = "Gebalanceerde"
+        default:         adj = "Ingetogen"
         }
-        switch p.avgBPM {
-        case 130...:     parts.append("uptempo")
-        case 100..<130:  parts.append("mid-tempo")
-        default:         parts.append("rustig tempo")
+        let noun: String
+        if p.mainstream <= 0.35 { noun = "deep-cut digger" }
+        else if p.mainstream >= 0.65 { noun = "hitliefhebber" }
+        else if p.adventure >= 0.55 { noun = "ontdekkingsreiziger" }
+        else { noun = "fijnproever" }
+        var line = "\(adj) \(noun)"
+        if let genre = p.topGenres.first?.name {
+            line += " met een hart voor \(genre.lowercased())"
         }
-        if p.majorAffinity >= 0.6 { parts.append("majeur") }
-        else if p.majorAffinity <= 0.4 { parts.append("mineur") }
-        else if p.tempoVariety >= 0.6 { parts.append("eclectisch") }
-        return parts.joined(separator: " · ")
+        return line
+    }
+
+    // MARK: - Evolution (recent window vs all-time)
+
+    @ViewBuilder
+    private func evolutionCard(_ fp: RoonClient.Fingerprint) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            Text("Je DNA in beweging").font(.headline)
+            Text("De laatste \(RoonClient.dnaRecentWindowDays) dagen vergeleken met je hele geschiedenis.")
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(fp.evolution, id: \.label) { d in
+                HStack(spacing: Spacing.md) {
+                    Image(systemName: d.delta > 0 ? "arrow.up.right" : "arrow.down.right")
+                        .foregroundStyle(Color.roonGold)
+                    Text(Self.evolutionText(d))
+                        .font(.callout)
+                    Spacer()
+                    Text((d.delta > 0 ? "+" : "−") + percent(abs(d.delta)))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .cardStyle()
+    }
+
+    /// "Energie ↑" → a human sentence per axis and direction.
+    static func evolutionText(_ d: SonicDNA.AxisDelta) -> String {
+        let up = d.delta > 0
+        switch d.label {
+        case "Energie":    return up ? "Je luistert energieker dan voorheen" : "Je luistert rustiger dan voorheen"
+        case "Dansbaar":   return up ? "Meer dansbaars in je rotatie" : "Minder dansbaars in je rotatie"
+        case "Zonnig":     return up ? "Je muziek klinkt zonniger" : "Je muziek klinkt melancholischer"
+        case "Akoestisch": return up ? "Meer akoestisch en organisch" : "Meer elektronisch en geproduceerd"
+        case "Avontuur":   return up ? "Avontuurlijker aan het luisteren" : "Dichter bij je vertrouwde smaak"
+        case "Mainstream": return up ? "Meer bekende namen in je rotatie" : "Dieper in de deep cuts"
+        default:           return "\(d.label) \(up ? "omhoog" : "omlaag")"
+        }
+    }
+
+    // MARK: - Taste cores ("smaakkernen")
+
+    @ViewBuilder
+    private func coresCard(_ fp: RoonClient.Fingerprint) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            Text("Jouw smaakkernen").font(.headline)
+            Text("De plekken waar je luisteren écht leeft — elk met eigen aanbevelingen.")
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(fp.cores) { core in
+                VStack(alignment: .leading, spacing: Spacing.sm) {
+                    HStack(spacing: Spacing.sm) {
+                        Text(core.label).font(.callout.weight(.semibold))
+                        Badge(percent(core.share), tint: .roonGold)
+                        Spacer(minLength: Spacing.sm)
+                        if !core.recommendations.isEmpty {
+                            Button {
+                                play { await client.curateTracks(asTracks(core.recommendations), zoneID: $0) }
+                            } label: {
+                                Label("Speel", systemImage: "play.fill")
+                            }
+                            .buttonStyle(.bordered).controlSize(.small)
+                            .disabled(client.selectedZone == nil)
+                        }
+                    }
+                    if !core.topArtists.isEmpty {
+                        Text(core.topArtists.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    ForEach(core.recommendations) { scored in
+                        recommendationRow(scored, compact: true)
+                    }
+                }
+                .padding(.vertical, Spacing.xs)
+                if core.id != fp.cores.last?.id { Divider() }
+            }
+        }
+        .cardStyle()
     }
 
     // MARK: - Recommendations
@@ -160,38 +241,45 @@ public struct SonicFingerprintView: View {
                 .font(.caption).foregroundStyle(.secondary)
 
             ForEach(fp.recommendations) { scored in
-                HStack(spacing: Spacing.md) {
-                    AlbumArtView(imageKey: scored.track.imageKey, size: 40)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(scored.track.title).font(.callout).lineLimit(1)
-                        Text(scored.track.artist ?? "Onbekend")
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        if let reason = scored.reason {
-                            Label(reason.text, systemImage: reasonIcon(reason.kind))
-                                .font(.caption2)
-                                .foregroundStyle(Color.roonGold.opacity(0.9))
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer()
-                    Text(percent(scored.similarity))
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                    Button {
-                        let t = scored.track
-                        Haptics.tap()
-                        play { await client.playTrack(id: t.id, title: t.title, artist: t.artist, zoneID: $0) }
-                    } label: {
-                        Image(systemName: "play.fill")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(client.selectedZone == nil)
-                    .accessibilityLabel("Speel nu")
-                    .help("Speel nu")
-                }
+                recommendationRow(scored, compact: false)
             }
         }
         .cardStyle()
+    }
+
+    @ViewBuilder
+    private func recommendationRow(_ scored: SonicEngine.Scored, compact: Bool) -> some View {
+        HStack(spacing: Spacing.md) {
+            AlbumArtView(imageKey: scored.track.imageKey, size: compact ? 32 : 40)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(scored.track.title).font(.callout).lineLimit(1)
+                Text(scored.track.artist ?? "Onbekend")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if !compact, let reason = scored.reason {
+                    Label(reason.text, systemImage: reasonIcon(reason.kind))
+                        .font(.caption2)
+                        .foregroundStyle(Color.roonGold.opacity(0.9))
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            if !compact {
+                Text(percent(scored.similarity))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+            Button {
+                let t = scored.track
+                Haptics.tap()
+                play { await client.playTrack(id: t.id, title: t.title, artist: t.artist, zoneID: $0) }
+            } label: {
+                Image(systemName: "play.fill")
+            }
+            .buttonStyle(.borderless)
+            .disabled(client.selectedZone == nil)
+            .accessibilityLabel("Speel nu")
+            .help("Speel nu")
+        }
     }
 
     // MARK: - Helpers
@@ -232,7 +320,10 @@ public struct SonicFingerprintView: View {
     /// rendered statically (no TimelineView) so the snapshot isn't a half-way
     /// animation frame.
     private func renderShareImage(_ fp: RoonClient.Fingerprint) {
-        let card = FingerprintShareCard(profile: fp.profile, headline: Self.personality(fp.profile))
+        let card = FingerprintShareCard(
+            profile: fp.profile,
+            headline: Self.personality(fp.profile),
+            coreLabels: fp.cores.prefix(3).map { $0.label })
         let renderer = ImageRenderer(content: card)
         renderer.scale = 3
         if let cg = renderer.cgImage {
@@ -366,8 +457,9 @@ private struct DriftingTags: View {
 // MARK: - Shareable card
 
 private struct FingerprintShareCard: View {
-    let profile: SonicEngine.Profile
+    let profile: SonicDNA.Profile
     let headline: String
+    let coreLabels: [String]
 
     var body: some View {
         VStack(spacing: Spacing.lg) {
@@ -379,17 +471,16 @@ private struct FingerprintShareCard: View {
                 .font(.title.bold())
                 .foregroundStyle(Color.roonGold)
                 .multilineTextAlignment(.center)
-            RadarChart(axes: [
-                ("Energie", profile.energy),
-                ("Tempo", profile.tempo),
-                ("Majeur", profile.majorAffinity),
-                ("Variatie", profile.tempoVariety),
-                ("Tags", profile.tagRichness),
-            ], animated: false)
-            .frame(width: 280, height: 280)
-            if !profile.topTags.isEmpty {
-                Text(profile.topTags.prefix(5).map { $0.tag }.joined(separator: "  ·  "))
+            RadarChart(axes: profile.axes, animated: false)
+                .frame(width: 280, height: 280)
+            if !profile.topGenres.isEmpty {
+                Text(profile.topGenres.prefix(5).map { $0.name }.joined(separator: "  ·  "))
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if !coreLabels.isEmpty {
+                Text("Smaakkernen: " + coreLabels.joined(separator: " · "))
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             Text("RoonSage")

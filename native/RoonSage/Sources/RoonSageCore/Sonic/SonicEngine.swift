@@ -63,11 +63,20 @@ public enum SonicEngine {
         seedWeights: [Float]? = nil
     ) -> [Scored] {
         guard !seeds.isEmpty else { return [] }
-        // Embedding path: (recency-weighted) centroid → cosine k-NN.
+        // Embedding path: (recency-weighted) centroid → cosine k-NN. Pair each
+        // seed's vector with its weight BEFORE dropping un-embedded seeds, so
+        // the weights can't shift onto the wrong seed.
         if let index {
-            let seedIds = seeds.map(\.id).filter { index.embedding(forId: $0) != nil }
-            if !seedIds.isEmpty, let centroid = index.centroid(ofIds: seedIds, weights: seedWeights) {
-                return index.nearest(to: centroid, k: limit, excludingIds: Set(seedIds))
+            var pairs: [(vec: [Float], w: Float)] = []
+            var embeddedIds: Set<String> = []
+            for (i, s) in seeds.enumerated() {
+                guard let e = index.embedding(forId: s.id) else { continue }
+                let w = (seedWeights?.count == seeds.count) ? max(0, seedWeights![i]) : 1
+                pairs.append((e, w))
+                embeddedIds.insert(s.id)
+            }
+            if !pairs.isEmpty, let centroid = VectorIndex.weightedCentroid(pairs) {
+                return index.nearest(to: centroid, k: limit, excludingIds: embeddedIds)
                     .map { Scored(track: $0.track, similarity: Double(max(0, $0.score))) }
             }
         }

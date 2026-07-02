@@ -98,16 +98,30 @@ public enum RadioEngine {
         tasteVector: [Float]? = nil,
         seedGenres: Set<String> = [],
         genresById: [String: Set<String>] = [:],
+        seedWeights: [Double]? = nil,
         salt: String = ""
     ) -> [Result] {
         // Anchors: the seed vectors that exist in the index. Cap for cost.
+        // (Callers pass seeds heaviest-first, so the cap keeps what matters.)
         let seedIds = seeds.map(\.id)
         var anchors: [[Float]] = []
         anchors.reserveCapacity(min(seedIds.count, maxAnchors))
         for id in seedIds where anchors.count < maxAnchors {
             if let e = index.embedding(forId: id) { anchors.append(e) }
         }
-        guard let centroid = index.centroid(ofIds: seedIds) else { return [] }
+        // Weighted centroid when the caller knows how much each seed matters
+        // (Sonic DNA: play-recency weights). Pair vector+weight BEFORE filtering
+        // out un-embedded seeds so the weights can't misalign.
+        let centroidOpt: [Float]?
+        if let seedWeights, seedWeights.count == seeds.count {
+            centroidOpt = VectorIndex.weightedCentroid(zip(seeds, seedWeights).compactMap {
+                guard let e = index.embedding(forId: $0.0.id) else { return nil }
+                return (e, Float(max(0, $0.1)))
+            })
+        } else {
+            centroidOpt = index.centroid(ofIds: seedIds)
+        }
+        guard let centroid = centroidOpt else { return [] }
 
         // Map content keys → track ids so like/dislike (keyed by matchKey) resolve
         // to the embedding index (keyed by Roon id).

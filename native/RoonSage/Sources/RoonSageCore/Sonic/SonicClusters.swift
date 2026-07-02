@@ -135,9 +135,12 @@ public enum SonicClusters {
 
     /// Name a neighborhood by its dominant Roon genre (if it covers ≥30% of the
     /// cluster), else dominant analyzer tag, else dominant mood, else a fallback.
-    private static func label(
+    /// Also reused by `SonicDNA.cores` so taste cores and sonic neighborhoods
+    /// are named by one set of rules.
+    static func label(
         for members: [DatabaseManager.SonicTrack],
-        genresById: [String: Set<String>], index c: Int
+        genresById: [String: Set<String>], index c: Int,
+        fallback: String = "Sonische buurt"
     ) -> String {
         let size = max(1, members.count)
         let threshold = max(2, size * 3 / 10)
@@ -174,10 +177,10 @@ public enum SonicClusters {
         if let top = moodCount.max(by: { $0.value < $1.value }) {
             return moodName(top.key)
         }
-        return "Sonische buurt \(c + 1)"
+        return "\(fallback) \(c + 1)"
     }
 
-    private static func moodName(_ key: String) -> String {
+    static func moodName(_ key: String) -> String {
         let map: [String: String] = [
             "happy": "Vrolijk", "sad": "Melancholisch", "relaxed": "Ontspannen",
             "aggressive": "Stevig", "party": "Feestelijk", "danceable": "Dansbaar",

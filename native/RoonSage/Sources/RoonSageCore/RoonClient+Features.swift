@@ -77,14 +77,38 @@ extension RoonClient {
         return known
     }
 
+    /// Track-level play stats (content key → plays + last played). The server
+    /// build reads its own `listening_history`; thin clients pull the same rows
+    /// from the server's `/play-stats` (history lives there). `since` (ISO8601)
+    /// restricts to plays at/after that moment — Sonic DNA's evolution window.
+    public func playStats(since: String? = nil) async -> [SonicDNA.PlayStat] {
+        if isRemote {
+            guard let base = remoteBaseURL else { return [] }
+            var comp = URLComponents(string: "\(base)/play-stats")
+            if let since { comp?.queryItems = [URLQueryItem(name: "since", value: since)] }
+            guard let url = comp?.url else { return [] }
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 8
+            authorizeShareRequest(&req)
+            guard let (data, resp) = try? await URLSession.shared.data(for: req),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let stats = try? JSONDecoder().decode([SonicDNA.PlayStat].self, from: data)
+            else { return [] }
+            return stats
+        }
+        guard let db = database else { return [] }
+        let rows = (try? await db.playStatsByMatchKey(since: since)) ?? []
+        return rows.map { SonicDNA.PlayStat(matchKey: $0.matchKey, count: $0.count, lastPlayed: $0.lastPlayed) }
+    }
+
     /// The user's recency-weighted taste vector in CLAP space, used to bias every
-    /// station toward what they actually love. Computed from local
-    /// `listening_history` + likes, so it's available on the always-on server
-    /// build (`.direct`); on thin clients (history lives server-side) it's nil and
-    /// the station simply leans on its seeds + the artist-level signals instead.
+    /// station toward what they actually love. Computed from `listening_history`
+    /// + likes; on thin clients the stats come from the server's `/play-stats`,
+    /// so the vector now works there too (an older server without that endpoint
+    /// just yields nil and the station leans on its seeds instead).
     func personalTasteVector(lib: [DatabaseManager.SonicTrack], index: VectorIndex?) async -> [Float]? {
-        guard let index, let db = database, !isRemote else { return nil }
-        let stats = (try? await db.playStatsByMatchKey()) ?? []
+        guard let index else { return nil }
+        let stats = await playStats().map { (matchKey: $0.matchKey, count: $0.count, lastPlayed: $0.lastPlayed) }
         let liked = likedMatchKeys
         guard !stats.isEmpty || !liked.isEmpty else { return nil }
         return await Task.detached {
@@ -603,64 +627,171 @@ extension RoonClient {
         await curateTracks(tracks, zoneID: zoneID)
     }
 
-    public struct Fingerprint: Sendable {
-        public var profile: SonicEngine.Profile
+    /// One taste core ("smaakkern"): a coherent pocket of the user's listening,
+    /// with its own recommendations.
+    public struct TasteCore: Sendable, Identifiable {
+        public var id: String
+        public var label: String
+        public var share: Double          // 0…1 of the listening weight
+        public var trackCount: Int
+        public var topArtists: [String]
         public var recommendations: [SonicEngine.Scored]
-        public var seedCount: Int
     }
 
-    /// Your "musical DNA": a profile of your most-played analyzed tracks plus
-    /// library recommendations closest to that taste. Computed off-main.
-    public func sonicFingerprint(seedLimit: Int = 40, recommendCount: Int = 60) async -> Fingerprint? {
+    public struct Fingerprint: Sendable {
+        public var profile: SonicDNA.Profile
+        /// Profile over the last 90 days (nil when there's too little recent play
+        /// history to be meaningful).
+        public var recentProfile: SonicDNA.Profile?
+        /// Axes where the recent window departs from all-time, biggest first.
+        public var evolution: [SonicDNA.AxisDelta]
+        public var recommendations: [SonicEngine.Scored]
+        public var cores: [TasteCore]
+        public var seedCount: Int
+        /// false = no play history yet; the profile is a library-wide sample.
+        public var usedHistory: Bool
+    }
+
+    /// Days of the "recent" window the DNA evolution compares against all-time.
+    public nonisolated static let dnaRecentWindowDays = 90
+
+    /// Your "musical DNA": a recency/play-weighted profile of the tracks you
+    /// actually listen to (plus likes, minus dislikes), taste cores, an
+    /// evolution view, and personalized recommendations. Works on thin clients
+    /// too — play stats come from the server's `/play-stats`. Computed off-main.
+    public func sonicFingerprint(seedLimit: Int = 80, recommendCount: Int = 40) async -> Fingerprint? {
         guard let db = database else { return nil }
         let lib = await radioLibrary()
+        guard !lib.isEmpty else { return nil }
         let index = await activeIndex(db)
         let disliked = dislikedMatchKeys
         let liked = likedMatchKeys
         let known = await knownArtistKeys(lib: lib)
         let adv = radioAdventurousness
-        do {
-            return try await Task.detached {
-                guard !lib.isEmpty else { return nil }
-                let top = try await db.topTracks(limit: seedLimit)
-                let byKey = Dictionary(lib.map { ($0.matchKey, $0) }, uniquingKeysWith: { a, _ in a })
-                var seeds = top.compactMap { $0.matchKey.flatMap { byKey[$0] } }
-                // Thumbed-up tracks are explicit "this is me" signals — fold them
-                // into the seed set so the DNA leans toward them (dedup by id).
-                let likedSeeds = liked.compactMap { byKey[$0] }
-                let seenIds = Set(seeds.map(\.id))
-                seeds.append(contentsOf: likedSeeds.filter { !seenIds.contains($0.id) })
-                // Fall back to the loudest/most-typical slice if there's no play history yet.
-                let effectiveSeeds = seeds.isEmpty ? Array(lib.prefix(min(40, lib.count))) : seeds
-                let profile = SonicEngine.profile(of: effectiveSeeds)
-                // Recommendations via the smart engine (multi-anchor + dial + MMR)
-                // when embeddings exist; rule-based otherwise.
-                let recRaw: [SonicEngine.Scored]
-                // Only take the smart path when a seed actually carries an embedding
-                // (RadioEngine needs a seed centroid); otherwise fall through to
-                // SonicEngine.nearest, which still rule-based-ranks when seeds aren't
-                // embedded — so a partially-analyzed library never shows zero recs.
-                if let index, effectiveSeeds.contains(where: { index.embedding(forId: $0.id) != nil }) {
-                    let opts = RadioEngine.Options(adventurousness: adv, poolLimit: recommendCount, sequence: false)
-                    recRaw = RadioEngine.rank(
-                        seeds: effectiveSeeds, library: lib, index: index, options: opts,
-                        disliked: disliked, likedKeys: liked, knownArtists: known, salt: "fingerprint")
-                        // RadioEngine.score carries novelty/discovery bonuses (can exceed
-                        // 1) — clamp to a 0…1 similarity for the radar UI's match %.
-                        .map { SonicEngine.Scored(track: $0.track, similarity: min(1, max(0, $0.score)), reason: $0.reason) }
-                } else {
-                    recRaw = SonicEngine.nearest(toSeeds: effectiveSeeds, in: lib, limit: recommendCount, index: index)
+        let genres = (try? await db.genresByTrackID()) ?? [:]
+        let statsAll = await playStats()
+        let cutoff = ISO8601DateFormatter().string(
+            from: Date().addingTimeInterval(-Double(Self.dnaRecentWindowDays) * 86_400))
+        let statsRecent = statsAll.isEmpty ? [] : await playStats(since: cutoff)
+
+        return await Task.detached { () -> Fingerprint? in
+            let byKey = Dictionary(lib.map { ($0.matchKey, $0) }, uniquingKeysWith: { a, _ in a })
+
+            // Weighted seeds: most-played (recency-decayed) + liked − disliked.
+            var seeds = SonicDNA.selectSeeds(
+                playStats: statsAll, byMatchKey: byKey, liked: liked,
+                disliked: disliked, limit: seedLimit)
+            let usedHistory = !seeds.isEmpty
+            // No history yet → an evenly-strided library sample (deterministic,
+            // not "whatever the cache's first 40 rows happen to be").
+            if seeds.isEmpty { seeds = SonicDNA.librarySampleSeeds(lib) }
+            guard !seeds.isEmpty else { return nil }
+
+            let profile = SonicDNA.profile(seeds: seeds, index: index, genresById: genres, library: lib)
+
+            // Evolution: the recent window vs all-time, when there's enough signal.
+            var recentProfile: SonicDNA.Profile?
+            var evolution: [SonicDNA.AxisDelta] = []
+            if usedHistory {
+                let recentSeeds = SonicDNA.selectSeeds(
+                    playStats: statsRecent, byMatchKey: byKey, liked: [],
+                    disliked: disliked, limit: seedLimit)
+                if recentSeeds.count >= 10 {
+                    let rp = SonicDNA.profile(seeds: recentSeeds, index: index, genresById: genres, library: lib)
+                    recentProfile = rp
+                    evolution = SonicDNA.evolution(recent: rp, allTime: profile)
                 }
-                // Down-sample (not ban) disliked tracks in the recommendations.
-                let recs = RoonClient.applyFeedbackWeighting(
-                    recRaw, disliked: disliked, salt: "fingerprint", matchKey: { $0.track.matchKey })
-                return Fingerprint(profile: profile, recommendations: recs, seedCount: effectiveSeeds.count)
-            }.value
-        } catch {
-            Log.warning("Sonic DNA berekenen mislukt: \(error)", category: .roon)
-            reportError("Sonic DNA berekenen mislukt — probeer het opnieuw.")
-            return nil
+            }
+
+            // Personal taste vector — same steering the smart radios use.
+            let taste: [Float]? = index.flatMap { idx in
+                TasteVector.compute(
+                    stats: statsAll.map { (matchKey: $0.matchKey, count: $0.count, lastPlayed: $0.lastPlayed) },
+                    likedKeys: liked, index: idx)
+            }
+
+            // Seed genres for explainability ("past bij je <genre>-smaak").
+            let umbrella = SonicDNA.umbrellaGenres(genres)
+            var seedGenres = Set<String>()
+            for s in seeds {
+                for g in genres[s.track.id] ?? [] where !umbrella.contains(g.lowercased()) {
+                    seedGenres.insert(g)
+                }
+            }
+
+            let seedTracks = seeds.map(\.track)   // heaviest first (anchor cap keeps the top)
+            let seedKeys = Set(seedTracks.map(\.matchKey).filter { !$0.isEmpty })
+            let recRaw: [SonicEngine.Scored]
+            if let index, seedTracks.contains(where: { index.embedding(forId: $0.id) != nil }) {
+                // Ask for a margin: the dedup + artist cap below prunes the pool.
+                let opts = RadioEngine.Options(adventurousness: adv, poolLimit: recommendCount * 3, sequence: false)
+                recRaw = RadioEngine.rank(
+                    seeds: seedTracks, library: lib, index: index, options: opts,
+                    disliked: disliked, likedKeys: liked, knownArtists: known,
+                    tasteVector: taste, seedGenres: seedGenres, genresById: genres,
+                    seedWeights: seeds.map(\.weight), salt: "fingerprint")
+                    // RadioEngine.score carries novelty/discovery bonuses (can exceed
+                    // 1) — clamp to a 0…1 similarity for the UI's match %.
+                    .map { SonicEngine.Scored(track: $0.track, similarity: min(1, max(0, $0.score)), reason: $0.reason) }
+            } else {
+                recRaw = SonicEngine.nearest(
+                    toSeeds: seedTracks, in: lib, limit: recommendCount * 3, index: index,
+                    seedWeights: seeds.map { Float($0.weight) })
+            }
+            // Down-sample (not ban) disliked, drop the seeds themselves, collapse
+            // duplicate copies of one song, and cap per artist for variety.
+            let weighted = RoonClient.applyFeedbackWeighting(
+                recRaw, disliked: disliked, salt: "fingerprint", matchKey: { $0.track.matchKey })
+            let recs = RoonClient.dedupAndCap(
+                weighted, excludingKeys: seedKeys, maxPerArtist: 2, limit: recommendCount)
+
+            // Taste cores: weighted k-means over the seeds' embeddings, each core
+            // with its own nearest-library recommendations.
+            var cores: [TasteCore] = []
+            if let index {
+                let seedIds = Set(seedTracks.map(\.id))
+                for core in SonicDNA.cores(seeds: seeds, index: index, genresById: genres) {
+                    let hits = index.nearest(to: core.centroid, k: 40, excludingIds: seedIds)
+                        .map { SonicEngine.Scored(track: $0.track, similarity: Double(max(0, $0.score))) }
+                    let hitsWeighted = RoonClient.applyFeedbackWeighting(
+                        hits, disliked: disliked, salt: "dna-core-\(core.id)", matchKey: { $0.track.matchKey })
+                    let coreRecs = RoonClient.dedupAndCap(
+                        hitsWeighted, excludingKeys: seedKeys, maxPerArtist: 2, limit: 5)
+                    cores.append(TasteCore(
+                        id: core.id, label: core.label, share: core.share,
+                        trackCount: core.trackIds.count, topArtists: core.topArtists,
+                        recommendations: coreRecs))
+                }
+            }
+
+            return Fingerprint(
+                profile: profile, recentProfile: recentProfile, evolution: evolution,
+                recommendations: recs, cores: cores, seedCount: seeds.count,
+                usedHistory: usedHistory)
+        }.value
+    }
+
+    /// Content-dedup + per-artist cap over a scored list, preserving order.
+    nonisolated static func dedupAndCap(
+        _ scored: [SonicEngine.Scored], excludingKeys: Set<String>,
+        maxPerArtist: Int, limit: Int
+    ) -> [SonicEngine.Scored] {
+        var seen = Set<String>()
+        var perArtist: [String: Int] = [:]
+        var out: [SonicEngine.Scored] = []
+        for s in scored {
+            let mk = s.track.matchKey
+            if !mk.isEmpty {
+                if excludingKeys.contains(mk) { continue }
+                if !seen.insert(mk).inserted { continue }
+            }
+            let a = (s.track.artist ?? "").lowercased()
+            if perArtist[a, default: 0] >= maxPerArtist { continue }
+            perArtist[a, default: 0] += 1
+            out.append(s)
+            if out.count >= limit { break }
         }
+        return out
     }
 
     /// All analyzed tracks (for the Music Map). Cached; loads off-main.

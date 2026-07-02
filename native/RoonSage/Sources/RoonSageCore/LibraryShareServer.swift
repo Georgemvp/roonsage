@@ -426,6 +426,19 @@ public final class LibraryShareServer: @unchecked Sendable {
             }
             return ("500 Internal Server Error", Data("history failed".utf8), "text/plain")
         }
+        // Track-level play stats (content key → count + last played). Thin clients
+        // have no local `listening_history`, so Sonic DNA and the personal taste
+        // vector pull these from here. `since` (ISO8601) restricts the window.
+        if path.hasPrefix("/play-stats") {
+            let since = Self.queryValue("since", in: target)
+            if let rows = try? await database.playStatsByMatchKey(since: since) {
+                let stats = rows.map { SonicDNA.PlayStat(matchKey: $0.matchKey, count: $0.count, lastPlayed: $0.lastPlayed) }
+                if let body = try? JSONEncoder().encode(stats) {
+                    return ("200 OK", body, "application/json")
+                }
+            }
+            return ("500 Internal Server Error", Data("play-stats failed".utf8), "text/plain")
+        }
         if path.hasPrefix("/taste-analysis") {
             if let analysis = try? await database.tasteAnalysis(),
                let body = try? JSONEncoder().encode(analysis) {
