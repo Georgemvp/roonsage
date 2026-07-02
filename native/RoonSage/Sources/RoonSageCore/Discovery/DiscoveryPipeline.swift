@@ -105,6 +105,27 @@ struct DiscoveryPipeline {
         }
         resolved = Self.rededupe(resolved)
 
+        // 3a-bis. Validate `.album` candidates that carry no release-group MBID —
+        // i.e. ai-picks, where an LLM names album titles freely and can hallucinate
+        // a plausible title for a real artist (gap-fill / release-radar always set a
+        // MBID from MB's own discography, so they skip this). Match the title against
+        // the artist's real MB studio discography; on a hit, attach the MBID —
+        // upgrading it to a verified album that also earns a real Cover Art Archive
+        // cover in 3b-bis. Titles matching neither here nor on Qobuz (3b) are dropped
+        // in 3b-drop as likely hallucinations.
+        for idx in resolved.indices {
+            guard resolved[idx].kind == .album, resolved[idx].releaseGroupMbid == nil,
+                  let mbid = resolved[idx].artistMbid, !mbid.isEmpty,
+                  let title = resolved[idx].album else { continue }
+            let disco = await context.musicBrainz.studioAlbums(artistMbid: mbid)
+            let wantTitle = TrackIdentity.normalise(title)
+            guard !wantTitle.isEmpty,
+                  let hit = disco.first(where: { TrackIdentity.normalise($0.title) == wantTitle })
+            else { continue }
+            resolved[idx].releaseGroupMbid = hit.mbid
+            if resolved[idx].year == nil { resolved[idx].year = hit.year }
+        }
+
         // 3b. Resolve album-kind items to a playable Qobuz album (one login).
         if let creds = qobuzCreds {
             let wants = resolved.enumerated().compactMap { idx, it -> (key: String, artist: String, album: String)? in
@@ -125,16 +146,43 @@ struct DiscoveryPipeline {
             }
         }
 
-        // 3c. Backfill a representative Qobuz cover for every item still missing
-        // art — both `.artist`-kind (which never had a specific album to resolve)
-        // and `.album`-kind items whose exact album didn't match on Qobuz in 3b
-        // (strict title+artist scoring, so a fair share legitimately miss). Both
-        // would otherwise show a placeholder icon; the artist's cover is a good
-        // enough stand-in and keeps the feed visual. Album-kind items keep their
-        // (still-nil) qobuzAlbumID here — this only fills art, not playability.
+        // 3b-drop. Remove `.album` candidates that resolved on NEITHER Qobuz (3b)
+        // NOR MusicBrainz (3a-bis) — an unverifiable album title, i.e. a likely
+        // ai-picks hallucination (real artist + invented album). gap-fill /
+        // release-radar albums always carry an MB release-group MBID, so they're
+        // never dropped; `.artist`-kind items are untouched. This is what stops a
+        // non-existent album from reaching the feed with a "Niet op Qobuz gevonden"
+        // flag instead of being suppressed.
+        resolved.removeAll { it in
+            it.kind == .album
+                && (it.qobuzAlbumID?.isEmpty ?? true)
+                && (it.releaseGroupMbid?.isEmpty ?? true)
+        }
+
+        // 3b-bis. For `.album` items that didn't match on Qobuz but DO carry a
+        // MusicBrainz release-group MBID (gap-fill / release-radar candidates are
+        // MB-sourced), fetch the REAL cover from the Cover Art Archive. This is the
+        // actual album's art — unlike 3c's artist-cover stand-in, which for an
+        // album shows a *different* release by the same artist and reads as wrong
+        // art (a "moon" cover on a Coldplay album that isn't that album). Only fills
+        // art, not playability; the qobuzAlbumID stays nil.
+        for idx in resolved.indices {
+            guard resolved[idx].kind == .album, resolved[idx].imageURL == nil,
+                  let rg = resolved[idx].releaseGroupMbid, !rg.isEmpty else { continue }
+            if let url = await context.musicBrainz.coverArt(releaseGroupMbid: rg) {
+                resolved[idx].imageURL = url.absoluteString
+            }
+        }
+
+        // 3c. Backfill a representative Qobuz cover for `.artist`-kind items still
+        // missing art (they never had a specific album to resolve, so the artist's
+        // own cover is an honest stand-in). NOT applied to `.album`-kind items: for
+        // an album, a different-release cover of the same artist is misleading, so
+        // an album that resolved on neither Qobuz (3b) nor Cover Art Archive (3b-bis)
+        // falls through to the placeholder icon instead.
         if let creds = qobuzCreds {
             let coverWants = resolved.enumerated().compactMap { idx, it -> (key: String, artist: String)? in
-                guard it.imageURL == nil else { return nil }
+                guard it.kind == .artist, it.imageURL == nil else { return nil }
                 return (key: String(idx), artist: it.artist)
             }
             if !coverWants.isEmpty {

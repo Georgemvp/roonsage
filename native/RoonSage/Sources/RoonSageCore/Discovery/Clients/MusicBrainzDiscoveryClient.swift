@@ -18,9 +18,11 @@ public actor MusicBrainzDiscoveryClient {
     private let minInterval: TimeInterval
     private var nextSlot: Date = .distantPast
 
-    // Per-run caches (artist MBID by normalized name; studio RGs by artist MBID).
+    // Per-run caches (artist MBID by normalized name; studio RGs by artist MBID;
+    // Cover Art Archive front image by release-group MBID).
     private var artistCache: [String: MBArtistMatch?] = [:]
     private var studioCache: [String: [MBReleaseGroup]] = [:]
+    private var coverCache: [String: URL?] = [:]
 
     public init(userAgent: String = "RoonSage/2.0 ( https://github.com/georgemvp/roonsage )",
                 minInterval: TimeInterval = 1.1) {
@@ -30,7 +32,7 @@ public actor MusicBrainzDiscoveryClient {
 
     /// Drop the per-run caches (called at the start of each pipeline run so a fresh
     /// run can pick up MB changes, while a single run stays cheap).
-    public func resetCache() { artistCache = [:]; studioCache = [:] }
+    public func resetCache() { artistCache = [:]; studioCache = [:]; coverCache = [:] }
 
     // MARK: - Models
 
@@ -150,6 +152,43 @@ public actor MusicBrainzDiscoveryClient {
         out.sort { ($0.firstReleaseDate ?? "") > ($1.firstReleaseDate ?? "") }
         studioCache[artistMbid] = out
         return out
+    }
+
+    // MARK: - Cover art (Cover Art Archive)
+
+    /// The front cover for a release-group from the Cover Art Archive — the REAL
+    /// album art, used to give gap-fill / release-radar albums a correct hero even
+    /// when they don't resolve on Qobuz (avoids the misleading same-artist stand-in
+    /// cover the pipeline would otherwise fall back to). Returns a 500px thumbnail
+    /// URL when art exists, else nil (no art on file). Cached by MBID.
+    ///
+    /// CAA is a SEPARATE host from the MB webservice and is not subject to the MB
+    /// 1req/1.1s rule, so this bypasses `awaitSlot` — but reuses the descriptive
+    /// User-Agent CAA also asks for.
+    public func coverArt(releaseGroupMbid: String) async -> URL? {
+        guard !releaseGroupMbid.isEmpty else { return nil }
+        if let cached = coverCache[releaseGroupMbid] { return cached }
+
+        var result: URL?
+        if let url = URL(string: "https://coverartarchive.org/release-group/\(releaseGroupMbid)") {
+            var req = URLRequest(url: url, timeoutInterval: 20)
+            req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            if let (data, resp) = try? await URLSession.shared.data(for: req),
+               (resp as? HTTPURLResponse)?.statusCode == 200,
+               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               let images = json["images"] as? [[String: Any]], !images.isEmpty {
+                // Prefer the flagged front image; fall back to the first available.
+                let pick = images.first(where: { ($0["front"] as? Bool) == true }) ?? images.first
+                let thumbs = pick?["thumbnails"] as? [String: Any]
+                let candidate = (thumbs?["500"] as? String)
+                    ?? (thumbs?["large"] as? String)
+                    ?? (pick?["image"] as? String)
+                if let s = candidate { result = URL(string: s) }
+            }
+        }
+        coverCache[releaseGroupMbid] = result
+        return result
     }
 
     // MARK: - Related artists (collaboration graph)
