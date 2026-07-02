@@ -15,6 +15,16 @@ struct RoonSageAnalyzerApp: App {
         // shared client is touched, so we don't clash with the client apps.
         RoonClient.useServerIdentity()
         _client = State(initialValue: RoonClient.shared)
+
+        // Device-approval rollout: switch on token enforcement once, so from now
+        // on only clients approved under "Apparaten" are served (unknown tokens
+        // land in the pending queue instead of being silently accepted). One-shot
+        // so the user can still turn it back off in Settings.
+        let d = UserDefaults.standard
+        if !d.bool(forKey: "device_approval_migrated") {
+            LibraryShareServer.enforceToken = true
+            d.set(true, forKey: "device_approval_migrated")
+        }
     }
 
     var body: some Scene {

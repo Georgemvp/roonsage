@@ -1,5 +1,8 @@
 import Foundation
 import Network
+#if os(iOS)
+import UIKit
+#endif
 
 /// Minimal HTTP server the client apps talk to. Exposes the synced library (so
 /// the iPhone can import it instead of an hours-long Browse walk), the synced
@@ -75,6 +78,142 @@ public final class LibraryShareServer: @unchecked Sendable {
         set { UserDefaults.standard.set(newValue, forKey: "share_token_enforce") }
     }
 
+    // MARK: - Device approval (zero-config pairing)
+    //
+    // Instead of copy-pasting the master token onto every client, each client
+    // mints its OWN random token (see `ensureDeviceToken`) and sends it plus a
+    // friendly name in `deviceHeader`. An unknown token isn't a dead-end 401 any
+    // more: the server files it in a pending queue that the analyzer app shows,
+    // where the user taps "Accepteer" to move it into the approved set. The
+    // master token still validates (existing paired clients keep working).
+
+    /// Header a client sends its human-readable device name in.
+    public static let deviceHeader = "X-RoonSage-Device"
+
+    /// A client token the user has approved on the server.
+    public struct ApprovedDevice: Codable, Sendable, Identifiable {
+        public var id: String { token }
+        public let token: String
+        public var name: String
+        public var approvedAt: Date
+    }
+
+    /// A client that has knocked with an unknown token and is awaiting approval.
+    public struct PendingDevice: Codable, Sendable, Identifiable {
+        public var id: String { token }
+        public let token: String
+        public var name: String
+        public var ip: String
+        public var firstSeen: Date
+        public var lastSeen: Date
+    }
+
+    private static let deviceLock = NSLock()
+    private static var _pending: [String: PendingDevice] = [:]
+    private static var _approvedCache: [String: ApprovedDevice]?
+    private static let approvedKey = "approved_devices"
+
+    /// Caller must hold `deviceLock`.
+    private static func loadApprovedLocked() -> [String: ApprovedDevice] {
+        if let c = _approvedCache { return c }
+        let arr = UserDefaults.standard.data(forKey: approvedKey)
+            .flatMap { try? JSONDecoder().decode([ApprovedDevice].self, from: $0) } ?? []
+        let map = Dictionary(arr.map { ($0.token, $0) }, uniquingKeysWith: { a, _ in a })
+        _approvedCache = map
+        return map
+    }
+
+    /// Caller must hold `deviceLock`.
+    private static func persistApprovedLocked(_ map: [String: ApprovedDevice]) {
+        _approvedCache = map
+        if let data = try? JSONEncoder().encode(Array(map.values)) {
+            UserDefaults.standard.set(data, forKey: approvedKey)
+        }
+    }
+
+    /// True when `token` has been approved on this server.
+    public static func isApprovedDevice(_ token: String) -> Bool {
+        deviceLock.lock(); defer { deviceLock.unlock() }
+        return loadApprovedLocked()[token] != nil
+    }
+
+    /// File (or refresh) an unknown-token client in the pending queue.
+    static func recordPending(token: String, name: String, ip: String) {
+        deviceLock.lock(); defer { deviceLock.unlock() }
+        if loadApprovedLocked()[token] != nil { return }
+        let now = Date()
+        let display = name.isEmpty ? "Onbekend apparaat" : name
+        if var p = _pending[token] {
+            p.lastSeen = now
+            if !name.isEmpty { p.name = name }
+            if !ip.isEmpty { p.ip = ip }
+            _pending[token] = p
+        } else {
+            _pending[token] = PendingDevice(token: token, name: display, ip: ip,
+                                            firstSeen: now, lastSeen: now)
+        }
+    }
+
+    /// Clients awaiting approval, oldest first.
+    public static func pendingDevices() -> [PendingDevice] {
+        deviceLock.lock(); defer { deviceLock.unlock() }
+        return _pending.values.sorted { $0.firstSeen < $1.firstSeen }
+    }
+
+    /// Approved clients, oldest first.
+    public static func approvedDevices() -> [ApprovedDevice] {
+        deviceLock.lock(); defer { deviceLock.unlock() }
+        return loadApprovedLocked().values.sorted { $0.approvedAt < $1.approvedAt }
+    }
+
+    /// Move a pending device into the approved set. Its next poll (~1.5s) succeeds.
+    @discardableResult
+    public static func approveDevice(token: String) -> Bool {
+        deviceLock.lock(); defer { deviceLock.unlock() }
+        guard let p = _pending[token] else { return false }
+        var map = loadApprovedLocked()
+        map[token] = ApprovedDevice(token: token, name: p.name, approvedAt: Date())
+        persistApprovedLocked(map)
+        _pending[token] = nil
+        return true
+    }
+
+    /// Drop a device from the pending queue without approving it.
+    public static func rejectDevice(token: String) {
+        deviceLock.lock(); defer { deviceLock.unlock() }
+        _pending[token] = nil
+    }
+
+    /// Revoke a previously approved device (it drops back to 401 on its next poll).
+    public static func revokeDevice(token: String) {
+        deviceLock.lock(); defer { deviceLock.unlock() }
+        var map = loadApprovedLocked()
+        map[token] = nil
+        persistApprovedLocked(map)
+    }
+
+    /// This device's token for talking to a server: the configured one (master on
+    /// the server, or a previously-set value on a client), or a freshly minted
+    /// random client token persisted for next time. Lets clients pair with zero
+    /// manual token entry — they just show up as "pending" on the server.
+    public static func ensureDeviceToken() -> String {
+        if let t = configuredToken, !t.isEmpty { return t }
+        var bytes = [UInt8](repeating: 0, count: 24)
+        for i in bytes.indices { bytes[i] = .random(in: .min ... .max) }
+        let token = bytes.map { String(format: "%02x", $0) }.joined()
+        setConfiguredToken(token)
+        return token
+    }
+
+    /// Friendly name this device advertises to the server for the approval list.
+    public static var thisDeviceName: String {
+        #if os(iOS)
+        return UIDevice.current.name
+        #else
+        return Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+        #endif
+    }
+
     private let port: UInt16
     private let database: DatabaseManager
     private var listener: NWListener?
@@ -109,9 +248,10 @@ public final class LibraryShareServer: @unchecked Sendable {
 
     private func handle(_ conn: NWConnection) {
         let loopback = Self.endpointIsLoopback(conn.endpoint)
+        let peerIP = Self.endpointHost(conn.endpoint)
         conn.stateUpdateHandler = { [weak self] state in
             switch state {
-            case .ready: self?.receive(conn, accumulated: Data(), loopback: loopback)
+            case .ready: self?.receive(conn, accumulated: Data(), loopback: loopback, peerIP: peerIP)
             case .failed, .cancelled: conn.cancel()
             default: break
             }
@@ -121,13 +261,13 @@ public final class LibraryShareServer: @unchecked Sendable {
 
     /// Accumulate until the full request (headers + any POST body) has arrived,
     /// then route. POST bodies don't always land in the first read.
-    private func receive(_ conn: NWConnection, accumulated: Data, loopback: Bool) {
+    private func receive(_ conn: NWConnection, accumulated: Data, loopback: Bool, peerIP: String) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, _ in
             guard let self else { conn.cancel(); return }
             var buf = accumulated
             if let data { buf.append(data) }
             guard let headerEnd = Self.rangeOfHeaderEnd(buf) else {
-                if isComplete { conn.cancel() } else { self.receive(conn, accumulated: buf, loopback: loopback) }
+                if isComplete { conn.cancel() } else { self.receive(conn, accumulated: buf, loopback: loopback, peerIP: peerIP) }
                 return
             }
             let headerData = buf.subdata(in: buf.startIndex..<headerEnd.lowerBound)
@@ -136,7 +276,7 @@ public final class LibraryShareServer: @unchecked Sendable {
             let contentLength = Self.contentLength(header)
             let bodyReceived = buf.count - (bodyStart - buf.startIndex)
             if bodyReceived < contentLength, !isComplete {
-                self.receive(conn, accumulated: buf, loopback: loopback)
+                self.receive(conn, accumulated: buf, loopback: loopback, peerIP: peerIP)
                 return
             }
             // `contentLength` is clamped to [0, 32 MB] (see `contentLength`), so
@@ -145,7 +285,7 @@ public final class LibraryShareServer: @unchecked Sendable {
             let bodyEnd = min(bodyStart + contentLength, buf.endIndex)
             let body = buf.subdata(in: min(bodyStart, bodyEnd)..<bodyEnd)
             Task {
-                let (status, respBody, ctype) = await self.route(header: header, body: body, loopback: loopback)
+                let (status, respBody, ctype) = await self.route(header: header, body: body, loopback: loopback, peerIP: peerIP)
                 self.send(conn, status: status, body: respBody, ctype: ctype)
             }
         }
@@ -162,28 +302,35 @@ public final class LibraryShareServer: @unchecked Sendable {
         })
     }
 
-    private func route(header: String, body: Data, loopback: Bool) async -> (String, Data, String) {
+    private func route(header: String, body: Data, loopback: Bool, peerIP: String = "") async -> (String, Data, String) {
         let requestLine = header.split(separator: "\r\n").first.map(String.init) ?? ""
         let parts = requestLine.split(separator: " ").map(String.init)
         let method = parts.first ?? "GET"
         let target = parts.count > 1 ? parts[1] : "/"
         let path = target.split(separator: "?").first.map(String.init) ?? target
 
-        // Auth: everything but /health needs the shared token, unless the peer is
+        // Auth: everything but /health needs a valid token, unless the peer is
         // loopback (same machine — already OS-trusted) or we're in the grace
-        // window. A wrong token is always rejected. /settings carries secrets
-        // (API keys, Last.fm session, Qobuz password) so it is ALWAYS gated —
-        // grace mode never applies to it.
+        // window. A token is valid when it matches the master token OR the client
+        // has been approved in the analyzer's "Apparaten" list. An unknown token
+        // isn't a dead-end: it's filed in the pending queue for one-tap approval.
+        // /settings carries secrets (API keys, Last.fm session, Qobuz password) so
+        // it is ALWAYS gated — grace mode never applies to it.
         if !path.hasPrefix("/health"), !loopback {
             let sensitive = path.hasPrefix("/settings")
             let provided = Self.headerValue(Self.tokenHeader, in: header)
-            if let provided, !Self.constantTimeEquals(provided, Self.currentToken()) {
-                Log.warning("share-server: rejected \(method) \(path) — bad token", category: .network)
-                return ("401 Unauthorized", Data("unauthorized".utf8), "text/plain")
-            }
-            if provided == nil {
+            let deviceName = Self.headerValue(Self.deviceHeader, in: header) ?? ""
+            if let provided {
+                let valid = Self.constantTimeEquals(provided, Self.currentToken())
+                    || Self.isApprovedDevice(provided)
+                if !valid {
+                    Self.recordPending(token: provided, name: deviceName, ip: peerIP)
+                    Log.warning("share-server: rejected \(method) \(path) — unapproved device ‘\(deviceName.isEmpty ? "?" : deviceName)’ (\(peerIP)); approve it under Apparaten", category: .network)
+                    return ("401 Unauthorized", Data("unauthorized; awaiting approval".utf8), "text/plain")
+                }
+            } else {
                 if Self.enforceToken || sensitive {
-                    let why = sensitive ? "secrets endpoint requires a token" : "pair this client with the server token"
+                    let why = sensitive ? "secrets endpoint requires a token" : "pair this client via Apparaten"
                     Log.warning("share-server: rejected \(method) \(path) — no token; \(why)", category: .network)
                     return ("401 Unauthorized", Data("unauthorized".utf8), "text/plain")
                 }
@@ -421,6 +568,30 @@ public final class LibraryShareServer: @unchecked Sendable {
         @unknown default:
             return false
         }
+    }
+
+    /// Human-readable host/IP of the connecting peer, for the approval list.
+    static func endpointHost(_ endpoint: NWEndpoint) -> String {
+        guard case let .hostPort(host, _) = endpoint else { return "" }
+        switch host {
+        case .ipv4(let addr):
+            return dottedIPv4([UInt8](addr.rawValue))
+        case .ipv6(let addr):
+            // IPv4-mapped (::ffff:a.b.c.d) reads nicer as its v4 form.
+            let b = [UInt8](addr.rawValue)
+            if b.count == 16, b[10] == 0xff, b[11] == 0xff {
+                return dottedIPv4(Array(b[12..<16]))
+            }
+            return addr.debugDescription
+        case .name(let name, _):
+            return name
+        @unknown default:
+            return ""
+        }
+    }
+
+    private static func dottedIPv4(_ b: [UInt8]) -> String {
+        b.count == 4 ? "\(b[0]).\(b[1]).\(b[2]).\(b[3])" : ""
     }
 
     private static func queryValue(_ name: String, in target: String) -> String? {

@@ -10,7 +10,7 @@ struct AnalyzerRootView: View {
     @State private var section: Section? = .dashboard
 
     enum Section: String, CaseIterable, Identifiable {
-        case dashboard, analyzer, radios, weekly, discovery, server, advanced
+        case dashboard, analyzer, radios, weekly, discovery, devices, server, advanced
         var id: String { rawValue }
 
         var title: String {
@@ -23,6 +23,7 @@ struct AnalyzerRootView: View {
             // library-first "Ontdek Wekelijks": this is the outward engine that
             // surfaces music you don't own yet.
             case .discovery:  return "Nieuwe Ontdekkingen"
+            case .devices:    return "Apparaten"
             case .server:     return "Server"
             case .advanced:   return "Geavanceerd"
             }
@@ -34,6 +35,7 @@ struct AnalyzerRootView: View {
             case .radios:     return "dot.radiowaves.left.and.right"
             case .weekly:     return "sparkles"
             case .discovery:  return "wand.and.stars.inverse"
+            case .devices:    return "laptopcomputer.and.iphone"
             case .server:     return "gearshape"
             case .advanced:   return "slider.horizontal.3"
             }
@@ -64,6 +66,7 @@ struct AnalyzerRootView: View {
         case .radios:    SonicRadioSettingsView()
         case .weekly:    DiscoverWeeklySettingsView()
         case .discovery: DiscoverySettingsView()
+        case .devices:   DevicesView()
         case .server:    SettingsView(role: .server)
         case .advanced:  AdvancedSettingsView()
         }

@@ -172,12 +172,16 @@ extension RoonClient {
         remotePollTask = nil
     }
 
-    /// Attach the share-server shared secret (if this device has been paired)
-    /// so the authenticated endpoints accept the request.
+    /// Attach this device's token + friendly name so the server accepts the
+    /// request (master token, or an approved device token). On a fresh client
+    /// `ensureDeviceToken()` mints a random token so it shows up as "pending" on
+    /// the server for one-tap approval — no manual token entry needed.
     func authorizeShareRequest(_ req: inout URLRequest) {
-        if let token = LibraryShareServer.configuredToken, !token.isEmpty {
-            req.setValue(token, forHTTPHeaderField: LibraryShareServer.tokenHeader)
-        }
+        // On the server-of-record `ensureDeviceToken()` returns the master token
+        // (already set) and the request is loopback/token-exempt anyway; on a
+        // client it returns the paired or freshly-minted device token.
+        req.setValue(LibraryShareServer.ensureDeviceToken(), forHTTPHeaderField: LibraryShareServer.tokenHeader)
+        req.setValue(LibraryShareServer.thisDeviceName, forHTTPHeaderField: LibraryShareServer.deviceHeader)
     }
 
     /// Fetch /playback once and map it onto the observable state the UI binds to.

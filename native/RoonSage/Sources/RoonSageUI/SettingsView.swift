@@ -171,7 +171,7 @@ public struct SettingsView: View {
                             .disabled(serverToken.trimmingCharacters(in: .whitespaces) == savedServerToken)
                     }
                     .animation(Motion.quick, value: tokenSaved)
-                    Text("Haalt instellingen, de muziekbibliotheek en de analyses op van de RoonSage-server (de analyzer op je always-on Mac). Plak het token dat de server toont onder ‘Bibliotheek’ en bevestig met Enter of ‘Bewaar’. De eerste keer moet je dit apparaat nog wel goedkeuren in Roon.")
+                    Text("Haalt instellingen, de muziekbibliotheek en de analyses op van de RoonSage-server (de analyzer op je always-on Mac). Je hoeft hier niets in te vullen: dit apparaat meldt zich automatisch aan en verschijnt op de server onder ‘Apparaten’, waar je het met één tik goedkeurt. (Het veld is alleen nodig als je liever de master-token handmatig plakt.)")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -225,7 +225,7 @@ public struct SettingsView: View {
                             get: { LibraryShareServer.enforceToken },
                             set: { LibraryShareServer.enforceToken = $0 }
                         ))
-                        Text("De server deelt ook je instellingen — inclusief API-sleutels en wachtwoorden. Plak dit token in elke client onder ‘Server’. Zet ‘Forceer’ pas aan nadat álle clients gekoppeld zijn, anders verliezen ze toegang.")
+                        Text("De server deelt ook je instellingen — inclusief API-sleutels en wachtwoorden. Nieuwe clients koppel je zonder token: ze verschijnen onder ‘Apparaten’, waar je ze goedkeurt. Dit token is de handmatige fallback. Met ‘Forceer’ aan krijgen alleen goedgekeurde clients toegang.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
