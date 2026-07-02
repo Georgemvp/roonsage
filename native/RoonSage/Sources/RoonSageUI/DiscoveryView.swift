@@ -65,7 +65,9 @@ public struct DiscoveryView: View {
         .toolbar {
             Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }
                 .help("Ververs")
+                .accessibilityLabel("Ververs ontdek-overzicht")
         }
+        .ambientSurface()
         .task(id: client.trackCount) { await load() }
     }
 

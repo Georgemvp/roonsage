@@ -113,6 +113,41 @@ extension RoonClient {
         return latest
     }
 
+    /// Like `discoverWeekly()` but surfacing fetch failures so the view can show a
+    /// "server onbereikbaar · opnieuw proberen" state instead of the (misleading)
+    /// "nog geen wekelijkse playlist" empty state. A `null` body (none built yet)
+    /// is a legitimate nil, not an error.
+    public func discoverWeeklyChecked() async throws -> DiscoverWeeklyPlaylist? {
+        if isRemote {
+            return try await shareGETChecked("/discover-weekly", as: DiscoverWeeklyPlaylist?.self)
+        }
+        if let cached = cachedDiscoverWeekly { return cached }
+        let latest = (try? await database?.latestDiscoverWeekly()) ?? nil
+        cachedDiscoverWeekly = latest
+        return latest
+    }
+
+    /// Manual "Ververs nu" surfacing transport/server failures. Local build returns
+    /// nil (nothing to build from) rather than throwing — that's an empty, not error.
+    @discardableResult
+    public func refreshDiscoverWeeklyChecked() async throws -> DiscoverWeeklyPlaylist? {
+        if isRemote {
+            guard let base = remoteBaseURL, let url = URL(string: "\(base)/discover-weekly/refresh") else {
+                throw DiscoveryFetchError.notConnected
+            }
+            var req = URLRequest(url: url); req.httpMethod = "POST"
+            req.timeoutInterval = 180   // building runs the LLM + Qobuz lookups
+            authorizeShareRequest(&req)
+            let data: Data, resp: URLResponse
+            do { (data, resp) = try await URLSession.shared.data(for: req) }
+            catch { throw DiscoveryFetchError.transport(error.localizedDescription) }
+            guard let http = resp as? HTTPURLResponse else { throw DiscoveryFetchError.decode }
+            guard http.statusCode == 200 else { throw DiscoveryFetchError.server(http.statusCode) }
+            return try? JSONDecoder().decode(DiscoverWeeklyPlaylist.self, from: data)
+        }
+        return await buildDiscoverWeekly(force: true)
+    }
+
     /// JSON for the share server's `GET /discover-weekly` (latest built playlist, or
     /// `null` when none exists yet — the client then offers "Ververs nu").
     public func discoverWeeklyData() async -> Data {

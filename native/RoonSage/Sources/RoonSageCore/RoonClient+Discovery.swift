@@ -505,6 +505,67 @@ extension RoonClient {
 
     // MARK: - Client: remote fetch
 
+    /// A discovery fetch that failed for a reason worth telling the user about —
+    /// so the feed can show "server onbereikbaar · opnieuw proberen" instead of a
+    /// silent, misleading "nog geen ontdekkingen". Dutch `errorDescription` feeds
+    /// straight into the views' error state.
+    public enum DiscoveryFetchError: LocalizedError {
+        case notConnected
+        case server(Int)
+        case transport(String)
+        case decode
+
+        public var errorDescription: String? {
+            switch self {
+            case .notConnected:
+                "Geen verbinding met de RoonSage-server. Controleer bij Instellingen → Server of de server bereikbaar is."
+            case .server(let code):
+                "De server antwoordde met een fout (\(code)). Probeer het zo opnieuw."
+            case .transport(let msg):
+                "Kon de server niet bereiken: \(msg)"
+            case .decode:
+                "Het antwoord van de server kon niet worden gelezen."
+            }
+        }
+    }
+
+    /// Shared authenticated GET that *throws* on failure (unlike `try?`-swallowing
+    /// fetches), so callers can distinguish an empty result from an unreachable
+    /// server. `null` bodies decode fine into optional `T`.
+    func shareGETChecked<T: Decodable>(_ path: String, timeout: TimeInterval = 15, as type: T.Type) async throws -> T {
+        guard let base = remoteBaseURL, let url = URL(string: base + path) else {
+            throw DiscoveryFetchError.notConnected
+        }
+        var req = URLRequest(url: url); req.timeoutInterval = timeout
+        authorizeShareRequest(&req)
+        let data: Data, resp: URLResponse
+        do { (data, resp) = try await URLSession.shared.data(for: req) }
+        catch { throw DiscoveryFetchError.transport(error.localizedDescription) }
+        guard let http = resp as? HTTPURLResponse else { throw DiscoveryFetchError.decode }
+        guard http.statusCode == 200 else { throw DiscoveryFetchError.server(http.statusCode) }
+        do { return try JSONDecoder().decode(T.self, from: data) }
+        catch { throw DiscoveryFetchError.decode }
+    }
+
+    /// The recommendation feed, but surfacing fetch failures (for the feed view's
+    /// error state). Server/local path behaves like `discoveryRecommendations`.
+    public func discoveryRecommendationsChecked(kind: RecommendationKind? = nil, limit: Int = 60) async throws -> [RecommendationItemDTO] {
+        if isRemote {
+            let kindParam = kind?.rawValue ?? "all"
+            return try await shareGETChecked("/discovery/recommendations?kind=\(kindParam)&limit=\(limit)",
+                                             as: [RecommendationItemDTO].self)
+        }
+        guard let db = database else { return [] }
+        let rows = (try? await db.latestRecommendationItems(kind: kind, limit: limit)) ?? []
+        return rows.map { $0.dto }
+    }
+
+    /// Stats, surfacing fetch failures (for the insights view's error state).
+    public func discoveryStatsChecked() async throws -> DiscoveryStatsDTO {
+        if isRemote { return try await shareGETChecked("/discovery/stats", timeout: 12, as: DiscoveryStatsDTO.self) }
+        return await localDiscoveryStats()
+    }
+
     private func fetchDiscoveryFromServer(kind: RecommendationKind?, limit: Int) async -> [RecommendationItemDTO] {
         guard let base = remoteBaseURL else { return [] }
         let kindParam = kind?.rawValue ?? "all"

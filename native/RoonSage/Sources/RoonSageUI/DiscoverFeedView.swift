@@ -15,6 +15,7 @@ public struct DiscoverFeedView: View {
     @State private var items: [RecommendationItemDTO] = []
     @State private var loading = true
     @State private var refreshing = false
+    @State private var errorText: String?
     @State private var kind: KindFilter = .all
     @State private var acted = Set<Int64>()   // optimistic hide after accept/reject
     @State private var undoItem: RecommendationItemDTO?   // last skipped, shown in the undo bar
@@ -40,6 +41,8 @@ public struct DiscoverFeedView: View {
             if loading {
                 ProgressView("Nieuwe Ontdekkingen laden…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let errorText, items.isEmpty {
+                ErrorStateView(errorText) { Task { await load() } }
             } else if visible.isEmpty {
                 emptyState
             } else {
@@ -118,6 +121,7 @@ public struct DiscoverFeedView: View {
                 .accessibilityLabel("Ververs ontdekkingen")
             }
         }
+        .ambientSurface()
         .task { await load() }
         .overlay(alignment: .bottom) { undoBanner }
         .onDisappear { commitPendingRejectNow() }
@@ -179,7 +183,9 @@ public struct DiscoverFeedView: View {
 
     private func load() async {
         loading = true
-        items = await client.discoveryRecommendations(limit: 60)
+        errorText = nil
+        do { items = try await client.discoveryRecommendationsChecked(limit: 60) }
+        catch { errorText = error.localizedDescription }
         loading = false
     }
 
@@ -200,7 +206,9 @@ public struct DiscoverFeedView: View {
             if status.status != "running" && status.itemCount > 0 { break }
         }
         acted.removeAll()
-        items = await client.discoveryRecommendations(limit: 60)
+        errorText = nil
+        do { items = try await client.discoveryRecommendationsChecked(limit: 60) }
+        catch { errorText = error.localizedDescription }
     }
 
     // MARK: - Actions

@@ -62,3 +62,29 @@ public struct AsyncStateView<Content: View, Empty: View>: View {
         }
     }
 }
+
+/// Inline error state for views that manage their own `List`/branching (a hero +
+/// tracklist, a card feed) rather than wrapping everything in `AsyncStateView`.
+/// Deliberately mirrors `AsyncStateView`'s wording + retry so a failed load reads
+/// the same everywhere in the app.
+@MainActor
+public struct ErrorStateView: View {
+    private let message: String
+    private let onRetry: () -> Void
+
+    public init(_ message: String, onRetry: @escaping () -> Void) {
+        self.message = message
+        self.onRetry = onRetry
+    }
+
+    public var body: some View {
+        ContentUnavailableView {
+            Label("Er ging iets mis", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("Opnieuw proberen", action: onRetry)
+                .buttonStyle(.borderedProminent)
+        }
+    }
+}

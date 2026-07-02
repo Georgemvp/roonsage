@@ -15,6 +15,7 @@ public struct DiscoverInsightsView: View {
 
     @State private var stats: DiscoveryStatsDTO?
     @State private var loading = true
+    @State private var errorText: String?
 
     public init() {}
 
@@ -23,6 +24,8 @@ public struct DiscoverInsightsView: View {
             if loading {
                 ProgressView("Inzichten laden…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let errorText, stats == nil {
+                ErrorStateView(errorText) { Task { await load() } }
             } else if let s = stats, s.accepted + s.rejected + s.pending > 0 {
                 content(s)
             } else {
@@ -30,12 +33,15 @@ public struct DiscoverInsightsView: View {
             }
         }
         .navigationTitle("Ontdek-inzichten")
+        .ambientSurface()
         .task { await load() }
     }
 
     private func load() async {
         loading = true
-        stats = await client.discoveryStats()
+        errorText = nil
+        do { stats = try await client.discoveryStatsChecked() }
+        catch { errorText = error.localizedDescription }
         loading = false
     }
 

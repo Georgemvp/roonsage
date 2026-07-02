@@ -16,6 +16,7 @@ public struct DiscoverWeeklyView: View {
     @State private var playlist: DiscoverWeeklyPlaylist?
     @State private var loading = true
     @State private var refreshing = false
+    @State private var errorText: String?
 
     public init() {}
 
@@ -27,6 +28,8 @@ public struct DiscoverWeeklyView: View {
                 tracksSection(pl)
             } else if loading {
                 loadingState.plainCardRow()
+            } else if let errorText {
+                ErrorStateView(errorText) { Task { await load() } }.plainCardRow()
             } else {
                 emptyState.plainCardRow()
             }
@@ -40,7 +43,9 @@ public struct DiscoverWeeklyView: View {
             }
             .disabled(refreshing)
             .help("Ververs de wekelijkse selectie nu")
+            .accessibilityLabel("Ververs de wekelijkse selectie")
         }
+        .ambientSurface()
         .task { await load() }
     }
 
@@ -118,6 +123,8 @@ public struct DiscoverWeeklyView: View {
                             .foregroundStyle(Color.roonGold)
                     }
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(idx + 1). \(t.title), \(t.artist ?? "onbekende artiest")\(t.notInLibrary ? ", nog niet in je bibliotheek" : "")")
             }
         }
     }
@@ -130,43 +137,43 @@ public struct DiscoverWeeklyView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: "sparkles")
-                .font(.largeTitle).foregroundStyle(Color.roonGold)
-            Text("Nog geen wekelijkse ontdek-playlist")
-                .font(.headline)
+        ContentUnavailableView {
+            Label("Nog geen wekelijkse ontdek-playlist", systemImage: "sparkles")
+        } description: {
             Text("De server bouwt hem automatisch, of tik hieronder om hem nu te genereren. Hiervoor is een geanalyseerde bibliotheek en wat luistergeschiedenis nodig.")
-                .font(.subheadline).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        } actions: {
             Button {
                 Task { await refreshNow() }
             } label: {
-                if refreshing {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Label("Genereer nu", systemImage: "sparkles")
-                }
+                Label(refreshing ? "Bezig…" : "Genereer nu", systemImage: "sparkles")
             }
             .buttonStyle(.borderedProminent)
             .disabled(refreshing)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, Spacing.xl)
     }
 
     // MARK: Data
 
     private func load() async {
         loading = true
-        playlist = await client.discoverWeekly()
+        errorText = nil
+        do { playlist = try await client.discoverWeeklyChecked() }
+        catch { errorText = error.localizedDescription }
         loading = false
     }
 
     private func refreshNow() async {
         guard !refreshing else { return }
         refreshing = true
-        if let fresh = await client.refreshDiscoverWeekly() {
-            playlist = fresh
+        do {
+            if let fresh = try await client.refreshDiscoverWeeklyChecked() { playlist = fresh }
+            // A successful build clears any prior "kon niet bouwen" error.
+            if playlist != nil { errorText = nil }
+        } catch {
+            Haptics.error()
+            // Only take over the screen with an error when there's nothing to show;
+            // a failed refresh over existing content just buzzes and keeps the list.
+            if playlist == nil { errorText = error.localizedDescription }
         }
         refreshing = false
     }
