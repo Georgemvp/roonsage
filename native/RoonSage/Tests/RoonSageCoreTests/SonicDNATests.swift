@@ -168,6 +168,35 @@ final class SonicDNATests: XCTestCase {
         XCTAssertEqual(cores.map { $0.id }, again.map { $0.id }, "deterministic")
     }
 
+    /// The screenshot bug: three cores in a Pop/Rock-dominated library all
+    /// labelled "Pop/Rock". The umbrella genre must be dropped and sibling cores
+    /// must get distinct labels (from moods/tags/artists).
+    func testCoresDoNotAllShareTheUmbrellaGenre() throws {
+        var seeds: [SonicDNA.Seed] = []
+        var tracks: [DatabaseManager.SonicTrack] = []
+        var genres: [String: Set<String>] = [:]
+        // Pocket A: mellow (embeds ~[1,0]), tagged Pop/Rock + "akoestisch".
+        for i in 0..<12 {
+            let t = track("a\(i)", artist: "AA\(i)", tags: ["akoestisch"],
+                          emb: [1, 0, 0.01 * Float(i), 0], moods: ["relaxed": 0.6])
+            tracks.append(t); genres["a\(i)"] = ["Pop/Rock"]
+            seeds.append(SonicDNA.Seed(track: t, weight: 5))
+        }
+        // Pocket B: punchy (embeds ~[0,1]), same umbrella genre, different mood/tag.
+        for i in 0..<12 {
+            let t = track("b\(i)", artist: "BB\(i)", tags: ["stevig"],
+                          emb: [0, 1, 0, 0.01 * Float(i)], moods: ["aggressive": 0.6])
+            tracks.append(t); genres["b\(i)"] = ["Pop/Rock"]
+            seeds.append(SonicDNA.Seed(track: t, weight: 1))
+        }
+        let index = try XCTUnwrap(VectorIndex(tracks: tracks))
+        let cores = SonicDNA.cores(seeds: seeds, index: index, genresById: genres)
+        XCTAssertGreaterThanOrEqual(cores.count, 2)
+        let labels = cores.map { $0.label }
+        XCTAssertEqual(Set(labels).count, labels.count, "labels must be unique, not 3× Pop/Rock")
+        XCTAssertFalse(labels.contains("Pop/Rock"), "umbrella genre dropped from labels")
+    }
+
     func testCoresRequireEnoughEmbeddedSeeds() throws {
         let tracks = (0..<6).map { track("t\($0)", emb: [Float($0), 1, 0, 0]) }
         let index = try XCTUnwrap(VectorIndex(tracks: tracks))

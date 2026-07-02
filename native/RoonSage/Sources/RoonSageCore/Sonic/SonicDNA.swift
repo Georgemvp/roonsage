@@ -369,8 +369,25 @@ public enum SonicDNA {
         var membersByC = [[Int]](repeating: [], count: kActual)
         for i in 0..<n where assign[i] >= 0 { membersByC[assign[i]].append(i) }
 
+        // Umbrella genres (e.g. Roon's "Pop/Rock", covering most of the library)
+        // say nothing about a *sonic* pocket — and if kept they'd label every
+        // core identically. Drop them before labeling.
+        let umbrella = umbrellaGenres(genresById)
+
+        // Build every core first (unlabeled), then assign labels in share order
+        // so the biggest core gets its strongest distinctive label and no two
+        // cores share a name.
+        struct Draft {
+            let id: String
+            let share: Double
+            let trackIds: [String]
+            let topArtists: [String]
+            let centroid: [Float]
+            let candidates: [String]   // distinctive labels, best first
+        }
+
         let totalW = max(1e-9, pts.reduce(0) { $0 + $1.seed.weight })
-        var out: [Core] = []
+        var drafts: [Draft] = []
         for c in 0..<kActual {
             let rows = membersByC[c]
             guard rows.count >= 3 else { continue }   // a 1–2 track "core" is noise
@@ -398,17 +415,75 @@ public enum SonicDNA {
             let topArtists = artistW.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
                 .prefix(3).compactMap { artistLabel[$0.key] }
 
-            out.append(Core(
+            drafts.append(Draft(
                 id: String(fnv1a(anchor) % 1_000_000),
-                label: SonicClusters.label(for: members.map { $0.seed.track },
-                                           genresById: genresById, index: c,
-                                           fallback: "Smaakkern"),
                 share: min(1, coreW / totalW),
                 trackIds: members.map { $0.seed.track.id },
                 topArtists: topArtists,
-                centroid: cen))
+                centroid: cen,
+                candidates: labelCandidates(
+                    members: members.map { (track: $0.seed.track, weight: $0.seed.weight) },
+                    genresById: genresById, umbrella: umbrella)))
         }
-        return out.sorted { $0.share > $1.share }
+
+        drafts.sort { $0.share > $1.share }
+        var used = Set<String>()
+        var out: [Core] = []
+        for (i, d) in drafts.enumerated() {
+            // First distinctive candidate not already taken by a bigger core;
+            // fall back to the lead artist, then a numbered "Smaakkern".
+            let label = d.candidates.first { !used.contains($0.lowercased()) }
+                ?? d.topArtists.first { !used.contains($0.lowercased()) }
+                ?? "Smaakkern \(i + 1)"
+            used.insert(label.lowercased())
+            out.append(Core(id: d.id, label: label, share: d.share,
+                            trackIds: d.trackIds, topArtists: d.topArtists,
+                            centroid: d.centroid))
+        }
+        return out
+    }
+
+    /// Distinctive labels for a taste core, most-characteristic first:
+    /// discriminating genres (umbrella dropped) by member weight, then dominant
+    /// moods, then analyzer tags. The caller picks the first not already used by
+    /// a bigger core, so sibling cores never collapse to the same name.
+    static func labelCandidates(
+        members: [(track: DatabaseManager.SonicTrack, weight: Double)],
+        genresById: [String: Set<String>],
+        umbrella: Set<String>
+    ) -> [String] {
+        var out: [String] = []
+
+        var genreW: [String: Double] = [:]
+        var genreLabel: [String: String] = [:]
+        for m in members {
+            for g in genresById[m.track.id] ?? [] {
+                let key = g.lowercased()
+                guard !key.isEmpty, !umbrella.contains(key) else { continue }
+                genreW[key, default: 0] += m.weight
+                if genreLabel[key] == nil { genreLabel[key] = g }
+            }
+        }
+        for (k, _) in genreW.sorted(by: { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }) {
+            out.append(genreLabel[k] ?? k.capitalized)
+        }
+
+        var moodW: [String: Double] = [:]
+        for m in members {
+            if let top = m.track.moods.max(by: { $0.value < $1.value }), top.value >= 0.25 {
+                moodW[top.key.lowercased(), default: 0] += m.weight
+            }
+        }
+        for (k, _) in moodW.sorted(by: { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }) {
+            out.append(SonicClusters.moodName(k))
+        }
+
+        var tagW: [String: Double] = [:]
+        for m in members { for t in m.track.tags { tagW[t.lowercased(), default: 0] += m.weight } }
+        for (k, _) in tagW.sorted(by: { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }) {
+            out.append(k.capitalized)
+        }
+        return out
     }
 
     static func fnv1a(_ s: String) -> UInt64 {
