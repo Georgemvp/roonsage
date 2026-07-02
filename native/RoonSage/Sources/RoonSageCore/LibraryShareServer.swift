@@ -111,29 +111,14 @@ public final class LibraryShareServer: @unchecked Sendable {
     private static let deviceLock = NSLock()
     private static var _pending: [String: PendingDevice] = [:]
     private static var _approvedCache: [String: ApprovedDevice]?
-    // Persisted in the Keychain (like the master token) so approvals survive an
-    // analyzer reinstall/redeploy — UserDefaults were reset on some updates,
-    // forcing every client back into the pending queue. The same key is read once
-    // from UserDefaults for a one-time migration of existing approvals.
     private static let approvedKey = "approved_devices"
 
     /// Caller must hold `deviceLock`.
     private static func loadApprovedLocked() -> [String: ApprovedDevice] {
         if let c = _approvedCache { return c }
-        var arr = KeychainStore.load(key: approvedKey)
-            .flatMap { $0.data(using: .utf8) }
-            .flatMap { try? JSONDecoder().decode([ApprovedDevice].self, from: $0) }
-        // One-time migration: earlier builds stored the list in UserDefaults.
-        if arr == nil, let legacy = UserDefaults.standard.data(forKey: approvedKey),
-           let decoded = try? JSONDecoder().decode([ApprovedDevice].self, from: legacy) {
-            arr = decoded
-            let map = Dictionary(decoded.map { ($0.token, $0) }, uniquingKeysWith: { a, _ in a })
-            _approvedCache = map
-            persistApprovedLocked(map)             // write through to the Keychain
-            UserDefaults.standard.removeObject(forKey: approvedKey)
-            return map
-        }
-        let map = Dictionary((arr ?? []).map { ($0.token, $0) }, uniquingKeysWith: { a, _ in a })
+        let arr = UserDefaults.standard.data(forKey: approvedKey)
+            .flatMap { try? JSONDecoder().decode([ApprovedDevice].self, from: $0) } ?? []
+        let map = Dictionary(arr.map { ($0.token, $0) }, uniquingKeysWith: { a, _ in a })
         _approvedCache = map
         return map
     }
@@ -141,9 +126,8 @@ public final class LibraryShareServer: @unchecked Sendable {
     /// Caller must hold `deviceLock`.
     private static func persistApprovedLocked(_ map: [String: ApprovedDevice]) {
         _approvedCache = map
-        if let data = try? JSONEncoder().encode(Array(map.values)),
-           let json = String(data: data, encoding: .utf8) {
-            KeychainStore.save(key: approvedKey, value: json)
+        if let data = try? JSONEncoder().encode(Array(map.values)) {
+            UserDefaults.standard.set(data, forKey: approvedKey)
         }
     }
 
