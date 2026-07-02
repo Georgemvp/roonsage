@@ -24,6 +24,7 @@ struct WorkItem {
     var imageURL: String?
     var releaseDate: String?
     var gapPriority: Double?     // set by gap-fill; feeds the album modifier
+    var popularity: Double?      // C2: 0…1 from Last.fm listeners (nil = no signal)
 
     var distinctSources: Int { Set(sources.map { $0.producer }).count }
 
@@ -52,6 +53,8 @@ struct DiscoveryPipeline {
         qobuzCreds: (email: String, password: String)?,
         libraryGenres: Set<String>,
         feedbackGenreRates: [String: (approve: Double, strongNeg: Double)],
+        producerReliability: [String: Double] = [:],
+        adventurousness: Double = 0.35,
         filterContext: DiscoveryFilterContext,
         maxItems: Int,
         now: Date
@@ -130,6 +133,13 @@ struct DiscoveryPipeline {
             }
         }
 
+        // 3d. C2: attach a popularity signal from Last.fm listeners, when configured.
+        // Bounded + graceful — no Last.fm (or a failed call) leaves `popularity` nil,
+        // so scoring behaves exactly as before this feature.
+        if let creds = context.lastfm {
+            resolved = await attachPopularity(resolved, apiKey: creds.apiKey)
+        }
+
         // 4. Score → 5. Filter → order → cap.
         var scored: [(item: WorkItem, score: Double, comps: ScoreComponents, dedup: String)] = []
         for it in resolved {
@@ -139,10 +149,10 @@ struct DiscoveryPipeline {
             comps.genreOverlap = DiscoveryScoring.genreOverlap(candidateGenres: it.genres, libraryGenres: libraryGenres)
             comps.aiConfidence = it.meanAIConfidence
             comps.feedbackBoost = DiscoveryScoring.feedbackBoost(candidateGenres: it.genres, rates: feedbackGenreRates)
-            comps.popularity = 0
+            comps.popularity = it.popularity ?? 0   // stored for transparency (weight is 0 in the composite)
             let base = DiscoveryScoring.weightedScore(weights, comps)
 
-            let finalScore: Double
+            var finalScore: Double
             if it.kind == .album {
                 let recency = DiscoveryScoring.recency(releaseDate: it.releaseDate, now: now)
                 finalScore = DiscoveryScoring.applyAlbumModifier(
@@ -151,6 +161,13 @@ struct DiscoveryPipeline {
             } else {
                 finalScore = base
             }
+
+            // C2 (dial-aware popularity) + C3 (per-producer reliability): bounded
+            // post-adjustments that only re-rank within the base composite's ballpark.
+            let popNudge = DiscoveryScoring.popularityNudge(popularity: it.popularity, adventurousness: adventurousness)
+            let relNudge = DiscoveryScoring.producerReliabilityNudge(
+                producers: it.sources.map { $0.producer }, reliabilities: producerReliability)
+            finalScore = min(max(finalScore + popNudge + relNudge, 0), 1)
 
             let dedup = DiscoveryKey.dedupKey(kind: it.kind, artist: it.artist, album: it.album,
                                               artistMbid: it.artistMbid, releaseGroupMbid: it.releaseGroupMbid)
@@ -167,6 +184,49 @@ struct DiscoveryPipeline {
                 qobuzAlbumID: entry.item.qobuzAlbumID, imageURL: entry.item.imageURL, score: entry.score,
                 components: entry.comps, sources: entry.item.sources, genres: entry.item.genres, dedupKey: entry.dedup)
         }
+    }
+
+    // MARK: - Popularity (C2)
+
+    /// Cap on how many unique artists get a Last.fm listener lookup per run — a
+    /// generous ceiling over a normal resolved set, so it's a real bound (logged
+    /// when hit) rather than a silent truncation.
+    static let popularityFetchCap = 120
+
+    /// Fill each item's `popularity` (0…1) from its artist's Last.fm listener count.
+    /// Fetches unique artists with bounded concurrency (polite to Last.fm's rate
+    /// limit); any artist that fails to resolve simply keeps `popularity == nil`.
+    private func attachPopularity(_ items: [WorkItem], apiKey: String) async -> [WorkItem] {
+        var uniqueArtists = [String]()
+        var seen = Set<String>()
+        for it in items where seen.insert(it.artist.lowercased()).inserted {
+            uniqueArtists.append(it.artist)
+        }
+        if uniqueArtists.count > Self.popularityFetchCap {
+            Log.info("Ontdekkingen: popularity-lookup begrensd tot \(Self.popularityFetchCap) van \(uniqueArtists.count) artiesten", category: .roon)
+            uniqueArtists = Array(uniqueArtists.prefix(Self.popularityFetchCap))
+        }
+        guard !uniqueArtists.isEmpty else { return items }
+
+        // Bounded concurrency (≤5 in flight) so a large set doesn't hammer Last.fm.
+        var byArtist: [String: Double] = [:]
+        let maxConcurrent = 5
+        await withTaskGroup(of: (String, Int?).self) { group in
+            var iterator = uniqueArtists.makeIterator()
+            func addNext() {
+                guard let a = iterator.next() else { return }
+                group.addTask { (a, await LastfmClient.shared.getArtistListeners(artist: a, apiKey: apiKey)) }
+            }
+            for _ in 0..<min(maxConcurrent, uniqueArtists.count) { addNext() }
+            for await (artist, listeners) in group {
+                if let pop = DiscoveryScoring.popularity(listeners: listeners) {
+                    byArtist[artist.lowercased()] = pop
+                }
+                addNext()
+            }
+        }
+        guard !byArtist.isEmpty else { return items }
+        return items.map { var it = $0; it.popularity = byArtist[it.artist.lowercased()]; return it }
     }
 
     // MARK: - Merge helpers

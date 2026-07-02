@@ -279,6 +279,23 @@ public actor LastfmClient {
         }
     }
 
+    /// `artist.getInfo` → global listener count for an artist (C2 popularity signal
+    /// for the discovery engine). Unsigned GET; nil when the artist isn't found or
+    /// the field is missing, so the scorer treats popularity as "no signal".
+    public func getArtistListeners(artist: String, apiKey: String) async -> Int? {
+        let params = [
+            "method": "artist.getinfo", "artist": artist, "api_key": apiKey,
+            "format": "json", "autocorrect": "1",
+        ]
+        guard let json = await get(params),
+              let info = json["artist"] as? [String: Any],
+              let stats = info["stats"] as? [String: Any] else { return nil }
+        // Last.fm returns counts as strings.
+        if let s = stats["listeners"] as? String, let n = Int(s) { return n }
+        if let n = stats["listeners"] as? Int { return n }
+        return nil
+    }
+
     /// `geo.getTopArtists` — trending artists for a country (or global). Unsigned
     /// GET. Backs the Charts producer. `country` is the Last.fm country NAME
     /// ("United States"), not an ISO code; empty → global (`chart.getTopArtists`).

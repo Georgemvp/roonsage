@@ -329,11 +329,25 @@ extension RoonClient {
 
         let rates = await feedbackGenreRates()
 
+        // C3: per-producer accept-rate (the same signal the "Ontdek-inzichten"
+        // dashboard shows) so the scorer can lightly favour producers you keep and
+        // trim ones you keep skipping. Empty on day one → no effect.
+        let producerReliability: [String: Double] = await {
+            guard let inp = try? await db.discoveryStatsInputs() else { return [:] }
+            let stats = DiscoveryStatsBuilder.build(
+                items: inp.facts, lifetimeAccepted: inp.accepted, lifetimeRejected: inp.rejected,
+                latestPending: inp.latestPending, generatedAt: "")
+            return stats.producers.reduce(into: [String: Double]()) { acc, p in
+                if let r = p.acceptRate { acc[p.producer] = r }
+            }
+        }()
+
         let pipeline = DiscoveryPipeline(producers: activeDiscoveryProducers,
                                          weights: .tuned(adventurousness: discoveryAdventurousness))
         let stored = await pipeline.run(
             seeds: seeds, context: context, qobuzCreds: qobuz,
             libraryGenres: libraryGenres, feedbackGenreRates: rates,
+            producerReliability: producerReliability, adventurousness: discoveryAdventurousness,
             filterContext: filterCtx, maxItems: Self.discoveryMaxItems, now: Date())
 
         // Advance each watchlist artist's "newest release seen" watermark, so

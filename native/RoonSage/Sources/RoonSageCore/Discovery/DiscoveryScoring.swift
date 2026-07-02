@@ -2,10 +2,15 @@ import Foundation
 
 // MARK: - Discovery scoring (pure — unit-tested in DiscoveryScoringTests)
 //
-// The weighted-composite score, adapted verbatim from digarr's score.ts:
+// The weighted-composite score, adapted from digarr's score.ts:
 //   score = 0.30·consensus + 0.25·similarity + 0.20·genreOverlap
 //         + 0.15·aiConfidence + 0.10·feedbackBoost + 0.00·popularity
-// plus a bounded album modifier (±0.15) from recency / popularity / gap-priority.
+// then bounded post-modifiers nudge the ranking without touching the sum-to-1
+// weights (so the "veilig ↔ avontuurlijk" dial stays valid):
+//   • album modifier (±0.15) from recency (smooth logistic decay) + gap-priority
+//   • producer-reliability nudge (±0.08, C3) from your accept-rate per producer
+//   • dial-aware popularity nudge (±0.10, C2) — "veilig" favours known artists,
+//     "avontuurlijk" favours obscure ones
 // Every function is pure and takes primitives so it tests without a DB or network.
 
 public enum DiscoveryScoring {
@@ -14,11 +19,23 @@ public enum DiscoveryScoring {
     /// STRONG_NEGATIVE_PENALTY). Scales with the strong-negative rejection fraction.
     static let strongNegativePenalty = 0.5
 
-    /// Months over which the album recency signal decays linearly from 1 → 0.
-    static let recencyDecayMonths = 24.0
+    /// Months at which the recency signal crosses 0.5 — the logistic midpoint.
+    static let recencyMidpointMonths = 18.0
+    /// Logistic steepness: higher = a sharper transition around the midpoint.
+    static let recencySteepness = 0.25
 
     /// Max nudge the album modifier can add/subtract on top of the artist base.
     static let albumModifierWeight = 0.15
+
+    /// Max nudge from a candidate's producers' historical accept-rate (C3). Small
+    /// so it only breaks ties between otherwise similar scores — a producer that
+    /// consistently earns your "Bewaar" nudges its picks up; one you keep skipping
+    /// nudges them down. Bounded, like the album modifier.
+    static let producerReliabilityWeight = 0.08
+
+    /// Max nudge from artist popularity (C2), applied dial-aware: "veilig" leans
+    /// toward well-known artists, "avontuurlijk" toward obscure ones.
+    static let popularityModifierWeight = 0.10
 
     // MARK: Components
 
@@ -67,14 +84,52 @@ public enum DiscoveryScoring {
 
     // MARK: Album modifier
 
-    /// Map a release date/year to a recency signal in [0, 1]: just-released ≈ 1,
-    /// `recencyDecayMonths` or older → 0, future clamps to 1. Unparseable → 0.5
-    /// (no signal). Accepts "YYYY-MM-DD", "YYYY-MM", or a bare "YYYY".
+    /// Map a release date/year to a recency signal in [0, 1] via a smooth logistic
+    /// decay: a plateau near 1 for fresh releases, a soft S-curve through 0.5 at
+    /// `recencyMidpointMonths`, and a long tail toward 0 for old ones — no hard
+    /// cliff at a fixed cutoff (the previous linear decay zeroed abruptly at 24
+    /// months, so an album 23.9 vs 24.1 months old scored discontinuously). Future
+    /// clamps to 1; unparseable → 0.5 (no signal). Accepts "YYYY-MM-DD", "YYYY-MM",
+    /// or a bare "YYYY".
     public static func recency(releaseDate: String?, now: Date) -> Double {
         guard let released = parseReleaseDate(releaseDate) else { return 0.5 }
         let monthsSince = now.timeIntervalSince(released) / (60 * 60 * 24 * 30.44)
         if monthsSince <= 0 { return 1 }
-        return min(max(1 - monthsSince / recencyDecayMonths, 0), 1)
+        return 1 / (1 + exp(recencySteepness * (monthsSince - recencyMidpointMonths)))
+    }
+
+    /// A bounded nudge from how often the producers that surfaced this item have
+    /// historically been ACCEPTED (C3 — a light per-user learning loop over the
+    /// existing "Ontdek-inzichten" accept-rates). `reliabilities[producer]` = its
+    /// accept-rate 0…1; producers with no decision history are ignored. All-unknown
+    /// → 0 (no change). Centered at 0.5: a producer accepted >50% lifts, <50% trims,
+    /// within ±`producerReliabilityWeight`.
+    public static func producerReliabilityNudge(producers: [String],
+                                                reliabilities: [String: Double]) -> Double {
+        let known = producers.compactMap { reliabilities[$0] }
+        guard !known.isEmpty else { return 0 }
+        let mean = known.reduce(0, +) / Double(known.count)
+        return producerReliabilityWeight * (mean - 0.5) * 2
+    }
+
+    /// Normalise a Last.fm listener count to a 0…1 popularity signal on a log scale
+    /// (listeners are heavily power-law distributed). ~100 listeners → ~0, ~1M → ~1.
+    /// nil count → nil (no signal, so the modifier leaves the score untouched).
+    public static func popularity(listeners: Int?) -> Double? {
+        guard let listeners, listeners > 0 else { return listeners == 0 ? 0 : nil }
+        // log10(1) = 0 … log10(1_000_000) = 6 → divide by 6, clamp to [0,1].
+        return min(max(log10(Double(listeners)) / 6.0, 0), 1)
+    }
+
+    /// A bounded, dial-aware nudge from artist popularity (C2). `adventurousness`
+    /// flips the direction: at 0 ("veilig") a popular artist lifts the score and an
+    /// obscure one trims it; at 1 ("avontuurlijk") the preference inverts, favouring
+    /// deep cuts. nil popularity → 0. Bounded by `popularityModifierWeight`.
+    public static func popularityNudge(popularity: Double?, adventurousness: Double) -> Double {
+        guard let pop = popularity else { return 0 }
+        let t = min(max(adventurousness, 0), 1)
+        let direction = 1 - 2 * t                    // +1 at safe → −1 at bold
+        return popularityModifierWeight * (pop - 0.5) * 2 * direction
     }
 
     /// Album score = artist base + a bounded modifier from the album signals'

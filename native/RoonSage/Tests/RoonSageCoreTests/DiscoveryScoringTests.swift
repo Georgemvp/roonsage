@@ -57,15 +57,70 @@ final class DiscoveryScoringTests: XCTestCase {
         XCTAssertEqual(DiscoveryScoring.weightedScore(.default, ScoreComponents()), 0.0, accuracy: 1e-9)
     }
 
-    // MARK: recency
+    // MARK: recency (smooth logistic decay — C1)
 
-    func testRecencyLinearDecay() {
+    func testRecencyLogisticDecay() {
         let now = utc(2026, 1, 1)
+        // Just released → plateau near 1; future clamps to 1.
         XCTAssertEqual(DiscoveryScoring.recency(releaseDate: "2026-01-01", now: now), 1.0, accuracy: 0.02)
-        XCTAssertEqual(DiscoveryScoring.recency(releaseDate: "2019-01-01", now: now), 0.0, accuracy: 1e-9)  // >24mo
-        XCTAssertEqual(DiscoveryScoring.recency(releaseDate: "2025-01-01", now: now), 0.5, accuracy: 0.03)  // ~12mo
+        XCTAssertEqual(DiscoveryScoring.recency(releaseDate: "2027-06-01", now: now), 1.0, accuracy: 1e-9)
+        // ~18 months old = the logistic midpoint → ~0.5.
+        XCTAssertEqual(DiscoveryScoring.recency(releaseDate: "2024-07-01", now: now), 0.5, accuracy: 0.05)
+        // Old release: small but strictly positive (no hard cliff to exactly 0).
+        let old = DiscoveryScoring.recency(releaseDate: "2019-01-01", now: now)
+        XCTAssertLessThan(old, 0.05)
+        XCTAssertGreaterThan(old, 0)
+        // No signal.
         XCTAssertEqual(DiscoveryScoring.recency(releaseDate: nil, now: now), 0.5, accuracy: 1e-9)
         XCTAssertEqual(DiscoveryScoring.recency(releaseDate: "not-a-date", now: now), 0.5, accuracy: 1e-9)
+    }
+
+    func testRecencyIsMonotonicallyDecreasing() {
+        let now = utc(2026, 1, 1)
+        let dates = ["2025-12-01", "2025-06-01", "2024-06-01", "2022-06-01", "2018-06-01"]
+        let vals = dates.map { DiscoveryScoring.recency(releaseDate: $0, now: now) }
+        for (a, b) in zip(vals, vals.dropFirst()) { XCTAssertGreaterThan(a, b) }
+    }
+
+    // MARK: producer-reliability nudge (C3)
+
+    func testProducerReliabilityNudgeDirectionAndBounds() {
+        // Unknown producers → no change.
+        XCTAssertEqual(DiscoveryScoring.producerReliabilityNudge(producers: ["x"], reliabilities: [:]), 0, accuracy: 1e-9)
+        // A perfectly-accepted producer → +full weight; never-accepted → −full weight.
+        XCTAssertEqual(DiscoveryScoring.producerReliabilityNudge(producers: ["ai"], reliabilities: ["ai": 1.0]),
+                       DiscoveryScoring.producerReliabilityWeight, accuracy: 1e-9)
+        XCTAssertEqual(DiscoveryScoring.producerReliabilityNudge(producers: ["ai"], reliabilities: ["ai": 0.0]),
+                       -DiscoveryScoring.producerReliabilityWeight, accuracy: 1e-9)
+        // 50% accept-rate is neutral; unknown producers are ignored in the mean.
+        XCTAssertEqual(DiscoveryScoring.producerReliabilityNudge(producers: ["a", "b"], reliabilities: ["a": 0.5, "b": 0.5]), 0, accuracy: 1e-9)
+        XCTAssertEqual(DiscoveryScoring.producerReliabilityNudge(producers: ["a", "unknown"], reliabilities: ["a": 1.0]),
+                       DiscoveryScoring.producerReliabilityWeight, accuracy: 1e-9)
+    }
+
+    // MARK: popularity (C2)
+
+    func testPopularityLogNormalisation() throws {
+        XCTAssertNil(DiscoveryScoring.popularity(listeners: nil))
+        XCTAssertEqual(try XCTUnwrap(DiscoveryScoring.popularity(listeners: 0)), 0, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(DiscoveryScoring.popularity(listeners: 1_000_000)), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(DiscoveryScoring.popularity(listeners: 1_000)), 0.5, accuracy: 1e-9)
+        // Above 1M clamps to 1.
+        XCTAssertEqual(try XCTUnwrap(DiscoveryScoring.popularity(listeners: 50_000_000)), 1.0, accuracy: 1e-9)
+    }
+
+    func testPopularityNudgeIsDialAware() {
+        // "veilig" (t=0): a popular artist lifts, an obscure one trims.
+        XCTAssertEqual(DiscoveryScoring.popularityNudge(popularity: 1.0, adventurousness: 0),
+                       DiscoveryScoring.popularityModifierWeight, accuracy: 1e-9)
+        XCTAssertEqual(DiscoveryScoring.popularityNudge(popularity: 0.0, adventurousness: 0),
+                       -DiscoveryScoring.popularityModifierWeight, accuracy: 1e-9)
+        // "avontuurlijk" (t=1): the preference inverts — obscure lifts.
+        XCTAssertEqual(DiscoveryScoring.popularityNudge(popularity: 1.0, adventurousness: 1),
+                       -DiscoveryScoring.popularityModifierWeight, accuracy: 1e-9)
+        // Neutral popularity or no signal → no nudge.
+        XCTAssertEqual(DiscoveryScoring.popularityNudge(popularity: 0.5, adventurousness: 0), 0, accuracy: 1e-9)
+        XCTAssertEqual(DiscoveryScoring.popularityNudge(popularity: nil, adventurousness: 0), 0, accuracy: 1e-9)
     }
 
     // MARK: album modifier
