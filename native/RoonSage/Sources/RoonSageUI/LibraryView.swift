@@ -17,9 +17,12 @@ public struct LibraryView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var sort: SortField = .title
     @State private var viewMode: ViewMode = .tracks
+    /// Grid filter: only starred albums/artists (LMS "Starred" browse mode).
+    @State private var favoritesOnly = false
     @State private var selection = Set<String>()
     @State private var showSaveSheet = false
     @State private var newPlaylistName = ""
+    @State private var infoTrack: DatabaseManager.LibraryTrackRow?
 
     /// Library browsing modes: a flat track list, or a grid of albums / artists.
     enum ViewMode: String, CaseIterable, Identifiable {
@@ -122,6 +125,17 @@ public struct LibraryView: View {
                     .pickerStyle(.menu)
                     .help("Sorteer tracks")
                 }
+            } else {
+                ToolbarItem {
+                    Button {
+                        favoritesOnly.toggle()
+                    } label: {
+                        Image(systemName: favoritesOnly ? "star.fill" : "star")
+                            .foregroundStyle(favoritesOnly ? Color.roonGold : .secondary)
+                    }
+                    .accessibilityLabel("Alleen favorieten")
+                    .help(favoritesOnly ? "Toon alles" : "Alleen favorieten")
+                }
             }
             ToolbarItem {
                 if client.isSyncing {
@@ -161,6 +175,7 @@ public struct LibraryView: View {
         .onChange(of: viewMode) { _, _ in reloadContent() }
         .onChange(of: client.trackCount) { _, _ in reload() }
         .onAppear { reload() }
+        .sheet(item: $infoTrack) { TrackInfoSheet(track: $0) }
         .alert("Bewaar als playlist", isPresented: $showSaveSheet) {
             TextField("Naam playlist", text: $newPlaylistName)
             Button("Annuleer", role: .cancel) {}
@@ -219,18 +234,30 @@ public struct LibraryView: View {
         }
     }
 
+    /// Grid data after the favorites filter.
+    private var visibleAlbums: [DatabaseManager.AlbumResult] {
+        guard favoritesOnly else { return albums }
+        return albums.filter { client.isFavoriteAlbum(album: $0.album, artist: $0.artist) }
+    }
+
+    private var visibleArtists: [DatabaseManager.ArtistResult] {
+        guard favoritesOnly else { return artists }
+        return artists.filter { client.isFavoriteArtist($0.name) }
+    }
+
     @ViewBuilder
     private var albumsContent: some View {
-        AsyncStateView(isLoading: isLoadingGrid, isEmpty: albums.isEmpty,
+        AsyncStateView(isLoading: isLoadingGrid, isEmpty: visibleAlbums.isEmpty,
                        onRetry: { reloadContent() }) {
             ScrollView {
                 LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
-                    ForEach(albums) { album in
+                    ForEach(visibleAlbums) { album in
                         NavigationLink(value: album) { AlbumGridCell(album: album) }
                             .buttonStyle(.plain)
                             .contextMenu {
-                                Button("Speel album") { playAlbum(album) }
-                                    .disabled(client.selectedZone == nil)
+                                PlayActionsMenu(fetch: { [client] in
+                                    await client.tracksForAlbum(album.albumKey).map(\.asTrackRecord)
+                                })
                             }
                     }
                 }
@@ -244,16 +271,21 @@ public struct LibraryView: View {
 
     @ViewBuilder
     private var artistsContent: some View {
-        AsyncStateView(isLoading: isLoadingGrid, isEmpty: artists.isEmpty,
+        AsyncStateView(isLoading: isLoadingGrid, isEmpty: visibleArtists.isEmpty,
                        onRetry: { reloadContent() }) {
             ScrollView {
                 LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
-                    ForEach(artists) { artist in
+                    ForEach(visibleArtists) { artist in
                         NavigationLink(value: artist) { ArtistGridCell(artist: artist) }
                             .buttonStyle(.plain)
                             .contextMenu {
-                                Button("Speel artiest") { playArtist(artist) }
-                                    .disabled(client.selectedZone == nil)
+                                PlayActionsMenu(fetch: { [client] in
+                                    var records: [TrackRecord] = []
+                                    for album in await client.albumsByArtist(artist.name) {
+                                        records += await client.tracksForAlbum(album.albumKey).map(\.asTrackRecord)
+                                    }
+                                    return records
+                                })
                             }
                     }
                 }
@@ -274,18 +306,6 @@ public struct LibraryView: View {
             ContentUnavailableView("Niet verbonden", systemImage: "wifi.slash",
                 description: Text("Verbind eerst met je Roon Core."))
         }
-    }
-
-    private func playAlbum(_ album: DatabaseManager.AlbumResult) {
-        guard let zone = client.selectedZone else { return }
-        Haptics.tap()
-        Task { await client.playAlbum(albumKey: album.albumKey, zoneID: zone.id) }
-    }
-
-    private func playArtist(_ artist: DatabaseManager.ArtistResult) {
-        guard let zone = client.selectedZone else { return }
-        Haptics.tap()
-        Task { await client.playArtist(name: artist.name, zoneID: zone.id) }
     }
 
     // MARK: - Selection action bar
@@ -312,16 +332,14 @@ public struct LibraryView: View {
     @ViewBuilder
     private func rowMenu(_ track: DatabaseManager.LibraryTrackRow) -> some View {
         let rec = asRecord(track)
-        let hasZone = client.selectedZone != nil
-        Button("Speel nu") { play([rec]) }.disabled(!hasZone)
-        Button("Speel hierna") { queue([rec], next: true) }.disabled(!hasZone)
-        Button("Zet in wachtrij") { queue([rec]) }.disabled(!hasZone)
+        PlayActionsMenu(fetch: { [rec] })
         Divider()
         Button("Start Sonic Radio") {
             guard let zone = client.selectedZone else { return }
             Task { await client.playSonicRadio(title: track.title, artist: track.artist, album: track.album, zoneID: zone.id) }
-        }.disabled(!hasZone)
+        }.disabled(client.selectedZone == nil)
         Divider()
+        Button("Info", systemImage: "info.circle") { infoTrack = track }
         Button("Bewaar als playlist…") {
             selection = [track.id]
             showSaveSheet = true
@@ -376,6 +394,7 @@ public struct LibraryView: View {
 
     private func reload() {
         Task { tags = await client.topTags(limit: 28) }
+        Task { await client.ensureFavoritesLoaded() }   // drives the star filter
         reloadContent()
     }
 

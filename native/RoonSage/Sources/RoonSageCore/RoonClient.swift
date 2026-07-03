@@ -102,6 +102,12 @@ public final class RoonClient {
     /// Whether `feedbackByMatchKey` has been populated this session.
     var feedbackLoaded = false
 
+    // MARK: - Favorites (starred albums / artists — see RoonClient+Favorites)
+    /// In-memory favorites keyed "kind␟key", mirrored from the server-of-record.
+    public internal(set) var favoriteKeys: Set<String> = []
+    /// Whether `favoriteKeys` has been populated this session.
+    var favoritesLoaded = false
+
     // MARK: - Sonic Radio (endless, artist-seeded — see RoonClient+Radio)
     /// The currently-running endless radio, if any. Drives the "playing" banner.
     public internal(set) var activeRadio: RadioStatus?

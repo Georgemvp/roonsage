@@ -128,6 +128,32 @@ extension RoonClient {
         return entries
     }
 
+    // MARK: - ListenBrainz loves → likes (one-way import)
+
+    /// Import the user's ListenBrainz "loved" tracks as like-verdicts, matched
+    /// by content match_key. Existing verdicts are never overwritten (a local
+    /// dislike wins over a remote love). Returns the number imported.
+    /// We can't sync the other way: LB feedback submission needs per-recording
+    /// MBIDs, which this library doesn't store.
+    @discardableResult
+    public func importListenBrainzLoves() async -> Int {
+        guard let token = KeychainStore.load(key: "listenbrainz_token"), !token.isEmpty else { return 0 }
+        guard let username = await ListenBrainzClient.shared.resolveUsername(token: token) else { return 0 }
+        let loved = await ListenBrainzClient.shared.lovedTracks(username: username, token: token)
+        guard !loved.isEmpty else { return 0 }
+        await ensureFeedbackLoaded()
+        var imported = 0
+        for track in loved {
+            let mk = TrackIdentity.matchKey(artist: track.artist, album: nil, title: track.title)
+            guard !mk.isEmpty, feedbackByMatchKey[mk] == nil else { continue }
+            feedbackByMatchKey[mk] = .like
+            await persistFeedback(matchKey: mk, title: track.title, artist: track.artist, kind: .like)
+            imported += 1
+        }
+        if imported > 0 { Log.info("ListenBrainz-loves geïmporteerd: \(imported) likes", category: .roon) }
+        return imported
+    }
+
     // MARK: - Learning signal (read by radios / fingerprint / recommendations)
 
     /// Match keys the user has thumbed down — excluded from radio / fingerprint

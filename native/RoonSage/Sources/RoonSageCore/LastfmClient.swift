@@ -133,6 +133,36 @@ public actor LastfmClient {
         return json
     }
 
+    // MARK: - Artist info (biografie voor de artiestpagina)
+
+    /// Korte artiestbiografie via `artist.getinfo` (alleen api_key nodig).
+    /// Vraagt eerst Nederlands; valt terug op de default (Engels) wanneer de
+    /// NL-bio ontbreekt. De "Read more"-linktag en resthtml worden gestript.
+    public func getArtistBio(artist: String, apiKey: String) async -> String? {
+        func fetch(lang: String?) async -> String? {
+            var params = ["method": "artist.getinfo", "artist": artist,
+                          "api_key": apiKey, "format": "json", "autocorrect": "1"]
+            if let lang { params["lang"] = lang }
+            guard let json = await get(params),
+                  let a = json["artist"] as? [String: Any],
+                  let bio = a["bio"] as? [String: Any],
+                  let summary = bio["summary"] as? String else { return nil }
+            let cleaned = Self.stripHTML(summary)
+            return cleaned.count >= 40 ? cleaned : nil   // "…" placeholders eruit
+        }
+        if let nl = await fetch(lang: "nl") { return nl }
+        return await fetch(lang: nil)
+    }
+
+    /// Strip tags + entities uit een Last.fm-bio-snippet.
+    static func stripHTML(_ s: String) -> String {
+        var out = s.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+        for (ent, ch) in [("&amp;", "&"), ("&quot;", "\""), ("&#39;", "'"), ("&gt;", ">"), ("&lt;", "<"), ("&nbsp;", " ")] {
+            out = out.replacingOccurrences(of: ent, with: ch)
+        }
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - Recent tracks (voor historie-import)
 
     public struct Scrobble: Sendable {

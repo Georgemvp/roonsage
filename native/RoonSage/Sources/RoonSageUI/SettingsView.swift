@@ -49,6 +49,8 @@ public struct SettingsView: View {
     // ListenBrainz
     @State private var lbToken: String = ""
     @State private var lbSaved = false
+    @State private var lbLovesBusy = false
+    @State private var lbLovesResult = ""
 
     // Discogs (F7 — Discogs Labels discovery producer)
     @State private var discogsToken: String = ""
@@ -348,6 +350,18 @@ public struct SettingsView: View {
                 Text("Scrobblet elke track naar ListenBrainz zodra hij echt geluisterd is.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Button(lbLovesBusy ? "Loves importeren…" : (lbLovesResult.isEmpty ? "Importeer loves als likes" : lbLovesResult)) {
+                    lbLovesBusy = true
+                    Task {
+                        let n = await client.importListenBrainzLoves()
+                        lbLovesResult = n > 0 ? "\(n) loves geïmporteerd" : "Geen nieuwe loves gevonden"
+                        lbLovesBusy = false
+                    }
+                }
+                .disabled(lbLovesBusy)
+                Text("Haalt je ListenBrainz-‘loved’ tracks op en zet ze als duim-omhoog op de server; bestaande oordelen blijven staan.")
+                    .font(.caption).foregroundStyle(.secondary)
 
                 Toggle("Importeer ListenBrainz-playlists dagelijks", isOn: Binding(
                     get: { client.lbPlaylistSyncEnabled },

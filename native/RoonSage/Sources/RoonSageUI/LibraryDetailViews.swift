@@ -9,6 +9,7 @@ struct AlbumDetailView: View {
     let album: DatabaseManager.AlbumResult
     @State private var tracks: [DatabaseManager.LibraryTrackRow] = []
     @State private var isLoading = true
+    @State private var infoTrack: DatabaseManager.LibraryTrackRow?
 
     var body: some View {
         List {
@@ -26,22 +27,21 @@ struct AlbumDetailView: View {
                         play([track])
                     }
                     .contextMenu {
-                        Button("Speel nu") { play([track]) }.disabled(client.selectedZone == nil)
-                        Button("Zet in wachtrij") { queue([track]) }.disabled(client.selectedZone == nil)
-                        Button("Speel op dit apparaat", systemImage: "iphone") {
-                            Haptics.tap()
-                            Task { await client.playLocally([record(track)]) }
-                        }
+                        PlayActionsMenu(fetch: { [track.asTrackRecord] })
+                        Divider()
+                        Button("Info", systemImage: "info.circle") { infoTrack = track }
                     }
                 }
             }
         }
+        .sheet(item: $infoTrack) { TrackInfoSheet(track: $0) }
         .navigationTitle(album.album)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .task(id: album.albumKey) {
             isLoading = true
+            await client.ensureFavoritesLoaded()
             tracks = await client.tracksForAlbum(album.albumKey)
             isLoading = false
         }
@@ -68,6 +68,9 @@ struct AlbumDetailView: View {
                     LocalPlayButton { tracks.map(record) }
                         .buttonStyle(.bordered)
                         .disabled(tracks.isEmpty)
+                    FavoriteStarButton(isOn: client.isFavoriteAlbum(album: album.album, artist: album.artist)) {
+                        Task { await client.toggleFavoriteAlbum(album: album.album, artist: album.artist) }
+                    }
                 }
             }
         }
@@ -105,6 +108,14 @@ struct ArtistDetailView: View {
     let artist: DatabaseManager.ArtistResult
     @State private var albums: [DatabaseManager.AlbumResult] = []
     @State private var isLoading = true
+    // Artiestpagina 2.0 (LMS-audit): bio + meest gespeeld + vergelijkbaar.
+    // Each loads independently and simply stays absent when its source is
+    // unavailable (no Last.fm key, no play history, no embeddings).
+    @State private var bio: String?
+    @State private var bioExpanded = false
+    @State private var topPlayed: [DatabaseManager.LibraryTrackRow] = []
+    @State private var similar: [ArtistSimilarity.Result] = []
+    @State private var similarArtists: [DatabaseManager.ArtistResult] = []
 
     private let columns = [GridItem(.adaptive(minimum: 150), spacing: Spacing.lg)]
 
@@ -125,7 +136,14 @@ struct ArtistDetailView: View {
                         .buttonStyle(.bordered)
                         .accessibilityLabel("Speel op dit apparaat")
                         .help("Speel alles lokaal af op dit apparaat")
+                    FavoriteStarButton(isOn: client.isFavoriteArtist(artist.name)) {
+                        Task { await client.toggleFavoriteArtist(artist.name) }
+                    }
                 }
+
+                if let bio, !bio.isEmpty { bioSection(bio) }
+
+                if !topPlayed.isEmpty { topPlayedSection }
 
                 if isLoading {
                     ProgressView().frame(maxWidth: .infinity).padding()
@@ -135,16 +153,15 @@ struct ArtistDetailView: View {
                             NavigationLink(value: album) { AlbumGridCell(album: album) }
                                 .buttonStyle(.plain)
                                 .contextMenu {
-                                    Button("Speel album") { playAlbum(album) }
-                                        .disabled(client.selectedZone == nil)
-                                    Button("Speel op dit apparaat", systemImage: "iphone") {
-                                        Haptics.tap()
-                                        Task { await client.playAlbumLocally(albumKey: album.albumKey) }
-                                    }
+                                    PlayActionsMenu(fetch: { [client] in
+                                        await client.tracksForAlbum(album.albumKey).map(\.asTrackRecord)
+                                    })
                                 }
                         }
                     }
                 }
+
+                if !similarArtists.isEmpty { similarSection }
             }
             .padding(Spacing.lg)
         }
@@ -154,9 +171,98 @@ struct ArtistDetailView: View {
         #endif
         .task(id: artist.name) {
             isLoading = true
+            await client.ensureFavoritesLoaded()
             albums = await client.albumsByArtist(artist.name)
             isLoading = false
+            // Secondary sections load after the fold, never blocking the albums.
+            bio = await client.artistBio(name: artist.name)
+            topPlayed = await client.topPlayedTracks(artist: artist.name, limit: 5)
+            similar = await client.similarLibraryArtists(to: artist.name, limit: 10)
+            similarArtists = await resolveSimilar(similar)
         }
+    }
+
+    // MARK: - Bio ("2 regels, tik om uit te klappen" — LMS-patroon)
+
+    private func bioSection(_ text: String) -> some View {
+        Button {
+            withAnimation(Motion.quick) { bioExpanded.toggle() }
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(text)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(bioExpanded ? nil : 2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(bioExpanded ? "Toon minder" : "Lees meer")
+                    .font(.caption.bold())
+                    .foregroundStyle(Color.roonGold)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Tik om de biografie \(bioExpanded ? "in" : "uit") te klappen")
+    }
+
+    // MARK: - Meest gespeeld
+
+    private var topPlayedSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("Meest gespeeld").font(.headline)
+            ForEach(topPlayed) { track in
+                LibraryTrackRow(track: track, canPlay: client.selectedZone != nil) {
+                    playRows([track])
+                }
+                .contextMenu { PlayActionsMenu(fetch: { [track.asTrackRecord] }) }
+            }
+        }
+    }
+
+    // MARK: - Vergelijkbaar in je bibliotheek
+
+    private var similarSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("Vergelijkbaar in je bibliotheek").font(.headline)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: Spacing.lg) {
+                    ForEach(similarArtists) { a in
+                        NavigationLink(value: a) {
+                            VStack(spacing: 6) {
+                                AlbumArtView(imageKey: a.imageKey, size: 96, cornerRadius: 48)
+                                Text(a.name).font(.caption).lineLimit(2)
+                                    .multilineTextAlignment(.center)
+                                    .frame(width: 100)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, Spacing.xs)
+            }
+        }
+    }
+
+    /// Map similarity results (names) onto library artist rows for navigation;
+    /// names that don't resolve are dropped.
+    private func resolveSimilar(_ results: [ArtistSimilarity.Result]) async -> [DatabaseManager.ArtistResult] {
+        var out: [DatabaseManager.ArtistResult] = []
+        for r in results {
+            let hits = await client.searchArtists(query: r.name)
+            if let hit = hits.first(where: { $0.name.lowercased() == r.name.lowercased() }) ?? hits.first {
+                out.append(hit)
+            }
+        }
+        return out
+    }
+
+    private func rowRecord(_ t: DatabaseManager.LibraryTrackRow) -> TrackRecord {
+        TrackRecord(id: t.id, title: t.title, artist: t.artist, album: t.album, year: t.year, isLive: t.isLive)
+    }
+
+    private func playRows(_ rows: [DatabaseManager.LibraryTrackRow]) {
+        guard let zone = client.selectedZone, !rows.isEmpty else { return }
+        Haptics.tap()
+        Task { await client.curateTracks(rows.map(rowRecord), zoneID: zone.id) }
     }
 
     private func playArtist() {
@@ -169,10 +275,25 @@ struct ArtistDetailView: View {
         Haptics.tap()
         Task { await client.playArtistLocally(name: artist.name) }
     }
+}
 
-    private func playAlbum(_ album: DatabaseManager.AlbumResult) {
-        guard let zone = client.selectedZone else { return }
-        Haptics.tap()
-        Task { await client.playAlbum(albumKey: album.albumKey, zoneID: zone.id) }
+// MARK: - Favorite star (shared by album + artist headers)
+
+@MainActor
+struct FavoriteStarButton: View {
+    let isOn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
+            Image(systemName: isOn ? "star.fill" : "star")
+                .foregroundStyle(isOn ? Color.roonGold : .secondary)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel(isOn ? "Verwijder uit favorieten" : "Markeer als favoriet")
+        .help(isOn ? "Verwijder uit favorieten" : "Markeer als favoriet")
     }
 }

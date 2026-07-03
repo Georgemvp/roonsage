@@ -386,6 +386,32 @@ public final class LibraryShareServer: @unchecked Sendable {
             }
             return ("500 Internal Server Error", Data("feedback failed".utf8), "text/plain")
         }
+        // Favorites (starred albums/artists) — same server-of-record shape as
+        // track feedback: POST one toggle, GET the whole set.
+        if method == "POST", path.hasPrefix("/favorite") {
+            guard let req = try? JSONDecoder().decode(FavoriteToggle.self, from: body),
+                  !req.kind.isEmpty, !req.key.isEmpty else {
+                return ("400 Bad Request", Data("bad favorite".utf8), "text/plain")
+            }
+            do {
+                if req.on {
+                    try await database.setFavorite(.init(kind: req.kind, key: req.key,
+                                                         title: req.title, artist: req.artist))
+                } else {
+                    try await database.removeFavorite(kind: req.kind, key: req.key)
+                }
+                return ("200 OK", Data("{\"ok\":true}".utf8), "application/json")
+            } catch {
+                return ("500 Internal Server Error", Data("favorite failed".utf8), "text/plain")
+            }
+        }
+        if path.hasPrefix("/favorites") {
+            if let entries = try? await database.allFavorites(),
+               let body = try? JSONEncoder().encode(entries) {
+                return ("200 OK", body, "application/json")
+            }
+            return ("500 Internal Server Error", Data("favorites failed".utf8), "text/plain")
+        }
         // Saved playlists live on the server-of-record so every client app sees
         // the same set (was client-local — each device kept its own).
         if method == "POST", path == "/playlists" {

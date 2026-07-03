@@ -482,6 +482,30 @@ enum Schema {
                 """)
         }
 
+        // Cached artist biographies (Last.fm artist.getinfo) for the artist
+        // page — keyed by lowercased artist name, refreshed after 30 days.
+        migrator.registerMigration("v31_artist_bio") { db in
+            try db.create(table: "artist_bio", ifNotExists: true) { t in
+                t.primaryKey("artist_key", .text)
+                t.column("bio",        .text)            // nil = negative cache (no bio found)
+                t.column("fetched_at", .text).notNull()
+            }
+        }
+
+        // Starred albums/artists (LMS-style favorites), server-of-record like
+        // track_feedback. `key` is content-derived (artist: lowercased name;
+        // album: "album|artist" lowercased) so it survives resyncs.
+        migrator.registerMigration("v32_favorites") { db in
+            try db.create(table: "favorites", ifNotExists: true) { t in
+                t.column("kind",       .text).notNull()   // "artist" | "album"
+                t.column("key",        .text).notNull()
+                t.column("title",      .text)             // display: album/artist name
+                t.column("artist",     .text)             // album favorites: the artist
+                t.column("created_at", .text).notNull()
+                t.primaryKey(["kind", "key"])
+            }
+        }
+
         try migrator.migrate(db)
     }
 }

@@ -78,6 +78,23 @@ extension DatabaseManager {
         }) ?? nil
     }
 
+    /// The full feature row for one track — feeds the track-info sheet.
+    public func audioFeatureRow(matchKey: String) async -> AudioFeatureRow? {
+        guard !matchKey.isEmpty else { return nil }
+        return (try? await pool.read { db -> AudioFeatureRow? in
+            guard let r = try Row.fetchOne(db, sql: """
+                SELECT bpm, bpm_confidence, camelot, key_root, key_mode, energy, duration,
+                       tags, moods, attributes, popularity, loudness
+                FROM track_audio_features WHERE match_key = ?
+                """, arguments: [matchKey]) else { return nil }
+            return AudioFeatureRow(
+                matchKey: matchKey, bpm: r["bpm"], camelot: r["camelot"], keyRoot: r["key_root"],
+                keyMode: r["key_mode"], energy: r["energy"], duration: r["duration"],
+                tags: r["tags"], moods: r["moods"], bpmConfidence: r["bpm_confidence"],
+                attributes: r["attributes"], popularity: r["popularity"], loudness: r["loudness"])
+        }) ?? nil
+    }
+
     /// CLAP attribute scores for one track by content match key (for Now Playing).
     public func attributesForMatchKey(_ matchKey: String) -> [String: Float] {
         (try? pool.read { db -> [String: Float] in

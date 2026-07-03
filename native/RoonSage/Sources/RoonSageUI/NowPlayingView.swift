@@ -226,6 +226,7 @@ private struct NowPlayingHero: View {
     @State private var startingRadio = false
     @State private var startingAdventure = false
     @State private var showLyrics = false
+    @State private var showFullArt = false
     @AppStorage("showVisualizer") private var showVisualizer = true
 
     /// The real width to bound the hero to. On iOS we read the active window's
@@ -338,6 +339,13 @@ private struct NowPlayingHero: View {
         .scaleEffect(zone.state == .playing || reduceMotion ? 1.0 : 0.96)
         .animation(reduceMotion ? nil : Motion.spring, value: zone.state)
         .animation(reduceMotion ? nil : Motion.spring, value: zone.nowPlaying?.imageKey)
+        // Tap → full-screen artwork (LMS's cover modal).
+        .onTapGesture {
+            if zone.nowPlaying?.imageKey != nil { showFullArt = true }
+        }
+        .sheet(isPresented: $showFullArt) {
+            FullArtworkView(url: zone.nowPlaying?.imageKey.flatMap { client.imageURL(forKey: $0, size: 1200) })
+        }
         .accessibilityHidden(true)
     }
 
@@ -755,5 +763,49 @@ private struct NowPlayingHero: View {
             feat = nil
             attrs = [:]
         }
+    }
+}
+
+// MARK: - Full-screen artwork (tap the hero art)
+
+@MainActor
+struct FullArtworkView: View {
+    @Environment(\.dismiss) private var dismiss
+    let url: URL?
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let url {
+                CachedArtImage(url: url) {
+                    ProgressView().controlSize(.large)
+                }
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Image(systemName: "music.note")
+                    .font(.system(size: 72)).foregroundStyle(.secondary)
+            }
+            VStack {
+                HStack {
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title)
+                            .foregroundStyle(.white.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                    .padding()
+                    .accessibilityLabel("Sluit")
+                }
+                Spacer()
+            }
+        }
+        .onTapGesture { dismiss() }
+        #if os(macOS)
+        .frame(minWidth: 600, minHeight: 600)
+        #endif
     }
 }

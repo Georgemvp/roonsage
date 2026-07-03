@@ -163,6 +163,40 @@ public actor ListenBrainzClient {
         }
     }
 
+    // MARK: - Loved tracks (feedback score 1) — for the loves → likes import
+
+    public struct LovedTrack: Sendable {
+        public let title: String
+        public let artist: String
+    }
+
+    /// All tracks the user "loved" on ListenBrainz, with metadata so they can
+    /// be matched to library tracks by title + artist (we don't store per-track
+    /// MBIDs). Paginated; capped at `maxCount`.
+    public func lovedTracks(username: String, token: String, maxCount: Int = 2000) async -> [LovedTrack] {
+        struct Meta: Decodable { let track_name: String?; let artist_name: String? }
+        struct Item: Decodable { let score: Int?; let track_metadata: Meta? }
+        struct Page: Decodable { let feedback: [Item]?; let total_count: Int? }
+        var out: [LovedTrack] = []
+        var offset = 0
+        let pageSize = 100
+        while out.count < maxCount {
+            guard let data = await get(
+                "/1/feedback/user/\(username)/get-feedback?score=1&metadata=true&count=\(pageSize)&offset=\(offset)",
+                token: token),
+                let page = try? JSONDecoder().decode(Page.self, from: data),
+                let items = page.feedback, !items.isEmpty else { break }
+            for i in items {
+                guard let m = i.track_metadata, let t = m.track_name, let a = m.artist_name,
+                      !t.isEmpty, !a.isEmpty else { continue }
+                out.append(LovedTrack(title: t, artist: a))
+            }
+            offset += items.count
+            if let total = page.total_count, offset >= total { break }
+        }
+        return out
+    }
+
     // MARK: - Internal
 
     private func fetchPlaylistList(_ path: String, token: String) async -> [PlaylistRef] {
