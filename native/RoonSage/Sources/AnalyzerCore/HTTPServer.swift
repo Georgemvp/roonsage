@@ -24,6 +24,13 @@ public final class HTTPServer {
     private let port: UInt16
     private let store: FeatureStore
     private let token: String?
+    /// Second gate beside the master `token`: returns true for a client token the
+    /// user approved in the analyzer's "Apparaten" list. The share server (5767)
+    /// already accepts approved device tokens; without this the analyzer server
+    /// (5766) would reject them, so a zero-config-paired phone gets 401 on
+    /// `/audio` + `/features` even though the rest of the app works. Injected
+    /// (AnalyzerCore can't import RoonSageCore where the approval store lives).
+    private let isApprovedToken: @Sendable (String) -> Bool
     private let clapLock = NSLock()
     private var _clap: CLAPModel?
     private var clap: CLAPModel? {
@@ -68,11 +75,13 @@ public final class HTTPServer {
         return data
     }
 
-    public init(port: UInt16, store: FeatureStore, clap: CLAPModel? = nil, token: String? = nil) {
+    public init(port: UInt16, store: FeatureStore, clap: CLAPModel? = nil, token: String? = nil,
+                isApprovedToken: @escaping @Sendable (String) -> Bool = { _ in false }) {
         self.port = port
         self.store = store
         self._clap = clap
         self.token = (token?.isEmpty == false) ? token : nil
+        self.isApprovedToken = isApprovedToken
     }
 
     /// Attach (or replace) the CLAP model on a running server without rebinding
@@ -167,7 +176,7 @@ public final class HTTPServer {
             authThrottler.recordFailure(peerIP)
             return false
         }
-        let ok = Self.constantTimeEquals(provided, token)
+        let ok = Self.constantTimeEquals(provided, token) || isApprovedToken(provided)
         if ok { authThrottler.recordSuccess(peerIP) } else { authThrottler.recordFailure(peerIP) }
         return ok
     }
@@ -190,7 +199,7 @@ public final class HTTPServer {
                 return err("429 Too Many Requests", "too many attempts; retry later")
             }
             let provided = Self.headerValue(Self.tokenHeader, in: request) ?? Self.queryValue("token", in: target)
-            guard let provided, Self.constantTimeEquals(provided, token) else {
+            guard let provided, Self.constantTimeEquals(provided, token) || isApprovedToken(provided) else {
                 authThrottler.recordFailure(peerIP)
                 return err("401 Unauthorized", "unauthorized")
             }

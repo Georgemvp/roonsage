@@ -418,7 +418,13 @@ final class AnalyzerModel {
         // Gate the server with the same shared token clients pair with, so the
         // feature/embedding corpus isn't open over ZeroTier/LAN. Loopback is
         // exempt; /health stays public.
-        let s = HTTPServer(port: p, store: store, clap: clap, token: LibraryShareServer.currentToken())
+        // Accept the master token OR any device the user approved under
+        // "Apparaten" — mirrors the share server (5767). Without this a
+        // zero-config-paired phone (which holds its own device token, not the
+        // master) gets 401 on /audio + /features while the rest of the app works.
+        let s = HTTPServer(port: p, store: store, clap: clap,
+                           token: LibraryShareServer.currentToken(),
+                           isApprovedToken: { LibraryShareServer.isApprovedDevice($0) })
         do {
             try s.start()
             server = s
