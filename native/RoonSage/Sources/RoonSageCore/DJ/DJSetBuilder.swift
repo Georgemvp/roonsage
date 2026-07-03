@@ -66,16 +66,25 @@ public struct DJSetBuilder {
 
     // MARK: - Scoring (lower is better)
 
-    private static func effectiveBPM(_ bpm: Double, target: Double) -> Double {
-        [bpm, bpm * 2, bpm / 2].min { abs($0 - target) < abs($1 - target) } ?? bpm
+    /// Best tempo match to `target` allowing half/double-time, plus whether an
+    /// octave shift was needed. DJs beatmatch across octaves, but a genuine
+    /// same-tempo track reads cleaner in the set, so callers penalise the shift.
+    private static func effectiveBPM(_ bpm: Double, target: Double) -> (bpm: Double, shifted: Bool) {
+        let options: [(bpm: Double, shifted: Bool)] = [(bpm, false), (bpm * 2, true), (bpm / 2, true)]
+        return options.min { abs($0.bpm - target) < abs($1.bpm - target) } ?? (bpm, false)
     }
 
     private static func score(
         _ c: DatabaseManager.DJCandidate, targetBPM: Double, targetEnergy: Double,
         prevCamelot: String?, prevLoudness: Double?, recentArtists: [String]
     ) -> Double {
-        let bpm = effectiveBPM(c.bpm, target: targetBPM)
-        let bpmPen = abs(bpm - targetBPM) / 4.0
+        let match = effectiveBPM(c.bpm, target: targetBPM)
+        let bpmPen = abs(match.bpm - targetBPM) / 4.0
+        // Prefer a genuine same-tempo track over a half/double-time fold: a real
+        // track within ~3 BPM of the target now beats a perfectly-doubled one, so
+        // the set follows the intended curve instead of dipping to half-tempo
+        // fillers. Double-time is still picked when nothing closer exists.
+        let octavePen = match.shifted ? 1.0 : 0.0
         let energyPen = abs(c.energy - targetEnergy)
 
         let artist = c.artist ?? ""
@@ -100,7 +109,27 @@ public struct DJSetBuilder {
             loudnessPen = min(1.5, abs(cur - prev) / 6.0)
         }
 
-        return 1.2 * bpmPen + 0.8 * energyPen + artistPen + harmonic + 0.25 * loudnessPen
+        return 1.2 * bpmPen + 0.8 * energyPen + artistPen + harmonic + 0.25 * loudnessPen + octavePen
+    }
+
+    // MARK: - Mix tempo (display)
+
+    /// The tempo each track is actually mixed at. Successive tracks are folded to
+    /// the ×½/×2 octave nearest the previous track, so a 66-BPM track beatmatched
+    /// into a 132-BPM flow reads as 132 rather than as a cliff. Mirrors how the
+    /// set beatmatches; lets the UI draw an honest tempo curve and per-transition
+    /// deltas instead of jarring half/double-time drops.
+    public static func mixTempos(_ bpms: [Double]) -> [Double] {
+        guard let first = bpms.first else { return [] }
+        var prev = first
+        var result = [first]
+        for bpm in bpms.dropFirst() {
+            guard bpm > 0 else { result.append(prev); continue }
+            let best = [bpm, bpm * 2, bpm / 2].min { abs($0 - prev) < abs($1 - prev) } ?? bpm
+            result.append(best)
+            prev = best
+        }
+        return result
     }
 
     // MARK: - Curves

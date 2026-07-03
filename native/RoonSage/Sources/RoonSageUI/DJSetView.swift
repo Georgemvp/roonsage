@@ -222,11 +222,11 @@ public struct DJSetView: View {
                     LegendDot(color: .roonGold, text: "tempo")
                     LegendDot(color: .roonWarning, text: "energie")
                 }
-                SetFlowChart(bpms: set.map { $0.bpm }, energies: set.map { $0.energy })
+                SetFlowChart(bpms: mixBPMs, energies: set.map { $0.energy })
                     .frame(height: 72)
                     .accessibilityElement()
                     .accessibilityLabel("Tempo- en energieverloop over \(set.count) tracks, "
-                        + "\(Int(set.first?.bpm ?? 0)) tot \(Int(set.last?.bpm ?? 0)) BPM")
+                        + "\(Int(mixBPMs.first ?? 0)) tot \(Int(mixBPMs.last ?? 0)) BPM")
 
                 Divider().opacity(0.4)
 
@@ -239,16 +239,19 @@ public struct DJSetView: View {
 
         // Tracklist — DJ deck order with transition quality between pairs.
         Section("Tracks (\(set.count))") {
+            let mix = mixBPMs
             ForEach(Array(set.enumerated()), id: \.element.id) { i, t in
-                trackRow(index: i, track: t)
+                trackRow(index: i, track: t, mix: mix)
             }
             .onMove { from, to in set.move(fromOffsets: from, toOffset: to) }
             .onDelete { indices in set.remove(atOffsets: indices) }
         }
     }
 
-    private func trackRow(index i: Int, track t: Cand) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func trackRow(index i: Int, track t: Cand, mix: [Double]) -> some View {
+        let mixBPM = mix[safe: i] ?? t.bpm
+        let octave = octaveLabel(raw: t.bpm, mix: mixBPM)
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 Text("\(i + 1)")
                     .font(.caption.monospacedDigit().weight(.medium))
@@ -265,19 +268,36 @@ public struct DJSetView: View {
                 Text("\(Int(t.bpm))")
                     .font(.callout.monospacedDigit().weight(.medium))
                 + Text(" BPM").font(.caption2).foregroundColor(.secondary)
+                if let octave {
+                    Text(octave)
+                        .font(.caption2.weight(.semibold)).foregroundStyle(Color.roonInfo)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.roonInfo.opacity(0.15), in: Capsule())
+                }
                 Badge(t.camelot.isEmpty ? "—" : t.camelot, tint: camelotColor(t.camelot))
             }
-            if i < set.count - 1 { transitionFooter(from: t, to: set[i + 1]) }
+            if i < set.count - 1 {
+                transitionFooter(from: t, to: set[i + 1],
+                                 mixFrom: mixBPM, mixTo: mix[safe: i + 1] ?? set[i + 1].bpm)
+            }
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(i + 1). \(t.title)" + (t.artist.map { ", \($0)" } ?? "")
-            + ", \(Int(t.bpm)) BPM, toonsoort \(t.camelot)")
+            + ", \(Int(t.bpm)) BPM" + (octave != nil ? ", gemixt op \(Int(mixBPM))" : "")
+            + ", toonsoort \(t.camelot)")
     }
 
-    /// The mix quality from this track into the next: tempo jump + key relation.
-    private func transitionFooter(from a: Cand, to b: Cand) -> some View {
-        let delta = Int(b.bpm.rounded()) - Int(a.bpm.rounded())
+    /// `×2` / `÷2` when a track is beatmatched at a different octave than its tag.
+    private func octaveLabel(raw: Double, mix: Double) -> String? {
+        guard raw > 0, abs(mix - raw) > 1 else { return nil }
+        return mix > raw ? "×2" : "÷2"
+    }
+
+    /// The mix quality from this track into the next: tempo jump (at mix tempo) +
+    /// key relation.
+    private func transitionFooter(from a: Cand, to b: Cand, mixFrom: Double, mixTo: Double) -> some View {
+        let delta = Int(mixTo.rounded()) - Int(mixFrom.rounded())
         let rel = RoonClient.harmonicRelation(current: a.camelot, candidate: b.camelot)
         let (relText, relColor): (String, Color) = {
             switch rel {
@@ -302,11 +322,16 @@ public struct DJSetView: View {
 
     // MARK: - Derived stats
 
+    /// The per-track mix tempo (half/double-time folded) — what the chart, stats
+    /// and transition deltas read from, so a beatmatched set curves smoothly.
+    private var mixBPMs: [Double] { DJSetBuilder.mixTempos(set.map { $0.bpm }) }
+
     private var avgBPM: Int {
-        self.set.isEmpty ? 0 : Int((set.map { $0.bpm }.reduce(0, +) / Double(set.count)).rounded())
+        let b = mixBPMs
+        return b.isEmpty ? 0 : Int((b.reduce(0, +) / Double(b.count)).rounded())
     }
     private var bpmRange: String {
-        let b = set.map { $0.bpm }
+        let b = mixBPMs
         guard let lo = b.min(), let hi = b.max() else { return "—" }
         return "\(Int(lo))–\(Int(hi))"
     }
