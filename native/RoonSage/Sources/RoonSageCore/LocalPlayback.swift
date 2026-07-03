@@ -79,6 +79,9 @@ public final class LocalPlaybackController {
     @ObservationIgnored private let player = AVPlayer()
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var endObserver: NSObjectProtocol?
+    /// Watches the current item's `status` so a server-side failure surfaces as a
+    /// visible error instead of a silent "engaged but no sound".
+    @ObservationIgnored private var statusObserver: NSKeyValueObservation?
     #endif
     @ObservationIgnored private var streamBase: String = ""
     @ObservationIgnored private var token: String?
@@ -169,6 +172,8 @@ public final class LocalPlaybackController {
     /// Tear down the session and clear state — local playback fully stops.
     public func stop() {
         #if canImport(AVFoundation)
+        statusObserver?.invalidate()
+        statusObserver = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         #endif
@@ -186,18 +191,51 @@ public final class LocalPlaybackController {
     private func load(index i: Int, autoPlay: Bool) {
         index = i
         positionSec = 0
+        lastError = nil
         #if canImport(AVFoundation)
         guard let item = makeItem(for: queue[i]) else {
             lastError = "Kon dit nummer niet laden."
+            isPlaying = false
             onStateChange?()
             return
         }
+        observeFailures(of: item)
         player.replaceCurrentItem(with: item)
         applyLoudness(for: queue[i])
         if autoPlay { player.play(); isPlaying = true } else { player.pause(); isPlaying = false }
         #endif
         onStateChange?()
     }
+
+    #if canImport(AVFoundation)
+    /// Surface an asynchronous load failure. Without this a `/audio` error
+    /// (bad/absent token → 401, missing on-disk file → 404, unsupported type →
+    /// 415) fails silently: the engine stays engaged on a dead item, so the user
+    /// hears nothing and sees no reason why. Here we stop, clear `isPlaying`, and
+    /// publish a `lastError` the UI can show.
+    private func observeFailures(of item: AVPlayerItem) {
+        statusObserver?.invalidate()
+        statusObserver = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
+            guard observed.status == .failed else { return }
+            // Read the (non-Sendable) item synchronously here, then hop to the
+            // main actor with only Sendable values (the item's identity + code).
+            let observedID = ObjectIdentifier(observed)
+            let code = (observed.error as NSError?)?.code
+            Task { @MainActor in
+                guard let self, let current = self.player.currentItem,
+                      ObjectIdentifier(current) == observedID else { return }
+                self.reportLoadFailure(code: code)
+            }
+        }
+    }
+
+    private func reportLoadFailure(code: Int?) {
+        isPlaying = false
+        lastError = code.map { "Kon dit nummer niet afspelen op dit apparaat (\($0))." }
+            ?? "Kon dit nummer niet afspelen op dit apparaat."
+        onStateChange?()
+    }
+    #endif
 
     /// Re-apply the loudness gain to the current item — call after the user
     /// changes the normalization settings so the change is audible immediately.

@@ -20,9 +20,6 @@ public struct ContentView: View {
             if client.connectionState.isConnected || client.hasLiveSession {
                 RootView()
                     .overlay(alignment: .top) { ReconnectingBanner() }
-                    // On-device mini-player, above the tab bar, while local
-                    // ("Deze iPhone") playback is engaged.
-                    .safeAreaInset(edge: .bottom) { LocalPlaybackBar() }
             } else {
                 WelcomeGate()
             }
@@ -284,6 +281,12 @@ struct RootView: View {
 
     var body: some View {
         platformShell
+            // On-device mini-player, above the tab bar, while local playback is
+            // engaged — except on the Now Playing tab, where the full local hero
+            // already shows and controls it (no duplicate transport).
+            .safeAreaInset(edge: .bottom) {
+                if selection != .nowPlaying { LocalPlaybackBar() }
+            }
             // Cmd/Ctrl+K opens the command palette from anywhere in the app.
             .background {
                 Button("") { showPalette.toggle() }

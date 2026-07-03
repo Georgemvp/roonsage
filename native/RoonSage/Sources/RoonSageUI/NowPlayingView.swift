@@ -14,7 +14,12 @@ public struct NowPlayingView: View {
     @Environment(RoonClient.self) private var client
 
     public var body: some View {
-        if client.zones.isEmpty {
+        if client.localPlayback.isEngaged {
+            // Listening on this device: the local engine owns the marquee screen,
+            // so on-device playback is shown and controlled here — not only in the
+            // floating mini-player. Takes precedence over any Roon zone view.
+            LocalNowPlayingScreen()
+        } else if client.zones.isEmpty {
             ContentUnavailableView(
                 "Geen actieve zones",
                 systemImage: "speaker.slash",

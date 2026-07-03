@@ -10,6 +10,14 @@ public struct LocalPlaybackBar: View {
     @Environment(RoonClient.self) private var client
     public init() {}
 
+    #if os(macOS)
+    private static let deviceIcon = "laptopcomputer"
+    private static let deviceNoun = "Deze Mac"
+    #else
+    private static let deviceIcon = "iphone"
+    private static let deviceNoun = "Dit apparaat"
+    #endif
+
     public var body: some View {
         let lp = client.localPlayback
         if lp.isEngaged, let track = lp.current {
@@ -22,8 +30,8 @@ public struct LocalPlaybackBar: View {
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
                         HStack(spacing: 4) {
-                            Image(systemName: "iphone").font(.caption2)
-                            Text(track.artist.isEmpty ? "Deze iPhone" : track.artist)
+                            Image(systemName: Self.deviceIcon).font(.caption2)
+                            Text(track.artist.isEmpty ? Self.deviceNoun : track.artist)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
@@ -53,6 +61,16 @@ public struct LocalPlaybackBar: View {
                 }
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.xs)
+
+                if let err = lp.lastError {
+                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(Color.roonDanger)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, Spacing.md)
+                        .padding(.bottom, Spacing.xs)
+                }
 
                 if let summary = client.lastLocalPlaybackSummary, summary.blocked > 0 {
                     Text("\(summary.playable) van \(summary.requested) speelbaar op deze iPhone · \(summary.blocked) Qobuz/stream overgeslagen")
