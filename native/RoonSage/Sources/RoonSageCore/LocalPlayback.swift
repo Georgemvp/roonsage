@@ -225,6 +225,8 @@ public final class LocalPlaybackController {
         // token rides in the query (the /audio endpoint accepts both).
         var items = [URLQueryItem(name: "match_key", value: track.id)]
         if let token, !token.isEmpty { items.append(URLQueryItem(name: "token", value: token)) }
+        // Onderweg: ask the server for AAC instead of the original (policy-gated).
+        items.append(contentsOf: LocalTranscode.queryItems())
         comps?.queryItems = items
         guard let url = comps?.url else { return nil }
         return AVPlayerItem(url: url)

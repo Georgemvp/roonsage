@@ -153,11 +153,13 @@ extension RoonClient {
         let adv = radioAdventurousness
         let hardBan = radioHardBanDisliked
         let taste = await personalTasteVector(lib: lib, index: index)
+        let stats = await sonicCache.nnStats(from: db)
         let pool = await Task.detached {
             Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
                                       seed: "\(stamp)-\(key)-0", disliked: disliked,
                                       likedKeys: liked, knownArtists: known,
-                                      adventurousness: adv, hardBan: hardBan, tasteVector: taste)
+                                      adventurousness: adv, hardBan: hardBan, tasteVector: taste,
+                                      nnStats: stats)
         }.value
         guard !pool.isEmpty else {
             reportError("Radio kon geen vergelijkbare tracks vinden — analyseer eerst meer muziek.")
@@ -249,11 +251,13 @@ extension RoonClient {
         let adv = radioAdventurousness
         let hardBan = radioHardBanDisliked
         let taste = await personalTasteVector(lib: lib, index: index)
+        let stats = await sonicCache.nnStats(from: db)
         let pool = await Task.detached {
             Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
                                       seed: "\(stamp)-\(key)-\(nextGen)", disliked: disliked,
                                       likedKeys: liked, knownArtists: known,
-                                      adventurousness: adv, hardBan: hardBan, tasteVector: taste)
+                                      adventurousness: adv, hardBan: hardBan, tasteVector: taste,
+                                      nnStats: stats)
         }.value
         state.pool = pool
         state.cursor = 0
@@ -290,7 +294,7 @@ extension RoonClient {
         index: VectorIndex?, seed: String, disliked: Set<String> = [],
         likedKeys: Set<String> = [], knownArtists: Set<String> = [],
         adventurousness: Double = defaultAdventurousness, hardBan: Bool = false,
-        tasteVector: [Float]? = nil
+        tasteVector: [Float]? = nil, nnStats: VectorIndex.NNStats? = nil
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
         // Don't seed the station on a disliked track.
@@ -306,7 +310,8 @@ extension RoonClient {
         if useEmb, let index {
             let opts = RadioEngine.Options(
                 adventurousness: adventurousness, poolLimit: radioPoolSize,
-                hardBanDisliked: hardBan, sequence: true, arc: .smooth)
+                hardBanDisliked: hardBan, sequence: true, arc: .smooth,
+                similarityFloor: nnStats.map { RadioEngine.Options.floor(stats: $0, adventurousness: adventurousness) })
             let ranked = RadioEngine.rank(
                 seeds: own, library: lib, index: index, options: opts,
                 disliked: disliked, likedKeys: likedKeys, knownArtists: knownArtists,

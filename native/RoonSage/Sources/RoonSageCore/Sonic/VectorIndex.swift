@@ -87,6 +87,48 @@ public struct VectorIndex: Sendable {
         return Self.normalized(acc)
     }
 
+    /// Library-calibrated similarity statistics (LMS-style adaptive threshold):
+    /// sample tracks, measure each one's *nearest-neighbour* cosine similarity,
+    /// return mean + standard deviation. "Similar" then means "within a few σ
+    /// of what neighbours in THIS library look like" instead of a magic number
+    /// that's too strict for one collection and too loose for another.
+    /// Deterministic (strided sample), O(sample × n) — run off-main, memoize.
+    public struct NNStats: Sendable {
+        public let mean: Double
+        public let std: Double
+        /// The similarity floor at `sigmas` standard deviations under the mean.
+        public func floor(sigmas: Double) -> Double { mean - sigmas * std }
+    }
+
+    public func nnSimilarityStats(sampleCount: Int = 200) -> NNStats? {
+        guard count >= 10 else { return nil }
+        let samples = min(sampleCount, count)
+        let stride = max(1, count / samples)
+        var sum = 0.0, sumSq = 0.0
+        var n = 0
+        var row = 0
+        while row < count, n < samples {
+            let q = Array(matrix[row * dim..<(row + 1) * dim])
+            var scores = [Float](repeating: 0, count: count)
+            matrix.withUnsafeBufferPointer { mp in
+                q.withUnsafeBufferPointer { qp in
+                    scores.withUnsafeMutableBufferPointer { sp in
+                        vDSP_mmul(mp.baseAddress!, 1, qp.baseAddress!, 1, sp.baseAddress!, 1,
+                                  vDSP_Length(count), 1, vDSP_Length(dim))
+                    }
+                }
+            }
+            scores[row] = -1   // exclude self
+            let best = Double(scores.max() ?? 0)
+            sum += best; sumSq += best * best; n += 1
+            row += stride
+        }
+        guard n > 1 else { return nil }
+        let mean = sum / Double(n)
+        let variance = max(0, sumSq / Double(n) - mean * mean)
+        return NNStats(mean: mean, std: variance.squareRoot())
+    }
+
     static func normalized(_ v: [Float]) -> [Float] {
         var norm: Float = 0
         vDSP_svesq(v, 1, &norm, vDSP_Length(v.count))

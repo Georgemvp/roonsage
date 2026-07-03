@@ -118,10 +118,13 @@ public final class HTTPServer {
             let target = req.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
             let path = target.split(separator: "?").first.map(String.init) ?? target
             // /audio needs Range-aware status + headers (206/416/Content-Range),
-            // so it bypasses the plain-body `route()` path.
+            // so it bypasses the plain-body `route()` path. Async because a
+            // first-hit transcode encodes to the disk cache before serving.
             if path == "/audio" {
-                let (status, headers, body) = self.audioResponse(target: target, request: req, loopback: loopback, peerIP: peerIP)
-                self.sendRaw(conn, status: status, headers: headers, body: body)
+                Task {
+                    let (status, headers, body) = await self.audioResponse(target: target, request: req, loopback: loopback, peerIP: peerIP)
+                    self.sendRaw(conn, status: status, headers: headers, body: body)
+                }
                 return
             }
             let (status, body, ctype) = self.route(target, request: req, loopback: loopback, peerIP: peerIP)
@@ -175,7 +178,7 @@ public final class HTTPServer {
     /// server-side from the analyser DB (paths the analyser itself walked), so
     /// there is no client-controlled path to traverse. Extension + existence
     /// checks are defence in depth.
-    private func audioResponse(target: String, request: String, loopback: Bool, peerIP: String) -> (String, [String: String], Data) {
+    private func audioResponse(target: String, request: String, loopback: Bool, peerIP: String) async -> (String, [String: String], Data) {
         func err(_ status: String, _ msg: String) -> (String, [String: String], Data) {
             (status, ["Content-Type": "text/plain"], Data(msg.utf8))
         }
@@ -196,16 +199,30 @@ public final class HTTPServer {
         guard let key = Self.queryValue("match_key", in: target), !key.isEmpty else {
             return err("400 Bad Request", "missing match_key")
         }
-        guard let path = store.filePath(forMatchKey: key) else {
+        guard let sourcePath = store.filePath(forMatchKey: key) else {
             return err("404 Not Found", "no local file for this track")
         }
-        guard AudioStreaming.isAllowedExtension((path as NSString).pathExtension) else {
+        guard AudioStreaming.isAllowedExtension((sourcePath as NSString).pathExtension) else {
             return err("415 Unsupported Media Type", "unsupported audio type")
+        }
+        // Optional AAC transcode (`format=aac&bitrate=<kbps>`) for remote/
+        // cellular clients. Smart no-op: an already-lossy source at or below
+        // the requested bitrate is served untouched; a failed encode falls
+        // back to the original file rather than erroring the stream.
+        var path = sourcePath
+        var ctypeOverride: String?
+        if Self.queryValue("format", in: target)?.lowercased() == "aac" {
+            let kbps = Int(Self.queryValue("bitrate", in: target) ?? "") ?? 256
+            if AudioTranscoder.shouldTranscode(sourcePath: sourcePath, requestedKbps: kbps),
+               let transcoded = await AudioTranscoder.shared.transcoded(sourcePath: sourcePath, kbps: kbps) {
+                path = transcoded.path
+                ctypeOverride = "audio/mp4"
+            }
         }
         guard let size = AudioStreaming.fileSize(path: path) else {
             return err("404 Not Found", "file missing")
         }
-        let ctype = AudioStreaming.contentType(forPath: path)
+        let ctype = ctypeOverride ?? AudioStreaming.contentType(forPath: path)
         switch AudioStreaming.parseRange(Self.headerValue("Range", in: request), fileSize: size) {
         case .unsatisfiable:
             return ("416 Range Not Satisfiable",

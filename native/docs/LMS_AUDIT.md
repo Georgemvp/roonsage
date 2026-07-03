@@ -1,5 +1,17 @@
 # LMS-audit — wat RoonSage kan lenen van epoupon/lms
 
+> **Status 2026-07-03: sprint 1–3 volledig geïmplementeerd** (v1.10.95–97 /
+> ios-v1.7.66–68 / analyzer-v1.1.79–81). Eén bewuste afwijking: §3.1
+> (releasegroepen) is geleverd via LMS's *eigen no-MBID-fallbackheuristiek*
+> (`AlbumGrouping` op de bestaande editie-normalisatie) in plaats van
+> MB-enrichment — "Andere versies" + type-secties werken; een echte
+> release-group-MBID-verrijking door de analyzer blijft open als verdieping
+> (kan de `AlbumGrouping.classify`-heuristiek vervangen zonder UI-wijziging).
+> LB-love-sync (§4.5) is eenrichtings-import (loves → likes); terugsyncen kan
+> niet zonder per-track recording-MBIDs. Backlogitems (§3.2 artiestrollen,
+> §2.4 Song-Path-interpolatie, §3.3 disc-secties, §3.4 scan-versioning,
+> §5.2 per-apparaat-tokens, §5.4 OpenSubsonic) staan nog open.
+
 > Gegenereerd: 2026-07-03. Methode: shallow clone van https://github.com/epoupon/lms,
 > 4 parallelle code-verkenningen (scanner/metadata · aanbevelingsengine · web-UI/UX ·
 > API/infra), bevindingen daarna afgezet tegen de eigen codebase (o.a. geverifieerd:

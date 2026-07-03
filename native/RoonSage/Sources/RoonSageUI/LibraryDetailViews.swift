@@ -1,3 +1,4 @@
+import AudioAnalysis
 import RoonSageCore
 import SwiftUI
 
@@ -10,6 +11,9 @@ struct AlbumDetailView: View {
     @State private var tracks: [DatabaseManager.LibraryTrackRow] = []
     @State private var isLoading = true
     @State private var infoTrack: DatabaseManager.LibraryTrackRow?
+    /// Other editions of this release in the library (remasters, deluxe,
+    /// box-set copies) — grouped by the LMS-style version key.
+    @State private var otherVersions: [DatabaseManager.AlbumResult] = []
 
     var body: some View {
         List {
@@ -33,6 +37,29 @@ struct AlbumDetailView: View {
                     }
                 }
             }
+            if !otherVersions.isEmpty {
+                Section("Andere versies in je bibliotheek") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: Spacing.lg) {
+                            ForEach(otherVersions) { version in
+                                NavigationLink(value: version) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        AlbumArtView(imageKey: version.imageKey, size: 110, cornerRadius: Radius.md)
+                                        Text(version.album).font(.caption).lineLimit(2)
+                                            .frame(width: 110, alignment: .leading)
+                                        if let y = version.year {
+                                            Text(String(y)).font(.caption2).foregroundStyle(.tertiary)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.vertical, Spacing.xs)
+                    }
+                    .listRowSeparator(.hidden)
+                }
+            }
         }
         .sheet(item: $infoTrack) { TrackInfoSheet(track: $0) }
         .navigationTitle(album.album)
@@ -44,6 +71,14 @@ struct AlbumDetailView: View {
             await client.ensureFavoritesLoaded()
             tracks = await client.tracksForAlbum(album.albumKey)
             isLoading = false
+            // Sibling editions: search on the *normalized* title (edition
+            // suffixes stripped), keep exact version-key matches, drop self.
+            let key = AlbumGrouping.versionKey(album: album.album, artist: album.artist)
+            let query = TrackIdentity.cleanTitle(album.album)
+            otherVersions = await client.searchAlbums(query: query).filter {
+                $0.albumKey != album.albumKey
+                    && AlbumGrouping.versionKey(album: $0.album, artist: $0.artist) == key
+            }
         }
     }
 
@@ -148,15 +183,25 @@ struct ArtistDetailView: View {
                 if isLoading {
                     ProgressView().frame(maxWidth: .infinity).padding()
                 } else {
-                    LazyVGrid(columns: columns, spacing: Spacing.lg) {
-                        ForEach(albums) { album in
-                            NavigationLink(value: album) { AlbumGridCell(album: album) }
-                                .buttonStyle(.plain)
-                                .contextMenu {
-                                    PlayActionsMenu(fetch: { [client] in
-                                        await client.tracksForAlbum(album.albumKey).map(\.asTrackRecord)
-                                    })
-                                }
+                    // LMS-style discography sections (Albums / EP's & singles /
+                    // Live / Compilaties); headers only when there's actually
+                    // more than one type to separate.
+                    let grouped = groupedAlbums
+                    let showHeaders = grouped.count > 1
+                    ForEach(grouped, id: \.type) { group in
+                        if showHeaders {
+                            Text(group.type.label).font(.headline)
+                        }
+                        LazyVGrid(columns: columns, spacing: Spacing.lg) {
+                            ForEach(group.albums) { album in
+                                NavigationLink(value: album) { AlbumGridCell(album: album) }
+                                    .buttonStyle(.plain)
+                                    .contextMenu {
+                                        PlayActionsMenu(fetch: { [client] in
+                                            await client.tracksForAlbum(album.albumKey).map(\.asTrackRecord)
+                                        })
+                                    }
+                            }
                         }
                     }
                 }
@@ -239,6 +284,19 @@ struct ArtistDetailView: View {
                 }
                 .padding(.vertical, Spacing.xs)
             }
+        }
+    }
+
+    /// Discography sections in display order; empty types are dropped.
+    private var groupedAlbums: [(type: AlbumGrouping.AlbumType, albums: [DatabaseManager.AlbumResult])] {
+        var byType: [AlbumGrouping.AlbumType: [DatabaseManager.AlbumResult]] = [:]
+        for album in albums {
+            byType[AlbumGrouping.classify(album: album.album, trackCount: album.trackCount), default: []]
+                .append(album)
+        }
+        return AlbumGrouping.AlbumType.allCases.compactMap { type in
+            guard let list = byType[type], !list.isEmpty else { return nil }
+            return (type, list)
         }
     }
 

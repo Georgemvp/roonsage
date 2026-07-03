@@ -41,16 +41,28 @@ public enum RadioEngine {
         public var sequence: Bool
         /// Energy shape when sequencing.
         public var arc: RadioSequencer.Arc
+        /// Library-calibrated quality floor: candidates whose nearest-anchor
+        /// similarity falls below this are dropped outright (LMS's adaptive
+        /// max-distance constraint). nil = no floor (old behaviour).
+        public var similarityFloor: Double?
 
         public init(adventurousness: Double = 0.35, poolLimit: Int = 250, candidateK: Int = 900,
                     hardBanDisliked: Bool = false, sequence: Bool = true,
-                    arc: RadioSequencer.Arc = .smooth) {
+                    arc: RadioSequencer.Arc = .smooth, similarityFloor: Double? = nil) {
             self.adventurousness = min(1, max(0, adventurousness))
             self.poolLimit = poolLimit
             self.candidateK = candidateK
             self.hardBanDisliked = hardBanDisliked
             self.sequence = sequence
             self.arc = arc
+            self.similarityFloor = similarityFloor
+        }
+
+        /// The dial expressed in σ's (LMS-audit §2.2): a cosy station keeps
+        /// candidates within ~1σ of the library's typical nearest-neighbour
+        /// similarity; an adventurous one stretches to ~3σ.
+        public static func floor(stats: VectorIndex.NNStats, adventurousness: Double) -> Double {
+            stats.floor(sigmas: 1 + 2 * min(1, max(0, adventurousness)))
         }
     }
 
@@ -187,6 +199,9 @@ public enum RadioEngine {
             }
             let relCentroid = Double(max(0, h.score))
             let relAnchor = anchors.isEmpty ? relCentroid : max(0, bestAnchorSim)
+
+            // Adaptive quality floor: too far from every seed for THIS library.
+            if let floor = options.similarityFloor, relAnchor < floor { continue }
             let relevance = (1 - anchorBlend) * relCentroid + anchorBlend * relAnchor
 
             let artist = (h.track.artist ?? "").lowercased()

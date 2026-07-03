@@ -528,6 +528,8 @@ public struct SettingsView: View {
 
             LoudnessSettingsSection()
 
+            TranscodeSettingsSection()
+
             // Audio analyzer
             Section("Audio-analyzer (BPM / toonsoort / tags)") {
                 LabeledContent("Analyzer-URL") {
@@ -809,6 +811,33 @@ struct LoudnessSettingsSection: View {
                 }
             }
             Text("Egaliseert het volume tussen tracks op dit apparaat op basis van de gemeten LUFS-loudness (doel −14 LUFS). \u{201C}Per album\u{201D} behoudt de dynamiek binnen een album. Werkt alleen bij lokaal afspelen; Roon-zones regelen dit zelf.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// AAC-transcoding for on-device playback over the network (LMS-style
+/// bandwidth setting): stream the original at home, a lean AAC on the road.
+struct TranscodeSettingsSection: View {
+    @AppStorage("local_transcode_mode") private var modeRaw = LocalTranscode.Mode.off.rawValue
+    @AppStorage("local_transcode_kbps") private var kbps = 256
+
+    var body: some View {
+        Section("Onderweg streamen (lokaal afspelen)") {
+            Picker("Transcodeer naar AAC", selection: $modeRaw) {
+                Text("Nooit").tag(LocalTranscode.Mode.off.rawValue)
+                Text("Alleen mobiele data").tag(LocalTranscode.Mode.cellular.rawValue)
+                Text("Altijd").tag(LocalTranscode.Mode.always.rawValue)
+            }
+            if modeRaw != LocalTranscode.Mode.off.rawValue {
+                Picker("Bitrate", selection: $kbps) {
+                    Text("128 kbps").tag(128)
+                    Text("192 kbps").tag(192)
+                    Text("256 kbps").tag(256)
+                }
+            }
+            Text("Laat de server FLAC/lossless omzetten naar AAC vóór het streamen — veel lichter over ZeroTier op mobiele data. Bronnen die al zuiniger zijn dan de gekozen bitrate worden ongemoeid gelaten. Geldt vanaf de volgende track.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -51,6 +51,23 @@ public actor SonicLibraryCache {
         return idx
     }
 
+    private var cachedNNStats: VectorIndex.NNStats?
+    private var nnStatsBuilt = false
+
+    /// Library-calibrated nearest-neighbour similarity stats (μ, σ) — the
+    /// adaptive quality floor for radio/similar. Built once per index build
+    /// (off-main; ~200 mat·vec passes), invalidated with everything else.
+    public func nnStats(from db: DatabaseManager) async -> VectorIndex.NNStats? {
+        if nnStatsBuilt { return cachedNNStats }
+        guard let idx = await vectorIndex(from: db) else {
+            nnStatsBuilt = true; cachedNNStats = nil; return nil
+        }
+        let stats = await Task.detached(priority: .utility) { idx.nnSimilarityStats() }.value
+        cachedNNStats = stats
+        nnStatsBuilt = true
+        return stats
+    }
+
     /// The analyzed library, loading (off-main) and caching on first use.
     public func tracks(from db: DatabaseManager) async -> [DatabaseManager.SonicTrack] {
         if let cached { return cached }
@@ -74,6 +91,8 @@ public actor SonicLibraryCache {
         indexBuilt = false
         cachedClusters = nil
         clustersBuilt = false
+        cachedNNStats = nil
+        nnStatsBuilt = false
     }
 
     /// All cached tracks (loads from `db` on first call). Equivalent to
