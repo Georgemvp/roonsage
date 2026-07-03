@@ -88,6 +88,52 @@ extension DatabaseManager {
         }) ?? [:]
     }
 
+    /// LUFS per match key (only measured rows) — feeds local loudness
+    /// normalization when building a playback queue.
+    public func loudnessByMatchKey(_ keys: [String]) async -> [String: Double] {
+        guard !keys.isEmpty else { return [:] }
+        return (try? await pool.read { db -> [String: Double] in
+            var out: [String: Double] = [:]
+            var start = 0
+            while start < keys.count {
+                let slice = Array(keys[start..<min(start + 500, keys.count)])
+                let placeholders = slice.map { _ in "?" }.joined(separator: ",")
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT match_key, loudness FROM track_audio_features
+                    WHERE loudness IS NOT NULL AND match_key IN (\(placeholders))
+                    """, arguments: StatementArguments(slice))
+                for r in rows { out[r["match_key"]] = r["loudness"] }
+                start += 500
+            }
+            return out
+        }) ?? [:]
+    }
+
+    /// Mean LUFS per album (join tracks→features on match_key) — the reference
+    /// for album-mode loudness normalization, preserving intra-album dynamics.
+    public func albumMeanLoudness(albums: [String]) async -> [String: Double] {
+        let names = albums.filter { !$0.isEmpty }
+        guard !names.isEmpty else { return [:] }
+        return (try? await pool.read { db -> [String: Double] in
+            var out: [String: Double] = [:]
+            var start = 0
+            while start < names.count {
+                let slice = Array(names[start..<min(start + 500, names.count)])
+                let placeholders = slice.map { _ in "?" }.joined(separator: ",")
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT t.album AS album, AVG(f.loudness) AS lufs
+                    FROM tracks t
+                    JOIN track_audio_features f ON f.match_key = t.match_key
+                    WHERE f.loudness IS NOT NULL AND t.album IN (\(placeholders))
+                    GROUP BY t.album
+                    """, arguments: StatementArguments(slice))
+                for r in rows { out[r["album"]] = r["lufs"] }
+                start += 500
+            }
+            return out
+        }) ?? [:]
+    }
+
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) async throws {
         guard !rows.isEmpty else { return }
         let iso = Self.isoFormatter.string(from: Date())

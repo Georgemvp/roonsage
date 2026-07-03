@@ -34,7 +34,9 @@ public final class DatabaseManager: Sendable {
     /// library with no error and no recovery.
     public static func open(url: URL) -> DatabaseManager? {
         do {
-            return try DatabaseManager(url: url)
+            let db = try DatabaseManager(url: url)
+            db.runStartupIntegrityCheck()
+            return db
         } catch {
             guard isCorruption(error) else {
                 Log.error("kon database niet openen: \(error)", category: .db)
@@ -47,6 +49,28 @@ public final class DatabaseManager: Sendable {
             } catch {
                 Log.error("database opnieuw aanmaken mislukt na quarantine: \(error)", category: .db)
                 return nil
+            }
+        }
+    }
+
+    /// LMS-style startup integrity check, off-main and best-effort. The open
+    /// path only catches corruption that *errors*; a silently corrupt page
+    /// (container kill / power loss mid-WAL-checkpoint — seen 2026-05-28)
+    /// surfaces here instead of as flaky queries weeks later.
+    private func runStartupIntegrityCheck() {
+        let pool = self.pool
+        Task.detached(priority: .utility) {
+            do {
+                let verdict = try pool.read { db in
+                    try String.fetchOne(db, sql: "PRAGMA quick_check") ?? "unknown"
+                }
+                if verdict == "ok" {
+                    Log.info("database quick_check: ok", category: .db)
+                } else {
+                    Log.error("database quick_check MELDT SCHADE: \(verdict) — overweeg een resync (de cache is herbouwbaar)", category: .db)
+                }
+            } catch {
+                Log.warning("database quick_check kon niet draaien: \(error)", category: .db)
             }
         }
     }

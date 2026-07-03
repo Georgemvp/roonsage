@@ -73,6 +73,14 @@ extension RoonClient {
         // tracks. Best-effort: any that don't resolve simply stay blocked.
         let qobuzURLs = await resolveQobuzStreams(for: part.blocked)
 
+        // Loudness references for normalization (LMS-style, applied client-side).
+        // Cheap lookups against the already-synced feature rows; empty maps when
+        // nothing is measured — the engine then falls back to its assumed level.
+        let allKeys = tracks.map { LocalPlayability.matchKey(for: $0) }
+        let lufsByKey = await database?.loudnessByMatchKey(allKeys) ?? [:]
+        let albumNames = Array(Set(tracks.compactMap { $0.album }))
+        let albumLufs = await database?.albumMeanLoudness(albums: albumNames) ?? [:]
+
         // Build the queue in the ORIGINAL order, mixing local-file and Qobuz items.
         var items: [LocalPlaybackController.Track] = []
         var blockedTitles: [String] = []
@@ -81,10 +89,12 @@ extension RoonClient {
             let artist = rec.artist ?? "", album = rec.album ?? ""
             if playableKeys.contains(key) {
                 items.append(.init(id: key, title: rec.title, artist: artist, album: album,
-                                   imageKey: rec.imageKey, durationSec: nil))
+                                   imageKey: rec.imageKey, durationSec: nil,
+                                   lufs: lufsByKey[key], albumLufs: albumLufs[album]))
             } else if let url = qobuzURLs[key] {
                 items.append(.init(id: key, title: rec.title, artist: artist, album: album,
-                                   imageKey: rec.imageKey, durationSec: nil, streamURLOverride: url))
+                                   imageKey: rec.imageKey, durationSec: nil, streamURLOverride: url,
+                                   lufs: lufsByKey[key], albumLufs: albumLufs[album]))
             } else {
                 blockedTitles.append(rec.title)
             }

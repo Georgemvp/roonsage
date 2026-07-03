@@ -101,9 +101,10 @@ public final class HTTPServer {
 
     private func handle(_ conn: NWConnection) {
         let loopback = Self.endpointIsLoopback(conn.endpoint)
+        let peerIP = Self.endpointIP(conn.endpoint)
         conn.stateUpdateHandler = { [weak self] state in
             switch state {
-            case .ready: self?.receive(conn, loopback: loopback)
+            case .ready: self?.receive(conn, loopback: loopback, peerIP: peerIP)
             case .failed, .cancelled: conn.cancel()
             default: break
             }
@@ -111,7 +112,7 @@ public final class HTTPServer {
         conn.start(queue: .global())
     }
 
-    private func receive(_ conn: NWConnection, loopback: Bool) {
+    private func receive(_ conn: NWConnection, loopback: Bool, peerIP: String) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, _, _ in
             guard let self, let data, let req = String(data: data, encoding: .utf8) else { conn.cancel(); return }
             let target = req.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
@@ -119,11 +120,11 @@ public final class HTTPServer {
             // /audio needs Range-aware status + headers (206/416/Content-Range),
             // so it bypasses the plain-body `route()` path.
             if path == "/audio" {
-                let (status, headers, body) = self.audioResponse(target: target, request: req, loopback: loopback)
+                let (status, headers, body) = self.audioResponse(target: target, request: req, loopback: loopback, peerIP: peerIP)
                 self.sendRaw(conn, status: status, headers: headers, body: body)
                 return
             }
-            let (status, body, ctype) = self.route(target, request: req, loopback: loopback)
+            let (status, body, ctype) = self.route(target, request: req, loopback: loopback, peerIP: peerIP)
             var header = "HTTP/1.1 \(status)\r\n"
             header += "Content-Type: \(ctype)\r\n"
             header += "Content-Length: \(body.count)\r\n"
@@ -150,13 +151,22 @@ public final class HTTPServer {
         })
     }
 
+    /// Per-IP brute-force throttle (5 consecutive bad tokens → 3 s of 429s).
+    private let authThrottler = AuthThrottler()
+
     /// True when the request may proceed: `/health` and loopback callers are
     /// exempt; otherwise a correct token is required. Mirrors the gate `route()`
-    /// applies, factored so `/audio` reuses it.
-    private func isAuthorized(path: String, request: String, loopback: Bool) -> Bool {
+    /// applies, factored so `/audio` reuses it. Feeds the throttle: failures
+    /// count, a success clears the IP.
+    private func isAuthorized(path: String, request: String, loopback: Bool, peerIP: String) -> Bool {
         guard let token, !path.hasPrefix("/health"), !loopback else { return true }
-        guard let provided = Self.headerValue(Self.tokenHeader, in: request) else { return false }
-        return Self.constantTimeEquals(provided, token)
+        guard let provided = Self.headerValue(Self.tokenHeader, in: request) else {
+            authThrottler.recordFailure(peerIP)
+            return false
+        }
+        let ok = Self.constantTimeEquals(provided, token)
+        if ok { authThrottler.recordSuccess(peerIP) } else { authThrottler.recordFailure(peerIP) }
+        return ok
     }
 
     /// Stream a library track's on-disk audio for local playback on the phone.
@@ -165,7 +175,7 @@ public final class HTTPServer {
     /// server-side from the analyser DB (paths the analyser itself walked), so
     /// there is no client-controlled path to traverse. Extension + existence
     /// checks are defence in depth.
-    private func audioResponse(target: String, request: String, loopback: Bool) -> (String, [String: String], Data) {
+    private func audioResponse(target: String, request: String, loopback: Bool, peerIP: String) -> (String, [String: String], Data) {
         func err(_ status: String, _ msg: String) -> (String, [String: String], Data) {
             (status, ["Content-Type": "text/plain"], Data(msg.utf8))
         }
@@ -173,10 +183,15 @@ public final class HTTPServer {
         // AVPlayer can't attach a custom header without private API, so the
         // client passes the token in the URL for this (non-secret) endpoint.
         if let token, !loopback {
+            if authThrottler.isThrottled(peerIP) {
+                return err("429 Too Many Requests", "too many attempts; retry later")
+            }
             let provided = Self.headerValue(Self.tokenHeader, in: request) ?? Self.queryValue("token", in: target)
             guard let provided, Self.constantTimeEquals(provided, token) else {
+                authThrottler.recordFailure(peerIP)
                 return err("401 Unauthorized", "unauthorized")
             }
+            authThrottler.recordSuccess(peerIP)
         }
         guard let key = Self.queryValue("match_key", in: target), !key.isEmpty else {
             return err("400 Bad Request", "missing match_key")
@@ -211,10 +226,14 @@ public final class HTTPServer {
         }
     }
 
-    private func route(_ path: String, request: String, loopback: Bool) -> (String, Data, String) {
+    private func route(_ path: String, request: String, loopback: Bool, peerIP: String) -> (String, Data, String) {
         // Auth: everything but /health requires the token unless the peer is on
-        // this machine. A missing or wrong token is rejected.
-        if !isAuthorized(path: path, request: request, loopback: loopback) {
+        // this machine. A missing or wrong token is rejected; an IP hammering
+        // bad tokens gets throttled before any comparison happens.
+        if token != nil, !loopback, !path.hasPrefix("/health"), authThrottler.isThrottled(peerIP) {
+            return ("429 Too Many Requests", Data("{\"error\":\"too many attempts\"}".utf8), "application/json")
+        }
+        if !isAuthorized(path: path, request: request, loopback: loopback, peerIP: peerIP) {
             return ("401 Unauthorized", Data("{\"error\":\"unauthorized\"}".utf8), "application/json")
         }
         if path.hasPrefix("/text-embed") {
@@ -279,6 +298,14 @@ public final class HTTPServer {
         case .name(let name, _): return name == "localhost"
         @unknown default: return false
         }
+    }
+
+    /// Peer address as a stable throttle key ("" when unknown). The %en0-style
+    /// interface scope is stripped so one host doesn't fan out over keys.
+    static func endpointIP(_ endpoint: NWEndpoint) -> String {
+        guard case let .hostPort(host, _) = endpoint else { return "" }
+        let raw = "\(host)"
+        return raw.split(separator: "%").first.map(String.init) ?? raw
     }
 
     /// Extract + percent-decode a query parameter from a request path.

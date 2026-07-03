@@ -37,8 +37,11 @@ public enum SonicEngine {
         index: VectorIndex? = nil
     ) -> [Scored] {
         // Embedding path: learned cosine k-NN when the seed has a vector.
+        // Oversample ×3 then drop near-duplicate recordings (compilation/
+        // remaster copies of a result already in the list).
         if let index, index.embedding(forId: seed.id) != nil {
-            return index.nearest(toId: seed.id, k: limit)
+            let hits = index.nearest(toId: seed.id, k: limit * 3)
+            return SonicSelection.dropNearDuplicates(hits, index: index, limit: limit)
                 .map { Scored(track: $0.track, similarity: Double(max(0, $0.score))) }
         }
         let seedPrepared = SonicSimilarity.Prepared(feature(seed))
@@ -76,7 +79,8 @@ public enum SonicEngine {
                 embeddedIds.insert(s.id)
             }
             if !pairs.isEmpty, let centroid = VectorIndex.weightedCentroid(pairs) {
-                return index.nearest(to: centroid, k: limit, excludingIds: embeddedIds)
+                let hits = index.nearest(to: centroid, k: limit * 3, excludingIds: embeddedIds)
+                return SonicSelection.dropNearDuplicates(hits, index: index, limit: limit)
                     .map { Scored(track: $0.track, similarity: Double(max(0, $0.score))) }
             }
         }
@@ -169,7 +173,8 @@ public enum SonicEngine {
                 for i in 0..<min(combined.count, subC.count) { combined[i] -= 0.5 * subC[i] }
             }
             let exclude = Set(add.map(\.id) + subtract.map(\.id))
-            return index.nearest(to: combined, k: limit, excludingIds: exclude)
+            let hits = index.nearest(to: combined, k: limit * 3, excludingIds: exclude)
+            return SonicSelection.dropNearDuplicates(hits, index: index, limit: limit)
                 .map { Scored(track: $0.track, similarity: Double(max(0, $0.score))) }
         }
 

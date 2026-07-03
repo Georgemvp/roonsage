@@ -265,6 +265,15 @@ public enum RadioEngine {
     /// Maximal Marginal Relevance: greedily pick the candidate maximising
     /// `λ·relevance − (1−λ)·maxCosineToAlreadyPicked`, killing near-duplicate
     /// clusters. Operates on (track, normalized-embedding, relevance).
+    ///
+    /// LMS-style constraint layer on top of plain MMR:
+    ///  - **Hard**: a candidate whose max cosine to the picked set exceeds
+    ///    `SonicSelection.nearDuplicateSim` is the *same recording* (album +
+    ///    compilation + remaster copies) and is dropped outright — with a high
+    ///    λ the soft penalty alone lets a high-relevance duplicate through.
+    ///  - **Soft**: picks sharing the album (0.15) or artist (0.08, escalating
+    ///    up to 3×) with the picked set are penalized, so one strong album
+    ///    can't monopolize a station even when its tracks are sonically spread.
     static func mmr(_ items: [(DatabaseManager.SonicTrack, [Float], Double)],
                     limit: Int, lambda: Double) -> [DatabaseManager.SonicTrack] {
         guard !items.isEmpty else { return [] }
@@ -276,20 +285,37 @@ public enum RadioEngine {
         let span = max(1e-6, hi - lo)
         let normRel = rels.map { ($0 - lo) / span }
 
+        let artistKeys = items.map { ($0.0.artist ?? "").lowercased() }
+        let albumKeys = items.map { t -> String in
+            let album = (t.0.album ?? "").lowercased()
+            guard !album.isEmpty else { return "" }
+            return "\(album)|\((t.0.artist ?? "").lowercased())"
+        }
+        var pickedArtistCount: [String: Int] = [:]
+        var pickedAlbumCount: [String: Int] = [:]
+
         var remaining = Array(items.indices)
         var pickedIdx: [Int] = []
+        func markPicked(_ i: Int) {
+            pickedIdx.append(i)
+            remaining.removeAll { $0 == i }
+            if !artistKeys[i].isEmpty { pickedArtistCount[artistKeys[i], default: 0] += 1 }
+            if !albumKeys[i].isEmpty { pickedAlbumCount[albumKeys[i], default: 0] += 1 }
+        }
         // Seed with the most relevant.
         if let first = remaining.max(by: { normRel[$0] < normRel[$1] }) {
-            pickedIdx.append(first)
-            remaining.removeAll { $0 == first }
+            markPicked(first)
         }
-        // Track the running max similarity of each remaining item to the picked set.
+        // Track the running max similarity of each remaining item to the picked
+        // set; anything past the near-duplicate bar is rejected permanently.
+        let nearDup = Double(SonicSelection.nearDuplicateSim)
         var maxSimToPicked = [Double](repeating: -1, count: items.count)
         func refreshAgainst(_ p: Int) {
             for i in remaining {
                 let s = Double(dot(items[i].1, items[p].1))
                 if s > maxSimToPicked[i] { maxSimToPicked[i] = s }
             }
+            remaining.removeAll { maxSimToPicked[$0] > nearDup }
         }
         if let p = pickedIdx.first { refreshAgainst(p) }
 
@@ -297,11 +323,15 @@ public enum RadioEngine {
             var bestIdx = remaining[0]
             var bestMMR = -Double.infinity
             for i in remaining {
-                let mmr = lambda * normRel[i] - (1 - lambda) * max(0, maxSimToPicked[i])
+                let sameArtist = artistKeys[i].isEmpty ? 0 : min(3, pickedArtistCount[artistKeys[i]] ?? 0)
+                let sameAlbum = albumKeys[i].isEmpty ? 0 : min(2, pickedAlbumCount[albumKeys[i]] ?? 0)
+                let mmr = lambda * normRel[i]
+                    - (1 - lambda) * max(0, maxSimToPicked[i])
+                    - sameArtistPenalty * Double(sameArtist)
+                    - sameAlbumPenalty * Double(sameAlbum)
                 if mmr > bestMMR { bestMMR = mmr; bestIdx = i }
             }
-            pickedIdx.append(bestIdx)
-            remaining.removeAll { $0 == bestIdx }
+            markPicked(bestIdx)
             refreshAgainst(bestIdx)
         }
         return pickedIdx.map { items[$0].0 }
@@ -315,6 +345,8 @@ public enum RadioEngine {
     private static let tasteVectorBias: Float = 0.35  // pull toward the recency-weighted taste vector
     private static let dislikePush: Float = 0.40      // push away from disliked centroid
     private static let popularityBias = 0.12          // max ± tilt from the hits↔deep-cuts steer
+    static let sameArtistPenalty = 0.08   // soft penalty per already-picked track by this artist (cap 3)
+    static let sameAlbumPenalty = 0.15    // soft penalty per already-picked track from this album (cap 2)
 
     private static func dot(_ a: [Float], _ b: [Float]) -> Double {
         var d: Float = 0

@@ -512,6 +512,8 @@ public struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            LoudnessSettingsSection()
+
             // Audio analyzer
             Section("Audio-analyzer (BPM / toonsoort / tags)") {
                 LabeledContent("Analyzer-URL") {
@@ -759,6 +761,42 @@ public struct SettingsView: View {
         ollamaModels = models
         if !models.isEmpty, !models.contains(llmModel) {
             llmModel = models.first ?? llmModel
+        }
+    }
+}
+
+/// Loudness normalization for on-device playback (LMS-style ReplayGain UX).
+/// Self-contained: binds straight to the `LocalLoudness` UserDefaults keys and
+/// pokes the live player so a change is audible without a track skip.
+struct LoudnessSettingsSection: View {
+    @AppStorage("local_loudness_mode") private var modeRaw = LocalLoudness.Mode.off.rawValue
+    @AppStorage("local_loudness_preamp_db") private var preampDB = 0.0
+
+    var body: some View {
+        Section("Loudness-normalisatie (lokaal afspelen)") {
+            Picker("Modus", selection: $modeRaw) {
+                Text("Uit").tag(LocalLoudness.Mode.off.rawValue)
+                Text("Per track").tag(LocalLoudness.Mode.track.rawValue)
+                Text("Per album").tag(LocalLoudness.Mode.album.rawValue)
+            }
+            .onChange(of: modeRaw) { _, _ in LocalPlaybackController.shared.reapplyLoudness() }
+            if modeRaw != LocalLoudness.Mode.off.rawValue {
+                LabeledContent("Pre-amp") {
+                    HStack {
+                        Slider(value: $preampDB, in: -12...12, step: 1)
+                            .onChange(of: preampDB) { _, _ in
+                                LocalPlaybackController.shared.reapplyLoudness()
+                            }
+                        Text(String(format: "%+.0f dB", preampDB))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 52, alignment: .trailing)
+                    }
+                }
+            }
+            Text("Egaliseert het volume tussen tracks op dit apparaat op basis van de gemeten LUFS-loudness (doel −14 LUFS). \u{201C}Per album\u{201D} behoudt de dynamiek binnen een album. Werkt alleen bij lokaal afspelen; Roon-zones regelen dit zelf.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 }

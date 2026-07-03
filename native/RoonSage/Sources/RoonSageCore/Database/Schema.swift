@@ -455,6 +455,33 @@ enum Schema {
             }
         }
 
+        // When each track first appeared in this library cache — powers the
+        // "Recent toegevoegd" sort (LMS-style browse modes). Every sync path
+        // (per-album resync, full import, direct upsert) deletes + reinserts
+        // `tracks` rows, so the date lives in a side table keyed by content
+        // match_key (the track_mb_genres pattern) and is maintained by an
+        // INSERT trigger — it survives wipes with zero changes to sync code.
+        // Existing tracks get their first_seen at the first post-migration
+        // (re)sync — a one-time "everything added today" artifact; genuinely
+        // new albums bubble to the top from then on.
+        migrator.registerMigration("v30_track_first_seen") { db in
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS track_first_seen (
+                    match_key  TEXT PRIMARY KEY,
+                    first_seen TEXT NOT NULL
+                )
+                """)
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS trg_tracks_first_seen
+                AFTER INSERT ON tracks
+                WHEN NEW.match_key IS NOT NULL
+                BEGIN
+                    INSERT OR IGNORE INTO track_first_seen (match_key, first_seen)
+                    VALUES (NEW.match_key, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+                END
+                """)
+        }
+
         try migrator.migrate(db)
     }
 }

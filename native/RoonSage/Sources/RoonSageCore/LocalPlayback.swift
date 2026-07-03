@@ -31,11 +31,17 @@ public final class LocalPlaybackController {
         public let imageKey: String?
         public let durationSec: Double?
         public let streamURLOverride: URL?
+        /// K-weighted LUFS of this track / mean of its album (analyzer, F3) —
+        /// drive the loudness-normalization gain; nil when not measured.
+        public let lufs: Double?
+        public let albumLufs: Double?
         public init(id: String, title: String, artist: String, album: String,
-                    imageKey: String?, durationSec: Double?, streamURLOverride: URL? = nil) {
+                    imageKey: String?, durationSec: Double?, streamURLOverride: URL? = nil,
+                    lufs: Double? = nil, albumLufs: Double? = nil) {
             self.id = id; self.title = title; self.artist = artist
             self.album = album; self.imageKey = imageKey; self.durationSec = durationSec
             self.streamURLOverride = streamURLOverride
+            self.lufs = lufs; self.albumLufs = albumLufs
         }
     }
 
@@ -187,10 +193,28 @@ public final class LocalPlaybackController {
             return
         }
         player.replaceCurrentItem(with: item)
+        applyLoudness(for: queue[i])
         if autoPlay { player.play(); isPlaying = true } else { player.pause(); isPlaying = false }
         #endif
         onStateChange?()
     }
+
+    /// Re-apply the loudness gain to the current item — call after the user
+    /// changes the normalization settings so the change is audible immediately.
+    public func reapplyLoudness() {
+        #if canImport(AVFoundation)
+        guard isEngaged, let track = current else { return }
+        applyLoudness(for: track)
+        #endif
+    }
+
+    #if canImport(AVFoundation)
+    private func applyLoudness(for track: Track) {
+        player.volume = LocalLoudness.volume(
+            trackLufs: track.lufs, albumLufs: track.albumLufs,
+            mode: LocalLoudness.mode, preampDB: LocalLoudness.preampDB)
+    }
+    #endif
 
     #if canImport(AVFoundation)
     private func makeItem(for track: Track) -> AVPlayerItem? {

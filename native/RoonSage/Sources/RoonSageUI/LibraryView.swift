@@ -39,12 +39,25 @@ public struct LibraryView: View {
 
     enum SortField: String, CaseIterable, Identifiable {
         case title = "Title", artist = "Artist", album = "Album", year = "Year", bpm = "BPM", random = "Random"
+        // LMS-style browse modes: these rank the *dataset* (SQL / play stats),
+        // not the fetched page — see reloadTracks.
+        case recentlyAdded = "RecentlyAdded", mostPlayed = "MostPlayed", recentlyPlayed = "RecentlyPlayed"
         var id: String { rawValue }
         /// Weergavenaam (NL); rawValue blijft het stabiele ID.
         var label: String {
             switch self {
             case .title: "Titel"; case .artist: "Artiest"; case .album: "Album"
             case .year: "Jaar"; case .bpm: "BPM"; case .random: "Willekeurig"
+            case .recentlyAdded: "Recent toegevoegd"
+            case .mostPlayed: "Meest gespeeld"
+            case .recentlyPlayed: "Recent gespeeld"
+            }
+        }
+        /// Ranking is decided before/while fetching; keep the fetched order.
+        var isDatasetRanked: Bool {
+            switch self {
+            case .recentlyAdded, .mostPlayed, .recentlyPlayed: true
+            default: false
             }
         }
     }
@@ -66,6 +79,8 @@ public struct LibraryView: View {
         case .year:   sorted = tracks.sorted { ($0.year ?? 0) < ($1.year ?? 0) }
         case .bpm:    sorted = tracks.sorted { ($0.bpm ?? 0) < ($1.bpm ?? 0) }
         case .random: sorted = tracks.shuffled()
+        case .recentlyAdded, .mostPlayed, .recentlyPlayed:
+            sorted = tracks   // already ranked by the fetch (SQL / play stats)
         }
         // Deduplicate: keep the first occurrence of each artist+title pair so
         // remasters, deluxe editions, and box-set copies don't all show up.
@@ -137,7 +152,12 @@ public struct LibraryView: View {
             }
         }
         .onChange(of: selectedTag) { _, _ in reloadTracks() }
-        .onChange(of: sort) { _, _ in displayTracks = Self.sortAndDedupe(tracks, by: sort) }
+        .onChange(of: sort) { old, new in
+            // Dataset-ranked modes need a refetch; switching between local
+            // sorts keeps re-sorting the already-fetched page.
+            if new.isDatasetRanked || old.isDatasetRanked { reloadTracks() }
+            else { displayTracks = Self.sortAndDedupe(tracks, by: new) }
+        }
         .onChange(of: viewMode) { _, _ in reloadContent() }
         .onChange(of: client.trackCount) { _, _ in reload() }
         .onAppear { reload() }
@@ -372,12 +392,46 @@ public struct LibraryView: View {
         let q = searchText, tag = selectedTag, currentSort = sort
         if tracks.isEmpty { isLoadingTracks = true }
         Task {
-            let rows = await client.browseTracks(query: q, tag: tag)
+            let rows = await fetchTracks(query: q, tag: tag, sort: currentSort)
             let display = await Task.detached { Self.sortAndDedupe(rows, by: currentSort) }.value
             tracks = rows
             displayTracks = display
             isLoadingTracks = false
             isSearching = false
+        }
+    }
+
+    /// Fetch honouring the sort mode at the dataset level: play-stat sorts rank
+    /// ALL play stats first and resolve the top keys to rows (a page fetched in
+    /// artist-order can't be re-sorted into "most played"); recently-added
+    /// sorts in SQL via the track_first_seen side table.
+    private func fetchTracks(query: String, tag: String?, sort: SortField) async -> [DatabaseManager.LibraryTrackRow] {
+        switch sort {
+        case .mostPlayed, .recentlyPlayed:
+            let stats = await client.playStats()
+            let ranked = sort == .mostPlayed
+                ? stats.sorted { $0.count > $1.count }
+                : stats.sorted { $0.lastPlayed > $1.lastPlayed }
+            let keys = ranked.lazy.map(\.matchKey).filter { !$0.isEmpty }
+            var rows = await client.tracksByMatchKeys(Array(keys.prefix(400)))
+            // Search/tag still apply — filter the ranked rows client-side.
+            if !query.isEmpty {
+                let needle = query.lowercased()
+                rows = rows.filter {
+                    $0.title.lowercased().contains(needle)
+                        || ($0.artist ?? "").lowercased().contains(needle)
+                        || ($0.album ?? "").lowercased().contains(needle)
+                }
+            }
+            if let tag, !tag.isEmpty {
+                let t = tag.lowercased()
+                rows = rows.filter { $0.tags.contains { $0.lowercased() == t } }
+            }
+            return Array(rows.prefix(300))
+        case .recentlyAdded:
+            return await client.browseTracks(query: query, tag: tag, order: .recentlyAdded)
+        default:
+            return await client.browseTracks(query: query, tag: tag)
         }
     }
 
@@ -407,8 +461,8 @@ public struct LibraryView: View {
         tags = await client.topTags(limit: 28)
         switch viewMode {
         case .tracks:
-            let rows = await client.browseTracks(query: searchText, tag: selectedTag)
             let currentSort = sort
+            let rows = await fetchTracks(query: searchText, tag: selectedTag, sort: currentSort)
             tracks = rows
             displayTracks = await Task.detached { Self.sortAndDedupe(rows, by: currentSort) }.value
         case .albums:

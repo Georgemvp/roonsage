@@ -97,6 +97,15 @@ extension DatabaseManager {
         public var bpm: Double?
         public var camelot: String?
         public var tags: [String]
+        /// Content match key — joins play stats / features / lyrics; nil pre-resync.
+        public var matchKey: String?
+    }
+
+    /// Dataset-level ordering for `browseTracks` (the LIMIT makes client-side
+    /// re-sorting of the returned page meaningless for these).
+    public enum BrowseOrder: Sendable {
+        case artist          // the classic artist/year/title browse order
+        case recentlyAdded   // newest first_seen first (track_first_seen side table)
     }
 
     /// All tracks of one album (by album_key), in sync/browse order, joined with
@@ -104,32 +113,22 @@ extension DatabaseManager {
     public func tracksForAlbum(_ albumKey: String) async throws ->[LibraryTrackRow] {
         try await pool.read { db in
             let sql = """
-                SELECT t.id, t.title, t.artist, t.album, t.year, t.is_live, t.image_key, f.bpm, f.camelot, f.tags
+                SELECT t.id, t.title, t.artist, t.album, t.year, t.is_live, t.image_key, t.match_key AS mk,
+                       f.bpm, f.camelot, f.tags
                 FROM tracks t LEFT JOIN track_audio_features f ON t.match_key = f.match_key
                 WHERE t.album_key = ?
                 ORDER BY t.rowid
             """
             let rows = try Row.fetchAll(db, sql: sql,
                 arguments: StatementArguments([albumKey] as [DatabaseValueConvertible]))
-            return rows.map { r in
-                var tags: [String] = []
-                if let t = r["tags"] as String?, let data = t.data(using: .utf8),
-                   let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] {
-                    tags = arr.compactMap { $0 as? String }
-                }
-                return LibraryTrackRow(
-                    id: r["id"] ?? "", title: r["title"] ?? "", artist: r["artist"], album: r["album"],
-                    year: r["year"], isLive: (r["is_live"] as Bool?) ?? false,
-                    imageKey: r["image_key"],
-                    bpm: r["bpm"], camelot: r["camelot"], tags: tags
-                )
-            }
+            return rows.map { Self.libraryTrackRow($0) }
         }
     }
 
     /// Tracks (left-joined with audio features) filtered by free-text query and
     /// an optional tag. Returns title/artist/album + bpm/camelot/tags when known.
-    public func browseTracks(query: String, tag: String?, limit: Int = 300) async throws ->[LibraryTrackRow] {
+    public func browseTracks(query: String, tag: String?, limit: Int = 300,
+                             order: BrowseOrder = .artist) async throws ->[LibraryTrackRow] {
         try await pool.read { db in
             var conditions: [String] = []
             var args: [DatabaseValueConvertible] = []
@@ -143,28 +142,73 @@ extension DatabaseManager {
                 args.append("%\"\(tag.lowercased())\"%")
             }
             let whereClause = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
+            let joinFirstSeen: String
+            let orderClause: String
+            switch order {
+            case .artist:
+                joinFirstSeen = ""
+                orderClause = "ORDER BY t.artist, t.year, t.title"
+            case .recentlyAdded:
+                joinFirstSeen = "LEFT JOIN track_first_seen fs ON fs.match_key = t.match_key"
+                // NULL first_seen (pre-migration rows not yet re-synced) sorts last.
+                orderClause = "ORDER BY (fs.first_seen IS NULL), fs.first_seen DESC, t.rowid DESC"
+            }
             let sql = """
-                SELECT t.id, t.title, t.artist, t.album, t.year, t.is_live, t.image_key, f.bpm, f.camelot, f.tags
+                SELECT t.id, t.title, t.artist, t.album, t.year, t.is_live, t.image_key, t.match_key AS mk,
+                       f.bpm, f.camelot, f.tags
                 FROM tracks t LEFT JOIN track_audio_features f ON t.match_key = f.match_key
+                \(joinFirstSeen)
                 \(whereClause)
-                ORDER BY t.artist, t.year, t.title LIMIT ?
+                \(orderClause) LIMIT ?
             """
             args.append(limit)
             let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-            return rows.map { r in
-                var tags: [String] = []
-                if let t = r["tags"] as String?, let data = t.data(using: .utf8),
-                   let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] {
-                    tags = arr.compactMap { $0 as? String }
-                }
-                return LibraryTrackRow(
-                    id: r["id"] ?? "", title: r["title"] ?? "", artist: r["artist"], album: r["album"],
-                    year: r["year"], isLive: (r["is_live"] as Bool?) ?? false,
-                    imageKey: r["image_key"],
-                    bpm: r["bpm"], camelot: r["camelot"], tags: tags
-                )
-            }
+            return rows.map { Self.libraryTrackRow($0) }
         }
+    }
+
+    /// Rows for an explicit, pre-ranked match-key list (most/recently played:
+    /// the ranking comes from play stats, the rows from here). Result follows
+    /// the input order; keys without a library row are skipped. One library
+    /// row per match key (a key can cover several editions).
+    public func tracksByMatchKeys(_ orderedKeys: [String]) async throws -> [LibraryTrackRow] {
+        guard !orderedKeys.isEmpty else { return [] }
+        return try await pool.read { db in
+            var byKey: [String: LibraryTrackRow] = [:]
+            var start = 0
+            while start < orderedKeys.count {
+                let slice = Array(orderedKeys[start..<min(start + 500, orderedKeys.count)])
+                let placeholders = slice.map { _ in "?" }.joined(separator: ",")
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT t.id, t.title, t.artist, t.album, t.year, t.is_live, t.image_key, t.match_key AS mk,
+                           f.bpm, f.camelot, f.tags
+                    FROM tracks t LEFT JOIN track_audio_features f ON t.match_key = f.match_key
+                    WHERE t.match_key IN (\(placeholders))
+                    """, arguments: StatementArguments(slice))
+                for r in rows {
+                    let row = Self.libraryTrackRow(r)
+                    if let mk = row.matchKey, byKey[mk] == nil { byKey[mk] = row }
+                }
+                start += 500
+            }
+            return orderedKeys.compactMap { byKey[$0] }
+        }
+    }
+
+    /// Shared row mapper for the browse queries (expects `mk` aliased match_key).
+    private static func libraryTrackRow(_ r: Row) -> LibraryTrackRow {
+        var tags: [String] = []
+        if let t = r["tags"] as String?, let data = t.data(using: .utf8),
+           let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] {
+            tags = arr.compactMap { $0 as? String }
+        }
+        return LibraryTrackRow(
+            id: r["id"] ?? "", title: r["title"] ?? "", artist: r["artist"], album: r["album"],
+            year: r["year"], isLive: (r["is_live"] as Bool?) ?? false,
+            imageKey: r["image_key"],
+            bpm: r["bpm"], camelot: r["camelot"], tags: tags,
+            matchKey: r["mk"]
+        )
     }
 
     /// Most common LLM tags (parsed from the JSON arrays), for filter chips.

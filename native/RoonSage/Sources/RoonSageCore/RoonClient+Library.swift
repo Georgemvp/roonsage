@@ -293,9 +293,17 @@ extension RoonClient {
         return (try? await db.tracksForAlbum(albumKey)) ?? []
     }
 
-    public func browseTracks(query: String, tag: String?, limit: Int = 300) async -> [DatabaseManager.LibraryTrackRow] {
+    public func browseTracks(query: String, tag: String?, limit: Int = 300,
+                             order: DatabaseManager.BrowseOrder = .artist) async -> [DatabaseManager.LibraryTrackRow] {
         guard let db = database else { return [] }
-        return (try? await db.browseTracks(query: query, tag: tag, limit: limit)) ?? []
+        return (try? await db.browseTracks(query: query, tag: tag, limit: limit, order: order)) ?? []
+    }
+
+    /// Library rows for a pre-ranked match-key list (play-stat sorts) —
+    /// result preserves the input ranking.
+    public func tracksByMatchKeys(_ orderedKeys: [String]) async -> [DatabaseManager.LibraryTrackRow] {
+        guard let db = database else { return [] }
+        return (try? await db.tracksByMatchKeys(orderedKeys)) ?? []
     }
 
     /// Scans + JSON-parses the whole feature table — must not block main.

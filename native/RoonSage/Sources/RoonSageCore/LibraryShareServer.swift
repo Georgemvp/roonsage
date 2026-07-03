@@ -1,3 +1,4 @@
+import AudioAnalysis
 import Foundation
 import Network
 #if os(iOS)
@@ -48,6 +49,9 @@ public final class LibraryShareServer: @unchecked Sendable {
 
     /// Header a client sends its shared secret in.
     public static let tokenHeader = "X-RoonSage-Token"
+
+    /// Per-IP brute-force throttle (5 consecutive bad tokens → 3 s of 429s).
+    static let authThrottler = AuthThrottler()
     private static let tokenKey = "share_token"
     private static var cachedToken: String?
 
@@ -326,6 +330,12 @@ public final class LibraryShareServer: @unchecked Sendable {
         // /settings carries secrets (API keys, Last.fm session, Qobuz password) so
         // it is ALWAYS gated — grace mode never applies to it.
         if !path.hasPrefix("/health"), !loopback {
+            // Brute-force throttle: after 5 consecutive bad tokens an IP gets
+            // 429s for a few seconds — no token comparison, no oracle.
+            if Self.authThrottler.isThrottled(peerIP) {
+                Log.warning("share-server: throttled \(method) \(path) from \(peerIP) (too many bad tokens)", category: .network)
+                return ("429 Too Many Requests", Data("too many attempts; retry later".utf8), "text/plain")
+            }
             let sensitive = path.hasPrefix("/settings")
             let provided = Self.headerValue(Self.tokenHeader, in: header)
             let deviceName = Self.headerValue(Self.deviceHeader, in: header) ?? ""
@@ -333,10 +343,12 @@ public final class LibraryShareServer: @unchecked Sendable {
                 let valid = Self.constantTimeEquals(provided, Self.currentToken())
                     || Self.isApprovedDevice(provided)
                 if !valid {
+                    Self.authThrottler.recordFailure(peerIP)
                     Self.recordPending(token: provided, name: deviceName, ip: peerIP)
                     Log.warning("share-server: rejected \(method) \(path) — unapproved device ‘\(deviceName.isEmpty ? "?" : deviceName)’ (\(peerIP)); approve it under Apparaten", category: .network)
                     return ("401 Unauthorized", Data("unauthorized; awaiting approval".utf8), "text/plain")
                 }
+                Self.authThrottler.recordSuccess(peerIP)
             } else {
                 if Self.enforceToken || sensitive {
                     let why = sensitive ? "secrets endpoint requires a token" : "pair this client via Apparaten"

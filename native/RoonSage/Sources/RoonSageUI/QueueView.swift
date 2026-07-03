@@ -7,6 +7,8 @@ import SwiftUI
 public struct QueueView: View {
     public init() {}
     @Environment(RoonClient.self) private var client
+    @State private var showSaveSheet = false
+    @State private var newPlaylistName = ""
 
     public var body: some View {
         Group {
@@ -18,6 +20,12 @@ public struct QueueView: View {
                     description: Text("Niets in de wachtrij van \(client.selectedZone?.displayName ?? "deze zone")."))
             } else {
                 List {
+                    Section {
+                        Text(queueSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .listRowSeparator(.hidden)
+                    }
                     ForEach(Array(client.queueItems.enumerated()), id: \.element.id) { index, item in
                         HStack(spacing: 10) {
                             AlbumArtView(imageKey: item.imageKey, size: 40)
@@ -54,6 +62,38 @@ public struct QueueView: View {
         .onAppear(perform: restart)
         .onChange(of: client.selectedZone?.id) { _, _ in restart() }
         .onDisappear { client.stopQueue() }
+        .alert("Bewaar wachtrij als playlist", isPresented: $showSaveSheet) {
+            TextField("Naam playlist", text: $newPlaylistName)
+            Button("Annuleer", role: .cancel) {}
+            Button("Bewaar") {
+                let name = newPlaylistName.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return }
+                client.savePlaylist(name: name, tracks: queueRecords())
+                newPlaylistName = ""
+            }
+        } message: {
+            Text("Bewaar de \(client.queueItems.count) tracks in de wachtrij als playlist. Afspelen zoekt ze later op titel + artiest terug in je bibliotheek.")
+        }
+    }
+
+    /// "23 nummers · 1 u 42 m" — the queue's footprint at a glance.
+    private var queueSummary: String {
+        let items = client.queueItems
+        let total = items.reduce(0) { $0 + max(0, $1.length) }
+        let noun = items.count == 1 ? "nummer" : "nummers"
+        guard total > 0 else { return "\(items.count) \(noun)" }
+        let h = total / 3600, m = (total % 3600) / 60
+        let duration = h > 0 ? "\(h) u \(m) m" : "\(m) m"
+        return "\(items.count) \(noun) · \(duration)"
+    }
+
+    /// Queue items as denormalized track records (the saved-playlist format:
+    /// playback re-resolves by title + artist against the current cache).
+    private func queueRecords() -> [TrackRecord] {
+        client.queueItems.map { item in
+            TrackRecord(id: "queue-\(item.id)", title: item.title,
+                        artist: item.subtitle, imageKey: item.imageKey)
+        }
     }
 
     /// Shuffle + repeat for the selected zone, reflecting the live Roon state.
@@ -63,6 +103,15 @@ public struct QueueView: View {
             let shuffleOn = zone.shuffle ?? false
             let loop = zone.loopMode ?? "disabled"
             ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    showSaveSheet = true
+                } label: {
+                    Image(systemName: "plus.rectangle.on.folder")
+                }
+                .disabled(client.queueItems.isEmpty)
+                .accessibilityLabel("Bewaar wachtrij als playlist")
+                .help("Bewaar de wachtrij als playlist")
+
                 Button {
                     Haptics.tap()
                     Task { await client.setShuffle(zoneID: zone.id, enabled: !shuffleOn) }
