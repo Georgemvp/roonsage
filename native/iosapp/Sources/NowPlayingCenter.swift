@@ -73,8 +73,9 @@ final class NowPlayingCenter {
     func sync(zone: Zone?) {
         if local.isEngaged { syncLocal(); return }
         let info = MPNowPlayingInfoCenter.default()
-        guard let zone, let np = zone.nowPlaying,
-              zone.state == .playing || zone.state == .paused else {
+        // Only surface the zone on the lock screen while actually playing — a
+        // paused/stopped Roon zone clears it (matches the Live Activity).
+        guard let zone, let np = zone.nowPlaying, zone.state == .playing else {
             info.nowPlayingInfo = nil
             info.playbackState = .stopped
             return

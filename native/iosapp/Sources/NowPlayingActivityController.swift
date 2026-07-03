@@ -5,7 +5,8 @@ import RoonSageCore
 /// Drives the now-playing Live Activity from the selected zone's state.
 ///
 /// Lifecycle: starts an activity when the zone begins playing, updates it on
-/// track/state change, and ends it when playback stops or the zone goes away.
+/// track change, and ends it as soon as playback pauses/stops or the zone
+/// goes away — the notification is only visible while actually playing.
 /// Updates are driven by `(nowPlaying, state)` changes only — the elapsed
 /// timer on the lock screen ticks system-side via `startedAt`, so we never
 /// push per-second updates. Note: without push tokens the activity can go
@@ -25,8 +26,9 @@ final class NowPlayingActivityController {
             lastZoneID = zone?.id
         }
 
-        guard let zone, let np = zone.nowPlaying,
-              zone.state == .playing || zone.state == .paused else {
+        // Only show the Live Activity while actually playing — a paused or
+        // stopped zone ends it (re-created when playback resumes).
+        guard let zone, let np = zone.nowPlaying, zone.state == .playing else {
             endActivity()
             return
         }
