@@ -251,31 +251,14 @@ public struct DJSetView: View {
     private func trackRow(index i: Int, track t: Cand, mix: [Double]) -> some View {
         let mixBPM = mix[safe: i] ?? t.bpm
         let octave = octaveLabel(raw: t.bpm, mix: mixBPM)
+        // Precompute the label string; folding this ternary/optional chain into
+        // the `.accessibilityLabel` modifier pushed the whole row over the
+        // compiler's type-check budget on CI's (slower) toolchain.
+        let a11y = "\(i + 1). \(t.title)" + (t.artist.map { ", \($0)" } ?? "")
+            + ", \(Int(t.bpm)) BPM" + (octave != nil ? ", gemixt op \(Int(mixBPM))" : "")
+            + ", toonsoort \(t.camelot)"
         return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                Text("\(i + 1)")
-                    .font(.caption.monospacedDigit().weight(.medium))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 24, alignment: .trailing)
-                AlbumArtView(imageKey: t.imageKey, size: 40)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(t.title).lineLimit(1)
-                    if let a = t.artist {
-                        Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
-                Spacer()
-                Text("\(Int(t.bpm))")
-                    .font(.callout.monospacedDigit().weight(.medium))
-                + Text(" BPM").font(.caption2).foregroundColor(.secondary)
-                if let octave {
-                    Text(octave)
-                        .font(.caption2.weight(.semibold)).foregroundStyle(Color.roonInfo)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.roonInfo.opacity(0.15), in: Capsule())
-                }
-                Badge(t.camelot.isEmpty ? "—" : t.camelot, tint: camelotColor(t.camelot))
-            }
+            trackRowHeader(index: i, track: t, octave: octave)
             if i < set.count - 1 {
                 transitionFooter(from: t, to: set[i + 1],
                                  mixFrom: mixBPM, mixTo: mix[safe: i + 1] ?? set[i + 1].bpm)
@@ -283,9 +266,43 @@ public struct DJSetView: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(i + 1). \(t.title)" + (t.artist.map { ", \($0)" } ?? "")
-            + ", \(Int(t.bpm)) BPM" + (octave != nil ? ", gemixt op \(Int(mixBPM))" : "")
-            + ", toonsoort \(t.camelot)")
+        .accessibilityLabel(a11y)
+    }
+
+    /// The row's main line — split out of `trackRow` so each sub-expression
+    /// type-checks quickly (the inline `Text + Text` concat plus the nested
+    /// stacks were the slow part).
+    @ViewBuilder
+    private func trackRowHeader(index i: Int, track t: Cand, octave: String?) -> some View {
+        HStack(spacing: 10) {
+            Text("\(i + 1)")
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(.tertiary)
+                .frame(width: 24, alignment: .trailing)
+            AlbumArtView(imageKey: t.imageKey, size: 40)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(t.title).lineLimit(1)
+                if let a = t.artist {
+                    Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer()
+            bpmText(t.bpm)
+            if let octave {
+                Text(octave)
+                    .font(.caption2.weight(.semibold)).foregroundStyle(Color.roonInfo)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Color.roonInfo.opacity(0.15), in: Capsule())
+            }
+            Badge(t.camelot.isEmpty ? "—" : t.camelot, tint: camelotColor(t.camelot))
+        }
+    }
+
+    /// "<bpm> BPM" as a single explicitly-typed `Text` — the concatenation is
+    /// the kind of expression Swift is slow to infer inside a big view builder.
+    private func bpmText(_ bpm: Double) -> Text {
+        Text("\(Int(bpm))").font(.callout.monospacedDigit().weight(.medium))
+            + Text(" BPM").font(.caption2).foregroundColor(.secondary)
     }
 
     /// `×2` / `÷2` when a track is beatmatched at a different octave than its tag.

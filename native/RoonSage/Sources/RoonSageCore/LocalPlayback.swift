@@ -216,13 +216,15 @@ public final class LocalPlaybackController {
     private func observeFailures(of item: AVPlayerItem) {
         statusObserver?.invalidate()
         statusObserver = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
-            guard observed.status == .failed else { return }
+            guard observed.status == .failed, let self else { return }
             // Read the (non-Sendable) item synchronously here, then hop to the
             // main actor with only Sendable values (the item's identity + code).
+            // Capture `self` strongly (the engine is @MainActor, hence Sendable)
+            // so the Task never references the mutable `weak var self`.
             let observedID = ObjectIdentifier(observed)
             let code = (observed.error as NSError?)?.code
-            Task { @MainActor in
-                guard let self, let current = self.player.currentItem,
+            Task { @MainActor [self] in
+                guard let current = self.player.currentItem,
                       ObjectIdentifier(current) == observedID else { return }
                 self.reportLoadFailure(code: code)
             }
