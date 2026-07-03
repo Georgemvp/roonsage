@@ -13,6 +13,21 @@ public struct DJSetBuilder {
             case .flat: "Steady"; case .rampUp: "Build up"; case .rampDown: "Wind down"; case .peak: "Peak"
             }
         }
+        /// Short Dutch subtitle describing the arc — used in the builder UI.
+        public var blurb: String {
+            switch self {
+            case .flat:     "Gelijkmatig tempo"
+            case .rampUp:   "Bouw langzaam op"
+            case .rampDown: "Rustig uitfaden"
+            case .peak:     "Piek in het midden"
+            }
+        }
+    }
+
+    /// The planned per-position BPM targets for a set — exposed so the UI can
+    /// preview the tempo shape *before* building. Same math the builder uses.
+    public static func plannedBPM(start: Double, end: Double, count: Int, curve: Curve) -> [Double] {
+        bpmTargets(start: start, end: end, n: max(1, count), curve: curve)
     }
 
     public static func build(
