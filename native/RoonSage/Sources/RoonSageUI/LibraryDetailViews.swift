@@ -11,6 +11,7 @@ struct AlbumDetailView: View {
     @State private var tracks: [DatabaseManager.LibraryTrackRow] = []
     @State private var isLoading = true
     @State private var infoTrack: DatabaseManager.LibraryTrackRow?
+    @State private var similarSeed: SonicSeed?
     /// Other editions of this release in the library (remasters, deluxe,
     /// box-set copies) — grouped by the LMS-style version key.
     @State private var otherVersions: [DatabaseManager.AlbumResult] = []
@@ -33,6 +34,10 @@ struct AlbumDetailView: View {
                     .contextMenu {
                         PlayActionsMenu(fetch: { [track.asTrackRecord] })
                         Divider()
+                        Button("Sonisch vergelijkbaar", systemImage: "waveform.path.ecg") {
+                            similarSeed = SonicSeed(title: track.title, artist: track.artist,
+                                                    album: track.album, imageKey: track.imageKey)
+                        }
                         Button("Info", systemImage: "info.circle") { infoTrack = track }
                     }
                 }
@@ -62,6 +67,7 @@ struct AlbumDetailView: View {
             }
         }
         .sheet(item: $infoTrack) { TrackInfoSheet(track: $0) }
+        .similarTracksSheet(item: $similarSeed)
         .navigationTitle(album.album)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

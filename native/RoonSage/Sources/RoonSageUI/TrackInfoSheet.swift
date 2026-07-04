@@ -31,6 +31,16 @@ struct TrackInfoSheet: View {
                     }
                 }
 
+                Section {
+                    NavigationLink {
+                        SimilarTracksView(seed: SonicSeed(title: track.title, artist: track.artist,
+                                                          album: track.album, imageKey: track.imageKey))
+                            .navigationDestination(for: SonicSeed.self) { SimilarTracksView(seed: $0) }
+                    } label: {
+                        Label("Sonisch vergelijkbaar", systemImage: "waveform.path.ecg")
+                    }
+                }
+
                 if let f = features {
                     Section("Analyse") {
                         if let bpm = f.bpm, bpm > 0 {

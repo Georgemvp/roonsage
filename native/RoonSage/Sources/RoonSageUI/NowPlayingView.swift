@@ -261,6 +261,7 @@ private struct NowPlayingHero: View {
     @State private var startingAdventure = false
     @State private var showLyrics = false
     @State private var showFullArt = false
+    @State private var similarSeed: SonicSeed?
     @AppStorage("showVisualizer") private var showVisualizer = true
 
     /// The real width to bound the hero to. On iOS we read the active window's
@@ -315,6 +316,7 @@ private struct NowPlayingHero: View {
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in tickPosition() }
         .task { await client.ensureFeedbackLoaded() }
         .sheet(isPresented: $showLyrics) { LyricsView(zone: zone) }
+        .similarTracksSheet(item: $similarSeed)
     }
 
     // MARK: Track info
@@ -706,6 +708,19 @@ private struct NowPlayingHero: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Songtekst")
+
+                Button {
+                    Haptics.tap()
+                    similarSeed = SonicSeed(title: np.title, artist: np.artist,
+                                            album: np.album, imageKey: np.imageKey)
+                } label: {
+                    Image(systemName: "waveform.path.ecg")
+                        .font(.title3)
+                        .foregroundStyle(.primary)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Sonisch vergelijkbaar")
 
                 if let next = nextUpItem {
                     Spacer(minLength: Spacing.sm)
