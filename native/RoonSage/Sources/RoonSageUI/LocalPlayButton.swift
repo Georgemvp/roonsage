@@ -7,9 +7,9 @@ import SwiftUI
 ///
 /// Unlike the Roon play buttons it is **not** gated on a selected zone — local
 /// playback is always available when an analyzer server is reachable. Feedback
-/// is global: the `LocalPlaybackBar` mini-player appears (and reports any
-/// skipped Qobuz/stream-only tracks), and failures surface via the shared
-/// `ActionErrorToast`. Callers only supply the track provider.
+/// is global: the `NowPlayingBar` mini-player appears; any skipped
+/// Qobuz/stream-only tracks and errors surface on the full Now Playing screen
+/// and via the shared `ActionErrorToast`. Callers only supply the track provider.
 @MainActor
 public struct LocalPlayButton: View {
     public enum Style { case icon, labeled }

@@ -281,12 +281,9 @@ struct RootView: View {
 
     var body: some View {
         platformShell
-            // On-device mini-player, above the tab bar, while local playback is
-            // engaged — except on the Now Playing tab, where the full local hero
-            // already shows and controls it (no duplicate transport).
-            .safeAreaInset(edge: .bottom) {
-                if selection != .nowPlaying { LocalPlaybackBar() }
-            }
+            // The tappable now-playing mini-bar (local + zone) is attached
+            // per-tab / to the split detail below, so it sits ABOVE the tab
+            // buttons instead of floating over them.
             // Cmd/Ctrl+K opens the command palette from anywhere in the app.
             .background {
                 Button("") { showPalette.toggle() }
@@ -346,8 +343,12 @@ struct RootView: View {
             connectedBadge
         } detail: {
             detailView(for: selection)
-                .environment(\.navigateTo, NavigateAction { selection = $0 })
                 .ambientSurface()
+                // Mini-bar above the window bottom — hidden on Now Playing,
+                // which already hosts the full hero + transport. Placed inside
+                // the navigateTo environment so its tap can switch tabs.
+                .nowPlayingBarInset(hidden: selection == .nowPlaying)
+                .environment(\.navigateTo, NavigateAction { selection = $0 })
         }
         .navigationTitle("")
         .toolbar { navToolbar }
@@ -395,18 +396,21 @@ struct RootView: View {
                     .toolbar { navToolbar }
                     .ambientSurface()
             }
+            .nowPlayingBarInset()
             .tabItem { Label("Bibliotheek", systemImage: "music.note.list") }
             .tag(SidebarItem.library)
 
             NavigationStack {
                 iOSCreateHub.toolbar { navToolbar }.ambientSurface()
             }
+            .nowPlayingBarInset()
             .tabItem { Label("Maak", systemImage: "wand.and.stars") }
             .tag(SidebarItem.generate)
 
             NavigationStack {
                 iOSExploreHub.toolbar { navToolbar }.ambientSurface()
             }
+            .nowPlayingBarInset()
             .tabItem { Label("Ontdek", systemImage: "sparkles") }
             .tag(SidebarItem.discovery)
 
@@ -417,6 +421,7 @@ struct RootView: View {
                     .toolbar { navToolbar }
                     .ambientSurface()
             }
+            .nowPlayingBarInset()
             .tabItem { Label("Instellingen", systemImage: "gearshape") }
             .tag(SidebarItem.settings)
         }
