@@ -93,40 +93,55 @@ struct SimilarTracksView: View {
 
     private func resultRow(_ scored: SonicEngine.Scored) -> some View {
         let t = scored.track
-        return HStack(spacing: Spacing.md) {
-            Button {
-                Haptics.tap()
-                Task { await client.playToActiveOutput([Self.record(t)]) }
-            } label: {
-                HStack(spacing: Spacing.md) {
-                    AlbumArtView(imageKey: t.imageKey, size: 44)
-                        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(t.title).font(.callout).lineLimit(1)
-                        if let a = t.artist { Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                        HStack(spacing: Spacing.xs) {
-                            Badge("\(Int(scored.similarity * 100))% match", tint: .roonGold)
-                            if let bpm = t.bpm, bpm > 0 { Badge("\(Int(bpm)) BPM") }
-                            if !t.camelot.isEmpty { Badge(t.camelot) }
-                        }
-                    }
-                    Spacer()
+        // Whole row = drill deeper (this result becomes the next seed) → one
+        // clean chevron. The leading play button plays just this track.
+        return NavigationLink(value: SonicSeed(title: t.title, artist: t.artist,
+                                               album: t.album, imageKey: t.imageKey)) {
+            HStack(spacing: Spacing.md) {
+                Button {
+                    Haptics.tap()
+                    Task { await client.playToActiveOutput([Self.record(t)]) }
+                } label: {
+                    Image(systemName: "play.circle.fill")
+                        .font(.title)
+                        .foregroundStyle(client.hasActiveOutput ? Color.roonGold : .secondary)
                 }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!client.hasActiveOutput)
+                .buttonStyle(.borderless)
+                .disabled(!client.hasActiveOutput)
+                .accessibilityLabel("Speel \(t.title)")
 
-            // Branch deeper into the graph: this result becomes the next seed.
-            NavigationLink(value: SonicSeed(title: t.title, artist: t.artist,
-                                            album: t.album, imageKey: t.imageKey)) {
-                Image(systemName: "arrow.triangle.branch")
-                    .foregroundStyle(.secondary)
+                AlbumArtView(imageKey: t.imageKey, size: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(t.title).font(.callout.weight(.medium)).lineLimit(1)
+                    if let a = t.artist {
+                        Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    metaLine(scored).font(.caption2).lineLimit(1)
+                }
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Toon vergelijkbaar met \(t.title)")
+            .padding(.vertical, 2)
         }
-        .padding(.vertical, Spacing.xs)
+    }
+
+    /// Single, non-wrapping metadata line: "92% match · 129 BPM · 10B".
+    @ViewBuilder
+    private func metaLine(_ scored: SonicEngine.Scored) -> some View {
+        let t = scored.track
+        HStack(spacing: 5) {
+            Text("\(Int(scored.similarity * 100))% match").foregroundStyle(Color.roonGold)
+            if let bpm = t.bpm, bpm > 0 {
+                Text("·").foregroundStyle(.tertiary)
+                Text("\(Int(bpm)) BPM").foregroundStyle(.secondary)
+            }
+            if !t.camelot.isEmpty {
+                Text("·").foregroundStyle(.tertiary)
+                Text(t.camelot).foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private static func record(_ t: DatabaseManager.SonicTrack) -> TrackRecord {

@@ -38,6 +38,10 @@ public struct NowPlayingBar: View {
                 onToggle: { Haptics.tap(); lp.togglePlayPause() },
                 onNext: { Haptics.tap(); lp.next() },
                 onStop: { client.stopLocalPlayback() },
+                // Re-select the on-device output so opening Now Playing shows the
+                // local screen (not a Roon zone that was picked while local kept
+                // playing in the background).
+                onOpen: { client.selectLocalOutput(); navigateTo(.nowPlaying) },
                 accessibilityLabel: "Lokaal afspelen op \(Self.localNoun): \(track.title). Tik om Nu speelt te openen."
             )
         } else if let zone = client.selectedZone, let np = zone.nowPlaying,
@@ -52,6 +56,7 @@ public struct NowPlayingBar: View {
                 onToggle: { Haptics.tap(); Task { await client.playPause(zoneID: zone.id) } },
                 onNext: { Haptics.tap(); Task { await client.next(zoneID: zone.id) } },
                 onStop: nil,
+                onOpen: { navigateTo(.nowPlaying) },
                 accessibilityLabel: "Speelt in \(zone.displayName): \(np.title). Tik om Nu speelt te openen."
             )
         }
@@ -75,13 +80,14 @@ public struct NowPlayingBar: View {
         onToggle: @escaping () -> Void,
         onNext: @escaping () -> Void,
         onStop: (() -> Void)?,
+        onOpen: @escaping () -> Void,
         accessibilityLabel: String
     ) -> some View {
         VStack(spacing: 0) {
             progressLine(progress)
             HStack(spacing: Spacing.sm) {
                 // Tapping the art + labels expands into the full Now Playing screen.
-                Button { navigateTo(.nowPlaying) } label: {
+                Button { onOpen() } label: {
                     HStack(spacing: Spacing.sm) {
                         AlbumArtView(imageKey: imageKey, size: 40, cornerRadius: Radius.sm)
                         VStack(alignment: .leading, spacing: 1) {

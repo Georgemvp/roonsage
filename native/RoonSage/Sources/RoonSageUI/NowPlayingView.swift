@@ -14,11 +14,15 @@ public struct NowPlayingView: View {
     @Environment(RoonClient.self) private var client
 
     public var body: some View {
-        if client.localPlayback.isEngaged || client.localOutputSelected {
+        if client.localOutputSelected {
             // Listening on this device: the local engine owns the marquee screen,
             // so on-device playback is shown and controlled here — not only in the
-            // floating mini-player. Takes precedence over any Roon zone view, and
-            // also shows when "dit apparaat" is the chosen output but idle.
+            // floating mini-player. Shown whenever "dit apparaat" is the CHOSEN
+            // output (even idle). Deliberately keyed on the selected output, not
+            // on `localPlayback.isEngaged`: picking a Roon zone must switch this
+            // screen to that zone even while local audio keeps playing in the
+            // background (reachable again via the output picker → "dit apparaat").
+            // Otherwise a lingering local session made the zone picker look dead.
             LocalNowPlayingScreen()
         } else if client.zones.isEmpty {
             ContentUnavailableView(
