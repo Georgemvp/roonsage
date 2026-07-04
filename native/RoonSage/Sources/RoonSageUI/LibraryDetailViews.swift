@@ -69,6 +69,7 @@ struct AlbumDetailView: View {
         .task(id: album.albumKey) {
             isLoading = true
             await client.ensureFavoritesLoaded()
+            await client.ensureBookmarksLoaded()
             tracks = await client.tracksForAlbum(album.albumKey)
             isLoading = false
             // Sibling editions: search on the *normalized* title (edition
@@ -105,6 +106,9 @@ struct AlbumDetailView: View {
                         .disabled(tracks.isEmpty)
                     FavoriteStarButton(isOn: client.isFavoriteAlbum(album: album.album, artist: album.artist)) {
                         Task { await client.toggleFavoriteAlbum(album: album.album, artist: album.artist) }
+                    }
+                    BookmarkButton(isOn: client.isBookmarkedAlbum(album: album.album, artist: album.artist)) {
+                        Task { await client.toggleBookmarkAlbum(album: album.album, artist: album.artist) }
                     }
                 }
             }
@@ -174,6 +178,9 @@ struct ArtistDetailView: View {
                     FavoriteStarButton(isOn: client.isFavoriteArtist(artist.name)) {
                         Task { await client.toggleFavoriteArtist(artist.name) }
                     }
+                    BookmarkButton(isOn: client.isBookmarkedArtist(artist.name)) {
+                        Task { await client.toggleBookmarkArtist(artist.name) }
+                    }
                 }
 
                 if let bio, !bio.isEmpty { bioSection(bio) }
@@ -217,6 +224,7 @@ struct ArtistDetailView: View {
         .task(id: artist.name) {
             isLoading = true
             await client.ensureFavoritesLoaded()
+            await client.ensureBookmarksLoaded()
             albums = await client.albumsByArtist(artist.name)
             isLoading = false
             // Secondary sections load after the fold, never blocking the albums.

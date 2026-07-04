@@ -86,12 +86,18 @@ struct TrackInfoSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    BookmarkButton(isOn: client.isBookmarkedTrack(title: track.title, artist: track.artist)) {
+                        Task { await client.toggleBookmarkTrack(title: track.title, artist: track.artist, album: track.album) }
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Gereed") { dismiss() }
                 }
             }
         }
         .task {
+            await client.ensureBookmarksLoaded()
             let mk = track.matchKey
                 ?? TrackIdentity.matchKey(artist: track.artist, album: track.album, title: track.title)
             features = await client.database?.audioFeatureRow(matchKey: mk)

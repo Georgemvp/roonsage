@@ -506,6 +506,23 @@ enum Schema {
             }
         }
 
+        // "Bewaar voor later" (muffon-style bookmarks) — a lightweight
+        // listen-later list, distinct from favorites (love it) and feedback
+        // (like/dislike). Spans tracks/albums/artists; content-derived `key`
+        // survives resyncs (track: "title|artist"; album: "album|artist";
+        // artist: name — all lowercased). Server-of-record like favorites.
+        migrator.registerMigration("v33_bookmarks") { db in
+            try db.create(table: "bookmarks", ifNotExists: true) { t in
+                t.column("kind",       .text).notNull()   // "track" | "album" | "artist"
+                t.column("key",        .text).notNull()
+                t.column("title",      .text)             // display: track/album/artist name
+                t.column("artist",     .text)             // track/album: the artist
+                t.column("album",      .text)             // track: the album (re-resolve hint)
+                t.column("created_at", .text).notNull()
+                t.primaryKey(["kind", "key"])
+            }
+        }
+
         try migrator.migrate(db)
     }
 }

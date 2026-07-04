@@ -138,6 +138,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case generate    = "Generate"
     case recommend   = "Recommend"
     case playlists   = "Playlists"
+    case bookmarks   = "Bookmarks"
     case djSet       = "DJ Set"
     case liveDJ      = "Live DJ"
     case radios      = "Radios"
@@ -148,6 +149,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case sonicSearch = "Sonic Search"
     case discover    = "Discoveries"   // outward-facing recommendation engine ("Ontdekkingen")
     case discovery   = "Discovery"     // inward editorial "Listen Now" (library stats)
+    case recent       = "Recent"
     case taste        = "Taste Profile"
     case yearInReview = "Year in Review"
     case settings    = "Settings"
@@ -165,6 +167,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .generate:    "Genereer"
         case .recommend:   "Aanbevelen"
         case .playlists:   "Playlists"
+        case .bookmarks:   "Bewaard"
         case .djSet:       "DJ Set"
         case .liveDJ:      "Live DJ"
         case .radios:      "Radio's"
@@ -175,6 +178,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .sonicSearch: "Sonisch zoeken"
         case .discover:    "Nieuwe Ontdekkingen"   // outward: music you don't own yet
         case .discovery:   "Ontdek"
+        case .recent:      "Recent"
         case .taste:       "Smaakprofiel"
         case .yearInReview: "Jaaroverzicht"
         case .settings:    "Instellingen"
@@ -190,6 +194,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .generate:    "wand.and.stars"
         case .recommend:   "sparkles.rectangle.stack"
         case .playlists:   "list.star"
+        case .bookmarks:   "bookmark"
         case .djSet:       "slider.horizontal.3"
         case .liveDJ:      "slider.horizontal.2.gobackward"
         case .radios:      "dot.radiowaves.left.and.right"
@@ -200,6 +205,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .sonicSearch: "sparkle.magnifyingglass"
         case .discover:    "wand.and.stars.inverse"
         case .discovery:   "sparkles"
+        case .recent:      "clock.arrow.circlepath"
         case .taste:       "chart.radar"
         case .yearInReview: "calendar.badge.clock"
         case .settings:    "gearshape"
@@ -248,9 +254,9 @@ enum SidebarSection: String, CaseIterable, Identifiable {
 
     var items: [SidebarItem] {
         switch self {
-        case .playback: [.nowPlaying, .queue, .library]
+        case .playback: [.nowPlaying, .queue, .library, .bookmarks]
         case .create:   [.ask, .generate, .recommend, .playlists, .djSet, .liveDJ]
-        case .explore:  [.discover, .discovery, .radios, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
+        case .explore:  [.discover, .discovery, .radios, .recent, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
         case .settings: [.settings]
         }
     }
@@ -435,8 +441,8 @@ struct RootView: View {
     }
 
     private var iOSTabSelection: Binding<SidebarItem> {
-        let createItems: Set<SidebarItem> = [.generate, .ask, .recommend, .djSet, .liveDJ, .queue, .playlists]
-        let exploreItems: Set<SidebarItem> = [.discover, .discovery, .radios, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
+        let createItems: Set<SidebarItem> = [.generate, .ask, .recommend, .djSet, .liveDJ, .queue, .playlists, .bookmarks]
+        let exploreItems: Set<SidebarItem> = [.discover, .discovery, .radios, .recent, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .taste, .yearInReview]
         return Binding(
             get: {
                 if createItems.contains(selection) { return .generate }
@@ -476,6 +482,9 @@ struct RootView: View {
                 NavigationLink { PlaylistsView().navigationTitle("Playlists").navigationBarTitleDisplayMode(.inline) } label: {
                     Label("Bewaarde playlists", systemImage: SidebarItem.playlists.icon)
                 }
+                NavigationLink { BookmarksView() } label: {
+                    Label("Bewaard voor later", systemImage: SidebarItem.bookmarks.icon)
+                }
             }
         }
         .navigationTitle("Maak")
@@ -497,6 +506,9 @@ struct RootView: View {
                 }
                 NavigationLink { SonicRadioView().navigationTitle("Radio's").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Radio's", systemImage: SidebarItem.radios.icon)
+                }
+                NavigationLink { RecentView() } label: {
+                    Label("Recent gespeeld", systemImage: SidebarItem.recent.icon)
                 }
                 NavigationLink { TasteProfileView().navigationTitle("Smaakprofiel").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Smaakprofiel", systemImage: SidebarItem.taste.icon)
@@ -540,6 +552,7 @@ struct RootView: View {
         case .generate:    GenerateView()
         case .recommend:   RecommendView()
         case .playlists:   PlaylistsView()
+        case .bookmarks:   BookmarksView()
         case .djSet:       DJSetView()
         case .liveDJ:      LiveDJView()
         case .fingerprint: SonicFingerprintView()
@@ -550,6 +563,7 @@ struct RootView: View {
         case .discover:    DiscoverFeedView()
         case .discovery:   DiscoveryView()
         case .radios:      SonicRadioView()
+        case .recent:      RecentView()
         case .taste:       TasteProfileView()
         case .yearInReview: YearInReviewView()
         case .settings:    SettingsView()

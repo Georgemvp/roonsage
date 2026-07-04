@@ -108,6 +108,15 @@ public final class RoonClient {
     /// Whether `favoriteKeys` has been populated this session.
     var favoritesLoaded = false
 
+    // MARK: - Bookmarks ("Bewaar voor later" — see RoonClient+Bookmarks)
+    /// In-memory bookmark keys "kind␟key", mirrored from the server-of-record,
+    /// so the bookmark toggle lights up instantly across views.
+    public internal(set) var bookmarkKeys: Set<String> = []
+    /// The full bookmark list for the dedicated view (kept in sync with the mirror).
+    public internal(set) var bookmarks: [DatabaseManager.BookmarkEntry] = []
+    /// Whether the bookmark set has been populated this session.
+    var bookmarksLoaded = false
+
     // MARK: - Sonic Radio (endless, artist-seeded — see RoonClient+Radio)
     /// The currently-running endless radio, if any. Drives the "playing" banner.
     public internal(set) var activeRadio: RadioStatus?

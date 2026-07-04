@@ -1,0 +1,157 @@
+import RoonSageCore
+import SwiftUI
+
+/// "Recent" hub (muffon-style "Listened"): the last things you actually played,
+/// pivotable between nummers / artiesten / albums. Reads the shared listen
+/// snapshot (works in thin-client mode too — it pulls from the server), and
+/// derives the distinct artist/album lists client-side, newest first. Tapping a
+/// row replays it on the active output.
+@MainActor
+struct RecentView: View {
+    @Environment(RoonClient.self) private var client
+
+    private enum Pivot: String, CaseIterable, Identifiable {
+        case tracks = "Nummers", artists = "Artiesten", albums = "Albums"
+        var id: String { rawValue }
+    }
+
+    @State private var recent: [DatabaseManager.ListenEntry] = []
+    @State private var pivot: Pivot = .tracks
+    @State private var loaded = false
+    @State private var busy: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Weergave", selection: $pivot) {
+                ForEach(Pivot.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(Spacing.md)
+
+            AsyncStateView(isLoading: !loaded, isEmpty: recent.isEmpty) {
+                content
+            } empty: {
+                ContentUnavailableView {
+                    Label("Nog niks gespeeld", systemImage: "clock.arrow.circlepath")
+                } description: {
+                    Text("Zodra je muziek afspeelt verschijnt hier je recente geschiedenis.")
+                }
+            }
+        }
+        .navigationTitle("Recent")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.large)
+        #endif
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch pivot {
+        case .tracks:
+            List(Array(recent.enumerated()), id: \.offset) { _, e in
+                row(kind: "track", title: e.title,
+                    subtitle: [e.artist, e.album].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
+                    played: e.playedAt, artist: e.artist, album: e.album)
+            }
+        case .artists:
+            List(distinctArtists, id: \.self) { name in
+                row(kind: "artist", title: name, subtitle: nil, played: nil, artist: name, album: nil)
+            }
+        case .albums:
+            List(distinctAlbums, id: \.id) { a in
+                row(kind: "album", title: a.album, subtitle: a.artist, played: nil, artist: a.artist, album: nil)
+            }
+        }
+    }
+
+    private func row(kind: String, title: String, subtitle: String?, played: String?,
+                     artist: String?, album: String?) -> some View {
+        let key = "\(kind)|\(title)|\(artist ?? "")"
+        return Button {
+            play(kind: kind, title: title, artist: artist, album: album, key: key)
+        } label: {
+            HStack(spacing: Spacing.md) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.body).lineLimit(1)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer()
+                if busy == key {
+                    ProgressView().controlSize(.small)
+                } else if let played, let when = relativeDate(played) {
+                    Text(when).font(.caption2).foregroundStyle(.tertiary)
+                } else {
+                    Image(systemName: "play.circle")
+                        .foregroundStyle(client.hasActiveOutput ? Color.roonGold : .secondary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!client.hasActiveOutput)
+    }
+
+    // MARK: Distinct pivots (client-side, newest first)
+
+    private var distinctArtists: [String] {
+        var seen = Set<String>(), out: [String] = []
+        for e in recent {
+            guard let a = e.artist, !a.isEmpty else { continue }
+            let k = a.lowercased()
+            if seen.insert(k).inserted { out.append(a) }
+            if out.count >= 80 { break }
+        }
+        return out
+    }
+
+    private struct AlbumRef: Identifiable { let album: String; let artist: String?; var id: String }
+    private var distinctAlbums: [AlbumRef] {
+        var seen = Set<String>(), out: [AlbumRef] = []
+        for e in recent {
+            guard let al = e.album, !al.isEmpty else { continue }
+            let k = "\(al.lowercased())|\((e.artist ?? "").lowercased())"
+            if seen.insert(k).inserted { out.append(AlbumRef(album: al, artist: e.artist, id: k)) }
+            if out.count >= 80 { break }
+        }
+        return out
+    }
+
+    // MARK: Actions
+
+    private func load() async {
+        if let snap = await client.tasteProfile(recentLimit: 200) {
+            recent = snap.recent
+        }
+        loaded = true
+    }
+
+    private func play(kind: String, title: String, artist: String?, album: String?, key: String) {
+        guard client.hasActiveOutput, busy == nil else { return }
+        Haptics.tap()
+        busy = key
+        Task {
+            // resolveBookmark only reads kind/title/artist/album — reuse it verbatim.
+            let entry = DatabaseManager.BookmarkEntry(kind: kind, key: "", title: title, artist: artist, album: album)
+            let records = await client.resolveBookmark(entry)
+            busy = nil
+            guard !records.isEmpty else {
+                client.reportError("Kon dit niet terugvinden in de bibliotheek.")
+                return
+            }
+            await client.playToActiveOutput(records)
+        }
+    }
+
+    private func relativeDate(_ iso: String) -> String? {
+        guard let date = ISO8601DateFormatter().date(from: iso)
+                ?? ISO8601DateFormatter().date(from: iso + "Z") else { return nil }
+        let fmt = RelativeDateTimeFormatter()
+        fmt.unitsStyle = .abbreviated
+        fmt.locale = Locale(identifier: "nl_NL")
+        return fmt.localizedString(for: date, relativeTo: Date())
+    }
+}
