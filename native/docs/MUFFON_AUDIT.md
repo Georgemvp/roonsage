@@ -37,8 +37,8 @@ Legenda: ⬜ open · 🔶 in uitvoering · ✅ geshipt · ⏸️ bewust uitgeste
 | B5 | **Discord Rich Presence** — now-playing broadcast (macOS, optioneel, IPC-socket) | Discord Rich Presence | klein/fun | ⬜ |
 | C6 | **Achtergrond + transparantie personaliseren** — sfeer-intensiteitsslider (0–100%) + album-hoes-als-wallpaper toggle bovenop AmbientTheme | customizable background/transparency | klein | ✅ v1.10.106 |
 | C7 | **Localisatie** — `String(localized:)` + string-catalogus | 13 talen | groot/laag nut | ⏸️ |
-| D8 | **Top charts-surface** — verken top per land/genre (bestaande `Charts`-producer krijgt een scherm) | top charts (artists/albums/tracks/tags per land) | midden | ⬜ |
-| D9 | **New releases-scherm** — "Nieuwe releases van artiesten die je volgt" bovenop `ReleaseRadar` + `artist_watchlist` | new/upcoming releases | midden | ⬜ |
+| D8 | **In-de-charts-facet** — bron-filter op de Ontdek-feed (producer=charts) via toolbar-menu | top charts (artists/albums/tracks/tags per land) | midden | ✅ v1.10.107 |
+| D9 | **Nieuwe-releases-facet** — bron-filter op de Ontdek-feed (producer=release-radar) via toolbar-menu | new/upcoming releases | midden | ✅ v1.10.107 |
 
 ## Aanbevolen volgorde
 

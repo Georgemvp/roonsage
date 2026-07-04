@@ -17,6 +17,7 @@ public struct DiscoverFeedView: View {
     @State private var refreshing = false
     @State private var errorText: String?
     @State private var kind: KindFilter = .all
+    @State private var source: SourceFilter = .all
     @State private var acted = Set<Int64>()   // optimistic hide after accept/reject
     @State private var undoItem: RecommendationItemDTO?   // last skipped, shown in the undo bar
     @State private var rejectTask: Task<Void, Never>?     // delayed reject POST — cancelling it IS the undo
@@ -29,11 +30,34 @@ public struct DiscoverFeedView: View {
         var kind: RecommendationKind? { switch self { case .all: nil; case .artist: .artist; case .album: .album } }
     }
 
+    /// Facet over the producer that surfaced an item (muffon-style "New releases"
+    /// / "Charts" browse). Filters the same feed by which pipeline source agreed.
+    enum SourceFilter: String, CaseIterable, Identifiable {
+        case all, releases, charts
+        var id: String { rawValue }
+        var label: String {
+            switch self { case .all: "Alle bronnen"; case .releases: "Nieuwe releases"; case .charts: "In de charts" }
+        }
+        /// The producer id a facet keys on (nil = no filter).
+        var producer: String? {
+            switch self { case .all: nil; case .releases: "release-radar"; case .charts: "charts" }
+        }
+        func matches(_ item: RecommendationItemDTO) -> Bool {
+            guard let p = producer else { return true }
+            return item.sources.contains { $0.producer == p }
+        }
+    }
+
     public init() {}
 
     private var visible: [RecommendationItemDTO] {
         items.filter { !acted.contains($0.id) }
              .filter { kind.kind == nil || $0.kind == kind.kind }
+             .filter { source.matches($0) }
+    }
+
+    private func icon(for f: SourceFilter) -> String {
+        switch f { case .all: "square.stack.3d.up"; case .releases: "sparkles"; case .charts: "chart.line.uptrend.xyaxis" }
     }
 
     public var body: some View {
@@ -91,6 +115,18 @@ public struct DiscoverFeedView: View {
         }
         .navigationTitle("Nieuwe Ontdekkingen")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Picker("Bron", selection: $source) {
+                        ForEach(SourceFilter.allCases) { Label($0.label, systemImage: icon(for: $0)).tag($0) }
+                    }
+                } label: {
+                    Image(systemName: source == .all ? "line.3.horizontal.decrease.circle"
+                              : "line.3.horizontal.decrease.circle.fill")
+                }
+                .help("Filter op bron (nieuwe releases / charts)")
+                .accessibilityLabel("Filter op bron")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button { showInsights = true } label: {
                     Image(systemName: "chart.bar")
