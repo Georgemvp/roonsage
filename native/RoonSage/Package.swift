@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "RoonSage",
+    defaultLocalization: "nl",
     platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "RoonSageCore", targets: ["RoonSageCore"]),
@@ -30,7 +31,8 @@ let package = Package(
         .target(
             name: "RoonSageUI",
             dependencies: ["RoonSageCore"],
-            path: "Sources/RoonSageUI"
+            path: "Sources/RoonSageUI",
+            resources: [.process("Resources")]
         ),
         .executableTarget(
             name: "RoonSage",

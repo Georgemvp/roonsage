@@ -1,0 +1,34 @@
+/* RoonSage — Nederlandse strings (defaultLocalization). Scaffolding voor C7:
+   de infrastructuur staat; nieuwe UI-strings verhuizen geleidelijk naar keys.
+   Patroon: gebruik LS("key") voor String, of Text(LS-key) via de helper. */
+
+/* Navigation destinations */
+"nav.nowPlaying"   = "Nu speelt";
+"nav.queue"        = "Wachtrij";
+"nav.library"      = "Bibliotheek";
+"nav.bookmarks"    = "Bewaard";
+"nav.ask"          = "Vraag het";
+"nav.generate"     = "Genereer";
+"nav.recommend"    = "Aanbevelen";
+"nav.playlists"    = "Playlists";
+"nav.djSet"        = "DJ Set";
+"nav.liveDJ"       = "Live DJ";
+"nav.radios"       = "Radio's";
+"nav.recent"       = "Recent";
+"nav.fingerprint"  = "Sonic DNA";
+"nav.musicMap"     = "Music Map";
+"nav.songPaths"    = "Song Paths";
+"nav.alchemy"      = "Song Alchemy";
+"nav.sonicSearch"  = "Sonisch zoeken";
+"nav.multitag"     = "Multitag";
+"nav.discover"     = "Nieuwe Ontdekkingen";
+"nav.discovery"    = "Ontdek";
+"nav.taste"        = "Smaakprofiel";
+"nav.yearInReview" = "Jaaroverzicht";
+"nav.settings"     = "Instellingen";
+
+/* Sidebar sections */
+"section.playback" = "Afspelen";
+"section.create"   = "Maak";
+"section.explore"  = "Ontdek";
+"section.settings" = "Systeem";

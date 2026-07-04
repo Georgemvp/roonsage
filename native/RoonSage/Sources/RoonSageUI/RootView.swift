@@ -161,29 +161,29 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     /// (DJ Set, Live DJ, Sonic DNA, Music Map) blijven onvertaald.
     var title: String {
         switch self {
-        case .nowPlaying:  "Nu speelt"
-        case .queue:       "Wachtrij"
-        case .library:     "Bibliotheek"
-        case .ask:         "Vraag het"
-        case .generate:    "Genereer"
-        case .recommend:   "Aanbevelen"
-        case .playlists:   "Playlists"
-        case .bookmarks:   "Bewaard"
-        case .djSet:       "DJ Set"
-        case .liveDJ:      "Live DJ"
-        case .radios:      "Radio's"
-        case .fingerprint: "Sonic DNA"
-        case .musicMap:    "Music Map"
-        case .songPaths:   "Song Paths"
-        case .alchemy:     "Song Alchemy"
-        case .sonicSearch: "Sonisch zoeken"
-        case .multitag:    "Multitag"
-        case .discover:    "Nieuwe Ontdekkingen"   // outward: music you don't own yet
-        case .discovery:   "Ontdek"
-        case .recent:      "Recent"
-        case .taste:       "Smaakprofiel"
-        case .yearInReview: "Jaaroverzicht"
-        case .settings:    "Instellingen"
+        case .nowPlaying:  LS("nav.nowPlaying")
+        case .queue:       LS("nav.queue")
+        case .library:     LS("nav.library")
+        case .ask:         LS("nav.ask")
+        case .generate:    LS("nav.generate")
+        case .recommend:   LS("nav.recommend")
+        case .playlists:   LS("nav.playlists")
+        case .bookmarks:   LS("nav.bookmarks")
+        case .djSet:       LS("nav.djSet")
+        case .liveDJ:      LS("nav.liveDJ")
+        case .radios:      LS("nav.radios")
+        case .fingerprint: LS("nav.fingerprint")
+        case .musicMap:    LS("nav.musicMap")
+        case .songPaths:   LS("nav.songPaths")
+        case .alchemy:     LS("nav.alchemy")
+        case .sonicSearch: LS("nav.sonicSearch")
+        case .multitag:    LS("nav.multitag")
+        case .discover:    LS("nav.discover")   // outward: music you don't own yet
+        case .discovery:   LS("nav.discovery")
+        case .recent:      LS("nav.recent")
+        case .taste:       LS("nav.taste")
+        case .yearInReview: LS("nav.yearInReview")
+        case .settings:    LS("nav.settings")
         }
     }
 
@@ -248,10 +248,10 @@ enum SidebarSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .playback: "Afspelen"
-        case .create:   "Maak"
-        case .explore:  "Ontdek"
-        case .settings: "Systeem"
+        case .playback: LS("section.playback")
+        case .create:   LS("section.create")
+        case .explore:  LS("section.explore")
+        case .settings: LS("section.settings")
         }
     }
 

@@ -1,0 +1,34 @@
+/* RoonSage — English strings (C7 scaffolding, second language).
+   Feature names (DJ Set, Live DJ, Sonic DNA, Music Map, Song Paths, Song
+   Alchemy, Multitag) stay untranslated on purpose. */
+
+/* Navigation destinations */
+"nav.nowPlaying"   = "Now Playing";
+"nav.queue"        = "Queue";
+"nav.library"      = "Library";
+"nav.bookmarks"    = "Saved";
+"nav.ask"          = "Ask";
+"nav.generate"     = "Generate";
+"nav.recommend"    = "Recommend";
+"nav.playlists"    = "Playlists";
+"nav.djSet"        = "DJ Set";
+"nav.liveDJ"       = "Live DJ";
+"nav.radios"       = "Radios";
+"nav.recent"       = "Recent";
+"nav.fingerprint"  = "Sonic DNA";
+"nav.musicMap"     = "Music Map";
+"nav.songPaths"    = "Song Paths";
+"nav.alchemy"      = "Song Alchemy";
+"nav.sonicSearch"  = "Sonic search";
+"nav.multitag"     = "Multitag";
+"nav.discover"     = "New Discoveries";
+"nav.discovery"    = "Discover";
+"nav.taste"        = "Taste Profile";
+"nav.yearInReview" = "Year in Review";
+"nav.settings"     = "Settings";
+
+/* Sidebar sections */
+"section.playback" = "Play";
+"section.create"   = "Create";
+"section.explore"  = "Explore";
+"section.settings" = "System";

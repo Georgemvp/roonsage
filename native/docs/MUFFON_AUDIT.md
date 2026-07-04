@@ -33,10 +33,10 @@ Legenda: ⬜ open · 🔶 in uitvoering · ✅ geshipt · ⏸️ bewust uitgeste
 | B1 | **Multitag / multi-genre discovery** — stapel genres (AND/OR) + decennium, vind de kruising in je bibliotheek | multitag search (artists/albums) | midden | ✅ v1.10.106 |
 | B2 | **Bookmarks / "Bewaar voor later"** — lichte listen-later-lijst over tracks/albums/artiesten, los van favorieten | bookmarks (multi-type) | midden | ✅ v1.10.105 |
 | B3 | **Recent-hub** — browsable "recent gespeelde artiesten/albums/tracks" met her-ingang op bestaande `listening_history` | Listened (artists/albums/tracks) | klein | ✅ v1.10.105 |
-| B4 | **Equalizer** voor lokaal afspelen (`AVAudioUnitEQ` op het "dit apparaat"-pad; Roon doet eigen DSP) | ingebouwde equalizer | midden | ⬜ |
-| B5 | **Discord Rich Presence** — now-playing broadcast (macOS, optioneel, IPC-socket) | Discord Rich Presence | klein/fun | ⬜ |
+| B4 | **Equalizer** voor lokaal afspelen | ingebouwde equalizer | midden | ⏸️ overslaan — lokaal = `AVPlayer` (geen `AVAudioEngine`), echte multiband-EQ vereist fragiele `MTAudioProcessingTap` op remote streams; Roon-zones hebben al top-DSP |
+| B5 | **Discord Rich Presence** | Discord Rich Presence | klein/fun | ⏸️ overslaan — externe afhankelijkheid (eigen Discord-app/client_id), niet runtime-testbaar hier |
 | C6 | **Achtergrond + transparantie personaliseren** — sfeer-intensiteitsslider (0–100%) + album-hoes-als-wallpaper toggle bovenop AmbientTheme | customizable background/transparency | klein | ✅ v1.10.106 |
-| C7 | **Localisatie** — `String(localized:)` + string-catalogus | 13 talen | groot/laag nut | ⏸️ |
+| C7 | **Localisatie** — `String(localized:)` + string-catalogus | 13 talen | groot/laag nut | 🔶 scaffolding v1.10.108 — `defaultLocalization: "nl"` + nl/en `Localizable.strings` + `LS()/LT()`-helper (via `Bundle.module`); nav-titels + secties geconverteerd als patroon. Rest verhuist incrementeel |
 | D8 | **In-de-charts-facet** — bron-filter op de Ontdek-feed (producer=charts) via toolbar-menu | top charts (artists/albums/tracks/tags per land) | midden | ✅ v1.10.107 |
 | D9 | **Nieuwe-releases-facet** — bron-filter op de Ontdek-feed (producer=release-radar) via toolbar-menu | new/upcoming releases | midden | ✅ v1.10.107 |
 

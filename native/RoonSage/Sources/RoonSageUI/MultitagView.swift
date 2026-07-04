@@ -99,7 +99,7 @@ struct MultitagView: View {
                 LocalPlayButton { Array(results.prefix(60)) }
                     .buttonStyle(.bordered).frame(maxWidth: .infinity)
             }
-            ForEach(results.prefix(80)) { t in
+            ForEach(results.prefix(80), id: \.id) { t in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t.title).font(.callout).lineLimit(1)
                     if let a = t.artist { Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
