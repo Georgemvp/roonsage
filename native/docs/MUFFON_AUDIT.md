@@ -30,12 +30,12 @@ Legenda: ⬜ open · 🔶 in uitvoering · ✅ geshipt · ⏸️ bewust uitgeste
 | # | Feature | Muffon-inspiratie | Impact | Status |
 |---|---------|-------------------|--------|--------|
 | A | **Navigeerbare graph** — elke track is een sprongpunt naar "sonisch vergelijkbaar"; elk resultaat wordt de volgende seed (recursief). Instap vanuit Now Playing, album-tracklist én track-Info | muffons hyperlinked browsing (artist→albums/tracks/similar; tag→artists/albums) | ⭐ groot | ✅ v1.10.106 |
-| B1 | **Multitag / multi-genre discovery** — vind muziek die aan meerdere tags + mood-scores tegelijk voldoet | multitag search (artists/albums) | midden | ⬜ |
+| B1 | **Multitag / multi-genre discovery** — stapel genres (AND/OR) + decennium, vind de kruising in je bibliotheek | multitag search (artists/albums) | midden | ✅ v1.10.106 |
 | B2 | **Bookmarks / "Bewaar voor later"** — lichte listen-later-lijst over tracks/albums/artiesten, los van favorieten | bookmarks (multi-type) | midden | ✅ v1.10.105 |
 | B3 | **Recent-hub** — browsable "recent gespeelde artiesten/albums/tracks" met her-ingang op bestaande `listening_history` | Listened (artists/albums/tracks) | klein | ✅ v1.10.105 |
 | B4 | **Equalizer** voor lokaal afspelen (`AVAudioUnitEQ` op het "dit apparaat"-pad; Roon doet eigen DSP) | ingebouwde equalizer | midden | ⬜ |
 | B5 | **Discord Rich Presence** — now-playing broadcast (macOS, optioneel, IPC-socket) | Discord Rich Presence | klein/fun | ⬜ |
-| C6 | **Achtergrond + transparantie personaliseren** — optionele wallpaper + vibrancy-slider bovenop AmbientTheme | customizable background/transparency | klein | ⬜ |
+| C6 | **Achtergrond + transparantie personaliseren** — sfeer-intensiteitsslider (0–100%) + album-hoes-als-wallpaper toggle bovenop AmbientTheme | customizable background/transparency | klein | ✅ v1.10.106 |
 | C7 | **Localisatie** — `String(localized:)` + string-catalogus | 13 talen | groot/laag nut | ⏸️ |
 | D8 | **Top charts-surface** — verken top per land/genre (bestaande `Charts`-producer krijgt een scherm) | top charts (artists/albums/tracks/tags per land) | midden | ⬜ |
 | D9 | **New releases-scherm** — "Nieuwe releases van artiesten die je volgt" bovenop `ReleaseRadar` + `artist_watchlist` | new/upcoming releases | midden | ⬜ |

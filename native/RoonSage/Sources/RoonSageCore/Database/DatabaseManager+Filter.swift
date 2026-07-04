@@ -12,6 +12,9 @@ extension DatabaseManager {
         public var tags:        [String] = []   // LLM audio tags (matched via track_audio_features)
         public var albumKey:    String?  = nil
         public var excludeLive: Bool     = true
+        /// Multitag mode: when true a track must match *every* selected genre
+        /// (AND), not just one of them (OR) — muffon-style narrowing.
+        public var matchAllGenres: Bool  = false
         public var limit:       Int      = 500
         public init() {}
     }
@@ -22,17 +25,31 @@ extension DatabaseManager {
             var args: [DatabaseValueConvertible] = []
 
             if !options.genres.isEmpty {
-                // Expand to descendant subgenres, then match either source: Roon
-                // genres (track_genres, by track id) OR MusicBrainz genres
-                // (track_mb_genres, by content match_key). Both compared lowercased.
-                let expanded = try Self.expandGenres(db, options.genres)
-                let ph = expanded.map { _ in "?" }.joined(separator: ",")
-                conditions.append("""
-                    (t.id IN (SELECT track_id FROM track_genres WHERE LOWER(genre) IN (\(ph)))
-                     OR t.match_key IN (SELECT match_key FROM track_mb_genres WHERE genre IN (\(ph))))
-                """)
-                args.append(contentsOf: expanded as [DatabaseValueConvertible])   // Roon clause
-                args.append(contentsOf: expanded as [DatabaseValueConvertible])   // MB clause
+                // Each genre matches its own descendant subgenres against either
+                // source: Roon genres (track_genres, by track id) OR MusicBrainz
+                // genres (track_mb_genres, by content match_key), lowercased.
+                func genreClause(_ expanded: [String]) -> String {
+                    let ph = expanded.map { _ in "?" }.joined(separator: ",")
+                    return """
+                        (t.id IN (SELECT track_id FROM track_genres WHERE LOWER(genre) IN (\(ph)))
+                         OR t.match_key IN (SELECT match_key FROM track_mb_genres WHERE genre IN (\(ph))))
+                    """
+                }
+                if options.matchAllGenres {
+                    // Multitag AND: one clause per selected genre, all required.
+                    for g in options.genres {
+                        let expanded = try Self.expandGenres(db, [g])
+                        conditions.append(genreClause(expanded))
+                        args.append(contentsOf: expanded as [DatabaseValueConvertible])   // Roon clause
+                        args.append(contentsOf: expanded as [DatabaseValueConvertible])   // MB clause
+                    }
+                } else {
+                    // Any-of (OR): one clause over the union of descendants.
+                    let expanded = try Self.expandGenres(db, options.genres)
+                    conditions.append(genreClause(expanded))
+                    args.append(contentsOf: expanded as [DatabaseValueConvertible])   // Roon clause
+                    args.append(contentsOf: expanded as [DatabaseValueConvertible])   // MB clause
+                }
             }
             if !options.decades.isEmpty {
                 let dc = options.decades.map { _ in "(t.year >= ? AND t.year < ?)" }.joined(separator: " OR ")

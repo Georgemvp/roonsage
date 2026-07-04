@@ -20,6 +20,8 @@ public struct SettingsView: View {
     @AppStorage("themePreset") private var themePreset: ThemePreset = .custom
     @AppStorage("themeMode") private var themeMode: ThemeMode = .system
     @AppStorage("accentChoice") private var accent: AccentChoice = .gold
+    @AppStorage("ambientIntensity") private var ambientIntensity: Double = 1.0
+    @AppStorage("ambientWallpaper") private var ambientWallpaper: Bool = false
     @AppStorage("showVisualizer") private var showVisualizer = true
     @State private var lastSync: String = "—"
 
@@ -131,6 +133,23 @@ public struct SettingsView: View {
                     }
                 }
                 Toggle("Visualizer bij 'Nu speelt'", isOn: $showVisualizer)
+            }
+
+            // Ambient backdrop (C6): dial the album-art wash + optional wallpaper.
+            Section("Achtergrond") {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text("Sfeer-intensiteit")
+                        Spacer()
+                        Text("\(Int(ambientIntensity * 100))%")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                    Slider(value: $ambientIntensity, in: 0...1, step: 0.05)
+                        .tint(Color.roonGold)
+                    Text("Hoeveel de album-art de app kleurt. 0% = vlakke achtergrond.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Toggle("Album-hoes als achtergrond", isOn: $ambientWallpaper)
             }
 
             // Connection
