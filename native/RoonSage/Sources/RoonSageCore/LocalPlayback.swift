@@ -55,6 +55,26 @@ public final class LocalPlaybackController {
     /// User-facing error from the last action (e.g. a track that wouldn't load).
     public var lastError: String?
 
+    // MARK: Shuffle / repeat / volume — parity with the Roon zone hero, so the
+    // merged Now Playing screen offers the same controls whether you're on a
+    // zone or this device.
+
+    /// Shuffle upcoming tracks (keeps the current one playing). Restoring the
+    /// original order needs the untouched list, so `baseQueue` is kept alongside.
+    public private(set) var shuffle: Bool = false
+    /// "disabled" | "loop" (whole queue) | "loop_one" (repeat current) — the same
+    /// vocabulary as Roon's loop mode, cycled via `NowPlayingHeroOptions.nextLoop`.
+    public private(set) var loopMode: String = "disabled"
+    /// User volume level 0…1, applied as a multiplier ON TOP of the loudness
+    /// normalization gain (so the two never fight — see `reapplyVolume`).
+    public private(set) var volume: Double = 1.0
+    public private(set) var isMuted: Bool = false
+    /// The queue in its ORIGINAL order, so turning shuffle off restores it.
+    @ObservationIgnored private var baseQueue: [Track] = []
+    /// Loudness-normalization gain for the current item; `player.volume` is this
+    /// times the user volume (see `reapplyVolume`).
+    @ObservationIgnored private var loudnessGain: Float = 1.0
+
     public var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
 
     /// Duration of the current track — the player's value once known, else the
@@ -123,11 +143,73 @@ public final class LocalPlaybackController {
         if base.hasSuffix("/") { base.removeLast() }
         self.streamBase = base
         self.token = token
+        baseQueue = tracks
         queue = tracks
         isEngaged = true
         lastError = nil
         activateSession()
-        load(index: min(max(0, startAt), tracks.count - 1), autoPlay: true)
+        let start = min(max(0, startAt), tracks.count - 1)
+        if shuffle {
+            applyShuffleOrder(startingAt: start)
+            load(index: 0, autoPlay: true)
+        } else {
+            load(index: start, autoPlay: true)
+        }
+    }
+
+    // MARK: - Shuffle / repeat / volume
+
+    /// Toggle shuffle without interrupting the current track: rebuild the queue
+    /// array around the playing item (shuffled upcoming, or the original order).
+    public func setShuffle(_ on: Bool) {
+        guard shuffle != on else { return }
+        shuffle = on
+        guard isEngaged else { onStateChange?(); return }
+        let cur = current
+        if on {
+            let curIdx = cur.flatMap { c in baseQueue.firstIndex(where: { $0.id == c.id }) } ?? index
+            applyShuffleOrder(startingAt: curIdx)
+        } else {
+            queue = baseQueue
+            index = cur.flatMap { c in baseQueue.firstIndex(where: { $0.id == c.id }) } ?? 0
+        }
+        onStateChange?()
+    }
+
+    /// Set the repeat mode ("disabled" | "loop" | "loop_one").
+    public func setLoop(_ mode: String) {
+        loopMode = mode
+        onStateChange?()
+    }
+
+    /// Set the user volume (0…1). A non-zero level clears mute.
+    public func setVolume(_ value: Double) {
+        volume = min(max(value, 0), 1)
+        if volume > 0 { isMuted = false }
+        reapplyVolume()
+        onStateChange?()
+    }
+
+    public func toggleMute() {
+        isMuted.toggle()
+        reapplyVolume()
+        onStateChange?()
+    }
+
+    /// Rebuild `queue` with the chosen base-queue track first and the rest
+    /// shuffled after it; leaves `index` at 0 (the current item), so no reload.
+    private func applyShuffleOrder(startingAt i: Int) {
+        guard !baseQueue.isEmpty else { return }
+        var rest = baseQueue
+        let first = baseQueue.indices.contains(i) ? rest.remove(at: i) : rest.removeFirst()
+        queue = [first] + rest.shuffled()
+        index = 0
+    }
+
+    private func reapplyVolume() {
+        #if canImport(AVFoundation)
+        player.volume = loudnessGain * Float(isMuted ? 0 : volume)
+        #endif
     }
 
     public func togglePlayPause() {
@@ -141,7 +223,23 @@ public final class LocalPlaybackController {
 
     public func next() {
         guard isEngaged else { return }
+        advance(auto: false)
+    }
+
+    /// Advance the queue, honouring the repeat mode. `auto` is true when a track
+    /// finished on its own (so "loop_one" replays it); a user-pressed Next always
+    /// steps forward. "loop" wraps at the end; otherwise the session stops.
+    private func advance(auto: Bool) {
+        if auto, loopMode == "loop_one" {
+            seek(toSeconds: 0)
+            #if canImport(AVFoundation)
+            player.play(); isPlaying = true
+            #endif
+            onStateChange?()
+            return
+        }
         if index + 1 < queue.count { load(index: index + 1, autoPlay: true) }
+        else if loopMode == "loop" { load(index: 0, autoPlay: true) }
         else { stop() }
     }
 
@@ -180,6 +278,7 @@ public final class LocalPlaybackController {
         isPlaying = false
         isEngaged = false
         queue = []
+        baseQueue = []
         index = 0
         positionSec = 0
         deactivateSession()
@@ -250,9 +349,12 @@ public final class LocalPlaybackController {
 
     #if canImport(AVFoundation)
     private func applyLoudness(for track: Track) {
-        player.volume = LocalLoudness.volume(
+        loudnessGain = LocalLoudness.volume(
             trackLufs: track.lufs, albumLufs: track.albumLufs,
             mode: LocalLoudness.mode, preampDB: LocalLoudness.preampDB)
+        // Fold in the user volume so the slider and loudness normalization stack
+        // instead of overwriting each other.
+        reapplyVolume()
     }
     #endif
 
@@ -275,7 +377,7 @@ public final class LocalPlaybackController {
     private func handleItemEnded(_ finished: AVPlayerItem?) {
         // Ignore stale notifications from a replaced item.
         guard isEngaged, finished === player.currentItem else { return }
-        next()
+        advance(auto: true)
     }
     #endif
 

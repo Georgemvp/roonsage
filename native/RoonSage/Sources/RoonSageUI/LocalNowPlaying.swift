@@ -18,8 +18,17 @@ struct LocalNowPlayingScreen: View {
         let lp = client.localPlayback
         ZStack {
             LocalNowPlayingBackdrop(imageKey: lp.current?.imageKey)
-            LocalNowPlayingHero()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 0) {
+                // Same output switcher as the zone hero, so you can hop back to a
+                // Roon zone from the local screen. On macOS the toolbar carries it.
+                #if os(iOS)
+                OutputSelector()
+                    .padding(.top, Spacing.sm)
+                    .padding(.bottom, Spacing.xs)
+                #endif
+                LocalNowPlayingHero()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         // Immersive media screen: always light foreground over the darkened art,
         // regardless of the app's light/dark theme (matches the Roon hero).
@@ -87,6 +96,11 @@ private struct LocalNowPlayingHero: View {
     @State private var isSeeking = false
     @State private var seekFraction: Double = 0
     @State private var showFullArt = false
+    @State private var showLyrics = false
+    @State private var feat: (bpm: Double, camelot: String, tags: [String])?
+    @State private var attrs: [String: Float] = [:]
+    @State private var volumeValue: Double = 100
+    @AppStorage("showVisualizer") private var showVisualizer = true
 
     /// Match the Roon hero's over-wide-region handling on iOS 26 (read the true
     /// window width, centre in the inflated proposal); a plain cap on macOS.
@@ -105,33 +119,29 @@ private struct LocalNowPlayingHero: View {
         let lp = client.localPlayback
         VStack(spacing: Spacing.md) {
             Spacer(minLength: 0)
-            deviceChip
             art(lp)
             Spacer(minLength: 0)
             trackInfo(lp)
+            featureRow(lp)
+            visualizer(lp)
             scrubber(lp)
             transport(lp)
+            optionsRow(lp)
+            volumeRow(lp)
+            feedbackRow(lp)
             if let err = lp.lastError { errorLine(err) }
-            footer(lp)
+            statusFooter(lp)
         }
         .padding(.horizontal, Spacing.xl)
         .frame(width: maxContentWidth)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.bottom, Spacing.sm)
-    }
-
-    // MARK: Device chip
-
-    private var deviceChip: some View {
-        HStack(spacing: Spacing.xs) {
-            Image(systemName: LocalNowPlayingScreen.deviceIcon).font(.caption)
-            Text("Speelt op \(LocalNowPlayingScreen.deviceNoun)")
-                .font(.subheadline.weight(.semibold))
-        }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.xs + 2)
-        .background(.quaternary, in: Capsule())
-        .accessibilityLabel("Speelt lokaal op \(LocalNowPlayingScreen.deviceNoun)")
+        .onAppear { refreshFeatures(lp); volumeValue = (lp.isMuted ? 0 : lp.volume) * 100 }
+        .onChange(of: lp.current?.id) { _, _ in refreshFeatures(lp) }
+        .onChange(of: lp.volume) { _, v in volumeValue = v * 100 }
+        .onChange(of: lp.isMuted) { _, m in volumeValue = (m ? 0 : lp.volume) * 100 }
+        .task { await client.ensureFeedbackLoaded() }
+        .sheet(isPresented: $showLyrics) { LyricsView() }
     }
 
     // MARK: Art
@@ -280,7 +290,197 @@ private struct LocalNowPlayingHero: View {
         }
     }
 
-    // MARK: Error + footer
+    // MARK: Audio features (BPM / key / mood) — same badges as the zone hero,
+    // read from the analyzer by the current track's title/artist/album.
+
+    @ViewBuilder
+    private func featureRow(_ lp: LocalPlaybackController) -> some View {
+        if lp.current != nil, feat != nil || !attrs.isEmpty {
+            HStack(spacing: Spacing.sm) {
+                if let f = feat {
+                    if f.bpm > 0 { Badge("\(Int(f.bpm)) BPM", tint: .roonGold) }
+                    if !f.camelot.isEmpty { Badge(f.camelot, tint: .roonGold) }
+                    if !f.tags.isEmpty {
+                        Text(f.tags.prefix(2).joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                    }
+                }
+                ForEach(NowPlayingHeroOptions.attributeBadges(attrs), id: \.self) { label in
+                    Badge(label, tint: .secondary)
+                }
+            }
+            .lineLimit(1)
+        }
+    }
+
+    // MARK: Visualizer — beat-driven equalizer fed by the analyzer's BPM/energy/
+    // valence; runs while a track with a known tempo plays (opt-out in Settings).
+
+    @ViewBuilder
+    private func visualizer(_ lp: LocalPlaybackController) -> some View {
+        if showVisualizer, let f = feat, f.bpm > 0 {
+            BeatVisualizer(
+                bpm: f.bpm,
+                intensity: Double(attrs["danceability"] ?? attrs["energy"] ?? 0.55),
+                warmth: Double(attrs["valence"] ?? 0.5),
+                isPlaying: lp.isPlaying,
+                reduceMotion: reduceMotion
+            )
+            .padding(.horizontal, Spacing.sm)
+            .transition(.opacity)
+        }
+    }
+
+    // MARK: Shuffle / repeat — bound to the local engine's own queue state.
+
+    private func optionsRow(_ lp: LocalPlaybackController) -> some View {
+        HStack(spacing: Spacing.xxl) {
+            Button {
+                Haptics.tap(); lp.setShuffle(!lp.shuffle)
+            } label: {
+                Image(systemName: "shuffle")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(lp.shuffle ? Color.roonGold : .secondary)
+                    .tappable44()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Shuffle")
+            .accessibilityValue(lp.shuffle ? "aan" : "uit")
+            .accessibilityAddTraits(lp.shuffle ? .isSelected : [])
+
+            Button {
+                Haptics.tap(); lp.setLoop(NowPlayingHeroOptions.nextLoop(lp.loopMode))
+            } label: {
+                Image(systemName: lp.loopMode == "loop_one" ? "repeat.1" : "repeat")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(lp.loopMode == "disabled" ? .secondary : Color.roonGold)
+                    .tappable44()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(NowPlayingHeroOptions.loopLabel(lp.loopMode))
+            .accessibilityAddTraits(lp.loopMode == "disabled" ? [] : .isSelected)
+        }
+    }
+
+    // MARK: Volume — the device's playback level, stacked on the loudness gain.
+
+    private func volumeRow(_ lp: LocalPlaybackController) -> some View {
+        HStack(spacing: Spacing.sm) {
+            Button {
+                Haptics.tap(); lp.toggleMute()
+            } label: {
+                Image(systemName: lp.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .foregroundStyle(.secondary)
+                    .tappable44()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(lp.isMuted ? "Dempen opheffen" : "Dempen")
+
+            Slider(value: $volumeValue, in: 0...100, step: 1) { editing in
+                if !editing { lp.setVolume(volumeValue / 100) }
+            }
+            .tint(.white.opacity(0.55))
+            .controlSize(.small)
+            .accessibilityLabel("Volume")
+
+            Text("\(lp.isMuted ? 0 : Int(volumeValue))")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 28, alignment: .trailing)
+        }
+    }
+
+    // MARK: Feedback (like/dislike/lyrics) + up-next — same as the zone hero.
+
+    @ViewBuilder
+    private func feedbackRow(_ lp: LocalPlaybackController) -> some View {
+        if let track = lp.current {
+            let current = client.feedbackFor(title: track.title, artist: track.artist, album: track.album)
+            HStack(spacing: Spacing.lg) {
+                Button {
+                    Haptics.tap()
+                    Task { await client.setFeedback(.like, title: track.title, artist: track.artist, album: track.album) }
+                } label: {
+                    Image(systemName: current == .like ? "hand.thumbsup.fill" : "hand.thumbsup")
+                        .font(.title3)
+                        .foregroundStyle(current == .like ? Color.roonGold : .primary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Vind ik leuk")
+                .accessibilityAddTraits(current == .like ? .isSelected : [])
+
+                Button {
+                    Haptics.tap()
+                    Task { await client.setFeedback(.dislike, title: track.title, artist: track.artist, album: track.album) }
+                } label: {
+                    Image(systemName: current == .dislike ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                        .font(.title3)
+                        .foregroundStyle(current == .dislike ? Color.roonDanger : .primary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Vind ik niet leuk — sla over en leer ervan")
+                .accessibilityAddTraits(current == .dislike ? .isSelected : [])
+
+                Button {
+                    Haptics.tap(); showLyrics = true
+                } label: {
+                    Image(systemName: "quote.bubble")
+                        .font(.title3)
+                        .foregroundStyle(.primary)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Songtekst")
+
+                if let next = nextLocalItem(lp) {
+                    Spacer(minLength: Spacing.sm)
+                    nextUpPill(next, lp).layoutPriority(-1)
+                } else {
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    private func nextUpPill(_ next: LocalPlaybackController.Track, _ lp: LocalPlaybackController) -> some View {
+        HStack(spacing: Spacing.sm) {
+            VStack(alignment: .trailing, spacing: 1) {
+                Text("Hierna").font(.caption2).foregroundStyle(.secondary)
+                Text(next.title).font(.caption.weight(.medium)).lineLimit(1)
+                if !next.artist.isEmpty {
+                    Text(next.artist).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            AlbumArtView(imageKey: next.imageKey, size: 36)
+            Image(systemName: "forward.end.fill")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { Haptics.tap(); lp.next() }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Hierna: \(next.title)")
+        .accessibilityHint("Tik om door te spelen")
+    }
+
+    private func nextLocalItem(_ lp: LocalPlaybackController) -> LocalPlaybackController.Track? {
+        lp.queue.indices.contains(lp.index + 1) ? lp.queue[lp.index + 1] : nil
+    }
+
+    private func refreshFeatures(_ lp: LocalPlaybackController) {
+        if let track = lp.current {
+            feat = client.featuresFor(title: track.title, artist: track.artist, album: track.album)
+            attrs = client.attributesFor(title: track.title, artist: track.artist, album: track.album)
+        } else {
+            feat = nil
+            attrs = [:]
+        }
+    }
+
+    // MARK: Error + status footer
 
     private func errorLine(_ message: String) -> some View {
         Label(message, systemImage: "exclamationmark.triangle.fill")
@@ -292,7 +492,7 @@ private struct LocalNowPlayingHero: View {
     }
 
     @ViewBuilder
-    private func footer(_ lp: LocalPlaybackController) -> some View {
+    private func statusFooter(_ lp: LocalPlaybackController) -> some View {
         VStack(spacing: Spacing.xs) {
             if let summary = client.lastLocalPlaybackSummary, summary.blocked > 0 {
                 Text("\(summary.playable) van \(summary.requested) speelbaar hier · \(summary.blocked) Qobuz/stream overgeslagen")

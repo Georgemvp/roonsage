@@ -10,6 +10,24 @@ extension RoonClient {
     /// Synthetic output id for "this device" in the zone/output picker.
     public static let localOutputID = "roonsage.local.device"
 
+    /// Display name for the on-device output in the output picker.
+    public static var localOutputName: String {
+        #if os(macOS)
+        "Deze Mac"
+        #else
+        "Dit apparaat"
+        #endif
+    }
+
+    /// SF Symbol for the on-device output in the output picker.
+    public static var localOutputIcon: String {
+        #if os(macOS)
+        "laptopcomputer"
+        #else
+        "iphone"
+        #endif
+    }
+
     /// The on-device playback engine — the UI binds to its observable state.
     public var localPlayback: LocalPlaybackController { .shared }
 
@@ -154,6 +172,29 @@ extension RoonClient {
             recs.append(contentsOf: (await tracksForAlbum(album.albumKey)).map(record))
         }
         return await playLocally(recs)
+    }
+
+    /// Make this device the active output. Future "play" actions route here (see
+    /// `playToActiveOutput`) and the Now Playing screen shows the local player —
+    /// even before anything is loaded. Selecting a Roon zone clears this again
+    /// (`selectZone`).
+    public func selectLocalOutput() {
+        localOutputSelected = true
+    }
+
+    /// True when there's somewhere to play — a Roon zone or this device.
+    public var hasActiveOutput: Bool { localOutputSelected || selectedZone != nil }
+
+    /// Route a "play now" request to whichever output is active: on-device when
+    /// selected, otherwise the selected Roon zone. Lets the primary play verbs
+    /// (Speel alles / Speel nu) follow the chosen output instead of always
+    /// targeting a zone.
+    public func playToActiveOutput(_ tracks: [TrackRecord]) async {
+        if localOutputSelected {
+            await playLocally(tracks)
+        } else if let zone = selectedZone {
+            await curateTracks(tracks, zoneID: zone.id)
+        }
     }
 
     /// Stop on-device playback and clear the "listen here" choice.

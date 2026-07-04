@@ -99,6 +99,7 @@ public struct ZonePicker: View {
     public var body: some View {
         Group {
             if !client.zones.isEmpty {
+                let localOn = client.localOutputSelected
                 Menu {
                     ForEach(client.zones) { z in
                         Button {
@@ -106,15 +107,24 @@ public struct ZonePicker: View {
                             Haptics.tap()
                         } label: {
                             Label(z.displayName,
-                                  systemImage: z.id == client.selectedZone?.id ? "checkmark" : z.state.icon)
+                                  systemImage: (!localOn && z.id == client.selectedZone?.id) ? "checkmark" : z.state.icon)
                         }
                     }
+                    Divider()
+                    Button {
+                        client.selectLocalOutput()
+                        Haptics.tap()
+                    } label: {
+                        Label(RoonClient.localOutputName,
+                              systemImage: localOn ? "checkmark" : RoonClient.localOutputIcon)
+                    }
                 } label: {
-                    let unset = client.selectedZone == nil
+                    let unset = !localOn && client.selectedZone == nil
                     HStack(spacing: Spacing.xs) {
-                        Image(systemName: unset ? "exclamationmark.circle.fill"
-                              : (client.selectedZone?.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker"))
-                        Text(client.selectedZone?.displayName ?? "Kies zone")
+                        Image(systemName: localOn ? RoonClient.localOutputIcon
+                              : (unset ? "exclamationmark.circle.fill"
+                              : (client.selectedZone?.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker")))
+                        Text(localOn ? RoonClient.localOutputName : (client.selectedZone?.displayName ?? "Kies zone"))
                             .lineLimit(1)
                         Image(systemName: "chevron.down")
                             .font(.caption2.weight(.semibold))
@@ -132,7 +142,9 @@ public struct ZonePicker: View {
                 }
                 .fixedSize()
                 .onAppear {
-                    if client.selectedZone == nil, client.zones.count == 1 {
+                    // Don't auto-grab the sole zone if the user chose on-device
+                    // output — that would silently switch playback back to Roon.
+                    if !client.localOutputSelected, client.selectedZone == nil, client.zones.count == 1 {
                         client.selectZone(client.zones[0].id)
                     }
                 }

@@ -637,6 +637,7 @@ struct RootView: View {
     /// Zone selector: a Menu that clearly shows the active zone (speaker symbol +
     /// name + chevron) instead of an unlabeled control, and lets you switch.
     private var zonePicker: some View {
+        let localOn = client.localOutputSelected
         let active = client.selectedZone
         return Menu {
             ForEach(client.zones) { zone in
@@ -644,14 +645,22 @@ struct RootView: View {
                     client.selectZone(zone.id); lastZoneID = zone.id
                 } label: {
                     Label(zone.displayName,
-                          systemImage: zone.id == active?.id ? "checkmark"
+                          systemImage: (!localOn && zone.id == active?.id) ? "checkmark"
                               : (zone.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker"))
                 }
             }
+            Divider()
+            Button {
+                client.selectLocalOutput()
+            } label: {
+                Label(RoonClient.localOutputName,
+                      systemImage: localOn ? "checkmark" : RoonClient.localOutputIcon)
+            }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: active?.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker")
-                Text(active?.displayName ?? "Kies zone")
+                Image(systemName: localOn ? RoonClient.localOutputIcon
+                          : (active?.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker"))
+                Text(localOn ? RoonClient.localOutputName : (active?.displayName ?? "Kies output"))
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.semibold))
@@ -659,7 +668,7 @@ struct RootView: View {
             }
             .font(.subheadline.weight(.semibold))
         }
-        .accessibilityLabel("Zone: \(active?.displayName ?? "geen")")
-        .help("Kies een zone")
+        .accessibilityLabel("Output: \(localOn ? RoonClient.localOutputName : (active?.displayName ?? "geen"))")
+        .help("Kies een zone of dit apparaat")
     }
 }

@@ -14,10 +14,11 @@ public struct NowPlayingView: View {
     @Environment(RoonClient.self) private var client
 
     public var body: some View {
-        if client.localPlayback.isEngaged {
+        if client.localPlayback.isEngaged || client.localOutputSelected {
             // Listening on this device: the local engine owns the marquee screen,
             // so on-device playback is shown and controlled here — not only in the
-            // floating mini-player. Takes precedence over any Roon zone view.
+            // floating mini-player. Takes precedence over any Roon zone view, and
+            // also shows when "dit apparaat" is the chosen output but idle.
             LocalNowPlayingScreen()
         } else if client.zones.isEmpty {
             ContentUnavailableView(
@@ -29,16 +30,15 @@ public struct NowPlayingView: View {
             ZStack {
                 NowPlayingBackdrop(zone: zone)
                 VStack(spacing: 0) {
-                    // iOS hides the nav bar here, so the body carries the zone
+                    // iOS hides the nav bar here, so the body carries the output
                     // switcher. A Menu (not a scrolling strip) never clips and is
                     // immune to window/scene resizing. On macOS the toolbar
-                    // already provides the picker, so no in-body duplicate.
+                    // already provides the picker, so no in-body duplicate. Always
+                    // shown so you can switch to "dit apparaat" even with one zone.
                     #if os(iOS)
-                    if client.zones.count > 1 {
-                        ZoneSelector(selectedID: zone.id)
-                            .padding(.top, Spacing.sm)
-                            .padding(.bottom, Spacing.xs)
-                    }
+                    OutputSelector()
+                        .padding(.top, Spacing.sm)
+                        .padding(.bottom, Spacing.xs)
                     #endif
                     NowPlayingHero(zone: zone)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -94,6 +94,26 @@ enum NowPlayingHeroOptions {
         case "loop_one": "Herhaal deze track"
         default:         "Herhalen uit"
         }
+    }
+
+    /// Compact Dutch labels for the strong attribute axes (max 2) — the eyeball
+    /// UI shared by the zone hero and the local (on-device) hero.
+    static func attributeBadges(_ attrs: [String: Float]) -> [String] {
+        guard !attrs.isEmpty else { return [] }
+        let rules: [(key: String, high: String, low: String)] = [
+            ("valence", "Vrolijk", "Melancholisch"),
+            ("danceability", "Dansbaar", ""),
+            ("acousticness", "Akoestisch", "Elektronisch"),
+            ("instrumentalness", "Instrumentaal", ""),
+        ]
+        var out: [String] = []
+        for r in rules {
+            guard let v = attrs[r.key] else { continue }
+            if v >= 0.62, !r.high.isEmpty { out.append(r.high) }
+            else if v <= 0.38, !r.low.isEmpty { out.append(r.low) }
+            if out.count >= 2 { break }
+        }
+        return out
     }
 }
 
@@ -152,35 +172,44 @@ private struct NowPlayingBackdrop: View {
     }
 }
 
-// MARK: - Zone switcher
+// MARK: - Output switcher
 
-/// Single dropdown pill for switching zones. A `Menu` (not a horizontal strip)
-/// can't clip a chip and is unaffected by window/scene resizing — the strip
-/// version mis-anchored its scroll offset when the size changed, leaving the
-/// active zone half cut off.
+/// Single dropdown pill for switching the playback output — every Roon zone plus
+/// "dit apparaat" (on-device playback), so the local player is a first-class
+/// output alongside the zones. A `Menu` (not a horizontal strip) can't clip a
+/// chip and is unaffected by window/scene resizing. Shared by the zone hero and
+/// the local Now Playing screen so the two never drift.
 @MainActor
-private struct ZoneSelector: View {
+struct OutputSelector: View {
     @Environment(RoonClient.self) private var client
-    let selectedID: String
     @AppStorage("lastZoneID") private var lastZoneID: String = ""
 
     var body: some View {
-        let active = client.zones.first { $0.id == selectedID }
+        let localOn = client.localOutputSelected
+        let active = client.selectedZone
         Menu {
             ForEach(client.zones) { zone in
                 Button {
                     client.selectZone(zone.id); lastZoneID = zone.id; Haptics.tap()
                 } label: {
                     Label(zone.displayName,
-                          systemImage: zone.id == selectedID ? "checkmark"
+                          systemImage: (!localOn && zone.id == active?.id) ? "checkmark"
                               : (zone.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker"))
                 }
             }
+            Divider()
+            Button {
+                client.selectLocalOutput(); Haptics.tap()
+            } label: {
+                Label(RoonClient.localOutputName,
+                      systemImage: localOn ? "checkmark" : RoonClient.localOutputIcon)
+            }
         } label: {
             HStack(spacing: Spacing.xs + 2) {
-                Image(systemName: active?.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker")
+                Image(systemName: localOn ? RoonClient.localOutputIcon
+                          : (active?.state == .playing ? "speaker.wave.2.fill" : "hifi.speaker"))
                     .font(.caption)
-                Text(active?.displayName ?? "Kies zone")
+                Text(localOn ? RoonClient.localOutputName : (active?.displayName ?? "Kies output"))
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
@@ -193,8 +222,8 @@ private struct ZoneSelector: View {
             .foregroundStyle(.primary)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Zone: \(active?.displayName ?? "geen")")
-        .accessibilityHint("Tik om een andere zone te kiezen")
+        .accessibilityLabel("Output: \(localOn ? RoonClient.localOutputName : (active?.displayName ?? "geen"))")
+        .accessibilityHint("Tik om een andere zone of dit apparaat te kiezen")
     }
 }
 
@@ -382,7 +411,7 @@ private struct NowPlayingHero: View {
                 }
                 // CLAP attribute axes (when analyzed) — the "meer meta" the engine
                 // can use; shown here so you can eyeball the values per track.
-                ForEach(Self.attributeBadges(client.attributesFor(title: np.title, artist: np.artist, album: np.album)), id: \.self) { label in
+                ForEach(NowPlayingHeroOptions.attributeBadges(client.attributesFor(title: np.title, artist: np.artist, album: np.album)), id: \.self) { label in
                     Badge(label, tint: .secondary)
                 }
                 Button {
@@ -426,25 +455,6 @@ private struct NowPlayingHero: View {
             }
             .lineLimit(1)
         }
-    }
-
-    /// Compact Dutch labels for the strong attribute axes (max 2) — the eyeball UI.
-    static func attributeBadges(_ attrs: [String: Float]) -> [String] {
-        guard !attrs.isEmpty else { return [] }
-        let rules: [(key: String, high: String, low: String)] = [
-            ("valence", "Vrolijk", "Melancholisch"),
-            ("danceability", "Dansbaar", ""),
-            ("acousticness", "Akoestisch", "Elektronisch"),
-            ("instrumentalness", "Instrumentaal", ""),
-        ]
-        var out: [String] = []
-        for r in rules {
-            guard let v = attrs[r.key] else { continue }
-            if v >= 0.62, !r.high.isEmpty { out.append(r.high) }
-            else if v <= 0.38, !r.low.isEmpty { out.append(r.low) }
-            if out.count >= 2 { break }
-        }
-        return out
     }
 
     // MARK: Visualizer — beat-driven equalizer fed by the analyzer's BPM/energy/

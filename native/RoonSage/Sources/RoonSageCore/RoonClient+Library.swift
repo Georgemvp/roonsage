@@ -111,6 +111,10 @@ extension RoonClient {
 
     public func selectZone(_ id: String) {
         selectedZoneID = id
+        // Picking a real zone deselects the on-device output, so "play" actions
+        // and the Now Playing screen follow the zone again. (Any local playback
+        // that's still engaged keeps going until the user stops it.)
+        localOutputSelected = false
         // Persist so the choice survives relaunch (see init restore). An explicit
         // pick is the only thing that should make a "play" action target a zone
         // that isn't already playing.

@@ -440,11 +440,19 @@ public struct GenerateView: View {
     private var playRow: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             HStack(spacing: Spacing.sm) {
-                Button { model.playAll(client: client) } label: {
+                // Follows the active output: the selected zone, or this device when
+                // "dit apparaat" is the chosen output.
+                Button {
+                    if client.localOutputSelected {
+                        Task { await client.playLocally(model.tracks) }
+                    } else {
+                        model.playAll(client: client)
+                    }
+                } label: {
                     Label("Speel alles", systemImage: "play.fill").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(client.selectedZone == nil || model.tracks.isEmpty)
+                .disabled(!client.hasActiveOutput || model.tracks.isEmpty)
 
                 // Local playback needs no zone — always offered alongside Roon.
                 LocalPlayButton(style: .labeled) { model.tracks }
@@ -452,7 +460,7 @@ public struct GenerateView: View {
                     .disabled(model.tracks.isEmpty)
                     .frame(maxWidth: .infinity)
             }
-            if client.selectedZone == nil {
+            if !client.hasActiveOutput {
                 Text("Geen zone gekozen — “Op dit apparaat” speelt lokaal af.")
                     .font(.caption).foregroundStyle(.secondary)
             }

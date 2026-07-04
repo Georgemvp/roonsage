@@ -7,9 +7,21 @@ import RoonSageCore
 /// instrumental note, or a "not found" state.
 @MainActor
 struct LyricsView: View {
+    /// Where the now-playing track (and live position) comes from: a Roon zone
+    /// or the on-device player. Lets the same karaoke view serve both heroes.
+    enum Source {
+        case zone(Zone)
+        case device
+    }
+
     @Environment(RoonClient.self) private var client
     @Environment(\.dismiss) private var dismiss
-    let zone: Zone
+    private let source: Source
+
+    /// Lyrics for a Roon zone's now-playing track.
+    init(zone: Zone) { self.source = .zone(zone) }
+    /// Lyrics for the track playing on this device (local engine).
+    init() { self.source = .device }
 
     @State private var lyrics: Lyrics?
     @State private var loading = true
@@ -23,7 +35,7 @@ struct LyricsView: View {
     var body: some View {
         NavigationStack {
             content
-                .navigationTitle(zone.nowPlaying?.title ?? "Songtekst")
+                .navigationTitle(nowPlaying?.title ?? "Songtekst")
                 #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
                 #endif
@@ -33,10 +45,37 @@ struct LyricsView: View {
                     }
                 }
         }
-        .task(id: zone.nowPlaying?.title) { await load() }
-        .onAppear { setAnchor(zone.seekPosition ?? 0) }
-        .onChange(of: zone.seekPosition) { _, p in setAnchor(p ?? 0) }
+        .task(id: nowPlaying?.title) { await load() }
+        .onAppear { setAnchor(zoneSeekPosition ?? 0) }
+        .onChange(of: zoneSeekPosition) { _, p in setAnchor(p ?? 0) }
         .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { _ in tick() }
+    }
+
+    // MARK: Source adapters — resolve the now-playing track, live position and
+    // seeking from either a Roon zone or the on-device player.
+
+    private var nowPlaying: (title: String, artist: String?, album: String?, length: Int?)? {
+        switch source {
+        case .zone(let z):
+            guard let n = z.nowPlaying else { return nil }
+            return (n.title, n.artist, n.album, n.length)
+        case .device:
+            guard let c = client.localPlayback.current else { return nil }
+            return (c.title, c.artist, c.album, c.durationSec.map { Int($0) })
+        }
+    }
+
+    /// The zone's reported seek position; nil for on-device (its engine publishes
+    /// a live `positionSec` we read directly, so no anchoring is needed).
+    private var zoneSeekPosition: Double? {
+        if case .zone(let z) = source { return z.seekPosition } else { return nil }
+    }
+
+    private func seekTo(_ seconds: Double) {
+        switch source {
+        case .zone(let z): Task { await client.seek(zoneID: z.id, seconds: seconds) }
+        case .device: client.localPlayback.seek(toSeconds: seconds)
+        }
     }
 
     @ViewBuilder
@@ -80,7 +119,7 @@ struct LyricsView: View {
                             .onTapGesture {
                                 Haptics.tap()
                                 setAnchor(line.time)
-                                Task { await client.seek(zoneID: zone.id, seconds: line.time) }
+                                seekTo(line.time)
                             }
                     }
                 }
@@ -112,12 +151,19 @@ struct LyricsView: View {
     }
 
     private func tick() {
-        guard zone.state == .playing else { return }
-        position = anchorPos + Date().timeIntervalSince(anchorDate)
+        switch source {
+        case .zone(let z):
+            guard z.state == .playing else { return }
+            position = anchorPos + Date().timeIntervalSince(anchorDate)
+        case .device:
+            // The local engine already publishes a ~2 Hz position — track it
+            // directly instead of interpolating from an anchor.
+            position = client.localPlayback.positionSec
+        }
     }
 
     private func load() async {
-        guard let np = zone.nowPlaying else { loading = false; return }
+        guard let np = nowPlaying else { loading = false; return }
         loading = true
         // Ask the server-of-record: it serves the cached DB row or fetches from
         // LRCLIB on demand and stores it (thin clients never hit LRCLIB directly).
