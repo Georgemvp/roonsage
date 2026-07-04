@@ -161,7 +161,7 @@ extension View {
     /// Pins the shared `NowPlayingBar` above this view's bottom edge. Pass
     /// `hidden: true` on the Now Playing screen itself (where the full hero
     /// already shows and controls playback) to avoid a duplicate transport.
-    @ViewBuilder
+    @MainActor @ViewBuilder
     public func nowPlayingBarInset(hidden: Bool = false) -> some View {
         self.safeAreaInset(edge: .bottom, spacing: 0) {
             if !hidden { NowPlayingBar() }
