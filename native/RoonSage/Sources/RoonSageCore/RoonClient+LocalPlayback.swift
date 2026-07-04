@@ -31,12 +31,12 @@ extension RoonClient {
     /// The on-device playback engine — the UI binds to its observable state.
     public var localPlayback: LocalPlaybackController { .shared }
 
-    /// Whether the user chose to listen on this device instead of a Roon zone.
-    /// Persisted so it survives relaunch.
-    public var localOutputSelected: Bool {
-        get { UserDefaults.standard.bool(forKey: "local_output_selected") }
-        set { UserDefaults.standard.set(newValue, forKey: "local_output_selected") }
-    }
+    // `localOutputSelected` is a STORED, observable property on RoonClient (see
+    // RoonClient.swift) — not a UserDefaults-backed computed one. It must be
+    // observable: NowPlayingView keys its "local vs zone" branch on it, so a
+    // non-observable value left the screen stale when you picked a zone (the
+    // child OutputSelector updated, the outer branch didn't). Persistence to
+    // UserDefaults happens in the property's didSet.
 
     /// Experimental: also stream Qobuz-in-library tracks to this device via
     /// Qobuz's unofficial API. Off by default (ToS-gray, needs the app_secret).

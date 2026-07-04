@@ -240,6 +240,15 @@ public final class RoonClient {
     public internal(set) var corePort: UInt16 = 9330
     public internal(set) var selectedZoneID: String?
 
+    /// Whether the user chose to listen on this device instead of a Roon zone.
+    /// STORED + observable (unlike the old UserDefaults-computed version) so that
+    /// SwiftUI re-renders the moment it flips — NowPlayingView branches on it, and
+    /// a non-observable value left the screen stuck on the local player after
+    /// picking a zone. Persisted to UserDefaults in didSet; restored at init.
+    public internal(set) var localOutputSelected: Bool = UserDefaults.standard.bool(forKey: "local_output_selected") {
+        didSet { UserDefaults.standard.set(localOutputSelected, forKey: "local_output_selected") }
+    }
+
     public var selectedZone: Zone? {
         if let id = selectedZoneID, let z = zoneMap[id] { return z }
         // Never silently fall back to an arbitrary idle zone: doing so once
