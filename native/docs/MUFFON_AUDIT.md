@@ -29,7 +29,7 @@ Legenda: ⬜ open · 🔶 in uitvoering · ✅ geshipt · ⏸️ bewust uitgeste
 
 | # | Feature | Muffon-inspiratie | Impact | Status |
 |---|---------|-------------------|--------|--------|
-| A | **Navigeerbare graph** — elke track is een sprongpunt naar "sonisch vergelijkbaar"; elk resultaat wordt de volgende seed (recursief). Instap vanuit Now Playing, album-tracklist én track-Info | muffons hyperlinked browsing (artist→albums/tracks/similar; tag→artists/albums) | ⭐ groot | ✅ v1.10.106 |
+| A | **Navigeerbare graph** — elke track is een sprongpunt naar "sonisch vergelijkbaar"; elk resultaat wordt de volgende seed (recursief). Instap vanuit Now Playing, album-tracklist, track-Info, **Bibliotheek-rijen én Wachtrij** | muffons hyperlinked browsing (artist→albums/tracks/similar; tag→artists/albums) | ⭐ groot | ✅ v1.10.106 (+109 breder bereik) |
 | B1 | **Multitag / multi-genre discovery** — stapel genres (AND/OR) + decennium, vind de kruising in je bibliotheek | multitag search (artists/albums) | midden | ✅ v1.10.106 |
 | B2 | **Bookmarks / "Bewaar voor later"** — lichte listen-later-lijst over tracks/albums/artiesten, los van favorieten | bookmarks (multi-type) | midden | ✅ v1.10.105 |
 | B3 | **Recent-hub** — browsable "recent gespeelde artiesten/albums/tracks" met her-ingang op bestaande `listening_history` | Listened (artists/albums/tracks) | klein | ✅ v1.10.105 |

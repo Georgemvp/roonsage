@@ -23,6 +23,7 @@ public struct LibraryView: View {
     @State private var showSaveSheet = false
     @State private var newPlaylistName = ""
     @State private var infoTrack: DatabaseManager.LibraryTrackRow?
+    @State private var similarSeed: SonicSeed?
 
     /// Library browsing modes: a flat track list, or a grid of albums / artists.
     enum ViewMode: String, CaseIterable, Identifiable {
@@ -176,6 +177,7 @@ public struct LibraryView: View {
         .onChange(of: client.trackCount) { _, _ in reload() }
         .onAppear { reload() }
         .sheet(item: $infoTrack) { TrackInfoSheet(track: $0) }
+        .similarTracksSheet(item: $similarSeed)
         .alert("Bewaar als playlist", isPresented: $showSaveSheet) {
             TextField("Naam playlist", text: $newPlaylistName)
             Button("Annuleer", role: .cancel) {}
@@ -338,6 +340,10 @@ public struct LibraryView: View {
             guard let zone = client.selectedZone else { return }
             Task { await client.playSonicRadio(title: track.title, artist: track.artist, album: track.album, zoneID: zone.id) }
         }.disabled(client.selectedZone == nil)
+        Button("Sonisch vergelijkbaar", systemImage: "waveform.path.ecg") {
+            similarSeed = SonicSeed(title: track.title, artist: track.artist,
+                                    album: track.album, imageKey: track.imageKey)
+        }
         Divider()
         Button("Info", systemImage: "info.circle") { infoTrack = track }
         Button("Bewaar als playlist…") {

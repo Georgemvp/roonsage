@@ -9,6 +9,7 @@ public struct QueueView: View {
     @Environment(RoonClient.self) private var client
     @State private var showSaveSheet = false
     @State private var newPlaylistName = ""
+    @State private var similarSeed: SonicSeed?
 
     public var body: some View {
         Group {
@@ -48,6 +49,12 @@ public struct QueueView: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture { playFromHere(item) }
+                        .contextMenu {
+                            Button("Sonisch vergelijkbaar", systemImage: "waveform.path.ecg") {
+                                similarSeed = SonicSeed(title: item.title, artist: item.subtitle,
+                                                        album: nil, imageKey: item.imageKey)
+                            }
+                        }
                         .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(queueLabel(item, isNowPlaying: index == 0))
@@ -58,6 +65,7 @@ public struct QueueView: View {
             }
         }
         .navigationTitle("Wachtrij")
+        .similarTracksSheet(item: $similarSeed)
         .toolbar { if client.selectedZone != nil { queueOptions } }
         .onAppear(perform: restart)
         .onChange(of: client.selectedZone?.id) { _, _ in restart() }
