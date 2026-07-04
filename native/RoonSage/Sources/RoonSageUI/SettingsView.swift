@@ -194,7 +194,7 @@ public struct SettingsView: View {
                             .disabled(serverToken.trimmingCharacters(in: .whitespaces) == savedServerToken)
                     }
                     .animation(Motion.quick, value: tokenSaved)
-                    Text("Haalt instellingen, de muziekbibliotheek en de analyses op van de RoonSage-server (de analyzer op je always-on Mac). Je hoeft hier niets in te vullen: dit apparaat meldt zich automatisch aan en verschijnt op de server onder ‘Apparaten’, waar je het met één tik goedkeurt. (Het veld is alleen nodig als je liever de master-token handmatig plakt.)")
+                    Text("Haalt instellingen, de muziekbibliotheek en de analyses op van de RoonSage-server (de analyzer op je always-on Mac). Je hoeft hier niets in te vullen: dit apparaat meldt zich automatisch aan en verschijnt op de server onder ‘Apparaten’, waar je het met één tik goedkeurt. (Het veld is alleen nodig als je liever de master-token handmatig plakt.) De app onthoudt álle adressen van de server (thuisnetwerk én ZeroTier) en kiest onderweg op 4G/5G automatisch het adres dat bereikbaar is.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

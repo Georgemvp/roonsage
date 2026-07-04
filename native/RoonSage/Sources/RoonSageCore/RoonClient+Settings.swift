@@ -133,6 +133,9 @@ extension RoonClient {
     public func syncEverythingFromServer(baseURL: String) async -> ServerSyncResult? {
         let trimmed = baseURL.trimmingCharacters(in: .whitespaces)
         UserDefaults.standard.set(trimmed, forKey: "library_import_url")
+        // A manually entered address (typically the ZeroTier IP) must survive
+        // later Bonjour re-discoveries at home — keep it in the candidate list.
+        Self.rememberServerHosts([trimmed])
         guard await importSettings(fromMac: trimmed) else { return nil }
         guard let tracks = await importLibrary(fromMac: trimmed) else { return nil }
 

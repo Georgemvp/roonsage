@@ -29,7 +29,7 @@ import UIKit
 ///   POST /discovery/accept | /discovery/play | /discovery/reject → DiscoveryActionRequest
 ///   POST /discovery/run    → kick a pipeline pass ({"ok":true})
 ///   GET  /discovery/run-status → DiscoveryRunStatus
-///   GET  /health   → {"tracks": n}
+///   GET  /health   → {"status":"ok","tracks":n,"hosts":[all server IPv4s]}
 public final class LibraryShareServer: @unchecked Sendable {
     public static let defaultPort: UInt16 = 5767   // 5766 is the analyzer
 
@@ -572,9 +572,41 @@ public final class LibraryShareServer: @unchecked Sendable {
         }
         if path.hasPrefix("/health") {
             let n = (try? await database.trackCount()) ?? 0
-            return ("200 OK", Data("{\"status\":\"ok\",\"tracks\":\(n)}".utf8), "application/json")
+            // Advertise every address this machine answers on (LAN + ZeroTier).
+            // Clients remember them all, so a phone that leaves the house can
+            // reach us on the ZeroTier address over 4G/5G — where Bonjour can't
+            // help and the LAN address is dead. Addresses only, no secrets;
+            // /health is deliberately token-free for discovery.
+            let hosts = Self.localIPv4Addresses()
+            let obj: [String: Any] = ["status": "ok", "tracks": n, "hosts": hosts]
+            let data = (try? JSONSerialization.data(withJSONObject: obj))
+                ?? Data("{\"status\":\"ok\",\"tracks\":\(n)}".utf8)
+            return ("200 OK", data, "application/json")
         }
         return ("404 Not Found", Data("not found".utf8), "text/plain")
+    }
+
+    /// All IPv4 addresses of active interfaces, loopback and link-local
+    /// excluded. Includes VPN/overlay interfaces (ZeroTier's feth/utun), which
+    /// is the point: it's the address a remote client needs when off-LAN.
+    static func localIPv4Addresses() -> [String] {
+        var addresses: [String] = []
+        var first: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&first) == 0, let first else { return addresses }
+        defer { freeifaddrs(first) }
+        for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let ifa = ptr.pointee
+            guard let sa = ifa.ifa_addr, sa.pointee.sa_family == sa_family_t(AF_INET),
+                  (ifa.ifa_flags & UInt32(IFF_UP)) != 0,
+                  (ifa.ifa_flags & UInt32(IFF_LOOPBACK)) == 0 else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            guard getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count),
+                              nil, 0, NI_NUMERICHOST) == 0 else { continue }
+            let addr = String(cString: host)
+            guard !addr.isEmpty, !addr.hasPrefix("169.254.") else { continue }
+            if !addresses.contains(addr) { addresses.append(addr) }
+        }
+        return addresses
     }
 
     // MARK: - Tiny HTTP parse helpers

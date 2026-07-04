@@ -163,6 +163,9 @@ public final class RoonClient {
     var remotePollFailures = 0
     /// Guards against overlapping auto library re-imports while one is running.
     var isImportingFromServer = false
+    /// Guards against overlapping re-discoveries triggered by failed polls
+    /// (network switch: the poll loop keeps failing while one runs).
+    var isRediscovering = false
     /// One-shot guard so the lyrics backfill trickle starts at most once per launch.
     var lyricsBackfillStarted = false
     /// Re-issues the zones subscription when its initial state never arrives.

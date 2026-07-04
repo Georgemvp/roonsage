@@ -42,6 +42,10 @@ extension RoonClient {
     /// sync's resolution: the configured analyzer URL, else the server host on
     /// the analyzer's default port.
     func localStreamBase() -> String {
+        // Live connection first: featuresURL follows the host we're actually
+        // connected over (LAN at home, ZeroTier on mobile data) — the stored
+        // analyzer URL would pin /audio streaming to the LAN address.
+        if isRemote, let base = remoteBaseURL { return featuresURL(serverBase: base) }
         if !analyzerURL.isEmpty { return analyzerURL }
         if let base = remoteBaseURL { return featuresURL(serverBase: base) }
         return ""

@@ -117,6 +117,31 @@ extension RoonClient {
         UserDefaults.standard.set(id, forKey: "selected_zone_id")
     }
 
+    // MARK: - Known server hosts (multi-endpoint memory)
+
+    /// Every address the server was ever reached (or advertised) at — LAN IP
+    /// *and* ZeroTier IP side by side. Before this list existed the app pinned
+    /// a single URL, and each Bonjour re-discovery at home overwrote the
+    /// ZeroTier address with the LAN one — leaving nothing reachable to try on
+    /// 4G/5G. Most-recent-first, capped; entries are bare hosts (no scheme/port).
+    static let knownServerHostsKey = "known_server_hosts"
+
+    static func knownServerHosts() -> [String] {
+        UserDefaults.standard.stringArray(forKey: knownServerHostsKey) ?? []
+    }
+
+    static func rememberServerHosts(_ rawHosts: [String]) {
+        var list = knownServerHosts()
+        for raw in rawHosts {
+            let h = normalizeHost(raw)
+            guard !h.isEmpty, !isLoopback(h), !h.hasPrefix("169.254.") else { continue }
+            list.removeAll { $0 == h }
+            list.insert(h, at: 0)
+        }
+        if list.count > 8 { list = Array(list.prefix(8)) }
+        UserDefaults.standard.set(list, forKey: knownServerHostsKey)
+    }
+
     // MARK: - Library sync
 
     /// Find a Mac that's sharing its library, without typing an address: the
@@ -137,6 +162,11 @@ extension RoonClient {
         // a stale saved host after a DHCP change. The known hosts below stay as a
         // fallback for networks where multicast/Bonjour is blocked.
         for r in await BonjourDiscovery.discover() { hosts.append(r.host) }
+        // All addresses the server was ever seen at (LAN + ZeroTier). This is
+        // what makes discovery work on 4G/5G: Bonjour finds nothing there and
+        // the LAN address is unroutable, but the remembered ZeroTier address
+        // answers — the parallel probe below simply picks whichever responds.
+        for h in Self.knownServerHosts() { addHost(fromURL: h) }
         if let h = savedHost { addHost(fromURL: h) }
         addHost(fromURL: analyzerURL)
         addHost(fromURL: LLMConfigStore.load().baseURL)
@@ -145,24 +175,30 @@ extension RoonClient {
         let candidates = hosts.filter { seen.insert($0).inserted }
         guard !candidates.isEmpty else { return nil }
 
-        return await withTaskGroup(of: String?.self) { group in
+        return await withTaskGroup(of: (base: String, advertised: [String])?.self) { group in
             for host in candidates {
                 group.addTask {
                     let base = "http://\(host):\(LibraryShareServer.defaultPort)"
                     guard let url = URL(string: "\(base)/health") else { return nil }
                     var req = URLRequest(url: url)
-                    req.timeoutInterval = 2
+                    // 4 s, not 2: the first round-trip over ZeroTier on mobile
+                    // data can be relayed and slow. On LAN the server answers in
+                    // milliseconds, so the race isn't delayed by this.
+                    req.timeoutInterval = 4
                     guard let (data, resp) = try? await URLSession.shared.data(for: req),
                           (resp as? HTTPURLResponse)?.statusCode == 200,
                           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                           (obj["tracks"] as? Int ?? 0) > 0 else { return nil }
-                    return base
+                    return (base, obj["hosts"] as? [String] ?? [])
                 }
             }
             for await result in group {
-                if let result {
+                if let (base, advertised) = result {
                     group.cancelAll()
-                    return result
+                    // Remember the winner and everything it advertises, so the
+                    // next network switch has the full candidate set ready.
+                    Self.rememberServerHosts(advertised + [base])
+                    return base
                 }
             }
             return nil

@@ -175,16 +175,19 @@ extension RoonClient {
                       let h = URL(string: saved)?.host, !Self.isLoopback(h) {
                 remoteBaseURL = saved
             }
-            // Remember the live address so the connect screen and next launch
-            // reconnect straight to it (never a loopback address).
-            if let base = remoteBaseURL, let host = URL(string: base)?.host, !Self.isLoopback(host) {
-                persistHost(host, port: LibraryShareServer.defaultPort)
-                UserDefaults.standard.set(base, forKey: "library_import_url")
-            }
         }
-        guard remoteBaseURL != nil else {
+        guard let live = remoteBaseURL else {
             connectionState = .failed("Geen RoonSage-server gevonden op het netwerk.")
             return
+        }
+        // Remember the live address so the connect screen and next launch
+        // reconnect straight to it (never a loopback address). Outside the
+        // discovery branch on purpose: a manually typed address that was
+        // directly reachable used to skip persistence entirely.
+        if let host = URL(string: live)?.host, !Self.isLoopback(host) {
+            persistHost(host, port: LibraryShareServer.defaultPort)
+            UserDefaults.standard.set(live, forKey: "library_import_url")
+            Self.rememberServerHosts([host])
         }
         startRemotePolling()
         await pollPlaybackOnce()
@@ -196,8 +199,15 @@ extension RoonClient {
         guard let url = URL(string: "\(base)/health") else { return false }
         var req = URLRequest(url: url)
         req.timeoutInterval = 3
-        guard let (_, resp) = try? await URLSession.shared.data(for: req),
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return false }
+        // Piggyback: /health advertises every address the server answers on
+        // (LAN + ZeroTier). Harvest them on each successful check so the phone
+        // already knows the ZeroTier address before it ever leaves the house.
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let advertised = obj["hosts"] as? [String], !advertised.isEmpty {
+            Self.rememberServerHosts(advertised)
+        }
         return true
     }
 
@@ -246,7 +256,20 @@ extension RoonClient {
             // Transient blip — keep last-known zones and only fall back to the
             // connect screen after several misses in a row.
             remotePollFailures += 1
-            if remotePollFailures >= 5 { connectionState = .disconnected }
+            if remotePollFailures >= 5 {
+                connectionState = .disconnected
+                // A network switch (wifi → 4G/5G) leaves the old address dead
+                // while the server is still reachable on another one (ZeroTier).
+                // Re-discover across all known addresses instead of polling the
+                // dead IP forever; every-5th-failure so we don't browse per poll.
+                if remotePollFailures % 5 == 0, !isRediscovering {
+                    isRediscovering = true
+                    Task { [weak self] in
+                        await self?.startServerMode()
+                        self?.isRediscovering = false
+                    }
+                }
+            }
             return
         }
 
@@ -254,10 +277,13 @@ extension RoonClient {
         zoneMap = Dictionary(uniqueKeysWithValues: snap.zones.map { ($0.id, $0) })
         queueItems = snap.queueItems
         // The server reports the Core host as it sees it; when the Core runs on
-        // the server itself that's loopback, useless to a remote client. Use the
-        // server's address so album art (Core /api/image) loads.
+        // the server itself that's loopback — or its LAN address, which is one
+        // of the server's own advertised addresses and equally unreachable from
+        // 4G/5G. In both cases use the address this connection actually runs
+        // over, so album art (Core /api/image) loads off-LAN too.
         if let host = snap.coreHost {
-            coreHost = (Self.isLoopback(host) ? serverHost : host) ?? host
+            let isServerItself = Self.isLoopback(host) || Self.knownServerHosts().contains(host)
+            coreHost = (isServerItself ? serverHost : host) ?? host
         }
         corePort = UInt16(snap.corePort)
         trackCount = snap.trackCount
@@ -299,6 +325,17 @@ extension RoonClient {
     /// derived value so later syncs have it.
     func featuresURL(serverBase: String) -> String {
         let a = analyzerURL
+        // Remote client: share server (5767) and analyzer (5766) are the same
+        // machine, so follow the host of the LIVE connection. The stored
+        // analyzer URL usually carries the LAN address, which is unreachable on
+        // 4G/5G while the connection itself runs over the ZeroTier address —
+        // features sync and local playback (/audio) must move along with it.
+        // Not persisted to `analyzerURL`, so the setting doesn't flip-flop
+        // between networks.
+        if isRemote, let host = URL(string: serverBase)?.host {
+            let port = URL(string: a)?.port ?? 5766
+            return "http://\(host):\(port)"
+        }
         if !a.isEmpty { return a }
         if let host = URL(string: serverBase)?.host {
             let derived = "http://\(host):5766"
