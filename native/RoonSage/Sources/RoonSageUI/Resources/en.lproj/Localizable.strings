@@ -32,3 +32,26 @@
 "section.create"   = "Create";
 "section.explore"  = "Explore";
 "section.settings" = "System";
+
+/* Settings / language */
+"lang.system"       = "System";
+"settings.language" = "Language";
+
+/* Saved (bookmarks) */
+"bm.section.tracks"  = "Tracks";
+"bm.section.albums"  = "Albums";
+"bm.section.artists" = "Artists";
+"bm.empty.title"     = "Nothing saved";
+"bm.empty.desc"      = "Tap the bookmark icon on a track, album or artist to save it here for later.";
+"bm.playNow"         = "Play now";
+"bm.remove"          = "Remove from saved";
+"action.delete"      = "Delete";
+"resolve.notFound"   = "Couldn't find this in your library.";
+
+/* Recent */
+"recent.pivot.tracks"  = "Tracks";
+"recent.pivot.artists" = "Artists";
+"recent.pivot.albums"  = "Albums";
+"recent.empty.title"   = "Nothing played yet";
+"recent.empty.desc"    = "Your recent history appears here once you start playing music.";
+"recent.pivotLabel"    = "View";

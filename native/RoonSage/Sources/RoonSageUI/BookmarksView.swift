@@ -45,9 +45,9 @@ struct BookmarksView: View {
 
     private var groups: [Group] {
         let order: [(String, String, String)] = [
-            ("track", "Nummers", "music.note"),
-            ("album", "Albums", "square.stack"),
-            ("artist", "Artiesten", "person.2"),
+            ("track", LS("bm.section.tracks"), "music.note"),
+            ("album", LS("bm.section.albums"), "square.stack"),
+            ("artist", LS("bm.section.artists"), "person.2"),
         ]
         return order.compactMap { kind, title, icon in
             let items = client.bookmarks.filter { $0.kind == kind }
@@ -73,12 +73,12 @@ struct BookmarksView: View {
             #endif
         } empty: {
             ContentUnavailableView {
-                Label("Niets bewaard", systemImage: "bookmark")
+                Label { LT("bm.empty.title") } icon: { Image(systemName: "bookmark") }
             } description: {
-                Text("Tik op het bladwijzer-icoon bij een nummer, album of artiest om het hier voor later te bewaren.")
+                LT("bm.empty.desc")
             }
         }
-        .navigationTitle("Bewaard")
+        .navigationTitle(LS("nav.bookmarks"))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.large)
         #endif
@@ -114,13 +114,13 @@ struct BookmarksView: View {
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
                 remove(entry)
-            } label: { Label("Verwijder", systemImage: "trash") }
+            } label: { Label { LT("action.delete") } icon: { Image(systemName: "trash") } }
         }
         .contextMenu {
-            Button("Speel nu", systemImage: "play.fill") { play(entry) }
+            Button { play(entry) } label: { Label { LT("bm.playNow") } icon: { Image(systemName: "play.fill") } }
                 .disabled(!client.hasActiveOutput)
-            Button("Verwijder uit bewaard", systemImage: "bookmark.slash", role: .destructive) {
-                remove(entry)
+            Button(role: .destructive) { remove(entry) } label: {
+                Label { LT("bm.remove") } icon: { Image(systemName: "bookmark.slash") }
             }
         }
     }
@@ -144,7 +144,7 @@ struct BookmarksView: View {
             let records = await client.resolveBookmark(entry)
             busyKey = nil
             guard !records.isEmpty else {
-                client.reportError("Kon dit niet terugvinden in de bibliotheek.")
+                client.reportError(LS("resolve.notFound"))
                 return
             }
             await client.playToActiveOutput(records)

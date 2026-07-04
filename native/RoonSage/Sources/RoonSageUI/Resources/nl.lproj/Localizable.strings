@@ -32,3 +32,26 @@
 "section.create"   = "Maak";
 "section.explore"  = "Ontdek";
 "section.settings" = "Systeem";
+
+/* Settings / language */
+"lang.system"       = "Systeem";
+"settings.language" = "Taal";
+
+/* Bewaard (bookmarks) */
+"bm.section.tracks"  = "Nummers";
+"bm.section.albums"  = "Albums";
+"bm.section.artists" = "Artiesten";
+"bm.empty.title"     = "Niets bewaard";
+"bm.empty.desc"      = "Tik op het bladwijzer-icoon bij een nummer, album of artiest om het hier voor later te bewaren.";
+"bm.playNow"         = "Speel nu";
+"bm.remove"          = "Verwijder uit bewaard";
+"action.delete"      = "Verwijder";
+"resolve.notFound"   = "Kon dit niet terugvinden in de bibliotheek.";
+
+/* Recent */
+"recent.pivot.tracks"  = "Nummers";
+"recent.pivot.artists" = "Artiesten";
+"recent.pivot.albums"  = "Albums";
+"recent.empty.title"   = "Nog niks gespeeld";
+"recent.empty.desc"    = "Zodra je muziek afspeelt verschijnt hier je recente geschiedenis.";
+"recent.pivotLabel"    = "Weergave";

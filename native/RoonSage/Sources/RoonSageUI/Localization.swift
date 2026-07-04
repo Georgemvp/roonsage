@@ -15,12 +15,69 @@ import SwiftUI
 //   let s = "Instellingen"       → let s = LS("nav.settings")
 // then add the key to both `nl.lproj` and `en.lproj`.
 
-/// Localized `String`, resolved against the RoonSageUI bundle.
-public func LS(_ key: String.LocalizationValue) -> String {
-    String(localized: key, bundle: .module)
+/// In-app language override. `system` follows the OS; the others force a locale
+/// so the user can flip the app's language without changing their whole Mac/phone
+/// — the switch is live because `LS` reads this on every call and `LT`/`Text`
+/// resolve against the `\.locale` environment we pin at the root.
+public enum LocalePreference: String, CaseIterable, Identifiable, Sendable {
+    case system, nl, en
+
+    public var id: String { rawValue }
+
+    /// Label for the settings picker (shown in the *current* UI language).
+    public var label: String {
+        switch self {
+        case .system: LS("lang.system")
+        case .nl:     "Nederlands"
+        case .en:     "English"
+        }
+    }
+
+    /// The forced locale, or `nil` to follow the system.
+    public var locale: Locale? {
+        switch self {
+        case .system: nil
+        case .nl:     Locale(identifier: "nl")
+        case .en:     Locale(identifier: "en")
+        }
+    }
+
+    /// Current stored preference (read straight from UserDefaults so free
+    /// functions like `LS` can honour it without a SwiftUI environment).
+    public static var current: LocalePreference {
+        LocalePreference(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "system") ?? .system
+    }
 }
 
-/// Localized `Text`, resolved against the RoonSageUI bundle.
+/// Localized `String`, resolved against the RoonSageUI bundle and honouring the
+/// in-app language override.
+public func LS(_ key: String.LocalizationValue) -> String {
+    if let loc = LocalePreference.current.locale {
+        return String(localized: key, bundle: .module, locale: loc)
+    }
+    return String(localized: key, bundle: .module)
+}
+
+/// Localized `Text`, resolved against the RoonSageUI bundle. Respects the
+/// `\.locale` environment (pinned at the root by `.appLanguage()`).
 public func LT(_ key: LocalizedStringKey) -> Text {
     Text(key, bundle: .module)
+}
+
+/// Pins the app's `\.locale` from the stored language override. Reactive: changing
+/// the preference re-resolves every `Text`/`LT` beneath it. Apply once at the root.
+private struct AppLanguageModifier: ViewModifier {
+    @AppStorage("appLanguage") private var lang: LocalePreference = .system
+    func body(content: Content) -> some View {
+        if let loc = lang.locale {
+            content.environment(\.locale, loc)
+        } else {
+            content
+        }
+    }
+}
+
+public extension View {
+    /// Apply the in-app language override at the app root.
+    func appLanguage() -> some View { modifier(AppLanguageModifier()) }
 }

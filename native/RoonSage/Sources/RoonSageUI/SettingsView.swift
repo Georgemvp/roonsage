@@ -22,6 +22,7 @@ public struct SettingsView: View {
     @AppStorage("accentChoice") private var accent: AccentChoice = .gold
     @AppStorage("ambientIntensity") private var ambientIntensity: Double = 1.0
     @AppStorage("ambientWallpaper") private var ambientWallpaper: Bool = false
+    @AppStorage("appLanguage") private var appLanguage: LocalePreference = .system
     @AppStorage("showVisualizer") private var showVisualizer = true
     @State private var lastSync: String = "—"
 
@@ -133,6 +134,9 @@ public struct SettingsView: View {
                     }
                 }
                 Toggle("Visualizer bij 'Nu speelt'", isOn: $showVisualizer)
+                Picker(LS("settings.language"), selection: $appLanguage) {
+                    ForEach(LocalePreference.allCases) { Text($0.label).tag($0) }
+                }
             }
 
             // Ambient backdrop (C6): dial the album-art wash + optional wallpaper.

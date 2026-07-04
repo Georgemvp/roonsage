@@ -11,8 +11,15 @@ struct RecentView: View {
     @Environment(RoonClient.self) private var client
 
     private enum Pivot: String, CaseIterable, Identifiable {
-        case tracks = "Nummers", artists = "Artiesten", albums = "Albums"
+        case tracks, artists, albums
         var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .tracks:  LS("recent.pivot.tracks")
+            case .artists: LS("recent.pivot.artists")
+            case .albums:  LS("recent.pivot.albums")
+            }
+        }
     }
 
     @State private var recent: [DatabaseManager.ListenEntry] = []
@@ -22,8 +29,8 @@ struct RecentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Weergave", selection: $pivot) {
-                ForEach(Pivot.allCases) { Text($0.rawValue).tag($0) }
+            Picker(LS("recent.pivotLabel"), selection: $pivot) {
+                ForEach(Pivot.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
             .padding(Spacing.md)
@@ -32,13 +39,13 @@ struct RecentView: View {
                 content
             } empty: {
                 ContentUnavailableView {
-                    Label("Nog niks gespeeld", systemImage: "clock.arrow.circlepath")
+                    Label { LT("recent.empty.title") } icon: { Image(systemName: "clock.arrow.circlepath") }
                 } description: {
-                    Text("Zodra je muziek afspeelt verschijnt hier je recente geschiedenis.")
+                    LT("recent.empty.desc")
                 }
             }
         }
-        .navigationTitle("Recent")
+        .navigationTitle(LS("nav.recent"))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.large)
         #endif
@@ -139,7 +146,7 @@ struct RecentView: View {
             let records = await client.resolveBookmark(entry)
             busy = nil
             guard !records.isEmpty else {
-                client.reportError("Kon dit niet terugvinden in de bibliotheek.")
+                client.reportError(LS("resolve.notFound"))
                 return
             }
             await client.playToActiveOutput(records)

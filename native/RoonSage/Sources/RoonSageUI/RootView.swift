@@ -28,6 +28,7 @@ public struct ContentView: View {
         .animation(Motion.standard, value: client.hasLiveSession)
         .overlay(alignment: .bottom) { ActionErrorToast() }
         .roonSageAppearance()
+        .appLanguage()
         // Share the now-playing album-art tint with every tab, refreshed whenever
         // the current track's artwork changes.
         .environment(ambient)
@@ -395,7 +396,7 @@ struct RootView: View {
                     // whole bar and let the artwork run to the top.
                     .toolbar(.hidden, for: .navigationBar)
             }
-            .tabItem { Label("Nu speelt", systemImage: "play.circle.fill") }
+            .tabItem { Label { LT("nav.nowPlaying") } icon: { Image(systemName: "play.circle.fill") } }
             .tag(SidebarItem.nowPlaying)
 
             NavigationStack {
@@ -406,21 +407,21 @@ struct RootView: View {
                     .ambientSurface()
             }
             .nowPlayingBarInset()
-            .tabItem { Label("Bibliotheek", systemImage: "music.note.list") }
+            .tabItem { Label { LT("nav.library") } icon: { Image(systemName: "music.note.list") } }
             .tag(SidebarItem.library)
 
             NavigationStack {
                 iOSCreateHub.toolbar { navToolbar }.ambientSurface()
             }
             .nowPlayingBarInset()
-            .tabItem { Label("Maak", systemImage: "wand.and.stars") }
+            .tabItem { Label { LT("section.create") } icon: { Image(systemName: "wand.and.stars") } }
             .tag(SidebarItem.generate)
 
             NavigationStack {
                 iOSExploreHub.toolbar { navToolbar }.ambientSurface()
             }
             .nowPlayingBarInset()
-            .tabItem { Label("Ontdek", systemImage: "sparkles") }
+            .tabItem { Label { LT("nav.discovery") } icon: { Image(systemName: "sparkles") } }
             .tag(SidebarItem.discovery)
 
             NavigationStack {
@@ -431,7 +432,7 @@ struct RootView: View {
                     .ambientSurface()
             }
             .nowPlayingBarInset()
-            .tabItem { Label("Instellingen", systemImage: "gearshape") }
+            .tabItem { Label { LT("nav.settings") } icon: { Image(systemName: "gearshape") } }
             .tag(SidebarItem.settings)
         }
         .onChange(of: client.zones) { _, _ in

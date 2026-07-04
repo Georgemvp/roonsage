@@ -36,7 +36,7 @@ Legenda: ⬜ open · 🔶 in uitvoering · ✅ geshipt · ⏸️ bewust uitgeste
 | B4 | **Equalizer** voor lokaal afspelen | ingebouwde equalizer | midden | ⏸️ overslaan — lokaal = `AVPlayer` (geen `AVAudioEngine`), echte multiband-EQ vereist fragiele `MTAudioProcessingTap` op remote streams; Roon-zones hebben al top-DSP |
 | B5 | **Discord Rich Presence** | Discord Rich Presence | klein/fun | ⏸️ overslaan — externe afhankelijkheid (eigen Discord-app/client_id), niet runtime-testbaar hier |
 | C6 | **Achtergrond + transparantie personaliseren** — sfeer-intensiteitsslider (0–100%) + album-hoes-als-wallpaper toggle bovenop AmbientTheme | customizable background/transparency | klein | ✅ v1.10.106 |
-| C7 | **Localisatie** — `String(localized:)` + string-catalogus | 13 talen | groot/laag nut | 🔶 scaffolding v1.10.108 — `defaultLocalization: "nl"` + nl/en `Localizable.strings` + `LS()/LT()`-helper (via `Bundle.module`); nav-titels + secties geconverteerd als patroon. Rest verhuist incrementeel |
+| C7 | **Localisatie** — `String(localized:)` + string-catalogus | 13 talen | groot/laag nut | 🔶 v1.10.108 scaffolding + **v1.10.110 in-app taal-override** (Systeem/NL/EN, live via `\.locale` + `LS` leest override) — geconverteerd: nav + secties + iOS-tabs + Bewaard + Recent. Rest verhuist incrementeel via `LS()/LT()` |
 | D8 | **In-de-charts-facet** — bron-filter op de Ontdek-feed (producer=charts) via toolbar-menu | top charts (artists/albums/tracks/tags per land) | midden | ✅ v1.10.107 |
 | D9 | **Nieuwe-releases-facet** — bron-filter op de Ontdek-feed (producer=release-radar) via toolbar-menu | new/upcoming releases | midden | ✅ v1.10.107 |
 
