@@ -379,21 +379,24 @@ public final class FeatureStore {
         }
     }
 
-    /// Cheap signature of the feature corpus for HTTP response caching: any add
-    /// (count), embed, tag or attribute-backfill changes one of the COUNTs, so a
-    /// stale cache is never served. One query, all four counts.
+    /// Cheap signature of the feature corpus for HTTP response caching + the
+    /// server feature-sync's change gate: any add (count), embed, tag, enrichment
+    /// or attribute-backfill changes one of the COUNTs, so a stale cache is never
+    /// served and clients re-pull.
     public func contentSignature() -> String {
         (try? dbQueue.read { db in
             let r = try Row.fetchOne(db, sql: """
                 SELECT COUNT(*) AS c, COUNT(embedding) AS e, COUNT(tags) AS t, COUNT(attributes) AS a,
-                       COUNT(mb_genres) AS g, COUNT(popularity) AS p
+                       COUNT(mb_genres) AS g, COUNT(popularity) AS p,
+                       SUM(CASE WHEN attributes LIKE '%"arousal"%' THEN 1 ELSE 0 END) AS ar
                 FROM track_features
             """)
-            // `g` (MB-enriched count) + `p` (popularity count) folded in so a
-            // feature-sync re-runs as enrichment progresses — clients pull the new
-            // genres/popularity automatically.
-            return "\(r?["c"] as Int? ?? 0)/\(r?["e"] as Int? ?? 0)/\(r?["t"] as Int? ?? 0)/\(r?["a"] as Int? ?? 0)/\(r?["g"] as Int? ?? 0)/\(r?["p"] as Int? ?? 0)"
-        }) ?? "0/0/0/0/0/0"
+            // `g`/`p` fold in MB + popularity progress. `ar` (arousal coverage)
+            // is folded in because adding a NEW attribute AXIS to already-populated
+            // `attributes` JSON leaves COUNT(attributes) unchanged — without this
+            // term a re-derived axis would never propagate to clients / library.db.
+            return "\(r?["c"] as Int? ?? 0)/\(r?["e"] as Int? ?? 0)/\(r?["t"] as Int? ?? 0)/\(r?["a"] as Int? ?? 0)/\(r?["g"] as Int? ?? 0)/\(r?["p"] as Int? ?? 0)/\(r?["ar"] as Int? ?? 0)"
+        }) ?? "0/0/0/0/0/0/0"
     }
 
     /// Resolve a streamable on-disk file for a track's match key — backs the
