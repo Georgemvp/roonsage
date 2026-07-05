@@ -276,6 +276,14 @@ extension RoonClient {
         decade >= 2000 ? "Jaren \(decade)" : "Jaren \(decade % 100)"
     }
 
+    /// Plausible release-year window. Upper bound = next calendar year (pre-
+    /// releases). Rejects corrupt tags like "4010" that otherwise spawn a phantom
+    /// "Jaren 4010" station.
+    nonisolated static func isPlausibleYear(_ y: Int) -> Bool {
+        let nextYear = Calendar.current.component(.year, from: Date()) + 1
+        return y >= 1900 && y <= nextYear
+    }
+
     private nonisolated static func decadeBuckets(
         lib: [DatabaseManager.SonicTrack], years: [String: Int],
         disliked: Set<String>, daySeed: String
@@ -283,7 +291,7 @@ extension RoonClient {
         guard !years.isEmpty else { return [] }
         var byDecade: [Int: [DatabaseManager.SonicTrack]] = [:]
         for t in lib {
-            guard let y = years[t.matchKey], y >= 1900 else { continue }
+            guard let y = years[t.matchKey], isPlausibleYear(y) else { continue }
             byDecade[(y / 10) * 10, default: []].append(t)
         }
         // Newest decade first.

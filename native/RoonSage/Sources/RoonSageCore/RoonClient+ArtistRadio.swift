@@ -278,7 +278,20 @@ extension RoonClient {
         guard !seedKeys.isEmpty else { return [] }
         Self.saveSeedKeys(seedKeys)
 
-        return seedKeys.compactMap { key in
+        // Explicitly-selected artist radios that AREN'T among the 6 auto-seeds must
+        // still be built — otherwise ticking "artist:kathleenbattle" in the sync
+        // settings silently never mirrors it (the "18/21" gap). Union them in
+        // (qualifying only); they don't displace or get persisted as auto-seeds.
+        var allKeys = seedKeys
+        if let selection = radioSyncSelection {
+            let selectedArtistKeys = selection
+                .filter { $0.hasPrefix("artist:") }
+                .map { String($0.dropFirst("artist:".count)) }
+                .filter { qualifies($0) && !allKeys.contains($0) }
+            allKeys.append(contentsOf: selectedArtistKeys)
+        }
+
+        return allKeys.compactMap { key in
             guard let tracks = byArtist[key], !tracks.isEmpty else { return nil }
             let display = tracks.first(where: { !($0.artist?.isEmpty ?? true) })?.artist ?? key
             let img = tracks.first(where: { $0.imageKey?.isEmpty == false })?.imageKey

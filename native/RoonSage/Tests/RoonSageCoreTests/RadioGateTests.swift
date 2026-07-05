@@ -54,6 +54,14 @@ final class RadioGateTests: XCTestCase {
         XCTAssertFalse(gate(st("3")), "unknown year must not pass a decade gate")
     }
 
+    func testPlausibleYearRejectsCorruptTags() {
+        XCTAssertTrue(RoonClient.isPlausibleYear(1994))
+        XCTAssertTrue(RoonClient.isPlausibleYear(2020))
+        XCTAssertFalse(RoonClient.isPlausibleYear(4010), "corrupt future tag → phantom decade")
+        XCTAssertFalse(RoonClient.isPlausibleYear(1800))
+        XCTAssertFalse(RoonClient.isPlausibleYear(0))
+    }
+
     func testArtistAndSonicAndTrackHaveNoGate() {
         XCTAssertNil(RoonClient.bucketGate(radioID: "artist:radiohead"))
         XCTAssertNil(RoonClient.bucketGate(radioID: "sonic:12345"))
