@@ -59,6 +59,21 @@ final class RadioEngineTests: XCTestCase {
         XCTAssertFalse(r.contains { $0.track.id == "far" }, "hard-banned track is gone entirely")
     }
 
+    func testRelatedArtistBonusLiftsFanGraphNeighbour() {
+        // `mid` and a twin at the same distance: only the fan-graph membership
+        // differs, so the related artist must outrank the unrelated one.
+        let seed = track("seed", [1, 0, 0, 0], artist: "Seed")
+        let a = track("a", [0.70, 0.714, 0, 0], artist: "FanGraph")
+        let b = track("b", [0.70, 0, 0.714, 0], artist: "Stranger")
+        let lib = [seed, a, b]
+        let index = VectorIndex(tracks: lib)!
+        let opts = RadioEngine.Options(adventurousness: 0.35, poolLimit: 2, sequence: false)
+        let r = RadioEngine.rank(seeds: [seed], library: lib, index: index, options: opts,
+                                 relatedArtists: ["fangraph"], salt: "")
+        XCTAssertEqual(r.first?.track.id, "a",
+                       "the Deezer-related artist wins the equidistant tie: \(r.map { $0.track.id })")
+    }
+
     func testMMRDiversifiesAwayFromNearDuplicates() {
         // Two near-identical clusters; MMR should not return both cluster members
         // before reaching across to the other cluster.

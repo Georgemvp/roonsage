@@ -111,6 +111,7 @@ public enum RadioEngine {
         seedGenres: Set<String> = [],
         genresById: [String: Set<String>] = [:],
         seedWeights: [Double]? = nil,
+        relatedArtists: Set<String> = [],
         salt: String = ""
     ) -> [Result] {
         // Anchors: the seed vectors that exist in the index. Cap for cost.
@@ -209,6 +210,10 @@ public enum RadioEngine {
             let distanceNovelty = 1 - relAnchor                 // farther = more novel
             let familiarBonus = (1 - adv) * 0.15 * (isKnown ? 1 : 0)
             let discoveryBonus = adv * (0.18 * (isKnown ? 0 : 1) + 0.12 * distanceNovelty)
+            // Collaborative affinity: listeners of the seed artist also play this
+            // artist (Deezer fan graph). A flat, bounded nudge — global co-listen
+            // evidence complements sonic closeness at any dial position.
+            let relatedBonus = (!artist.isEmpty && relatedArtists.contains(artist)) ? relatedAffinityBonus : 0
             // Global-popularity steer: a low dial leans toward hits, a high dial
             // toward deep cuts. Centred at 0.5 so an average-popularity (or
             // unknown) track adds nothing — the term only tilts the extremes.
@@ -217,7 +222,7 @@ public enum RadioEngine {
             let jitter = salt.isEmpty ? 0
                 : Double(RoonClient.seed64("\(salt)\u{1f}\(h.track.id)") % 1000) / 1000.0 * 0.04
 
-            let score = relevance + familiarBonus + discoveryBonus + popularityBonus + jitter
+            let score = relevance + familiarBonus + discoveryBonus + relatedBonus + popularityBonus + jitter
             scored.append(Scored(track: h.track, emb: emb, score: score,
                                   nearestAnchor: bestAnchor, anchorSim: relAnchor))
         }
@@ -360,6 +365,7 @@ public enum RadioEngine {
     private static let tasteVectorBias: Float = 0.35  // pull toward the recency-weighted taste vector
     private static let dislikePush: Float = 0.40      // push away from disliked centroid
     private static let popularityBias = 0.12          // max ± tilt from the hits↔deep-cuts steer
+    static let relatedAffinityBonus = 0.06            // flat nudge for Deezer fan-graph artists
     static let sameArtistPenalty = 0.08   // soft penalty per already-picked track by this artist (cap 3)
     static let sameAlbumPenalty = 0.15    // soft penalty per already-picked track from this album (cap 2)
 

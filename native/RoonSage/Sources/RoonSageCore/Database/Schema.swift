@@ -523,6 +523,22 @@ enum Schema {
             }
         }
 
+        // Global "listeners of X also play Y" signal (Deezer related artists) —
+        // the collaborative-filtering leg the content-based radios lacked. Keyed
+        // by lowercased seed-artist name; a sentinel row (related = '') marks a
+        // negative lookup so the fetcher doesn't retry a Deezer-unknown artist
+        // every build. Refreshed after ~30 days. Server-of-record fetches;
+        // clients don't need it (radios build on the server).
+        migrator.registerMigration("v34_related_artists") { db in
+            try db.create(table: "related_artists", ifNotExists: true) { t in
+                t.column("artist_key", .text).notNull()   // lowercased seed artist
+                t.column("related",    .text).notNull()   // lowercased related name ('' = negative cache)
+                t.column("rank",       .integer).notNull().defaults(to: 0)
+                t.column("fetched_at", .text).notNull()
+                t.primaryKey(["artist_key", "related"])
+            }
+        }
+
         try migrator.migrate(db)
     }
 }

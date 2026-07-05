@@ -178,13 +178,15 @@ extension RoonClient {
             // Feature fusion: bucket radios gate their candidates on the measured
             // constraint that defines the bucket (nil for artist/sonic).
             let gate = Self.bucketGate(radioID: key, genres: genres, years: years)
+            // Collaborative signal: the seed artist's global fan graph (cached).
+            let related = category == .artist ? await relatedArtistKeys(for: radio.artist) : []
             let pool = await Task.detached {
                 Self.buildPlaylistCandidates(
                     seedIds: seedIds, lib: lib, index: index,
                     genres: genres, disliked: disliked,
                     daySeed: "\(stamp)|\(key)", limit: Self.artistRadioPoolLimit,
                     likedKeys: liked, knownArtists: known, adventurousness: adv, hardBan: hardBan,
-                    tasteVector: taste, gate: gate)
+                    tasteVector: taste, relatedArtists: related, gate: gate)
             }.value
             guard !pool.isEmpty else { continue }
 
@@ -464,6 +466,7 @@ extension RoonClient {
         likedKeys: Set<String> = [], knownArtists: Set<String> = [],
         adventurousness: Double = defaultAdventurousness, hardBan: Bool = false,
         tasteVector: [Float]? = nil,
+        relatedArtists: Set<String> = [],
         gate: (@Sendable (DatabaseManager.SonicTrack) -> Bool)? = nil
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
@@ -486,7 +489,7 @@ extension RoonClient {
             let ranked = RadioEngine.rank(
                 seeds: own, library: lib, index: index, options: opts,
                 disliked: disliked, likedKeys: likedKeys, knownArtists: knownArtists,
-                tasteVector: tasteVector, salt: salt)
+                tasteVector: tasteVector, relatedArtists: relatedArtists, salt: salt)
             neighbours = applyFeedbackWeighting(
                 ranked.map(\.track), disliked: disliked, salt: salt, matchKey: { $0.matchKey })
         } else {
