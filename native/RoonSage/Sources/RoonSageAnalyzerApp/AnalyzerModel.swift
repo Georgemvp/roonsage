@@ -465,14 +465,25 @@ final class AnalyzerModel {
         }
     }
 
-    /// Trickle the arousal re-derivation on launch when older rows lack it — the
-    /// one-time migration to perceptual energy. Embedding-only (no disk/audio),
-    /// so it's cheap and coexists with the analysis walk. Exits instantly once
-    /// every embedded row carries the axis.
+    /// Trickle the arousal re-derivation when older rows lack it — the one-time
+    /// migration to perceptual energy. Embedding-only (no disk/audio), so it
+    /// coexists with the analysis walk (NOT gated on `isAnalyzing`, unlike the
+    /// disk-bound loudness backfill — else the re-walk would starve it). Retries
+    /// once the CLAP model lands; exits instantly once every row carries the axis.
     func autoArousalRefreshIfNeeded() {
-        guard let store, let clap, !isBackfilling, !isAnalyzing else { return }
-        guard store.attributesMissingKeyCount("arousal") > 0 else { return }
+        guard let store, !isBackfilling else { return }
+        let missing = store.attributesMissingKeyCount("arousal")
+        guard missing > 0 else { return }
+        guard let clap else {
+            // CLAP loads asynchronously right after launch — retry once it lands.
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
+                await MainActor.run { self?.autoArousalRefreshIfNeeded() }
+            }
+            return
+        }
         isBackfilling = true
+        Log.info("Arousal (perceptuele energie) herberekenen uit embeddings — \(missing) rijen te gaan", category: .audio)
         status = "Perceptuele energie (arousal) berekenen uit embeddings…"
         let w = LibraryWalker(store: store, clap: clap)
         Task {
@@ -482,6 +493,7 @@ final class AnalyzerModel {
             isBackfilling = false
             refresh()
             publishFeatureRevision()
+            Log.info("Arousal-herberekening klaar: \(r) tracks", category: .audio)
             status = "Arousal (perceptuele energie) berekend voor \(r) tracks."
         }
     }
