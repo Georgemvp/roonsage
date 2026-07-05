@@ -101,6 +101,10 @@ public final class RoonClient {
     public internal(set) var feedbackByMatchKey: [String: TrackFeedbackKind] = [:]
     /// Whether `feedbackByMatchKey` has been populated this session.
     var feedbackLoaded = false
+    /// Content keys skipped repeatedly (implicit dislike) — loaded alongside the
+    /// explicit verdicts, merged into the radio dislike set but NOT shown as
+    /// thumbs-down in the feedback UI. Server-of-record; empty on thin clients.
+    var heavilySkippedKeys: Set<String> = []
 
     // MARK: - Favorites (starred albums / artists — see RoonClient+Favorites)
     /// In-memory favorites keyed "kind␟key", mirrored from the server-of-record.

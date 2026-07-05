@@ -116,6 +116,17 @@ extension RoonClient {
             map[e.matchKey] = k
         }
         feedbackByMatchKey = map
+        // Implicit skip signal (server-of-record only; thin clients don't build
+        // radios). Read here so it refreshes with the rest of the mirror.
+        if !isRemote { heavilySkippedKeys = (try? await database?.heavilySkippedMatchKeys()) ?? [] }
+    }
+
+    /// The effective dislike set the RADIOS use: explicit thumbs-down PLUS tracks
+    /// skipped repeatedly (implicit). Kept separate from `dislikedMatchKeys` (the
+    /// explicit-only set the feedback UI shows) so a skipped track is down-sampled
+    /// from stations without ever appearing as a thumbs-down.
+    public var radioDislikedMatchKeys: Set<String> {
+        dislikedMatchKeys.union(heavilySkippedKeys)
     }
 
     private func fetchRemoteFeedback() async -> [DatabaseManager.FeedbackEntry] {

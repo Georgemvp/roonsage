@@ -115,7 +115,7 @@ extension RoonClient {
             Log.warning("Radio's (\(category.rawValue)): 0 geanalyseerde tracks. Sync eerst de features.", category: .roon)
             return []
         }
-        let disliked = dislikedMatchKeys
+        let disliked = radioDislikedMatchKeys
         let liked = likedMatchKeys
         let known = await knownArtistKeys(lib: lib)
         let adv = radioAdventurousness

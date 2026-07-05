@@ -539,6 +539,20 @@ enum Schema {
             }
         }
 
+        // Implicit negative feedback: how often a track was SKIPPED early (played
+        // < ~25s then replaced). A single skip is noise; a track skipped several
+        // times is a real "not for me" the radios should heed — folded into the
+        // radio dislike down-sampling at a threshold, WITHOUT surfacing as an
+        // explicit thumbs-down in the feedback UI. Keyed by content match_key so
+        // it survives a Roon resync (the track_feedback pattern).
+        migrator.registerMigration("v35_track_skips") { db in
+            try db.create(table: "track_skips", ifNotExists: true) { t in
+                t.primaryKey("match_key", .text)
+                t.column("skip_count",   .integer).notNull().defaults(to: 0)
+                t.column("last_skipped", .text).notNull()
+            }
+        }
+
         try migrator.migrate(db)
     }
 }

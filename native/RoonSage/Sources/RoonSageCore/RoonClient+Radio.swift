@@ -98,7 +98,7 @@ extension RoonClient {
         }
 
         let tallies = feedbackArtistTallies(lib: lib)
-        let disliked = dislikedMatchKeys
+        let disliked = radioDislikedMatchKeys
         var playCount: [String: Int] = [:]
         for e in top { playCount[e.artist.lowercased()] = e.count }
 
@@ -148,7 +148,7 @@ extension RoonClient {
         let seedIds = radio.seedIds
         let key = radio.id
         let stamp = Self.dayStamp()
-        let disliked = dislikedMatchKeys
+        let disliked = radioDislikedMatchKeys
         let liked = likedMatchKeys
         let known = await knownArtistKeys(lib: lib)
         let adv = radioAdventurousness
@@ -277,7 +277,7 @@ extension RoonClient {
         let key = state.artistKey
         let nextGen = state.generation + 1
         let stamp = Self.dayStamp()
-        let disliked = dislikedMatchKeys
+        let disliked = radioDislikedMatchKeys
         let liked = likedMatchKeys
         let known = await knownArtistKeys(lib: lib)
         let adv = radioAdventurousness

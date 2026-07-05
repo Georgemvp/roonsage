@@ -57,4 +57,35 @@ extension DatabaseManager {
             }
         }
     }
+
+    // MARK: - Implicit skip feedback
+
+    /// Record an early-skip for a track (played briefly then replaced). Increments
+    /// the running count; the radios act on repeated skips, not a single one.
+    public func logSkip(matchKey: String) async throws {
+        guard !matchKey.isEmpty else { return }
+        let iso = Self.isoFormatter.string(from: Date())
+        try await pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO track_skips (match_key, skip_count, last_skipped)
+                VALUES (?, 1, ?)
+                ON CONFLICT(match_key) DO UPDATE SET
+                    skip_count = skip_count + 1, last_skipped = excluded.last_skipped
+            """, arguments: [matchKey, iso])
+        }
+    }
+
+    /// Content keys skipped at least `minCount` times — the implicit-dislike set
+    /// the radios down-sample. An explicit LIKE overrides: a track you thumbed up
+    /// but sometimes skip (mood, not distaste) is never treated as disliked.
+    public func heavilySkippedMatchKeys(minCount: Int = 3) async throws -> Set<String> {
+        try await pool.read { db in
+            let rows = try String.fetchAll(db, sql: """
+                SELECT s.match_key FROM track_skips s
+                LEFT JOIN track_feedback f ON f.match_key = s.match_key AND f.kind = 'like'
+                WHERE s.skip_count >= ? AND f.match_key IS NULL
+            """, arguments: [minCount])
+            return Set(rows)
+        }
+    }
 }

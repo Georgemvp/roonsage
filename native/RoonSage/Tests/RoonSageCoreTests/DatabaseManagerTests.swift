@@ -344,4 +344,22 @@ extension DatabaseManagerTests {
         let both = try await db.listPlaylists()
         XCTAssertEqual(Set(both.compactMap(\.source)), ["lastfm", "listenbrainz"])
     }
+
+    func testSkipCountAndThreshold() async throws {
+        try await db.logSkip(matchKey: "a|x")
+        try await db.logSkip(matchKey: "a|x")
+        var heavy = try await db.heavilySkippedMatchKeys(minCount: 3)
+        XCTAssertFalse(heavy.contains("a|x"), "2 skips is below the 3× threshold")
+        try await db.logSkip(matchKey: "a|x")
+        heavy = try await db.heavilySkippedMatchKeys(minCount: 3)
+        XCTAssertTrue(heavy.contains("a|x"), "3 skips crosses the threshold")
+    }
+
+    func testExplicitLikeOverridesSkips() async throws {
+        for _ in 0..<5 { try await db.logSkip(matchKey: "b|y") }
+        try await db.setFeedback(matchKey: "b|y", title: "Y", artist: "B", kind: "like")
+        let heavy = try await db.heavilySkippedMatchKeys(minCount: 3)
+        XCTAssertFalse(heavy.contains("b|y"),
+                       "a thumbs-up track is never an implicit dislike, however often skipped")
+    }
 }

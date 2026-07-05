@@ -1,3 +1,4 @@
+import AudioAnalysis
 import Foundation
 
 /// Serialises listen-logging and scrobbling per zone, with a minimum-play
@@ -23,6 +24,16 @@ actor ScrobbleCoordinator {
     }
 
     private var pending: [String: Task<Void, Never>] = [:]
+    /// Per-zone currently-playing item + the wall-clock it started, for skip
+    /// detection: a track replaced well before its natural end was skipped.
+    private var current: [String: (item: Item, startedAt: Double)] = [:]
+
+    /// Below this many seconds of play, a track change is an early SKIP (implicit
+    /// dislike) rather than a natural transition. Long enough to ignore a few
+    /// seconds of preview/glitch, short enough that a genuine listen never counts.
+    private static let skipThreshold: Double = 25
+    /// Ignore sub-2s changes (channel-flipping / transient now-playing glitches).
+    private static let skipFloor: Double = 2
 
     /// Called on every now-playing change (already title-deduped by the
     /// caller). Cancels the zone's pending commit and schedules a new one.
@@ -31,7 +42,24 @@ actor ScrobbleCoordinator {
 
         // Scrobble timestamp = play START time, captured now (the commit
         // runs minutes later).
-        let startedAt = Int(Date().timeIntervalSince1970)
+        let now = Date().timeIntervalSince1970
+        let startedAt = Int(now)
+
+        // Skip detection: the track this one REPLACES, if it played only briefly,
+        // is an implicit dislike. Guarded so a short track ending naturally (its
+        // length ≈ how long it played) isn't counted.
+        if let prev = current[item.zoneID] {
+            let played = now - prev.startedAt
+            let prevLen = prev.item.length ?? 240
+            if played >= Self.skipFloor, played < Self.skipThreshold, prevLen >= 30 {
+                let mk = TrackIdentity.matchKey(artist: prev.item.artist, album: prev.item.album,
+                                                title: prev.item.title)
+                if !mk.isEmpty {
+                    Task { try? await database?.logSkip(matchKey: mk) }
+                }
+            }
+        }
+        current[item.zoneID] = (item, now)
 
         // "Now playing" status is not a scrobble — update it right away.
         Task { await Self.updateNowPlaying(item) }
@@ -47,6 +75,9 @@ actor ScrobbleCoordinator {
     func zoneRemoved(_ zoneID: String) {
         pending[zoneID]?.cancel()
         pending[zoneID] = nil
+        // A stop/zone-disappear is NOT a skip — forget the current track so the
+        // next play in this zone doesn't retroactively count it as skipped.
+        current[zoneID] = nil
     }
 
     // MARK: - Submission

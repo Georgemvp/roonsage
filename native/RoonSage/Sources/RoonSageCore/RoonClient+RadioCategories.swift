@@ -71,7 +71,7 @@ extension RoonClient {
         let lib = await radioLibrary()
         guard !lib.isEmpty else { return [] }
         let stamp = Self.dayStamp()
-        let disliked = dislikedMatchKeys
+        let disliked = radioDislikedMatchKeys
 
         // Sonic neighborhoods are discovered by clustering the CLAP embeddings, so
         // they need the index (cached). Each cluster becomes a station via the same
