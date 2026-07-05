@@ -8,7 +8,7 @@ extension RoonClient {
 
     /// Source-scoped prefix for the `external_id` of imported playlists, so the
     /// reconcile only ever touches ListenBrainz imports.
-    static let lbPlaylistSource = "listenbrainz:"
+    nonisolated static let lbPlaylistSource = "listenbrainz:"
 
     /// Name prefix for the Qobuz copies, so they're recognisable and reconciled
     /// in place (find-or-create by exact name) instead of duplicating each day.
@@ -76,9 +76,13 @@ extension RoonClient {
             return
         }
 
+        // Collapse the rolling weekly families to one playlist each (newest week),
+        // so the app + Qobuz don't accumulate one copy per week.
+        let collapsed = Self.collapseRecurringPlaylists(imported)
+
         do {
-            try await db.syncExternalPlaylists(sourcePrefix: Self.lbPlaylistSource, playlists: imported)
-            lbPlaylistSyncStatus = "\(imported.count) playlist(s) gesynchroniseerd."
+            try await db.syncExternalPlaylists(sourcePrefix: Self.lbPlaylistSource, playlists: collapsed)
+            lbPlaylistSyncStatus = "\(collapsed.count) playlist(s) gesynchroniseerd."
         } catch {
             lbPlaylistSyncStatus = "Synchronisatie mislukt."
             Log.warning("ListenBrainz playlist sync failed: \(error)", category: .network)
@@ -86,9 +90,47 @@ extension RoonClient {
         }
 
         if lbQobuzSyncEnabled {
-            let n = await mirrorExternalPlaylistsToQobuz(imported, namePrefix: Self.lbQobuzNamePrefix, forceReplace: forceReplace)
+            let n = await mirrorExternalPlaylistsToQobuz(collapsed, namePrefix: Self.lbQobuzNamePrefix, forceReplace: forceReplace)
             lbPlaylistSyncStatus += n < 0 ? " (Qobuz niet ingesteld.)" : " \(n) naar Qobuz."
         }
+    }
+
+    /// The recurring ListenBrainz playlist families whose "created for you" feed
+    /// returns a NEW dated edition every week (own title + mbid). Mirrored verbatim
+    /// they pile up one app/Qobuz playlist per week.
+    nonisolated static let lbRecurringFamilies = ["Weekly Jams", "Weekly Exploration"]
+
+    /// Collapse each recurring weekly family to a SINGLE rolling playlist — the
+    /// newest week's tracks under a stable name + synthetic `external_id`, so it
+    /// updates in place (Discover-Weekly style) instead of accumulating. One-off
+    /// playlists (yearly "Top Discoveries …", "Top Missed Recordings …") pass
+    /// through untouched. Newest edition wins by the ISO date in "…, week of
+    /// YYYY-MM-DD" (lexicographic, undated sorts first).
+    nonisolated static func collapseRecurringPlaylists(
+        _ playlists: [DatabaseManager.ExternalPlaylist]
+    ) -> [DatabaseManager.ExternalPlaylist] {
+        func family(of title: String) -> String? {
+            lbRecurringFamilies.first { title.hasPrefix($0 + " for ") || title == $0 }
+        }
+        func weekDate(_ title: String) -> String {
+            guard let r = title.range(of: #"week of (\d{4}-\d{2}-\d{2})"#, options: .regularExpression)
+            else { return "" }
+            return String(title[r].dropFirst("week of ".count))
+        }
+        var newest: [String: DatabaseManager.ExternalPlaylist] = [:]
+        var newestDate: [String: String] = [:]
+        var passthrough: [DatabaseManager.ExternalPlaylist] = []
+        for pl in playlists {
+            guard let fam = family(of: pl.name) else { passthrough.append(pl); continue }
+            let d = weekDate(pl.name)
+            if newest[fam] == nil || d >= (newestDate[fam] ?? "") {
+                newestDate[fam] = d
+                let synthID = lbPlaylistSource + "recurring:" + fam.lowercased().replacingOccurrences(of: " ", with: "-")
+                newest[fam] = DatabaseManager.ExternalPlaylist(externalID: synthID, name: fam, tracks: pl.tracks)
+            }
+        }
+        // Stable order: one-offs first (as given), then the families in fixed order.
+        return passthrough + lbRecurringFamilies.compactMap { newest[$0] }
     }
 
     /// Mirror imported external playlists to Qobuz, one playlist each, under
