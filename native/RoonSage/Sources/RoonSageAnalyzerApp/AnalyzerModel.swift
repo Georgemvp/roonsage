@@ -20,6 +20,10 @@ final class AnalyzerModel {
     /// Trickle the F3 loudness backfill in the background (decodes pre-F3 tracks,
     /// disk-gentle, resumable).
     var autoLoudness: Bool { didSet { UserDefaults.standard.set(autoLoudness, forKey: "auto_loudness") } }
+    /// Trickle preview-embeddings for file-less (Qobuz-only) library tracks via
+    /// Deezer 30s previews (network-gentle, resumable) — makes them radio
+    /// candidates like any analyzed track.
+    var autoPreview: Bool { didSet { UserDefaults.standard.set(autoPreview, forKey: "auto_preview") } }
 
     // Analyse-tuning — neemt effect bij de VOLGENDE (re-)analyse, niet met terugwerkende kracht.
     var walkerConcurrency: Int { didSet { UserDefaults.standard.set(walkerConcurrency, forKey: "walker_concurrency") } }
@@ -65,6 +69,9 @@ final class AnalyzerModel {
     private(set) var loudness: LoudnessProgress?
     private(set) var isLoudnessBackfilling = false
     private(set) var loudnessCount = 0
+    private(set) var preview: PreviewProgress?
+    private(set) var isPreviewBackfilling = false
+    private(set) var previewCount = 0
     private(set) var isServing = false
     var status = ""
 
@@ -74,6 +81,7 @@ final class AnalyzerModel {
     private var enricher: GenreEnricher?
     private var popularityEnricher: PopularityEnricher?
     private var loudnessBackfill: LoudnessBackfill?
+    private var previewBackfill: PreviewEmbeddingBackfill?
     private var server: HTTPServer?
     private var clap: CLAPModel?   // loaded off-main once; enables /text-embed
     /// While serving, periodically re-publishes the feature revision so changes
@@ -91,6 +99,7 @@ final class AnalyzerModel {
         autoEnrich = UserDefaults.standard.object(forKey: "auto_enrich") as? Bool ?? true
         autoPopularity = UserDefaults.standard.object(forKey: "auto_popularity") as? Bool ?? true
         autoLoudness = UserDefaults.standard.object(forKey: "auto_loudness") as? Bool ?? true
+        autoPreview = UserDefaults.standard.object(forKey: "auto_preview") as? Bool ?? true
         walkerConcurrency = UserDefaults.standard.object(forKey: "walker_concurrency") as? Int ?? 3
         excerptSeconds = UserDefaults.standard.object(forKey: "excerpt_seconds") as? Double ?? 120
         analysisSampleRate = UserDefaults.standard.object(forKey: "analysis_sample_rate") as? Double ?? 22050
@@ -117,6 +126,7 @@ final class AnalyzerModel {
         mbEnrichedCount = store?.mbEnrichedCount() ?? 0
         popularityCount = store?.popularityCount() ?? 0
         loudnessCount = store?.loudnessCount() ?? 0
+        previewCount = store?.previewRowCount() ?? 0
         // Keep the advertised feature revision in step with the store so remotes
         // re-pull after in-app analysis/backfill completes — not only after a
         // re-serve. Cheap: refresh() runs at completion, never on the poll path.
@@ -151,6 +161,8 @@ final class AnalyzerModel {
             autoPopularityIfEnabled()
             // Analysis done → the disk is free; fill loudness on the pre-F3 backlog.
             autoLoudnessIfEnabled()
+            // File-less (Qobuz-only) tracks: embed from Deezer previews.
+            autoPreviewIfEnabled()
         }
     }
 
@@ -272,6 +284,55 @@ final class AnalyzerModel {
         if trackCount == 0 { refresh() }
         guard trackCount > 0 else { return }
         startLoudness()
+    }
+
+    // MARK: - Preview embeddings (Qobuz-only tracks)
+
+    /// Embed the file-less part of the library (Qobuz-added tracks) from Deezer
+    /// 30s previews so they join the radios/similarity like any analyzed track.
+    /// Network-only (no disk contention with the walk), rate-limited, resumable;
+    /// negative lookups are memoised so it converges and then exits instantly.
+    func startPreview() {
+        guard let store, let clap, !isPreviewBackfilling else {
+            if clap == nil { Log.info("Preview-embeddings wachten op het CLAP-model…", category: .audio) }
+            return
+        }
+        isPreviewBackfilling = true
+        preview = nil
+        status = "Preview-embeddings ophalen (Qobuz-tracks)…"
+        let b = PreviewEmbeddingBackfill(store: store, clap: clap)
+        previewBackfill = b
+        Task {
+            let embedded = await b.run(
+                backlog: { await RoonClient.shared.unanalyzedTrackCount() },
+                wants: { limit, offset in
+                    await RoonClient.shared.unanalyzedTracks(limit: limit, offset: offset).map {
+                        (matchKey: $0.matchKey, title: $0.title, artist: $0.artist, album: $0.album)
+                    }
+                },
+                onProgress: { p in Task { @MainActor in self.preview = p } })
+            isPreviewBackfilling = false
+            refresh()
+            publishFeatureRevision()
+            status = "Preview-embeddings: \(previewCount) tracks zonder bestand geëmbed (+\(embedded) deze run)."
+        }
+    }
+
+    func cancelPreview() { previewBackfill?.cancel() }
+
+    /// Trickle the preview backfill when enabled. Waits for the CLAP model; exits
+    /// fast when the backlog is fully attempted, so it's cheap to call on launch.
+    func autoPreviewIfEnabled() {
+        guard autoPreview, !isPreviewBackfilling, store != nil else { return }
+        guard clap != nil else {
+            // CLAP loads asynchronously right after launch — retry once it lands.
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
+                await MainActor.run { self?.autoPreviewIfEnabled() }
+            }
+            return
+        }
+        startPreview()
     }
 
     // MARK: - Maintenance & login item

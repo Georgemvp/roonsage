@@ -137,6 +137,15 @@ struct AnalyzerView: View {
                             .font(.caption)
                         Text("Haalt een rijke, hiërarchische genre-woordenschat van MusicBrainz op (album-niveau, ~1 verzoek/s, hervatbaar). Draait vanzelf na een analyse.")
                             .font(.caption).foregroundStyle(.secondary)
+                        Divider()
+                        Toggle("Preview-embeddings voor Qobuz-tracks", isOn: $model.autoPreview)
+                            .font(.caption)
+                        Text("Analyseert bibliotheek-tracks zónder lokaal bestand (Qobuz) via 30s-previews van Deezer, zodat ook zij in radio's en 'vergelijkbaar' meedoen. Netwerk-vriendelijk en hervatbaar.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if model.isPreviewBackfilling, let p = model.preview {
+                            Text("Previews: \(p.embedded) geëmbed · \(p.checked) gecontroleerd · backlog \(p.backlog)")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
                     }
                     .padding(6)
                 }

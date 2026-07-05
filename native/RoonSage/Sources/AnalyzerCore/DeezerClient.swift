@@ -69,6 +69,49 @@ public actor DeezerClient {
         return want == got || want.contains(got) || got.contains(want)
     }
 
+    // MARK: - Preview resolution (embedding backfill for file-less tracks)
+
+    /// One confidently-matched Deezer track with a streamable 30s MP3 preview.
+    public struct PreviewHit: Sendable {
+        public let id: Int
+        public let previewURL: URL
+        public let durationSec: Int
+    }
+
+    /// Resolve a (artist, title) want to a Deezer preview — STRICTER than the
+    /// popularity lookup, because a wrong match here poisons an embedding, not
+    /// just a rank: the artist must match exactly (normalised primary artist,
+    /// no substring leniency) AND the cleaned title must match exactly. Nil on
+    /// no confident match or any network trouble.
+    public func preview(artist: String, title: String) async -> PreviewHit? {
+        let a = artist.trimmingCharacters(in: .whitespaces)
+        let t = title.trimmingCharacters(in: .whitespaces)
+        guard !a.isEmpty, !t.isEmpty else { return nil }
+
+        let q = "artist:\"\(escape(a))\" track:\"\(escape(t))\""
+        guard let url = url("/search", query: ["q": q, "limit": "5"]),
+              let json = await getJSON(url),
+              let data = json["data"] as? [[String: Any]], !data.isEmpty else { return nil }
+
+        let wantArtist = TrackIdentity.normalise(TrackIdentity.primaryArtist(a))
+        let wantTitle = TrackIdentity.normalise(TrackIdentity.cleanTitle(t))
+        guard !wantArtist.isEmpty, !wantTitle.isEmpty else { return nil }
+
+        for item in data {
+            let gotArtist = TrackIdentity.normalise(
+                TrackIdentity.primaryArtist((item["artist"] as? [String: Any])?["name"] as? String))
+            let gotTitle = TrackIdentity.normalise(
+                TrackIdentity.cleanTitle(item["title"] as? String ?? ""))
+            guard gotArtist == wantArtist, gotTitle == wantTitle,
+                  let id = item["id"] as? Int,
+                  let preview = item["preview"] as? String, !preview.isEmpty,
+                  let previewURL = URL(string: preview) else { continue }
+            return PreviewHit(id: id, previewURL: previewURL,
+                              durationSec: item["duration"] as? Int ?? 0)
+        }
+        return nil
+    }
+
     // MARK: - HTTP
 
     /// Reserve the next rate-limit slot, sleep until it, then fetch + decode JSON.

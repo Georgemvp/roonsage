@@ -161,7 +161,66 @@ public final class FeatureStore {
                     value TEXT
                 )
             """)
+
+            // Preview-embedding backfill memo: which library-only tracks (no local
+            // file — Qobuz-added) we already tried to resolve to a Deezer 30s
+            // preview, INCLUDING "looked, found nothing" — so the trickle worker
+            // is resumable and never re-queries a finished track. Successful rows
+            // land in track_features under a "preview://deezer/…" pseudo path.
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS preview_lookups (
+                    match_key  TEXT PRIMARY KEY,
+                    found      INTEGER NOT NULL DEFAULT 0,
+                    checked_at TEXT NOT NULL
+                )
+            """)
         }
+    }
+
+    // MARK: - Preview-embedding backfill (Qobuz-only tracks)
+
+    /// Marker prefix of feature rows analyzed from a streaming PREVIEW instead of
+    /// a local file. Excluded from local-playback (`/audio`, playable keys);
+    /// everything else — export, embeddings bundle, radios — treats them as
+    /// regular analyzed tracks.
+    public static let previewPathPrefix = "preview://deezer/"
+
+    public func hasRow(matchKey: String) -> Bool {
+        (try? dbQueue.read { db in
+            try Bool.fetchOne(db, sql: "SELECT 1 FROM track_features WHERE match_key = ?",
+                              arguments: [matchKey]) ?? false
+        }) ?? false
+    }
+
+    public func previewChecked(matchKey: String) -> Bool {
+        (try? dbQueue.read { db in
+            try Bool.fetchOne(db, sql: "SELECT 1 FROM preview_lookups WHERE match_key = ?",
+                              arguments: [matchKey]) ?? false
+        }) ?? false
+    }
+
+    public func markPreviewChecked(matchKey: String, found: Bool, checkedAt: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO preview_lookups (match_key, found, checked_at) VALUES (?, ?, ?)
+                ON CONFLICT(match_key) DO UPDATE SET found=excluded.found, checked_at=excluded.checked_at
+            """, arguments: [matchKey, found ? 1 : 0, checkedAt])
+        }
+    }
+
+    /// Analyzed-from-preview rows currently in the store.
+    public func previewRowCount() -> Int {
+        (try? dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_features WHERE file_path LIKE ?",
+                             arguments: [Self.previewPathPrefix + "%"]) ?? 0
+        }) ?? 0
+    }
+
+    /// Preview lookups attempted (found or not) — the worker's resumability meter.
+    public func previewCheckedCount() -> Int {
+        (try? dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM preview_lookups") ?? 0
+        }) ?? 0
     }
 
     // MARK: - [Float] <-> BLOB
@@ -292,15 +351,20 @@ public final class FeatureStore {
     /// i.e. the track is not locally playable (e.g. a Qobuz-only library entry
     /// that was never analysed from a file).
     public func filePath(forMatchKey key: String) -> String? {
-        if let p = (try? dbQueue.read { db in
+        // Preview-analyzed rows have a pseudo path — never serveable audio.
+        func real(_ p: String?) -> String? {
+            guard let p, !p.isEmpty, !p.hasPrefix(Self.previewPathPrefix) else { return nil }
+            return p
+        }
+        if let p = real((try? dbQueue.read { db in
             try String.fetchOne(db, sql: "SELECT file_path FROM track_features WHERE match_key = ?",
                                 arguments: [key])
-        }) ?? nil, !p.isEmpty { return p }
+        }) ?? nil) { return p }
         return (try? dbQueue.read { db -> String? in
             let rows = try Row.fetchAll(db, sql: "SELECT artist, album, title, file_path FROM track_features")
             for r in rows {
                 let k = TrackIdentity.matchKey(artist: r["artist"], album: r["album"], title: r["title"])
-                if k == key, let p = r["file_path"] as String?, !p.isEmpty { return p }
+                if k == key, let p = real(r["file_path"] as String?) { return p }
             }
             return nil
         }) ?? nil
@@ -312,7 +376,10 @@ public final class FeatureStore {
     /// match the `/features` export the client syncs against.
     public func playableMatchKeys() -> Set<String> {
         let rows = (try? dbQueue.read { db in
-            try Row.fetchAll(db, sql: "SELECT artist, album, title FROM track_features WHERE file_path IS NOT NULL AND file_path != ''")
+            try Row.fetchAll(db, sql: """
+                SELECT artist, album, title FROM track_features
+                WHERE file_path IS NOT NULL AND file_path != '' AND file_path NOT LIKE ?
+            """, arguments: [Self.previewPathPrefix + "%"])
         }) ?? []
         var set = Set<String>(minimumCapacity: rows.count)
         for r in rows {
