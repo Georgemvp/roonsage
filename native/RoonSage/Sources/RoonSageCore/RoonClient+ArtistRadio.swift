@@ -171,7 +171,17 @@ extension RoonClient {
         }
         if needsTitle { await LLMClient.shared.warmUp(config: LLMConfigStore.load()) }
 
-        var out: [SonicRadioPlaylist] = []
+        // Phase 1 — build each station's final tracklist + sonic profile, and read
+        // its title-cache freshness. (No LLM yet: titles are generated as a batch
+        // below so the model can make them mutually distinct.)
+        struct Prepared {
+            let radio: SonicRadio
+            let tracks: [TrackRecord]
+            let sonics: [DatabaseManager.SonicTrack]
+            let profile: String
+            let plan: TitlePlan
+        }
+        var prepared: [Prepared] = []
         for radio in radios {
             let seedIds = radio.seedIds
             let key = radio.id
@@ -203,11 +213,8 @@ extension RoonClient {
 
             // Flow-sequence the final 20–30 into an arc so the Qobuz playlist plays
             // like a designed set, not a relevance dump. `.peak` rises to a mid-set
-            // high then eases — the right shape for a bounded saved playlist (vs the
-            // endless in-app radio's `.smooth`). For an ARTIST station we open on the
-            // seed artist's most energetic track so the playlist's identity is clear
-            // from track one. Needs embeddings (resolve the capped TrackRecords back
-            // to their SonicTracks).
+            // high then eases. For an ARTIST station we open on the seed artist's
+            // most energetic track so the playlist's identity is clear from track one.
             let tracks: [TrackRecord]
             if index != nil {
                 let sts = capped.compactMap { byId[$0.id] }
@@ -224,14 +231,31 @@ extension RoonClient {
             let sonics = tracks.compactMap { byId[$0.id] }
             let profile = Self.sonicProfileSummary(sonics, includeAttributes: radioAttributesEnabled,
                                                    calibration: calibration)
-            let meta = await aiTitleAndDescription(for: radio, category: category, sample: tracks,
-                                                   profile: profile, sonics: sonics, calibration: calibration)
-            out.append(SonicRadioPlaylist(
-                id: key, artist: radio.artist, title: meta.title, description: meta.description,
-                imageKey: radio.imageKey, tracks: tracks,
-                qobuzPlaylistID: UserDefaults.standard.string(forKey: Self.qobuzIDKey(key))))
+            let plan = titlePlan(for: radio, category: category, sample: tracks, sonics: sonics)
+            prepared.append(Prepared(radio: radio, tracks: tracks, sonics: sonics, profile: profile, plan: plan))
         }
-        Log.info("Radio's (\(category.rawValue)) gebouwd: \(out.count) playlists (van \(radios.count) seeds, \(lib.count) geanalyseerde tracks)", category: .roon)
+
+        // Phase 2 — one batch LLM call for the stations whose title/description
+        // isn't still-fresh, so the model makes them mutually distinct.
+        let stale = prepared.filter { !$0.plan.fullyFresh }
+        let requests = stale.map { p in
+            TitleRequest(id: p.radio.id, category: category, label: p.radio.artist,
+                         profile: p.profile, sample: p.tracks,
+                         stats: p.sonics.isEmpty ? nil : TitleGrounding.SelectionStats.compute(p.sonics))
+        }
+        let generated = await Self.generateAIMetaBatch(requests, calibration: calibration)
+
+        // Phase 3 — assemble, caching each newly generated (title, description) with
+        // its own signatures (title kept when it was still fresh; only the desc changed).
+        var out: [SonicRadioPlaylist] = []
+        for p in prepared {
+            let meta = resolveTitle(plan: p.plan, generated: generated[p.radio.id])
+            out.append(SonicRadioPlaylist(
+                id: p.radio.id, artist: p.radio.artist, title: meta.title, description: meta.description,
+                imageKey: p.radio.imageKey, tracks: p.tracks,
+                qobuzPlaylistID: UserDefaults.standard.string(forKey: Self.qobuzIDKey(p.radio.id))))
+        }
+        Log.info("Radio's (\(category.rawValue)) gebouwd: \(out.count) playlists (van \(radios.count) seeds, \(lib.count) geanalyseerde tracks; \(requests.count) titels ge(her)genereerd)", category: .roon)
         return out
     }
 
@@ -584,20 +608,25 @@ extension RoonClient {
         return String(seed64(joined))
     }
 
-    /// Cached AI title/description for a radio, generating + persisting them on
-    /// first use. `profile` is the sonic-profile summary used to steer the title;
-    /// `sonics` the resolved selection (for claim validation + the profile
-    /// signature).
-    ///
-    /// The title is cached, but no longer frozen forever: it's reused only while
-    /// the selection's *profile signature* (coarse sonic bands — insensitive to
-    /// the daily rotation) still matches the one it was generated for. When the
-    /// station's sound drifts, the title regenerates and the Qobuz playlist is
-    /// renamed in place via its stored playlist id. The description regenerates
-    /// on any real tracklist change, as before.
-    func aiTitleAndDescription(for radio: SonicRadio, category: RadioCategory, sample: [TrackRecord],
-                               profile: String, sonics: [DatabaseManager.SonicTrack] = [],
-                               calibration: TitleGrounding.Calibration? = nil) async -> (title: String, description: String) {
+    /// The title-cache state of one station: what's cached, whether it's still
+    /// fresh, and the signatures to write if it's regenerated. Lets the builder
+    /// decide freshness for the whole set BEFORE the (batched) LLM call.
+    struct TitlePlan: Sendable {
+        let radioID: String
+        let cachedTitle: String?
+        let cachedDesc: String?
+        let titleFresh: Bool      // cached title still matches the sonic character
+        let descFresh: Bool       // cached desc still matches the tracklist
+        let sig: String           // track-set signature
+        let profileSig: String    // sonic-profile signature
+        let fallback: (title: String, description: String)
+        /// Nothing to (re)generate — cached title AND desc are both current.
+        var fullyFresh: Bool { titleFresh && descFresh && (cachedDesc?.isEmpty == false) }
+    }
+
+    /// Compute the title-cache state for a station (no I/O beyond UserDefaults).
+    func titlePlan(for radio: SonicRadio, category: RadioCategory,
+                   sample: [TrackRecord], sonics: [DatabaseManager.SonicTrack]) -> TitlePlan {
         let d = UserDefaults.standard
         let fallback = Self.fallbackMeta(category: category, label: radio.artist)
         let cachedTitle = d.string(forKey: Self.titleKey(radio.id))
@@ -605,37 +634,39 @@ extension RoonClient {
         let hasRealTitle = (cachedTitle?.isEmpty == false) && cachedTitle != fallback.title
         let sig = Self.trackSetSignature(sample)
         let profileSig = TitleGrounding.profileSignature(sonics)
-
-        // A cached *real* title is reused while it still matches the station's
-        // measured character (profile signature). A missing stored signature —
-        // every radio titled before this mechanism existed — counts as stale, so
-        // legacy titles regenerate once against real measurements. A cached bare
-        // fallback title is NOT trusted — it means an earlier LLM call failed
-        // (e.g. Ollama cold-start) — so we retry generation now.
         let titleFresh = hasRealTitle && d.string(forKey: Self.titleSigKey(radio.id)) == profileSig
         let descFresh = d.string(forKey: Self.descSigKey(radio.id)) == sig
-        if titleFresh, let t = cachedTitle, let desc = cachedDesc, !desc.isEmpty, descFresh {
+        return TitlePlan(radioID: radio.id, cachedTitle: cachedTitle, cachedDesc: cachedDesc,
+                         titleFresh: titleFresh, descFresh: descFresh, sig: sig, profileSig: profileSig,
+                         fallback: fallback)
+    }
+
+    /// Resolve the final (title, description) for a station from its plan and the
+    /// (optional) freshly-generated meta, persisting the cache + signatures. A
+    /// still-fresh title is kept even when the desc was regenerated; a failed
+    /// generation is NOT cached (so a later build retries) and reuses cache/fallback.
+    @discardableResult
+    func resolveTitle(plan: TitlePlan, generated: (title: String, description: String)?)
+        -> (title: String, description: String) {
+        let d = UserDefaults.standard
+        if plan.fullyFresh, let t = plan.cachedTitle, let desc = plan.cachedDesc {
             return (t, desc)
         }
-        let stats = sonics.isEmpty ? nil : TitleGrounding.SelectionStats.compute(sonics)
-        if let meta = await Self.generateAIMeta(category: category, label: radio.artist,
-                                                sample: sample, profile: profile, stats: stats,
-                                                calibration: calibration) {
-            // A still-fresh title is kept (only the desc needed refreshing); a
-            // stale or missing one takes the newly generated title.
-            let title = titleFresh ? (cachedTitle ?? meta.title) : meta.title
-            d.set(title, forKey: Self.titleKey(radio.id))
-            d.set(meta.description, forKey: Self.descKey(radio.id))
-            d.set(sig, forKey: Self.descSigKey(radio.id))
-            d.set(profileSig, forKey: Self.titleSigKey(radio.id))
+        if let meta = generated {
+            let title = plan.titleFresh ? (plan.cachedTitle ?? meta.title) : meta.title
+            d.set(title, forKey: Self.titleKey(plan.radioID))
+            d.set(meta.description, forKey: Self.descKey(plan.radioID))
+            d.set(plan.sig, forKey: Self.descSigKey(plan.radioID))
+            d.set(plan.profileSig, forKey: Self.titleSigKey(plan.radioID))
             return (title, meta.description)
         }
-        // LLM unavailable this round — reuse whatever we have, else the fallback.
-        // Don't cache the fallback (so a later build retries). The stored profile
-        // signature is left untouched, so the regeneration retries too.
-        return (hasRealTitle ? (cachedTitle ?? fallback.title) : fallback.title,
-                (cachedDesc?.isEmpty == false) ? cachedDesc! : fallback.description)
+        // Generation failed/omitted — reuse whatever we have, else the fallback.
+        // Don't cache the fallback; leave signatures so the next build retries.
+        let hasReal = (plan.cachedTitle?.isEmpty == false) && plan.cachedTitle != plan.fallback.title
+        return (hasReal ? (plan.cachedTitle ?? plan.fallback.title) : plan.fallback.title,
+                (plan.cachedDesc?.isEmpty == false) ? plan.cachedDesc! : plan.fallback.description)
     }
+
 
     /// A compact Dutch summary of the selection's sonic character — dominant
     /// tags/genres, top moods, energy band and tempo — fed to the title prompt so
@@ -836,6 +867,155 @@ extension RoonClient {
             return nil
         }
         return retry
+    }
+
+    // MARK: Batch title generation (one call, DISTINCT titles)
+
+    /// One station to title, with everything the prompt/validation needs.
+    struct TitleRequest: Sendable {
+        let id: String
+        let category: RadioCategory
+        let label: String
+        let profile: String
+        let sample: [TrackRecord]
+        let stats: TitleGrounding.SelectionStats?
+    }
+
+    /// Generate titles+descriptions for MANY stations in ONE LLM call, so the model
+    /// sees the whole set and makes them DISTINCT — the fix for "Elektronische X"
+    /// repeated across half the playlists when each was titled in isolation.
+    /// Returns id → (title, description) for every station it could title (grounded
+    /// + validated); omits ones that stayed contradictory (caller uses the fallback,
+    /// uncached, so a later build retries). Falls back to per-station generation on
+    /// a batch parse failure.
+    nonisolated static func generateAIMetaBatch(
+        _ requests: [TitleRequest], calibration: TitleGrounding.Calibration?
+    ) async -> [String: (title: String, description: String)] {
+        guard !requests.isEmpty else { return [:] }
+        guard requests.count > 1 else {
+            let r = requests[0]
+            if let m = await generateAIMeta(category: r.category, label: r.label, sample: r.sample,
+                                            profile: r.profile, stats: r.stats, calibration: calibration) {
+                return [r.id: m]
+            }
+            return [:]
+        }
+
+        let config = LLMConfigStore.load()
+        let system = """
+        Je bent een muziekredacteur die pakkende, INFORMATIEVE Nederlandse playlist-titels schrijft \
+        voor MEERDERE stations tegelijk. Antwoord UITSLUITEND met strikt geldige JSON: een array \
+        [{"i": <nummer>, "title": "...", "description": "..."}], één object per station. \
+        Geen uitleg, geen markdown, geen codeblok.
+        """
+
+        func subject(_ r: TitleRequest) -> String {
+            switch r.category {
+            case .artist:   return "rond de artiest \"\(r.label)\""
+            case .genre:    return "rond het genre \"\(r.label)\""
+            case .mood:     return "met de sfeer \"\(r.label)\""
+            case .activity: return "voor de activiteit \"\(r.label)\""
+            case .decade:   return "met muziek uit de \(r.label.lowercased())"
+            case .sonic:    return "rond de sonische buurt \"\(r.label)\""
+            }
+        }
+        func block(_ i: Int, _ r: TitleRequest) -> String {
+            let examples = r.sample.prefix(5).map { "  • \($0.title) — \($0.artist ?? "onbekend")" }.joined(separator: "\n")
+            return """
+            Station \(i) — \(subject(r)):
+              gemeten profiel: \(r.profile.isEmpty ? "onbekend" : r.profile)
+            \(examples)
+            """
+        }
+
+        func buildUser(_ reqs: [TitleRequest], note: String = "") -> String {
+            let blocks = reqs.enumerated().map { block($0.offset, $0.element) }.joined(separator: "\n\n")
+            return """
+            Maak voor ELK van de \(reqs.count) stations hieronder een titel + korte beschrijving.
+
+            \(blocks)
+
+            Eisen voor elke "title":
+            - Maak METEEN duidelijk wat voor muziek/sfeer het is (genre/stijl + sfeer/energie).
+            - Baseer stijl- en sfeerwoorden UITSLUITEND op het gemeten profiel van DAT station. Verzin geen kenmerken.
+            - De titels moeten ONDERLING DUIDELIJK VERSCHILLEN: begin niet meerdere titels met hetzelfde woord (bv. niet steeds "Elektronische …").
+            - Uitsluitend bestaande, correct gespelde Nederlandse woorden (Engelse genrenamen mogen). MAX 45 tekens.
+            Eisen voor elke "description": 1 à 2 vlotte, correcte Nederlandse zinnen; noem stijl/sfeer + kenmerkende artiesten of genre.
+            "i" is het stationnummer. Geef precies \(reqs.count) objecten.\(note)
+            """
+        }
+
+        func attempt(_ reqs: [TitleRequest]) async -> [Int: (title: String, description: String)] {
+            let raw: String
+            do {
+                raw = try await LLMClient.shared.complete(system: system, user: buildUser(reqs), config: config,
+                                                          jsonMode: true, temperature: 0.4, maxTokens: 2048)
+            } catch {
+                Log.warning("Batch-titels mislukt: \(error.localizedDescription)", category: .network)
+                return [:]
+            }
+            return parseTitleArray(raw, count: reqs.count)
+        }
+
+        // First pass over the full set.
+        var byIndex = await attempt(requests)
+        guard !byIndex.isEmpty else {
+            // Batch unusable — degrade to per-station generation (still distinct-ish
+            // via each station's own profile, just not co-optimised).
+            var out: [String: (title: String, description: String)] = [:]
+            for r in requests {
+                if let m = await generateAIMeta(category: r.category, label: r.label, sample: r.sample,
+                                                profile: r.profile, stats: r.stats, calibration: calibration) {
+                    out[r.id] = m
+                }
+            }
+            return out
+        }
+
+        // Validate each result against its station's measurements.
+        func validate(_ i: Int, _ r: TitleRequest, _ meta: (title: String, description: String)) -> Bool {
+            guard let stats = r.stats else { return true }
+            return TitleGrounding.violations(title: meta.title, stats: stats, calibration: calibration).isEmpty
+        }
+        var result: [String: (title: String, description: String)] = [:]
+        var violators: [(index: Int, req: TitleRequest)] = []
+        for (i, r) in requests.enumerated() {
+            guard let meta = byIndex[i] else { violators.append((i, r)); continue }
+            if validate(i, r, meta) { result[r.id] = meta } else { violators.append((i, r)) }
+        }
+
+        // One corrective batch retry for the violators only.
+        if !violators.isEmpty {
+            let retryReqs = violators.map(\.req)
+            let retry = await attempt(retryReqs)
+            for (j, v) in violators.enumerated() {
+                if let meta = retry[j], validate(v.index, v.req, meta) {
+                    result[v.req.id] = meta
+                }
+                // else: omit — caller falls back (uncached), so a later build retries.
+            }
+        }
+        return result
+    }
+
+    /// Parse a `[{"i", "title", "description"}]` array (possibly fenced/chatty).
+    /// Keyed by the station index. Titles clamped; empty entries dropped.
+    nonisolated static func parseTitleArray(_ raw: String, count: Int) -> [Int: (title: String, description: String)] {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let start = s.firstIndex(of: "["), let end = s.lastIndex(of: "]"), start < end,
+              let data = String(s[start...end]).data(using: .utf8),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return [:] }
+        var out: [Int: (title: String, description: String)] = [:]
+        for (pos, obj) in arr.enumerated() {
+            let i = (obj["i"] as? Int) ?? (obj["i"] as? String).flatMap(Int.init) ?? pos
+            guard i >= 0, i < count else { continue }
+            let title = clampTitle((obj["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines), max: 45)
+            let desc = (obj["description"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { continue }
+            out[i] = (title, desc)
+        }
+        return out
     }
 
     /// Defensively extract `{title, description}` from a (possibly fenced /

@@ -101,6 +101,39 @@ final class ArtistRadioTests: XCTestCase {
         XCTAssertEqual(d, "FBD")
     }
 
+    // MARK: parseTitleArray (batch)
+
+    func testParseTitleArrayMapsByIndex() {
+        let raw = """
+        [
+          {"i": 0, "title": "Dromerige indie", "description": "Zachte gitaren."},
+          {"i": 2, "title": "Strakke techno", "description": "Peak-time."},
+          {"i": 1, "title": "Warme soul", "description": "Groovy avond."}
+        ]
+        """
+        let out = RoonClient.parseTitleArray(raw, count: 3)
+        XCTAssertEqual(out[0]?.title, "Dromerige indie")
+        XCTAssertEqual(out[1]?.title, "Warme soul")
+        XCTAssertEqual(out[2]?.title, "Strakke techno")
+    }
+
+    func testParseTitleArrayFencedAndClamps() {
+        let long = String(repeating: "a", count: 60)
+        let raw = "```json\n[{\"i\":0,\"title\":\"\(long)\",\"description\":\"x\"}]\n```"
+        let out = RoonClient.parseTitleArray(raw, count: 1)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(out[0]).title.count, 45)
+    }
+
+    func testParseTitleArrayDropsOutOfRangeAndEmpty() {
+        let raw = #"[{"i":0,"title":"","description":"x"},{"i":9,"title":"Buiten bereik","description":"y"}]"#
+        let out = RoonClient.parseTitleArray(raw, count: 2)
+        XCTAssertTrue(out.isEmpty, "empty title dropped; index 9 out of range for count 2")
+    }
+
+    func testParseTitleArrayGarbageIsEmpty() {
+        XCTAssertTrue(RoonClient.parseTitleArray("geen json", count: 3).isEmpty)
+    }
+
     func testParseFallsBackPerMissingField() {
         let (t, d) = RoonClient.parseTitleJSON(
             #"{"title": "  "}"#, fallbackTitle: "FB", fallbackDesc: "FBD")
