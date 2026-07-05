@@ -134,9 +134,18 @@ public enum SonicClusters {
     // MARK: - Labeling
 
     /// Name a neighborhood by its dominant Roon genre (if it covers ≥30% of the
-    /// cluster), else dominant analyzer tag, else dominant mood, else a fallback.
-    /// Also reused by `SonicDNA.cores` so taste cores and sonic neighborhoods
-    /// are named by one set of rules.
+    /// cluster), else a *corroborated, localized* analyzer tag, else dominant
+    /// mood, else a fallback. Also reused by `SonicDNA.cores` so taste cores and
+    /// sonic neighborhoods are named by one set of rules.
+    ///
+    /// The tag path used to emit the single most-frequent raw tag verbatim —
+    /// which is how a Qobuz playlist ended up named "RoonSage · Acoustic" on
+    /// non-acoustic music. Now a tag only names a neighborhood when it (a)
+    /// covers ≥40% of members (not a mere plurality of noise), (b) has a Dutch
+    /// display form, and (c) isn't contradicted by the cluster's *measured*
+    /// attributes (an "acoustic" tag on a measured-electronic cluster is
+    /// rejected). Tags failing any gate fall through to the next candidate,
+    /// then to the mood path — never to a bare English word.
     static func label(
         for members: [DatabaseManager.SonicTrack],
         genresById: [String: Set<String>], index c: Int,
@@ -160,22 +169,37 @@ public enum SonicClusters {
             return genreLabel[top.key] ?? top.key.capitalized
         }
 
-        // Dominant analyzer tag.
-        var tagCount: [String: Int] = [:]
-        for m in members { for t in m.tags { tagCount[t.lowercased(), default: 0] += 1 } }
-        if let top = tagCount.max(by: { $0.value < $1.value }), top.value >= threshold {
-            return top.key.capitalized
-        }
-
-        // Dominant mood (argmax per track).
+        // Dominant mood (argmax per track) — computed up front so the tag path
+        // can compose "Tag · Mood" when both are clear.
         var moodCount: [String: Int] = [:]
         for m in members {
             if let top = m.moods.max(by: { $0.value < $1.value }), top.value >= 0.3 {
                 moodCount[top.key.lowercased(), default: 0] += 1
             }
         }
-        if let top = moodCount.max(by: { $0.value < $1.value }) {
-            return moodName(top.key)
+        let topMood = moodCount.max(by: { $0.value < $1.value })
+
+        // Corroborated tag: ≥40% coverage, localized, not contradicted by the
+        // measured attributes. Walk candidates by count so a rejected top tag
+        // doesn't kill the whole path.
+        let tagThreshold = max(2, size * 2 / 5)
+        var tagCount: [String: Int] = [:]
+        for m in members { for t in m.tags { tagCount[t.lowercased(), default: 0] += 1 } }
+        let stats = TitleGrounding.SelectionStats.compute(members)
+        for (tag, count) in tagCount.sorted(by: { $0.value > $1.value }) {
+            guard count >= tagThreshold else { break }
+            guard let dutch = tagName(tag) else { continue }
+            guard TitleGrounding.violations(title: dutch, stats: stats).isEmpty else { continue }
+            // Compose with a clear dominant mood when it adds information.
+            if let (moodKey, moodN) = topMood, moodN >= threshold {
+                let mood = moodName(moodKey)
+                if mood.lowercased() != dutch.lowercased() { return "\(dutch) · \(mood.lowercased())" }
+            }
+            return dutch
+        }
+
+        if let (moodKey, _) = topMood {
+            return moodName(moodKey)
         }
         return "\(fallback) \(c + 1)"
     }
@@ -186,6 +210,33 @@ public enum SonicClusters {
             "aggressive": "Stevig", "party": "Feestelijk", "danceable": "Dansbaar",
         ]
         return map[key] ?? key.capitalized
+    }
+
+    /// Dutch display form for the analyzer/MB tags we're willing to put in a
+    /// user-facing station name. Anything not in this list never names a station
+    /// — an unvetted free-text tag ("female vocalists", "seen live", …) reads as
+    /// noise, and an untranslated one as a bug.
+    static func tagName(_ key: String) -> String? {
+        let map: [String: String] = [
+            "acoustic": "Akoestisch", "unplugged": "Akoestisch",
+            "electronic": "Elektronisch", "electronica": "Elektronisch",
+            "ambient": "Ambient", "downtempo": "Downtempo", "chillout": "Chill-out",
+            "chill": "Rustig", "mellow": "Rustig", "calm": "Kalm",
+            "atmospheric": "Atmosferisch", "dreamy": "Dromerig", "ethereal": "Etherisch",
+            "dark": "Donker", "melancholic": "Melancholisch", "melancholy": "Melancholisch",
+            "uplifting": "Opwekkend", "upbeat": "Opgewekt", "feelgood": "Feelgood",
+            "energetic": "Energiek", "high-energy": "Energiek", "driving": "Stuwend",
+            "peak-time": "Piekuur", "warmup": "Warm-up", "warm-up": "Warm-up",
+            "groovy": "Groovy", "funky": "Funky", "soulful": "Soulvol",
+            "jazzy": "Jazzy", "bluesy": "Bluesy", "folky": "Folky",
+            "melodic": "Melodisch", "minimal": "Minimaal", "deep": "Deep",
+            "instrumental": "Instrumentaal", "vocal": "Vocaal",
+            "romantic": "Romantisch", "epic": "Episch", "cinematic": "Filmisch",
+            "psychedelic": "Psychedelisch", "experimental": "Experimenteel",
+            "lo-fi": "Lo-fi", "lofi": "Lo-fi", "organic": "Organisch",
+            "danceable": "Dansbaar", "hypnotic": "Hypnotisch",
+        ]
+        return map[key]
     }
 
     private static func dot(_ a: [Float], _ b: [Float]) -> Float {

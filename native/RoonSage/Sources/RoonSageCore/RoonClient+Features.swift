@@ -46,11 +46,13 @@ extension RoonClient {
     }
 
     /// Let the CLAP attribute axes (valence/danceability/acousticness/
-    /// instrumentalness) feed the radios (steering the AI titles/profile). Off by
-    /// default — the zero-shot probes are heuristic, so this stays opt-in until the
-    /// values have been eyeballed. The axes are always stored + displayed regardless.
+    /// instrumentalness) feed the radios (steering the AI titles/profile). On by
+    /// default since the axes are now library-calibrated (percentile bands via
+    /// `TitleGrounding.Calibration`) and generated titles are validated against
+    /// the measured values — a mis-scaled zero-shot score can no longer put a
+    /// false claim in a station name.
     public var radioAttributesEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: "radio_attributes_enabled") }
+        get { UserDefaults.standard.object(forKey: "radio_attributes_enabled") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "radio_attributes_enabled") }
     }
 

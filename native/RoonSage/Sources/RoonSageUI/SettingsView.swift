@@ -87,7 +87,7 @@ public struct SettingsView: View {
     // LLM
     @State private var llmProvider: LLMConfig.Provider = .ollama
     @State private var llmBaseURL:  String = "http://localhost:11434"
-    @State private var llmModel:    String = "qwen3:4b"
+    @State private var llmModel:    String = "qwen3:8b"
     @State private var llmApiKey:   String = ""
     @State private var llmSaved     = false
     @State private var ollamaModels: [String] = []

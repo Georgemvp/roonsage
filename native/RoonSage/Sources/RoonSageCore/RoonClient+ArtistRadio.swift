@@ -125,6 +125,9 @@ extension RoonClient {
         let genres = (try? await db.genresByTrackID()) ?? [:]
         let byId = Dictionary(lib.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let stamp = Self.dayStamp()
+        // Library-wide attribute distribution: calibrates the profile descriptors
+        // (and thus the AI titles) to THIS library instead of absolute scores.
+        let calibration = await Task.detached { TitleGrounding.Calibration.compute(library: lib) }.value
 
         // Seed radios: artist keeps its stable-seed logic; the others come from the
         // category buckets (whose ids we persist for orphan-safe reconciliation).
@@ -153,12 +156,16 @@ extension RoonClient {
             return []
         }
 
-        // If any radio still needs a generated title, warm the (Ollama) model once
-        // up front so the first title call below doesn't eat a cold-start timeout
-        // and freeze on the fallback. No-op for cloud providers / when all cached.
+        // If any radio may need a generated title — missing, a cached fallback, or
+        // titled before the profile-signature mechanism (no stored signature) —
+        // warm the (Ollama) model once up front so the first title call below
+        // doesn't eat a cold-start timeout and freeze on the fallback. No-op for
+        // cloud providers / when all cached and signed.
         let needsTitle = radios.contains { r in
             let t = UserDefaults.standard.string(forKey: Self.titleKey(r.id))
-            return (t?.isEmpty ?? true) || t == Self.fallbackMeta(category: category, label: r.artist).title
+            return (t?.isEmpty ?? true)
+                || t == Self.fallbackMeta(category: category, label: r.artist).title
+                || UserDefaults.standard.string(forKey: Self.titleSigKey(r.id)) == nil
         }
         if needsTitle { await LLMClient.shared.warmUp(config: LLMConfigStore.load()) }
 
@@ -206,9 +213,11 @@ extension RoonClient {
                 } else { tracks = capped }
             } else { tracks = capped }
 
-            let profile = Self.sonicProfileSummary(tracks.compactMap { byId[$0.id] },
-                                                   includeAttributes: radioAttributesEnabled)
-            let meta = await aiTitleAndDescription(for: radio, category: category, sample: tracks, profile: profile)
+            let sonics = tracks.compactMap { byId[$0.id] }
+            let profile = Self.sonicProfileSummary(sonics, includeAttributes: radioAttributesEnabled,
+                                                   calibration: calibration)
+            let meta = await aiTitleAndDescription(for: radio, category: category, sample: tracks,
+                                                   profile: profile, sonics: sonics)
             out.append(SonicRadioPlaylist(
                 id: key, artist: radio.artist, title: meta.title, description: meta.description,
                 imageKey: radio.imageKey, tracks: tracks,
@@ -528,6 +537,11 @@ extension RoonClient {
     private static func titleKey(_ id: String) -> String  { "artistradio.title.v2.\(id)" }
     private static func descKey(_ id: String) -> String   { "artistradio.desc.v2.\(id)" }
     private static func descSigKey(_ id: String) -> String { "artistradio.descsig.v2.\(id)" }
+    /// The sonic-profile signature the cached TITLE was generated for. When the
+    /// station's measured character drifts past this band-fingerprint, the title
+    /// is regenerated (and the Qobuz playlist renamed IN PLACE via its stored id)
+    /// — the fix for names frozen on a long-gone first-build selection.
+    private static func titleSigKey(_ id: String) -> String { "artistradio.titlesig.v1.\(id)" }
     static func qobuzIDKey(_ id: String) -> String        { "artistradio.qobuzid.\(id)" }
 
     /// A stable signature of a track selection (content, order-independent) used to
@@ -539,37 +553,53 @@ extension RoonClient {
         return String(seed64(joined))
     }
 
-    /// Cached AI title/description for a radio (generated once so the Qobuz name
-    /// stays stable), generating + persisting them on first use. `profile` is the
-    /// sonic-profile summary used to steer the title.
-    func aiTitleAndDescription(for radio: SonicRadio, category: RadioCategory, sample: [TrackRecord], profile: String) async -> (title: String, description: String) {
+    /// Cached AI title/description for a radio, generating + persisting them on
+    /// first use. `profile` is the sonic-profile summary used to steer the title;
+    /// `sonics` the resolved selection (for claim validation + the profile
+    /// signature).
+    ///
+    /// The title is cached, but no longer frozen forever: it's reused only while
+    /// the selection's *profile signature* (coarse sonic bands — insensitive to
+    /// the daily rotation) still matches the one it was generated for. When the
+    /// station's sound drifts, the title regenerates and the Qobuz playlist is
+    /// renamed in place via its stored playlist id. The description regenerates
+    /// on any real tracklist change, as before.
+    func aiTitleAndDescription(for radio: SonicRadio, category: RadioCategory, sample: [TrackRecord],
+                               profile: String, sonics: [DatabaseManager.SonicTrack] = []) async -> (title: String, description: String) {
         let d = UserDefaults.standard
         let fallback = Self.fallbackMeta(category: category, label: radio.artist)
         let cachedTitle = d.string(forKey: Self.titleKey(radio.id))
         let cachedDesc = d.string(forKey: Self.descKey(radio.id))
         let hasRealTitle = (cachedTitle?.isEmpty == false) && cachedTitle != fallback.title
         let sig = Self.trackSetSignature(sample)
+        let profileSig = TitleGrounding.profileSignature(sonics)
 
-        // A cached *real* title is reused — it's the stable Qobuz identity. The
-        // description, however, is regenerated when the tracklist changed (the
-        // signature differs) so it keeps describing what's actually in the playlist
-        // instead of a frozen first-build sample. A cached bare fallback title is
-        // NOT trusted — it means an earlier LLM call failed (e.g. Ollama cold-start)
-        // — so we retry generation now.
+        // A cached *real* title is reused while it still matches the station's
+        // measured character (profile signature). A missing stored signature —
+        // every radio titled before this mechanism existed — counts as stale, so
+        // legacy titles regenerate once against real measurements. A cached bare
+        // fallback title is NOT trusted — it means an earlier LLM call failed
+        // (e.g. Ollama cold-start) — so we retry generation now.
+        let titleFresh = hasRealTitle && d.string(forKey: Self.titleSigKey(radio.id)) == profileSig
         let descFresh = d.string(forKey: Self.descSigKey(radio.id)) == sig
-        if hasRealTitle, let t = cachedTitle, let desc = cachedDesc, !desc.isEmpty, descFresh {
+        if titleFresh, let t = cachedTitle, let desc = cachedDesc, !desc.isEmpty, descFresh {
             return (t, desc)
         }
-        if let meta = await Self.generateAIMeta(category: category, label: radio.artist, sample: sample, profile: profile) {
-            // Keep the title stable once we have a real one; only refresh the desc.
-            let title = hasRealTitle ? (cachedTitle ?? meta.title) : meta.title
+        let stats = sonics.isEmpty ? nil : TitleGrounding.SelectionStats.compute(sonics)
+        if let meta = await Self.generateAIMeta(category: category, label: radio.artist,
+                                                sample: sample, profile: profile, stats: stats) {
+            // A still-fresh title is kept (only the desc needed refreshing); a
+            // stale or missing one takes the newly generated title.
+            let title = titleFresh ? (cachedTitle ?? meta.title) : meta.title
             d.set(title, forKey: Self.titleKey(radio.id))
             d.set(meta.description, forKey: Self.descKey(radio.id))
             d.set(sig, forKey: Self.descSigKey(radio.id))
+            d.set(profileSig, forKey: Self.titleSigKey(radio.id))
             return (title, meta.description)
         }
         // LLM unavailable this round — reuse whatever we have, else the fallback.
-        // Don't cache the fallback (so a later build retries).
+        // Don't cache the fallback (so a later build retries). The stored profile
+        // signature is left untouched, so the regeneration retries too.
         return (hasRealTitle ? (cachedTitle ?? fallback.title) : fallback.title,
                 (cachedDesc?.isEmpty == false) ? cachedDesc! : fallback.description)
     }
@@ -577,28 +607,31 @@ extension RoonClient {
     /// A compact Dutch summary of the selection's sonic character — dominant
     /// tags/genres, top moods, energy band and tempo — fed to the title prompt so
     /// titles describe *what kind of music* it is, not just a clever phrase.
+    ///
+    /// `calibration` (the library's attribute distribution) makes the attribute
+    /// descriptors library-relative: "akoestisch" only when the selection is both
+    /// absolutely acoustic-leaning AND in this library's upper acoustic reaches —
+    /// so a mis-scaled zero-shot axis can't put a false claim in the prompt.
     nonisolated static func sonicProfileSummary(_ tracks: [DatabaseManager.SonicTrack],
-                                                includeAttributes: Bool = false) -> String {
+                                                includeAttributes: Bool = false,
+                                                calibration: TitleGrounding.Calibration? = nil) -> String {
         guard !tracks.isEmpty else { return "" }
         var parts: [String] = []
 
-        // CLAP attribute axes (opt-in): average the per-track scores and name the
-        // ones that clearly lean one way, so the AI title can reflect e.g. a
-        // danceable, acoustic, or instrumental character.
+        // CLAP attribute axes: average the per-track scores and name the ones
+        // that clearly lean one way (calibrated against the library when
+        // possible), so the AI title can reflect e.g. a danceable, acoustic, or
+        // instrumental character.
         if includeAttributes {
             var sum: [String: Float] = [:]; var cnt: [String: Int] = [:]
             for t in tracks { for (k, v) in t.attributes { sum[k, default: 0] += v; cnt[k, default: 0] += 1 } }
-            let labels: [(key: String, high: String, low: String)] = [
-                ("valence", "vrolijk", "melancholisch"),
-                ("danceability", "dansbaar", "ingetogen ritme"),
-                ("acousticness", "akoestisch", "elektronisch"),
-                ("instrumentalness", "instrumentaal", "met zang"),
-            ]
             var attrParts: [String] = []
-            for l in labels {
-                guard let c = cnt[l.key], c > 0 else { continue }
-                let avg = sum[l.key]! / Float(c)
-                if avg >= 0.62 { attrParts.append(l.high) } else if avg <= 0.38 { attrParts.append(l.low) }
+            for axis in ["valence", "danceability", "acousticness", "instrumentalness"] {
+                guard let c = cnt[axis], c > 0 else { continue }
+                if let word = TitleGrounding.band(axis: axis, selectionAvg: sum[axis]! / Float(c),
+                                                  calibration: calibration) {
+                    attrParts.append(word)
+                }
             }
             if !attrParts.isEmpty { parts.append("kenmerken: \(attrParts.joined(separator: ", "))") }
         }
@@ -663,7 +696,14 @@ extension RoonClient {
     /// (e.g. an Ollama cold-start timeout) or returns nothing usable — the caller
     /// then uses a temporary fallback WITHOUT caching it, so a later build retries
     /// instead of freezing the default name forever.
-    nonisolated static func generateAIMeta(category: RadioCategory, label: String, sample: [TrackRecord], profile: String) async -> (title: String, description: String)? {
+    ///
+    /// `stats` (when available) grounds the result: a title claiming a style the
+    /// measurements contradict ("akoestisch" on an electronic selection) gets ONE
+    /// corrective retry naming the offending words; a second violation fails the
+    /// call. This is what makes "RoonSage · Acoustic" on non-acoustic music
+    /// impossible rather than merely unlikely.
+    nonisolated static func generateAIMeta(category: RadioCategory, label: String, sample: [TrackRecord],
+                                           profile: String, stats: TitleGrounding.SelectionStats? = nil) async -> (title: String, description: String)? {
         let fallback = fallbackMeta(category: category, label: label)
         let fallbackTitle = fallback.title
         let fallbackDesc  = fallback.description
@@ -694,13 +734,14 @@ extension RoonClient {
         let user = """
         Maak een titel en korte beschrijving voor een radio-playlist \(subject).
 
-        Sonisch profiel van de selectie: \(profile.isEmpty ? "onbekend" : profile)
+        Sonisch profiel van de selectie (GEMETEN uit de audio): \(profile.isEmpty ? "onbekend" : profile)
         Voorbeeldtracks:
         \(examples)
         Kenmerkende artiesten: \(others.isEmpty ? "diverse" : others)
 
         Eisen voor "title":
         - Maak METEEN duidelijk wat voor muziek/sfeer het is: noem het genre/stijl en/of de sfeer of energie (bv. "Melodieuze indie-rock", "Dromerige akoestische avond", "Energieke house").
+        - Baseer stijl- en sfeerwoorden UITSLUITEND op het gemeten sonische profiel hierboven. Beweer GEEN kenmerken (akoestisch, dansbaar, rustig, …) die er niet in staan.
         - Sluit aan op het thema \(subject). Vermijd vage woordgrappen die het genre niet verraden.
         - Gebruik UITSLUITEND bestaande, correct gespelde Nederlandse woorden (Engelse genrenamen mogen). Verzin GEEN woorden.
         - Kort en krachtig: MAX 45 tekens, het liefst korter.
@@ -710,21 +751,49 @@ extension RoonClient {
         """
 
         let config = LLMConfigStore.load()
-        let raw: String
-        do {
-            raw = try await LLMClient.shared.complete(system: system, user: user, config: config)
-        } catch {
-            Log.warning("AI radio-titel mislukt voor '\(label)': \(error.localizedDescription) — tijdelijke standaardtitel, wordt later opnieuw geprobeerd", category: .network)
+
+        /// One LLM round → parsed meta, or nil on failure/parse-fallback.
+        func attempt(_ userPrompt: String) async -> (title: String, description: String)? {
+            let raw: String
+            do {
+                // jsonMode + a low-but-not-flat temperature: faithful to the
+                // measured profile, still varied enough to not template.
+                raw = try await LLMClient.shared.complete(system: system, user: userPrompt, config: config,
+                                                          jsonMode: true, temperature: 0.35)
+            } catch {
+                Log.warning("AI radio-titel mislukt voor '\(label)': \(error.localizedDescription) — tijdelijke standaardtitel, wordt later opnieuw geprobeerd", category: .network)
+                return nil
+            }
+            let meta = parseTitleJSON(raw, fallbackTitle: fallbackTitle, fallbackDesc: fallbackDesc)
+            // The LLM answered but produced no usable title (parse fell all the way
+            // back). Treat as failure so it isn't cached and freezes the default.
+            guard meta.title != fallbackTitle else {
+                Log.warning("AI radio-titel onbruikbaar voor '\(label)' (parse-fallback) — niet gecachet", category: .network)
+                return nil
+            }
+            return meta
+        }
+
+        guard let meta = await attempt(user) else { return nil }
+        guard let stats else { return meta }
+
+        // Grounding gate: reject a title whose style claims the measurements
+        // contradict; give the model one corrective retry naming the offenders.
+        let bad = TitleGrounding.violations(title: meta.title, stats: stats)
+        guard !bad.isEmpty else { return meta }
+        Log.info("AI radio-titel '\(meta.title)' voor '\(label)' spreekt de metingen tegen (\(bad.joined(separator: "; "))) — corrigerende poging", category: .network)
+        let corrective = user + """
+
+
+        LET OP — je eerdere titel "\(meta.title)" bevatte claims die de metingen tegenspreken: \(bad.joined(separator: "; ")). \
+        Maak een nieuwe titel ZONDER deze woorden, trouw aan het gemeten profiel.
+        """
+        guard let retry = await attempt(corrective),
+              TitleGrounding.violations(title: retry.title, stats: stats).isEmpty else {
+            Log.warning("AI radio-titel voor '\(label)' blijft de metingen tegenspreken — tijdelijke standaardtitel, wordt later opnieuw geprobeerd", category: .network)
             return nil
         }
-        let meta = parseTitleJSON(raw, fallbackTitle: fallbackTitle, fallbackDesc: fallbackDesc)
-        // The LLM answered but produced no usable title (parse fell all the way
-        // back). Treat as failure so it isn't cached and freezes the default.
-        guard meta.title != fallbackTitle else {
-            Log.warning("AI radio-titel onbruikbaar voor '\(label)' (parse-fallback) — niet gecachet", category: .network)
-            return nil
-        }
-        return meta
+        return retry
     }
 
     /// Defensively extract `{title, description}` from a (possibly fenced /
@@ -860,8 +929,11 @@ extension RoonClient {
                 }
             }
         }
+        // The known Qobuz ids of the kept radios: a rename-in-place that failed
+        // mid-sync leaves the old name live — protect it by id, not just name.
+        let keepQobuzIDs = Set(keepIds.compactMap { UserDefaults.standard.string(forKey: Self.qobuzIDKey($0)) })
         let removed = await QobuzClient.shared.deleteRadioOrphans(
-            keep: keepNames, namePrefix: Self.qobuzNamePrefix, email: email, password: password)
+            keep: keepNames, keepIDs: keepQobuzIDs, namePrefix: Self.qobuzNamePrefix, email: email, password: password)
         if removed > 0 {
             Log.info("AI radio's: \(removed) verouderde/uit-dagdeel playlist(s) van Qobuz opgeruimd", category: .network)
         }
@@ -889,8 +961,10 @@ extension RoonClient {
         for (_, pls) in cachedArtistRadios {
             for pl in pls where keepIDs.contains(pl.id) { keepNames.insert(pl.qobuzName) }
         }
+        // Protect kept radios by their known Qobuz id too (rename-in-place safety).
+        let keepQobuzIDs = Set(keepIDs.compactMap { UserDefaults.standard.string(forKey: Self.qobuzIDKey($0)) })
         let removed = await QobuzClient.shared.deleteRadioOrphans(
-            keep: keepNames, namePrefix: Self.qobuzNamePrefix, email: email, password: password)
+            keep: keepNames, keepIDs: keepQobuzIDs, namePrefix: Self.qobuzNamePrefix, email: email, password: password)
         if removed > 0 {
             Log.info("AI radio's: \(removed) niet-geselecteerde playlist(s) van Qobuz opgeruimd", category: .network)
         }

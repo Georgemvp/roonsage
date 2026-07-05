@@ -151,7 +151,8 @@ public actor QobuzClient {
         return SaveResult(matched: ids.count, total: tracks.count, playlistID: playlistID)
     }
 
-    /// Delete every "RoonSage · …" playlist whose exact name is NOT in `keep`.
+    /// Delete every "RoonSage · …" playlist whose exact name is NOT in `keep`
+    /// AND whose Qobuz id is not in `keepIDs`.
     ///
     /// The AI artist-radio set is meant to be a STABLE 6 playlists that refreshes
     /// in place. Earlier builds let the seed set drift (so a refresh created a new
@@ -159,8 +160,15 @@ public actor QobuzClient {
     /// This reconciles Qobuz back to the current set: list the user's playlists,
     /// and delete any in our `namePrefix` namespace that the caller no longer
     /// recognises. Returns the number deleted.
+    ///
+    /// `keepIDs` protects rename-in-place: titles can now legitimately change
+    /// (profile drift regenerates them). If a sync fails after a new title was
+    /// cached, the live playlist still carries the OLD name — matching by name
+    /// alone would delete the very playlist the next sync will rename. An id in
+    /// the keep-set always wins over a stale name.
     public func deleteRadioOrphans(
         keep: Set<String>,
+        keepIDs: Set<String> = [],
         namePrefix: String,
         email: String,
         password: String
@@ -169,7 +177,9 @@ public actor QobuzClient {
         let keepLower = Set(keep.map { $0.lowercased() })
         let mine = await listUserPlaylists(session: session)
         var deleted = 0
-        for p in mine where p.name.hasPrefix(namePrefix) && !keepLower.contains(p.name.lowercased()) {
+        for p in mine where p.name.hasPrefix(namePrefix)
+            && !keepLower.contains(p.name.lowercased())
+            && !keepIDs.contains(p.id) {
             await deletePlaylist(playlistID: p.id, session: session)
             deleted += 1
         }

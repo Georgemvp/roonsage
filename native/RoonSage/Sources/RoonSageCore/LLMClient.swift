@@ -15,10 +15,13 @@ public struct LLMConfig: Sendable {
         /// Self-hosted providers expose a configurable base URL.
         public var usesBaseURL: Bool { self == .ollama || self == .custom }
 
-        /// A sane default model id when the user hasn't chosen one.
+        /// A sane default model id when the user hasn't chosen one. Ollama's
+        /// default is the 8B Qwen: noticeably better Dutch + far fewer invented
+        /// words than the 4B for the radio titles, and at Q4 (~5-6 GB resident)
+        /// it still fits a 16 GB Mac mini next to Roon Core.
         public var defaultModel: String {
             switch self {
-            case .ollama:    "qwen3:4b"
+            case .ollama:    "qwen3:8b"
             case .anthropic: "claude-haiku-4-5-20251001"
             case .openai:    "gpt-4.1-mini"
             case .gemini:    "gemini-2.5-flash"
@@ -34,7 +37,7 @@ public struct LLMConfig: Sendable {
     public init(
         provider: Provider = .ollama,
         baseURL:  String   = "http://localhost:11434",
-        model:    String   = "qwen3:4b",
+        model:    String   = "qwen3:8b",
         apiKey:   String   = ""
     ) {
         self.provider = provider
@@ -60,7 +63,7 @@ public enum LLMConfigStore {
         return LLMConfig(
             provider: p,
             baseURL:  d.string(forKey: "llm_base_url") ?? "http://localhost:11434",
-            model:    d.string(forKey: "llm_model")    ?? "qwen3:4b",
+            model:    d.string(forKey: "llm_model")    ?? "qwen3:8b",
             apiKey:   KeychainStore.load(key: "llm_apikey_\(p.rawValue)") ?? ""
         )
     }
