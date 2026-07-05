@@ -281,18 +281,44 @@ public final class FeatureStore {
     /// feed when a NEW axis (e.g. `arousal`) is added: the plain backfill only
     /// sees `attributes IS NULL`, so existing 4-axis rows would never gain it.
     /// Derived from the STORED embedding, so no audio is re-read.
-    public func attributeRefreshRows(missingKey key: String, limit: Int) -> [(path: String, mtime: Double, embedding: [Float])] {
+    ///
+    /// Paginated by `rowid` (NOT by the shrinking NOT-LIKE set): advancing a
+    /// monotonic cursor makes the whole migration O(n), where re-running the
+    /// LIKE scan from the start each batch was O(n²) — the cause of the ~5 rows/s
+    /// crawl. Returns the max rowid seen so the caller advances past it.
+    public func attributeRefreshRows(missingKey key: String, afterRowid: Int64, limit: Int)
+        -> [(rowid: Int64, path: String, mtime: Double, embedding: [Float])] {
         (try? dbQueue.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT file_path, file_mtime, embedding FROM track_features
-                WHERE embedding IS NOT NULL
+                SELECT rowid, file_path, file_mtime, embedding FROM track_features
+                WHERE rowid > ?
+                  AND embedding IS NOT NULL
                   AND attributes IS NOT NULL
-                  AND attributes NOT LIKE ? LIMIT ?
-                """, arguments: ["%\"\(key)\"%", limit])
+                  AND attributes NOT LIKE ?
+                ORDER BY rowid LIMIT ?
+                """, arguments: [afterRowid, "%\"\(key)\"%", limit])
         })?.compactMap { r in
             guard let blob = r["embedding"] as Data? else { return nil }
-            return (r["file_path"] ?? "", r["file_mtime"] ?? 0, Self.floats(blob))
+            return (r["rowid"] ?? 0, r["file_path"] ?? "", r["file_mtime"] ?? 0, Self.floats(blob))
         } ?? []
+    }
+
+    /// The largest rowid in the table — the pagination end sentinel.
+    public func maxRowid() -> Int64 {
+        (try? dbQueue.read { db in try Int64.fetchOne(db, sql: "SELECT MAX(rowid) FROM track_features") ?? 0 }) ?? 0
+    }
+
+    /// Write many (path, mtime → attributes) in ONE transaction — the re-derive
+    /// path updates tens of thousands of rows, and a write-per-row is tens of
+    /// thousands of WAL commits contending with the live server.
+    public func setAttributesBatch(_ rows: [(path: String, mtime: Double, attributes: String)]) throws {
+        guard !rows.isEmpty else { return }
+        try dbQueue.write { db in
+            for r in rows {
+                try db.execute(sql: "UPDATE track_features SET attributes = ? WHERE file_path = ? AND file_mtime = ?",
+                               arguments: [r.attributes, r.path, r.mtime])
+            }
+        }
     }
 
     /// Count of embedded rows whose attributes lack `key` (drives the re-derive UI).

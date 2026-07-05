@@ -209,27 +209,33 @@ public final class LibraryWalker {
     /// Skips a row only when the fresh probe STILL lacks the key (probes
     /// unavailable) — writing the current map anyway so it isn't re-selected.
     @discardableResult
-    public func refreshAttributes(missingKey key: String, batch: Int = 200,
+    public func refreshAttributes(missingKey key: String, batch: Int = 500,
                                   onProgress: (@Sendable (Int) -> Void)? = nil) async -> Int {
         guard let clap else { return 0 }
         cancelled = false
         var total = 0
+        var cursor: Int64 = 0
+        let maxRowid = store.maxRowid()
         while !cancelled {
-            let rows = store.attributeRefreshRows(missingKey: key, limit: batch)
+            let rows = store.attributeRefreshRows(missingKey: key, afterRowid: cursor, limit: batch)
             if rows.isEmpty { break }
-            var progressed = false
+            cursor = rows.last!.rowid   // advance PAST this batch — O(n) overall
+            // Compute all attributes, then commit the batch in ONE transaction.
+            var writes: [(path: String, mtime: Double, attributes: String)] = []
+            writes.reserveCapacity(rows.count)
             for r in rows {
                 let map = clap.attributes(forEmbedding: r.embedding)
-                // Probes unavailable → the key won't appear; skip so we don't spin
-                // forever rewriting the same key-less map. (Coverage completes once
-                // the text model is loaded.)
+                // Probes unavailable → the key won't appear; skip (once the text
+                // model is loaded the key is always present).
                 guard map[key] != nil, let json = Self.encodeFloatMap(map) else { continue }
-                try? store.setAttributes(path: r.path, mtime: r.mtime, attributes: json)
-                total += 1
-                progressed = true
+                writes.append((r.path, r.mtime, json))
             }
-            if !progressed { break }
-            onProgress?(total)
+            if !writes.isEmpty {
+                try? store.setAttributesBatch(writes)
+                total += writes.count
+                onProgress?(total)
+            }
+            if cursor >= maxRowid { break }
         }
         return total
     }
