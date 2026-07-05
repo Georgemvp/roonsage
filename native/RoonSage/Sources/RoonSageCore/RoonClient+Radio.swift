@@ -286,12 +286,18 @@ extension RoonClient {
         let stats = await sonicCache.nnStats(from: db)
         let gate = await candidateGate(for: key)
         let related = await relatedSeedArtists(radioID: key, artist: state.artist)
+        // Continuation anchor: the final track of the generation that just drained,
+        // so the new pool opens on a sonically-adjacent track (seamless seam). Only
+        // on the exhaustion path — a live re-steer keeps its queued tracks and
+        // shouldn't reorder around a track that hasn't played yet.
+        let continueFrom = preserveQueuedKeys ? nil : state.pool.last?.id
         let pool = await Task.detached {
             Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
                                       seed: "\(stamp)-\(key)-\(nextGen)", disliked: disliked,
                                       likedKeys: liked, knownArtists: known,
                                       adventurousness: adv, hardBan: hardBan, tasteVector: taste,
-                                      nnStats: stats, relatedArtists: related, gate: gate)
+                                      nnStats: stats, relatedArtists: related, gate: gate,
+                                      continueFromId: continueFrom)
         }.value
         state.pool = pool
         state.cursor = 0
@@ -330,7 +336,8 @@ extension RoonClient {
         adventurousness: Double = defaultAdventurousness, hardBan: Bool = false,
         tasteVector: [Float]? = nil, nnStats: VectorIndex.NNStats? = nil,
         relatedArtists: [String: Double] = [:],
-        gate: (@Sendable (DatabaseManager.SonicTrack) -> Bool)? = nil
+        gate: (@Sendable (DatabaseManager.SonicTrack) -> Bool)? = nil,
+        continueFromId: String? = nil
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
         // Don't seed the station on a disliked track.
@@ -344,9 +351,11 @@ extension RoonClient {
         let useEmb = index != nil && own.contains { index!.embedding(forId: $0.id) != nil }
         let neighbours: [DatabaseManager.SonicTrack]
         if useEmb, let index {
+            // sequence:false here — we flow-order the FULL combined pool below,
+            // opening on the continuation anchor (seamless top-up) when given.
             let opts = RadioEngine.Options(
                 adventurousness: adventurousness, poolLimit: radioPoolSize,
-                hardBanDisliked: hardBan, sequence: true, arc: .smooth,
+                hardBanDisliked: hardBan, sequence: false, arc: .smooth,
                 similarityFloor: nnStats.map { RadioEngine.Options.floor(stats: $0, adventurousness: adventurousness) })
             let ranked = RadioEngine.rank(
                 seeds: own, library: lib, index: index, options: opts,
@@ -381,14 +390,20 @@ extension RoonClient {
         }
 
         if useEmb {
-            // RadioEngine already flow-sequenced the neighbours and the daily salt
-            // already rotated the selection — keep that order and just lead on a
-            // seed-artist track so the station opens on-brand. No daily reshuffle
-            // (it would undo the flow).
-            if let leadIdx = combined.firstIndex(where: { seedSet.contains($0.id) }), leadIdx != 0 {
-                combined.swapAt(0, leadIdx)
+            // Flow-order the FULL combined pool into one smooth journey. The opener:
+            //  • a CONTINUATION anchor (the track that was just playing) on a top-up
+            //    regeneration, so generation N+1 glides out of generation N instead
+            //    of jumping — the seamless-seam fix; else
+            //  • a seed-artist track, so a fresh station opens on-brand.
+            let startIds: Set<String>
+            if let anchor = continueFromId,
+               let nearest = nearestPoolTrack(to: anchor, in: combined, lib: lib, index: index) {
+                startIds = [nearest]
+            } else {
+                startIds = seedSet
             }
-            return combined.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
+            let ordered = RadioSequencer.order(combined, preferredStartIds: startIds, arc: .smooth)
+            return ordered.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
         }
 
         var shuffled = dailyShuffled(combined, seed: seed)
@@ -396,6 +411,29 @@ extension RoonClient {
             shuffled.swapAt(0, leadIdx)
         }
         return shuffled.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
+    }
+
+    /// The pool member sonically closest to `anchorId` (cosine over CLAP
+    /// embeddings) — the continuation opener for a seamless top-up. nil when the
+    /// anchor or the pool has no usable embedding.
+    nonisolated static func nearestPoolTrack(
+        to anchorId: String, in pool: [DatabaseManager.SonicTrack],
+        lib: [DatabaseManager.SonicTrack], index: VectorIndex?
+    ) -> String? {
+        guard let index, let anchor = index.embedding(forId: anchorId) else { return nil }
+        let a = VectorIndex.normalized(anchor)
+        var best: String?
+        var bestSim = -Double.infinity
+        for t in pool where t.id != anchorId {
+            guard let e = index.embedding(forId: t.id) else { continue }
+            let en = VectorIndex.normalized(e)
+            var s: Float = 0
+            let n = min(a.count, en.count)
+            var i = 0
+            while i < n { s += a[i] * en[i]; i += 1 }
+            if Double(s) > bestSim { bestSim = Double(s); best = t.id }
+        }
+        return best
     }
 
     // MARK: Deterministic daily shuffle

@@ -80,6 +80,35 @@ final class RadioGateTests: XCTestCase {
         XCTAssertEqual(strict, [0, 2, 4, 6, 8])
     }
 
+    func testContinuationAnchorOpensNearLastTrack() {
+        // seed at [1,0,0,0]; two neighbours — one near an "anchor" direction.
+        func t(_ id: String, _ e: [Float]) -> DatabaseManager.SonicTrack {
+            DatabaseManager.SonicTrack(id: id, title: id, artist: id, album: nil, imageKey: nil,
+                                       matchKey: id, bpm: 120, camelot: "8A", energy: 0.5, tags: [], embedding: e)
+        }
+        let seed = t("seed", [1, 0, 0, 0])
+        let near = t("near", [0, 1, 0, 0])   // sonically adjacent to the anchor below
+        let far  = t("far", [0, 0, 1, 0])
+        let anchor = t("anchor", [0, 0.99, 0.14, 0])   // closest to `near`
+        let lib = [seed, near, far, anchor]
+        let index = VectorIndex(tracks: lib)!
+        let pool = RoonClient.buildRadioCandidates(
+            seedIds: [seed.id], lib: lib, index: index, seed: "x", continueFromId: "anchor")
+        XCTAssertEqual(pool.first?.id, "near",
+                       "the top-up opens on the track nearest the just-played anchor: \(pool.map(\.id))")
+    }
+
+    func testNearestPoolTrackByCosine() {
+        func t(_ id: String, _ e: [Float]) -> DatabaseManager.SonicTrack {
+            DatabaseManager.SonicTrack(id: id, title: id, artist: id, album: nil, imageKey: nil,
+                                       matchKey: id, bpm: nil, camelot: "8A", energy: nil, tags: [], embedding: e)
+        }
+        let lib = [t("a", [1, 0, 0]), t("b", [0, 1, 0]), t("anchor", [0.9, 0.1, 0])]
+        let index = VectorIndex(tracks: lib)!
+        let nearest = RoonClient.nearestPoolTrack(to: "anchor", in: [lib[0], lib[1]], lib: lib, index: index)
+        XCTAssertEqual(nearest, "a")
+    }
+
     func testBuildRadioCandidatesHonoursGate() {
         // Rule-based path (index nil): seed + neighbours; the gate keeps only
         // high-energy neighbours (relaxation off with a tiny minKeep).
