@@ -111,7 +111,7 @@ public enum RadioEngine {
         seedGenres: Set<String> = [],
         genresById: [String: Set<String>] = [:],
         seedWeights: [Double]? = nil,
-        relatedArtists: Set<String> = [],
+        relatedArtists: [String: Double] = [:],
         salt: String = ""
     ) -> [Result] {
         // Anchors: the seed vectors that exist in the index. Cap for cost.
@@ -211,9 +211,10 @@ public enum RadioEngine {
             let familiarBonus = (1 - adv) * 0.15 * (isKnown ? 1 : 0)
             let discoveryBonus = adv * (0.18 * (isKnown ? 0 : 1) + 0.12 * distanceNovelty)
             // Collaborative affinity: listeners of the seed artist also play this
-            // artist (Deezer fan graph). A flat, bounded nudge — global co-listen
-            // evidence complements sonic closeness at any dial position.
-            let relatedBonus = (!artist.isEmpty && relatedArtists.contains(artist)) ? relatedAffinityBonus : 0
+            // artist (Deezer fan graph). Scaled by the artist's WEIGHT in the graph
+            // (rank + transitive distance), so a close co-listen neighbour pulls
+            // harder than a tail one — global evidence complementing sonic closeness.
+            let relatedBonus = artist.isEmpty ? 0 : relatedAffinityBonus * (relatedArtists[artist] ?? 0)
             // Global-popularity steer: a low dial leans toward hits, a high dial
             // toward deep cuts. Centred at 0.5 so an average-popularity (or
             // unknown) track adds nothing — the term only tilts the extremes.

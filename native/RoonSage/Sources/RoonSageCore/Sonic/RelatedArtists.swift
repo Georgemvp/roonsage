@@ -82,32 +82,64 @@ extension RoonClient {
     /// server fetches; a thin client returns [] (its radios come pre-built from
     /// the server anyway). Failures return [] without poisoning the cache.
     func relatedArtistKeys(for artist: String) async -> Set<String> {
-        guard !isRemote, let db = database, !artist.isEmpty else { return [] }
-        // `try?` flattens the double optional: a DB error reads as a cache miss
-        // and simply refetches.
-        if let cached = try? await db.relatedArtists(for: artist) {
-            return Set(cached)
-        }
-        guard let fetched = await RelatedArtistsClient.shared.relatedArtists(for: artist) else {
-            return []   // network trouble: don't negative-cache, retry next build
-        }
-        try? await db.upsertRelatedArtists(artistKey: artist, related: fetched)
-        if !fetched.isEmpty {
-            Log.info("Verwante artiesten (Deezer) voor '\(artist)': \(fetched.count) gecachet", category: .network)
-        }
-        return Set(fetched.map { $0.lowercased() })
+        Set((await relatedArtistWeights(for: artist)).keys)
     }
 
-    /// The fan-graph seed set for a running station: the seed artist for artist
-    /// radios, the seed *track's* artist for song radios (its display name is
-    /// the track title), none for the bucket categories (no single seed artist).
-    func relatedSeedArtists(radioID: String, artist: String) async -> Set<String> {
-        if radioID.hasPrefix("artist:") { return await relatedArtistKeys(for: artist) }
-        guard radioID.hasPrefix("track:") else { return [] }
+    /// Rank-WEIGHTED fan-graph for a seed artist: the Deezer list is affinity-
+    /// ordered, so a leading artist (Clapton for Knopfler) should pull harder than
+    /// #20. Weight = 1.0 at the top decaying to ~0.4 at the tail. Adds a bounded
+    /// TRANSITIVE hop (related-of-related) at half weight — cache-only, so it never
+    /// fires extra Deezer calls in the build hot path; it just broadens reach for
+    /// artists whose neighbours were already fetched. Keys lowercased.
+    func relatedArtistWeights(for artist: String) async -> [String: Double] {
+        guard !isRemote, let db = database, !artist.isEmpty else { return [:] }
+
+        // First hop (fetch-on-miss). `try?` flattens the double optional: a DB
+        // error reads as a cache miss and refetches.
+        let firstHop: [String]
+        if let cached = try? await db.relatedArtists(for: artist) {
+            firstHop = cached
+        } else if let fetched = await RelatedArtistsClient.shared.relatedArtists(for: artist) {
+            try? await db.upsertRelatedArtists(artistKey: artist, related: fetched)
+            if !fetched.isEmpty {
+                Log.info("Verwante artiesten (Deezer) voor '\(artist)': \(fetched.count) gecachet", category: .network)
+            }
+            firstHop = fetched.map { $0.lowercased() }
+        } else {
+            return [:]   // network trouble: don't negative-cache, retry next build
+        }
+        guard !firstHop.isEmpty else { return [:] }
+
+        func rankWeight(_ i: Int, _ n: Int) -> Double {
+            guard n > 1 else { return 1 }
+            return 1 - 0.6 * Double(i) / Double(n - 1)
+        }
+        var weights: [String: Double] = [:]
+        for (i, name) in firstHop.enumerated() { weights[name] = rankWeight(i, firstHop.count) }
+
+        // Transitive hop at half weight, cache-only (no fetch). Keep the strongest
+        // path to any artist (max, not sum) so a hub can't dominate the pool.
+        for (i, hop) in firstHop.prefix(8).enumerated() {
+            guard let second = try? await db.relatedArtists(for: hop) else { continue }
+            let hopW = rankWeight(i, firstHop.count) * 0.5
+            for (j, name) in second.enumerated() where name != artist.lowercased() {
+                let w = hopW * rankWeight(j, second.count)
+                if w > (weights[name] ?? 0) { weights[name] = w }
+            }
+        }
+        return weights
+    }
+
+    /// The rank-weighted fan-graph for a running station: the seed artist for
+    /// artist radios, the seed *track's* artist for song radios (its display name
+    /// is the track title), none for the bucket categories (no single seed artist).
+    func relatedSeedArtists(radioID: String, artist: String) async -> [String: Double] {
+        if radioID.hasPrefix("artist:") { return await relatedArtistWeights(for: artist) }
+        guard radioID.hasPrefix("track:") else { return [:] }
         let mk = String(radioID.dropFirst("track:".count))
         let lib = await radioLibrary()
         guard let seed = lib.first(where: { $0.matchKey == mk || $0.id == mk }),
-              let a = seed.artist, !a.isEmpty else { return [] }
-        return await relatedArtistKeys(for: a)
+              let a = seed.artist, !a.isEmpty else { return [:] }
+        return await relatedArtistWeights(for: a)
     }
 }

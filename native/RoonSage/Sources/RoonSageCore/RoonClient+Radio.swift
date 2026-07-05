@@ -329,7 +329,7 @@ extension RoonClient {
         likedKeys: Set<String> = [], knownArtists: Set<String> = [],
         adventurousness: Double = defaultAdventurousness, hardBan: Bool = false,
         tasteVector: [Float]? = nil, nnStats: VectorIndex.NNStats? = nil,
-        relatedArtists: Set<String> = [],
+        relatedArtists: [String: Double] = [:],
         gate: (@Sendable (DatabaseManager.SonicTrack) -> Bool)? = nil
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)

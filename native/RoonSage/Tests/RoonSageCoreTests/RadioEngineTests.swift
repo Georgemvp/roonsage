@@ -69,9 +69,23 @@ final class RadioEngineTests: XCTestCase {
         let index = VectorIndex(tracks: lib)!
         let opts = RadioEngine.Options(adventurousness: 0.35, poolLimit: 2, sequence: false)
         let r = RadioEngine.rank(seeds: [seed], library: lib, index: index, options: opts,
-                                 relatedArtists: ["fangraph"], salt: "")
+                                 relatedArtists: ["fangraph": 1.0], salt: "")
         XCTAssertEqual(r.first?.track.id, "a",
                        "the Deezer-related artist wins the equidistant tie: \(r.map { $0.track.id })")
+    }
+
+    func testRelatedArtistBonusScalesWithWeight() {
+        // Two equidistant related artists; the higher-weighted one ranks first.
+        let seed = track("seed", [1, 0, 0, 0], artist: "Seed")
+        let a = track("a", [0.70, 0.714, 0, 0], artist: "TopRelated")
+        let b = track("b", [0.70, 0, 0.714, 0], artist: "TailRelated")
+        let lib = [seed, a, b]
+        let index = VectorIndex(tracks: lib)!
+        let opts = RadioEngine.Options(adventurousness: 0.35, poolLimit: 2, sequence: false)
+        let r = RadioEngine.rank(seeds: [seed], library: lib, index: index, options: opts,
+                                 relatedArtists: ["toprelated": 1.0, "tailrelated": 0.4], salt: "")
+        XCTAssertEqual(r.first?.track.id, "a",
+                       "the higher-weighted fan-graph artist ranks first: \(r.map { $0.track.id })")
     }
 
     func testMMRDiversifiesAwayFromNearDuplicates() {

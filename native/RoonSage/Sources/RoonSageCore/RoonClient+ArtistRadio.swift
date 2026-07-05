@@ -180,7 +180,7 @@ extension RoonClient {
             // gates read the library energy calibration (percentile-based).
             let gate = Self.bucketGate(radioID: key, genres: genres, years: years, calibration: calibration)
             // Collaborative signal: the seed artist's global fan graph (cached).
-            let related = category == .artist ? await relatedArtistKeys(for: radio.artist) : []
+            let related = category == .artist ? await relatedArtistWeights(for: radio.artist) : [:]
             let pool = await Task.detached {
                 Self.buildPlaylistCandidates(
                     seedIds: seedIds, lib: lib, index: index,
@@ -480,7 +480,7 @@ extension RoonClient {
         likedKeys: Set<String> = [], knownArtists: Set<String> = [],
         adventurousness: Double = defaultAdventurousness, hardBan: Bool = false,
         tasteVector: [Float]? = nil,
-        relatedArtists: Set<String> = [],
+        relatedArtists: [String: Double] = [:],
         gate: (@Sendable (DatabaseManager.SonicTrack) -> Bool)? = nil
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
