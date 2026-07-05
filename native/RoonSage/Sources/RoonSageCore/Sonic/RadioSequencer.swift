@@ -67,7 +67,9 @@ public enum RadioSequencer {
                  prep: SonicSimilarity.Prepared(SonicSimilarity.Feature(
                     bpm: t.bpm, camelot: t.camelot, energy: t.energy, tags: t.tags)),
                  emb: (t.embedding?.isEmpty == false) ? VectorIndex.normalized(t.embedding!) : nil,
-                 energy: t.energy ?? 0.5,
+                 // Perceptual energy (arousal) when present — the energy ARC needs a
+                 // signal that orders intensity correctly, which linear RMS doesn't.
+                 energy: TitleGrounding.energySignal(t) ?? 0.5,
                  bpmConfidence: t.bpmConfidence.map { max(0, min(1, $0)) } ?? 1)
         }
 

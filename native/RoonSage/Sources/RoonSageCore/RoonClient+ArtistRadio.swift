@@ -176,8 +176,9 @@ extension RoonClient {
             let seedIds = radio.seedIds
             let key = radio.id
             // Feature fusion: bucket radios gate their candidates on the measured
-            // constraint that defines the bucket (nil for artist/sonic).
-            let gate = Self.bucketGate(radioID: key, genres: genres, years: years)
+            // constraint that defines the bucket (nil for artist/sonic). Activity
+            // gates read the library energy calibration (percentile-based).
+            let gate = Self.bucketGate(radioID: key, genres: genres, years: years, calibration: calibration)
             // Collaborative signal: the seed artist's global fan graph (cached).
             let related = category == .artist ? await relatedArtistKeys(for: radio.artist) : []
             let pool = await Task.detached {
@@ -224,7 +225,7 @@ extension RoonClient {
             let profile = Self.sonicProfileSummary(sonics, includeAttributes: radioAttributesEnabled,
                                                    calibration: calibration)
             let meta = await aiTitleAndDescription(for: radio, category: category, sample: tracks,
-                                                   profile: profile, sonics: sonics)
+                                                   profile: profile, sonics: sonics, calibration: calibration)
             out.append(SonicRadioPlaylist(
                 id: key, artist: radio.artist, title: meta.title, description: meta.description,
                 imageKey: radio.imageKey, tracks: tracks,
@@ -582,7 +583,8 @@ extension RoonClient {
     /// renamed in place via its stored playlist id. The description regenerates
     /// on any real tracklist change, as before.
     func aiTitleAndDescription(for radio: SonicRadio, category: RadioCategory, sample: [TrackRecord],
-                               profile: String, sonics: [DatabaseManager.SonicTrack] = []) async -> (title: String, description: String) {
+                               profile: String, sonics: [DatabaseManager.SonicTrack] = [],
+                               calibration: TitleGrounding.Calibration? = nil) async -> (title: String, description: String) {
         let d = UserDefaults.standard
         let fallback = Self.fallbackMeta(category: category, label: radio.artist)
         let cachedTitle = d.string(forKey: Self.titleKey(radio.id))
@@ -604,7 +606,8 @@ extension RoonClient {
         }
         let stats = sonics.isEmpty ? nil : TitleGrounding.SelectionStats.compute(sonics)
         if let meta = await Self.generateAIMeta(category: category, label: radio.artist,
-                                                sample: sample, profile: profile, stats: stats) {
+                                                sample: sample, profile: profile, stats: stats,
+                                                calibration: calibration) {
             // A still-fresh title is kept (only the desc needed refreshing); a
             // stale or missing one takes the newly generated title.
             let title = titleFresh ? (cachedTitle ?? meta.title) : meta.title
@@ -665,11 +668,19 @@ extension RoonClient {
         let topMoods = moodSum.sorted { $0.value > $1.value }.prefix(2).map(\.key)
         if !topMoods.isEmpty { parts.append("sfeer: \(topMoods.joined(separator: ", "))") }
 
-        // Energy band.
-        let energies = tracks.compactMap(\.energy)
+        // Energy band on the perceptual energy signal (arousal-or-RMS), judged
+        // LIBRARY-RELATIVE when calibrated — so a compressed RMS axis still yields
+        // an honest "rustig/gemiddeld/energiek" (bottom/middle/top third of this
+        // library) instead of everything reading "rustig".
+        let energies = tracks.compactMap(TitleGrounding.energySignal)
         if !energies.isEmpty {
             let avg = energies.reduce(0, +) / Double(energies.count)
-            let band = avg < 0.4 ? "rustig" : (avg < 0.7 ? "gemiddeld" : "energiek")
+            let band: String
+            if let pct = calibration?.percentile(of: Float(avg), axis: TitleGrounding.energyAxis) {
+                band = pct < 0.34 ? "rustig" : (pct < 0.67 ? "gemiddeld" : "energiek")
+            } else {
+                band = avg < 0.4 ? "rustig" : (avg < 0.7 ? "gemiddeld" : "energiek")
+            }
             parts.append("energie: \(band)")
         }
 
@@ -720,7 +731,8 @@ extension RoonClient {
     /// call. This is what makes "RoonSage · Acoustic" on non-acoustic music
     /// impossible rather than merely unlikely.
     nonisolated static func generateAIMeta(category: RadioCategory, label: String, sample: [TrackRecord],
-                                           profile: String, stats: TitleGrounding.SelectionStats? = nil) async -> (title: String, description: String)? {
+                                           profile: String, stats: TitleGrounding.SelectionStats? = nil,
+                                           calibration: TitleGrounding.Calibration? = nil) async -> (title: String, description: String)? {
         let fallback = fallbackMeta(category: category, label: label)
         let fallbackTitle = fallback.title
         let fallbackDesc  = fallback.description
@@ -796,7 +808,7 @@ extension RoonClient {
 
         // Grounding gate: reject a title whose style claims the measurements
         // contradict; give the model one corrective retry naming the offenders.
-        let bad = TitleGrounding.violations(title: meta.title, stats: stats)
+        let bad = TitleGrounding.violations(title: meta.title, stats: stats, calibration: calibration)
         guard !bad.isEmpty else { return meta }
         Log.info("AI radio-titel '\(meta.title)' voor '\(label)' spreekt de metingen tegen (\(bad.joined(separator: "; "))) — corrigerende poging", category: .network)
         let corrective = user + """
@@ -806,7 +818,7 @@ extension RoonClient {
         Maak een nieuwe titel ZONDER deze woorden, trouw aan het gemeten profiel.
         """
         guard let retry = await attempt(corrective),
-              TitleGrounding.violations(title: retry.title, stats: stats).isEmpty else {
+              TitleGrounding.violations(title: retry.title, stats: stats, calibration: calibration).isEmpty else {
             Log.warning("AI radio-titel voor '\(label)' blijft de metingen tegenspreken — tijdelijke standaardtitel, wordt later opnieuw geprobeerd", category: .network)
             return nil
         }

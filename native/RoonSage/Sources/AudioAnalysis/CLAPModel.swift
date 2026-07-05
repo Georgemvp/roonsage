@@ -167,6 +167,13 @@ public final class CLAPModel: @unchecked Sendable {
         AttributeAxis(name: "instrumentalness",
             positive: ["instrumental music with no vocals", "purely instrumental track without any singing"],
             negative: ["song with prominent lead vocals and singing", "track with a singer and lyrics"]),
+        // Perceptual energy/arousal from the CLAP embedding — a semantic
+        // intensity read, NOT the waveform's linear RMS (which is dominated by
+        // mastering and mis-orders busy-but-quiet vs loud-but-sparse tracks). The
+        // radios prefer this over `energy` for gates/titles/sequencing.
+        AttributeAxis(name: "arousal",
+            positive: ["high-energy intense driving powerful music", "energetic aggressive banging peak-time track"],
+            negative: ["calm gentle mellow soft music", "slow relaxed sparse low-energy ambient piece"]),
     ]
 
     /// Precomputed per-axis mean positive/negative unit vectors. Empty when the

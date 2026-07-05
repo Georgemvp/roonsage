@@ -203,6 +203,37 @@ public final class LibraryWalker {
         return total
     }
 
+    /// Re-derive attributes for rows whose JSON lacks `key` — the migration path
+    /// when a NEW axis ships (e.g. `arousal`). Recomputes ALL axes from the stored
+    /// embedding (no audio re-read) so the new one is filled without a re-scan.
+    /// Skips a row only when the fresh probe STILL lacks the key (probes
+    /// unavailable) — writing the current map anyway so it isn't re-selected.
+    @discardableResult
+    public func refreshAttributes(missingKey key: String, batch: Int = 200,
+                                  onProgress: (@Sendable (Int) -> Void)? = nil) async -> Int {
+        guard let clap else { return 0 }
+        cancelled = false
+        var total = 0
+        while !cancelled {
+            let rows = store.attributeRefreshRows(missingKey: key, limit: batch)
+            if rows.isEmpty { break }
+            var progressed = false
+            for r in rows {
+                let map = clap.attributes(forEmbedding: r.embedding)
+                // Probes unavailable → the key won't appear; skip so we don't spin
+                // forever rewriting the same key-less map. (Coverage completes once
+                // the text model is loaded.)
+                guard map[key] != nil, let json = Self.encodeFloatMap(map) else { continue }
+                try? store.setAttributes(path: r.path, mtime: r.mtime, attributes: json)
+                total += 1
+                progressed = true
+            }
+            if !progressed { break }
+            onProgress?(total)
+        }
+        return total
+    }
+
     public static func mtime(_ url: URL) -> Double? {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)?.timeIntervalSince1970
     }

@@ -277,6 +277,34 @@ public final class FeatureStore {
         } ?? []
     }
 
+    /// Embedded rows whose attributes JSON is missing `key` — the re-derivation
+    /// feed when a NEW axis (e.g. `arousal`) is added: the plain backfill only
+    /// sees `attributes IS NULL`, so existing 4-axis rows would never gain it.
+    /// Derived from the STORED embedding, so no audio is re-read.
+    public func attributeRefreshRows(missingKey key: String, limit: Int) -> [(path: String, mtime: Double, embedding: [Float])] {
+        (try? dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT file_path, file_mtime, embedding FROM track_features
+                WHERE embedding IS NOT NULL
+                  AND attributes IS NOT NULL
+                  AND attributes NOT LIKE ? LIMIT ?
+                """, arguments: ["%\"\(key)\"%", limit])
+        })?.compactMap { r in
+            guard let blob = r["embedding"] as Data? else { return nil }
+            return (r["file_path"] ?? "", r["file_mtime"] ?? 0, Self.floats(blob))
+        } ?? []
+    }
+
+    /// Count of embedded rows whose attributes lack `key` (drives the re-derive UI).
+    public func attributesMissingKeyCount(_ key: String) -> Int {
+        (try? dbQueue.read { db in
+            try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM track_features
+                WHERE embedding IS NOT NULL AND attributes IS NOT NULL AND attributes NOT LIKE ?
+                """, arguments: ["%\"\(key)\"%"]) ?? 0
+        }) ?? 0
+    }
+
     public func setAttributes(path: String, mtime: Double, attributes: String) throws {
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE track_features SET attributes = ? WHERE file_path = ? AND file_mtime = ?",

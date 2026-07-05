@@ -444,6 +444,8 @@ final class AnalyzerModel {
     var missingAttributes: Int { store?.missingAttributesCount() ?? 0 }
 
     /// Derive attributes for already-embedded rows — no audio re-read, no re-scan.
+    /// Also re-derives the `arousal` axis for older 4-axis rows (perceptual energy,
+    /// the fix for linear-RMS `energy` mis-ordering) — same embedding-only path.
     func startAttributeBackfill() {
         guard let store, let clap, !isBackfilling, !isAnalyzing else { return }
         isBackfilling = true
@@ -453,9 +455,34 @@ final class AnalyzerModel {
             let n = await w.backfillAttributes { done in
                 Task { @MainActor in self.status = "Attributen berekend: \(done)…" }
             }
+            let r = await w.refreshAttributes(missingKey: "arousal") { done in
+                Task { @MainActor in self.status = "Arousal (perceptuele energie) berekend: \(done)…" }
+            }
             isBackfilling = false
             refresh()
-            status = "Attributen berekend voor \(n) tracks."
+            publishFeatureRevision()
+            status = "Attributen berekend voor \(n) tracks (+\(r) arousal-herberekend)."
+        }
+    }
+
+    /// Trickle the arousal re-derivation on launch when older rows lack it — the
+    /// one-time migration to perceptual energy. Embedding-only (no disk/audio),
+    /// so it's cheap and coexists with the analysis walk. Exits instantly once
+    /// every embedded row carries the axis.
+    func autoArousalRefreshIfNeeded() {
+        guard let store, let clap, !isBackfilling, !isAnalyzing else { return }
+        guard store.attributesMissingKeyCount("arousal") > 0 else { return }
+        isBackfilling = true
+        status = "Perceptuele energie (arousal) berekenen uit embeddings…"
+        let w = LibraryWalker(store: store, clap: clap)
+        Task {
+            let r = await w.refreshAttributes(missingKey: "arousal") { done in
+                Task { @MainActor in self.status = "Arousal berekend: \(done)…" }
+            }
+            isBackfilling = false
+            refresh()
+            publishFeatureRevision()
+            status = "Arousal (perceptuele energie) berekend voor \(r) tracks."
         }
     }
 

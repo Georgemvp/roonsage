@@ -16,6 +16,20 @@ final class RadioGateTests: XCTestCase {
         XCTAssertFalse(gate(st("2", energy: 0.2, bpm: 70)), "a ballad must not pass the workout gate")
     }
 
+    func testActivityGateWorksOnCompressedEnergyViaCalibration() throws {
+        // Library whose energy signal maxes at ~0.35 (the RMS bug). WITHOUT
+        // calibration, workout's absolute >=0.70 matches nothing. WITH it, the
+        // top-percentile fast tracks pass.
+        let lib = (0..<20).map { st("\($0)", energy: Double($0) * 0.0175, bpm: 130) }
+        let cal = TitleGrounding.Calibration.compute(library: lib)
+        let gate = try XCTUnwrap(RoonClient.bucketGate(radioID: "activity:workout", calibration: cal))
+        XCTAssertTrue(gate(st("hot", energy: 0.34, bpm: 130)), "top-of-library energy passes workout")
+        XCTAssertFalse(gate(st("mid", energy: 0.10, bpm: 130)), "low-percentile energy does not")
+        // Uncalibrated absolute gate would reject even the hottest track here.
+        let absGate = try XCTUnwrap(RoonClient.bucketGate(radioID: "activity:workout"))
+        XCTAssertFalse(absGate(st("hot2", energy: 0.34, bpm: 130)))
+    }
+
     func testMoodGateDominantOrPresent() throws {
         let gate = try XCTUnwrap(RoonClient.bucketGate(radioID: "mood:relaxed"))
         XCTAssertTrue(gate(st("1", moods: ["relaxed": 0.6, "happy": 0.2])))   // dominant

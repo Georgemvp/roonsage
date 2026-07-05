@@ -92,10 +92,13 @@ extension RoonClient {
 
         let genres = category == .genre ? ((try? await db.genresByTrackID()) ?? [:]) : [:]
         let years  = category == .decade ? ((try? await db.yearByMatchKey()) ?? [:]) : [:]
+        // Activity buckets need the library energy calibration (percentile-based).
+        let calibration = category == .activity
+            ? await Task.detached { TitleGrounding.Calibration.compute(library: lib) }.value : nil
 
         return await Task.detached {
             Self.buildBuckets(category: category, lib: lib, genres: genres, years: years,
-                              disliked: disliked, daySeed: stamp)
+                              disliked: disliked, daySeed: stamp, calibration: calibration)
         }.value
     }
 
@@ -107,13 +110,14 @@ extension RoonClient {
         genres: [String: Set<String>],
         years: [String: Int],
         disliked: Set<String>,
-        daySeed: String
+        daySeed: String,
+        calibration: TitleGrounding.Calibration? = nil
     ) -> [RadioBucket] {
         switch category {
         case .artist:   return []
         case .genre:    return genreBuckets(lib: lib, genres: genres, disliked: disliked, daySeed: daySeed)
         case .mood:     return moodBuckets(lib: lib, disliked: disliked, daySeed: daySeed)
-        case .activity: return activityBuckets(lib: lib, disliked: disliked, daySeed: daySeed)
+        case .activity: return activityBuckets(lib: lib, disliked: disliked, daySeed: daySeed, calibration: calibration)
         case .decade:   return decadeBuckets(lib: lib, years: years, disliked: disliked, daySeed: daySeed)
         case .sonic:    return []   // needs the embedding index — built in radioBuckets(_:)
         }
@@ -222,36 +226,44 @@ extension RoonClient {
         let rank: @Sendable (DatabaseManager.SonicTrack) -> Double
     }
 
-    nonisolated static var activityProfiles: [ActivityProfile] {
-        @Sendable func e(_ t: DatabaseManager.SonicTrack) -> Double { t.energy ?? 0.5 }
+    /// Activity profiles keyed on the LIBRARY-RELATIVE energy percentile (arousal-
+    /// or-RMS via `TitleGrounding`), so a compressed absolute energy axis can't
+    /// leave "Workout"/"Energiek" permanently empty (the old `energy >= 0.7`
+    /// matched zero tracks on a library whose RMS energy maxed at ~0.6). `nil`
+    /// calibration falls back to the raw energy signal on a 0…1 assumption.
+    nonisolated static func activityProfiles(calibration: TitleGrounding.Calibration?) -> [ActivityProfile] {
+        @Sendable func ep(_ t: DatabaseManager.SonicTrack) -> Double {
+            calibration?.energyPercentile(t) ?? TitleGrounding.energySignal(t) ?? 0.5
+        }
         @Sendable func b(_ t: DatabaseManager.SonicTrack) -> Double { t.bpm ?? 0 }
         return [
             ActivityProfile(key: "workout", label: "Workout",
-                            matches: { e($0) >= 0.7 && b($0) >= 120 },
-                            rank: { e($0) + b($0) / 200 }),
+                            matches: { ep($0) >= 0.70 && b($0) >= 120 },
+                            rank: { ep($0) + b($0) / 200 }),
             ActivityProfile(key: "onderweg", label: "Onderweg",
-                            matches: { e($0) >= 0.5 && e($0) <= 0.85 && b($0) >= 95 && b($0) <= 140 },
-                            rank: { e($0) }),
+                            matches: { ep($0) >= 0.45 && ep($0) <= 0.90 && b($0) >= 95 && b($0) <= 140 },
+                            rank: { ep($0) }),
             ActivityProfile(key: "chillen", label: "Chillen",
-                            matches: { e($0) < 0.4 && b($0) < 110 },
-                            rank: { 1 - e($0) }),
+                            matches: { ep($0) < 0.33 && b($0) < 110 },
+                            rank: { 1 - ep($0) }),
             ActivityProfile(key: "lounge", label: "Lounge",
-                            matches: { e($0) >= 0.4 && e($0) <= 0.6 && b($0) < 115 },
-                            rank: { 1 - e($0) }),
+                            matches: { ep($0) >= 0.30 && ep($0) <= 0.60 && b($0) < 115 },
+                            rank: { 1 - ep($0) }),
             ActivityProfile(key: "energiek", label: "Energiek",
-                            matches: { e($0) >= 0.72 },
-                            rank: { e($0) }),
+                            matches: { ep($0) >= 0.72 },
+                            rank: { ep($0) }),
             ActivityProfile(key: "focus", label: "Focus",
-                            matches: { e($0) >= 0.25 && e($0) <= 0.55 && b($0) >= 70 && b($0) <= 120 },
-                            rank: { 1 - abs(e($0) - 0.4) }),
+                            matches: { ep($0) >= 0.20 && ep($0) <= 0.55 && b($0) >= 70 && b($0) <= 120 },
+                            rank: { 1 - abs(ep($0) - 0.4) }),
         ]
     }
 
     private nonisolated static func activityBuckets(
-        lib: [DatabaseManager.SonicTrack], disliked: Set<String>, daySeed: String
+        lib: [DatabaseManager.SonicTrack], disliked: Set<String>, daySeed: String,
+        calibration: TitleGrounding.Calibration?
     ) -> [RadioBucket] {
         // Keep the curated order (Workout → Focus); skip profiles that don't fill.
-        activityProfiles.compactMap { profile in
+        activityProfiles(calibration: calibration).compactMap { profile in
             let matching = lib.filter(profile.matches).sorted { profile.rank($0) > profile.rank($1) }
             return makeBucket(id: "activity:\(profile.key)", label: profile.label,
                               tracks: matching, disliked: disliked, daySeed: daySeed)
@@ -296,14 +308,15 @@ extension RoonClient {
     nonisolated static func bucketGate(
         radioID: String,
         genres: [String: Set<String>] = [:],
-        years: [String: Int] = [:]
+        years: [String: Int] = [:],
+        calibration: TitleGrounding.Calibration? = nil
     ) -> (@Sendable (DatabaseManager.SonicTrack) -> Bool)? {
         guard let sep = radioID.firstIndex(of: ":") else { return nil }
         let cat = String(radioID[..<sep])
         let key = String(radioID[radioID.index(after: sep)...])
         switch cat {
         case "activity":
-            guard let p = activityProfiles.first(where: { $0.key == key }) else { return nil }
+            guard let p = activityProfiles(calibration: calibration).first(where: { $0.key == key }) else { return nil }
             return p.matches
         case "mood":
             // Same membership rule as the bucket builder: the track's dominant
@@ -335,8 +348,12 @@ extension RoonClient {
         case .decade:
             let years = (try? await db.yearByMatchKey()) ?? [:]
             return Self.bucketGate(radioID: radioID, years: years)
-        case .mood, .activity:
+        case .mood:
             return Self.bucketGate(radioID: radioID)
+        case .activity:
+            let lib = await radioLibrary()
+            let cal = await Task.detached { TitleGrounding.Calibration.compute(library: lib) }.value
+            return Self.bucketGate(radioID: radioID, calibration: cal)
         }
     }
 

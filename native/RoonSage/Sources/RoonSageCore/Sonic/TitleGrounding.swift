@@ -19,8 +19,25 @@ public enum TitleGrounding {
 
     // MARK: - Library calibration (percentiles per attribute axis)
 
+    /// The per-track energy signal: PERCEPTUAL arousal (CLAP) when present, else
+    /// the waveform's linear RMS `energy`. Arousal is semantic intensity from the
+    /// embedding and orders busy-but-quiet vs loud-but-sparse correctly, unlike
+    /// RMS (which put acoustic folk above techno on this library). The `energy`
+    /// fallback keeps pre-arousal libraries working.
+    public static func energySignal(_ t: DatabaseManager.SonicTrack) -> Double? {
+        if let a = t.attributes["arousal"] { return Double(a) }
+        return t.energy
+    }
+
+    /// Synthetic calibration key for the energy signal (so it lives in the same
+    /// percentile machinery as the real attribute axes).
+    public static let energyAxis = "energy_signal"
+
     /// Sorted per-axis attribute values over the analyzed library. Percentile
-    /// lookups make attribute bands library-relative instead of absolute.
+    /// lookups make attribute bands library-relative instead of absolute — the
+    /// fix for a compressed axis (e.g. RMS energy crushed into [0, 0.6]): "high"
+    /// means high FOR THIS LIBRARY, not against an absolute scale that no track
+    /// reaches.
     public struct Calibration: Sendable {
         let sorted: [String: [Float]]
 
@@ -28,6 +45,7 @@ public enum TitleGrounding {
             var byAxis: [String: [Float]] = [:]
             for t in library {
                 for (k, v) in t.attributes { byAxis[k, default: []].append(v) }
+                if let e = energySignal(t) { byAxis[energyAxis, default: []].append(Float(e)) }
             }
             for k in byAxis.keys { byAxis[k]?.sort() }
             return Calibration(sorted: byAxis)
@@ -45,15 +63,22 @@ public enum TitleGrounding {
             }
             return Double(lo) / Double(vals.count)
         }
+
+        /// Library-relative energy percentile of one track (0…1), or nil when the
+        /// track has no energy signal / the library has no calibration.
+        public func energyPercentile(_ t: DatabaseManager.SonicTrack) -> Double? {
+            guard let e = energySignal(t) else { return nil }
+            return percentile(of: Float(e), axis: energyAxis)
+        }
     }
 
     // MARK: - Selection stats
 
     /// Measured character of one playlist selection: mean attribute per axis
-    /// (only axes that actually have data) and mean energy.
+    /// (only axes that actually have data) and mean energy SIGNAL (arousal-or-RMS).
     public struct SelectionStats: Sendable {
         public var attributeAvg: [String: Float]
-        public var energyAvg: Double?
+        public var energyAvg: Double?          // mean energy SIGNAL (arousal preferred)
 
         public static func compute(_ tracks: [DatabaseManager.SonicTrack]) -> SelectionStats {
             var sum: [String: Float] = [:]
@@ -63,7 +88,7 @@ public enum TitleGrounding {
             }
             var avg: [String: Float] = [:]
             for (k, n) in cnt where n > 0 { avg[k] = sum[k]! / Float(n) }
-            let energies = tracks.compactMap(\.energy)
+            let energies = tracks.compactMap(energySignal)
             let e = energies.isEmpty ? nil : energies.reduce(0, +) / Double(energies.count)
             return SelectionStats(attributeAvg: avg, energyAvg: e)
         }
@@ -137,15 +162,37 @@ public enum TitleGrounding {
     /// Axes without measured data are never violations: absence of evidence
     /// isn't contradiction, and blocking on it would starve un-attributed
     /// libraries of titles entirely.
-    public static func violations(title: String, stats: SelectionStats) -> [String] {
+    ///
+    /// ENERGY claims are judged **library-relative** when `calibration` is given:
+    /// the selection's mean energy signal is turned into a percentile, so "rustig"
+    /// = bottom third / "energiek" = top third OF THIS LIBRARY. This is essential
+    /// because the RMS energy axis is compressed (max ~0.6) — an absolute
+    /// threshold would reject every "energiek" title outright. Attribute axes
+    /// (valence/acousticness/…) stay on their absolute 0…1 scale, which is sound.
+    public static func violations(title: String, stats: SelectionStats,
+                                  calibration: Calibration? = nil) -> [String] {
         let t = title.lowercased()
+        // Energy percentile of the selection's mean signal, when we can calibrate.
+        let energyPct: Double? = {
+            guard let cal = calibration, let e = stats.energyAvg else { return nil }
+            return cal.percentile(of: Float(e), axis: energyAxis)
+        }()
         var out: [String] = []
         for c in claims {
             guard c.words.contains(where: { t.contains($0) }) else { continue }
-            let measured: Float?
-            if let axis = c.axis { measured = stats.attributeAvg[axis] }
-            else { measured = stats.energyAvg.map(Float.init) }
-            guard let m = measured else { continue }
+            if c.axis == nil {
+                // Energy claim. Prefer the library percentile; fall back to the
+                // absolute signal only when uncalibrated.
+                if let pct = energyPct {
+                    let violated = c.wantsHigh ? (pct < 0.34) : (pct > 0.66)
+                    if violated { out.append(c.label) }
+                } else if let m = stats.energyAvg.map(Float.init) {
+                    let violated = c.wantsHigh ? (m < c.contradiction) : (m > c.contradiction)
+                    if violated { out.append(c.label) }
+                }
+                continue
+            }
+            guard let axis = c.axis, let m = stats.attributeAvg[axis] else { continue }
             let violated = c.wantsHigh ? (m < c.contradiction) : (m > c.contradiction)
             if violated { out.append(c.label) }
         }
@@ -162,8 +209,10 @@ public enum TitleGrounding {
         guard !tracks.isEmpty else { return "" }
         var parts: [String] = []
 
-        // Energy band (3 levels).
-        let energies = tracks.compactMap(\.energy)
+        // Energy band (3 levels) on the energy SIGNAL. Coarse absolute buckets are
+        // fine for a signature — it only needs to be stable across the daily
+        // rotation and shift on real drift, not to be library-calibrated.
+        let energies = tracks.compactMap(energySignal)
         if !energies.isEmpty {
             let avg = energies.reduce(0, +) / Double(energies.count)
             parts.append("e:\(avg < 0.4 ? "laag" : (avg < 0.7 ? "midden" : "hoog"))")

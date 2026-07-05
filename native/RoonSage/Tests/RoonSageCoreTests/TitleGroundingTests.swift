@@ -96,6 +96,39 @@ final class TitleGroundingTests: XCTestCase {
     func testEmptySelectionYieldsEmptySignature() {
         XCTAssertEqual(TitleGrounding.profileSignature([]), "")
     }
+
+    // MARK: Energy signal (arousal preferred, percentile-calibrated)
+
+    func testEnergySignalPrefersArousalOverRMS() throws {
+        let t = st("1", energy: 0.5, attrs: ["arousal": 0.9])
+        XCTAssertEqual(try XCTUnwrap(TitleGrounding.energySignal(t)), 0.9, accuracy: 1e-6)
+        let noArousal = st("2", energy: 0.3)
+        XCTAssertEqual(try XCTUnwrap(TitleGrounding.energySignal(noArousal)), 0.3, accuracy: 1e-6)
+    }
+
+    func testEnergyClaimIsLibraryRelativeNotAbsolute() {
+        // A library whose energy signal is compressed into [0, 0.35] (the real
+        // RMS bug). A selection at 0.32 is the TOP of this library → "energiek"
+        // must be allowed even though 0.32 is absolutely low.
+        let lib = (0..<20).map { st("\($0)", attrs: ["arousal": Float($0) * 0.0175]) } // 0 … 0.33
+        let cal = TitleGrounding.Calibration.compute(library: lib)
+        let hot = TitleGrounding.SelectionStats(attributeAvg: [:], energyAvg: 0.32)
+        XCTAssertTrue(TitleGrounding.violations(title: "Energieke sessie", stats: hot, calibration: cal).isEmpty,
+                      "top-of-library energy must satisfy an 'energiek' claim")
+        // And "rustig" on that same top-of-library selection IS a contradiction.
+        XCTAssertFalse(TitleGrounding.violations(title: "Rustige avond", stats: hot, calibration: cal).isEmpty)
+        // A bottom-of-library selection: mirror image.
+        let cold = TitleGrounding.SelectionStats(attributeAvg: [:], energyAvg: 0.02)
+        XCTAssertTrue(TitleGrounding.violations(title: "Rustige avond", stats: cold, calibration: cal).isEmpty)
+        XCTAssertFalse(TitleGrounding.violations(title: "Energieke sessie", stats: cold, calibration: cal).isEmpty)
+    }
+
+    func testEnergyCalibrationFoldsInSignal() {
+        let lib = (0..<10).map { st("\($0)", energy: Double($0) / 10) }
+        let cal = TitleGrounding.Calibration.compute(library: lib)
+        XCTAssertEqual(cal.percentile(of: 0.95, axis: TitleGrounding.energyAxis), 1.0)
+        XCTAssertEqual(cal.energyPercentile(st("x", energy: 0.0)), 0.0)
+    }
 }
 
 final class SonicClusterLabelTests: XCTestCase {
