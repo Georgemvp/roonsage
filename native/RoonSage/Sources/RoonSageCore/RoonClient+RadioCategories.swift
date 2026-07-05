@@ -214,17 +214,17 @@ extension RoonClient {
     // MARK: Activity (curated energy/tempo profiles)
 
     /// One curated activity profile and the predicate that selects its tracks.
-    private struct ActivityProfile {
+    struct ActivityProfile {
         let key: String
         let label: String
-        let matches: (DatabaseManager.SonicTrack) -> Bool
+        let matches: @Sendable (DatabaseManager.SonicTrack) -> Bool
         /// Higher = better seed for this activity (drives seed ordering).
-        let rank: (DatabaseManager.SonicTrack) -> Double
+        let rank: @Sendable (DatabaseManager.SonicTrack) -> Double
     }
 
-    private nonisolated static var activityProfiles: [ActivityProfile] {
-        func e(_ t: DatabaseManager.SonicTrack) -> Double { t.energy ?? 0.5 }
-        func b(_ t: DatabaseManager.SonicTrack) -> Double { t.bpm ?? 0 }
+    nonisolated static var activityProfiles: [ActivityProfile] {
+        @Sendable func e(_ t: DatabaseManager.SonicTrack) -> Double { t.energy ?? 0.5 }
+        @Sendable func b(_ t: DatabaseManager.SonicTrack) -> Double { t.bpm ?? 0 }
         return [
             ActivityProfile(key: "workout", label: "Workout",
                             matches: { e($0) >= 0.7 && b($0) >= 120 },
@@ -279,6 +279,78 @@ extension RoonClient {
             makeBucket(id: "decade:\(decade)", label: decadeLabel(decade),
                        tracks: byDecade[decade] ?? [], disliked: disliked, daySeed: daySeed)
         }
+    }
+
+    // MARK: Measured-feature gates (feature fusion in selection)
+    //
+    // The k-NN pool around a bucket's seed centroid can drift outside the
+    // bucket's DEFINING constraint — a "Workout" station picking up sonically-
+    // close ballads, a "Jaren 90" station leaking 2010s tracks. These gates
+    // filter the ranked candidates on the *measured* feature that defines the
+    // bucket, so the station's name is true by construction. Artist and sonic
+    // radios have no gate: there the embedding neighbourhood IS the definition.
+
+    /// The measured-feature gate for a bucket radio id, or nil when the category
+    /// doesn't constrain beyond sonic proximity. `genres`/`years` are only read
+    /// by the genre/decade gates — pass empty maps otherwise.
+    nonisolated static func bucketGate(
+        radioID: String,
+        genres: [String: Set<String>] = [:],
+        years: [String: Int] = [:]
+    ) -> (@Sendable (DatabaseManager.SonicTrack) -> Bool)? {
+        guard let sep = radioID.firstIndex(of: ":") else { return nil }
+        let cat = String(radioID[..<sep])
+        let key = String(radioID[radioID.index(after: sep)...])
+        switch cat {
+        case "activity":
+            guard let p = activityProfiles.first(where: { $0.key == key }) else { return nil }
+            return p.matches
+        case "mood":
+            // Same membership rule as the bucket builder: the track's dominant
+            // mood — or a clearly-present score on the station's mood.
+            return { t in
+                if let top = t.moods.max(by: { $0.value < $1.value }), top.key.lowercased() == key { return true }
+                return t.moods.first { $0.key.lowercased() == key }.map { $0.value >= 0.3 } ?? false
+            }
+        case "genre":
+            return { t in genres[t.id]?.contains { $0.lowercased() == key } ?? false }
+        case "decade":
+            guard let decade = Int(key) else { return nil }
+            return { t in years[t.matchKey].map { ($0 / 10) * 10 == decade } ?? false }
+        default:
+            return nil   // artist / sonic / track seeds: proximity is the definition
+        }
+    }
+
+    /// Isolated convenience: build the gate for `radioID`, fetching the genre/
+    /// year maps only when that category actually needs them.
+    func candidateGate(for radioID: String) async -> (@Sendable (DatabaseManager.SonicTrack) -> Bool)? {
+        guard let db = database, let cat = RadioCategory(radioID: radioID) else { return nil }
+        switch cat {
+        case .artist, .sonic:
+            return nil
+        case .genre:
+            let genres = (try? await db.genresByTrackID()) ?? [:]
+            return Self.bucketGate(radioID: radioID, genres: genres)
+        case .decade:
+            let years = (try? await db.yearByMatchKey()) ?? [:]
+            return Self.bucketGate(radioID: radioID, years: years)
+        case .mood, .activity:
+            return Self.bucketGate(radioID: radioID)
+        }
+    }
+
+    /// Order-preserving gate with relaxation: matching tracks lead; when they
+    /// alone can't fill `minKeep`, the best non-matching candidates top the pool
+    /// up (in their ranked order) so a small bucket still yields a full station.
+    nonisolated static func gatedWithRelaxation<T>(
+        _ ranked: [T], gate: (T) -> Bool, minKeep: Int
+    ) -> [T] {
+        var matching: [T] = []
+        var rest: [T] = []
+        for t in ranked { if gate(t) { matching.append(t) } else { rest.append(t) } }
+        guard matching.count < minKeep else { return matching }
+        return matching + rest.prefix(minKeep - matching.count)
     }
 
     // MARK: Per-category stable radio ids (Qobuz)

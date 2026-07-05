@@ -123,6 +123,8 @@ extension RoonClient {
         let index = await activeIndex(db)
         let taste = await personalTasteVector(lib: lib, index: index)
         let genres = (try? await db.genresByTrackID()) ?? [:]
+        // Decade gates key on file-tag years; only fetched when needed.
+        let years = category == .decade ? ((try? await db.yearByMatchKey()) ?? [:]) : [:]
         let byId = Dictionary(lib.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let stamp = Self.dayStamp()
         // Library-wide attribute distribution: calibrates the profile descriptors
@@ -173,13 +175,16 @@ extension RoonClient {
         for radio in radios {
             let seedIds = radio.seedIds
             let key = radio.id
+            // Feature fusion: bucket radios gate their candidates on the measured
+            // constraint that defines the bucket (nil for artist/sonic).
+            let gate = Self.bucketGate(radioID: key, genres: genres, years: years)
             let pool = await Task.detached {
                 Self.buildPlaylistCandidates(
                     seedIds: seedIds, lib: lib, index: index,
                     genres: genres, disliked: disliked,
                     daySeed: "\(stamp)|\(key)", limit: Self.artistRadioPoolLimit,
                     likedKeys: liked, knownArtists: known, adventurousness: adv, hardBan: hardBan,
-                    tasteVector: taste)
+                    tasteVector: taste, gate: gate)
             }.value
             guard !pool.isEmpty else { continue }
 
@@ -458,7 +463,8 @@ extension RoonClient {
         daySeed: String = "", limit: Int = 500,
         likedKeys: Set<String> = [], knownArtists: Set<String> = [],
         adventurousness: Double = defaultAdventurousness, hardBan: Bool = false,
-        tasteVector: [Float]? = nil
+        tasteVector: [Float]? = nil,
+        gate: (@Sendable (DatabaseManager.SonicTrack) -> Bool)? = nil
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
         // Don't seed on a disliked track.
@@ -492,6 +498,14 @@ extension RoonClient {
             // sonically close) tracks surface each day. The seed artist's own tracks
             // are kept at the front and are unaffected.
             if !daySeed.isEmpty { neighbours = dailyShuffled(neighbours, seed: daySeed) }
+        }
+
+        // Feature fusion: keep the pool true to the bucket's defining measured
+        // constraint (activity energy/tempo, mood, genre, decade). Relaxes when
+        // the matching pool alone can't fill a playlist.
+        if let gate {
+            neighbours = gatedWithRelaxation(neighbours, gate: gate,
+                                             minKeep: artistRadioMaxTracks * 2)
         }
 
         var seedGenres = Set<String>()

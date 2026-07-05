@@ -13,6 +13,9 @@ struct PlayActionsMenu: View {
     let fetch: () async -> [TrackRecord]
     /// Show the "Speel op dit apparaat" (local playback) entry.
     var includeLocal: Bool = true
+    /// When set (single-track contexts), offer "Radio op dit nummer" — an
+    /// endless sonic station seeded on exactly this track (song radio).
+    var trackRadioSeed: TrackRecord? = nil
 
     var body: some View {
         let hasZone = client.selectedZone != nil
@@ -32,6 +35,17 @@ struct PlayActionsMenu: View {
         Button("Speel geschud", systemImage: "shuffle") {
             runOutput { await client.playToActiveOutput($0.shuffled()) }
         }.disabled(!hasOutput)
+        if let seed = trackRadioSeed {
+            Divider()
+            Button("Radio op dit nummer", systemImage: "dot.radiowaves.left.and.right") {
+                guard let zone = client.selectedZone else { return }
+                Haptics.tap()
+                Task {
+                    await client.startTrackRadio(title: seed.title, artist: seed.artist,
+                                                 album: seed.album, zoneID: zone.id)
+                }
+            }.disabled(!hasZone)
+        }
         if includeLocal {
             Divider()
             Button("Speel op dit apparaat", systemImage: "iphone") {

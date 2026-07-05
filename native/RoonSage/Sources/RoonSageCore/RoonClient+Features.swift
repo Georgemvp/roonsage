@@ -617,16 +617,13 @@ extension RoonClient {
         await similarTracks(toMatchKey: TrackIdentity.matchKey(artist: artist, album: album, title: title), limit: limit)
     }
 
-    /// Seed a station from a now-playing track and play the similar set.
+    /// Seed a station from a track and play it. Delegates to the endless
+    /// song radio (`startTrackRadio`) — RadioEngine relevance + MMR + taste
+    /// steering + live re-steer + endless top-up — instead of the old one-shot
+    /// nearest-30 queue dump. An unanalyzed track surfaces the usual toast.
+    /// `count` is retained for source compatibility; an endless station ignores it.
     public func playSonicRadio(title: String, artist: String?, album: String?, count: Int = 30, zoneID: String) async {
-        let scored = await similarTracks(title: title, artist: artist, album: album, limit: count)
-        let tracks = scored.map { TrackRecord(id: $0.track.id, title: $0.track.title, artist: $0.track.artist, album: $0.track.album) }
-        guard !tracks.isEmpty else {
-            lastActionError = ActionError(
-                message: "Sonic Radio kon geen vergelijkbare tracks vinden — deze track is nog niet geanalyseerd.")
-            return
-        }
-        await curateTracks(tracks, zoneID: zoneID)
+        await startTrackRadio(title: title, artist: artist, album: album, zoneID: zoneID)
     }
 
     /// One taste core ("smaakkern"): a coherent pocket of the user's listening,

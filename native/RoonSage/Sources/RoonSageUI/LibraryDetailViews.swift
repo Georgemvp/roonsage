@@ -32,7 +32,7 @@ struct AlbumDetailView: View {
                         play([track])
                     }
                     .contextMenu {
-                        PlayActionsMenu(fetch: { [track.asTrackRecord] })
+                        PlayActionsMenu(fetch: { [track.asTrackRecord] }, trackRadioSeed: track.asTrackRecord)
                         Divider()
                         Button("Sonisch vergelijkbaar", systemImage: "waveform.path.ecg") {
                             similarSeed = SonicSeed(title: track.title, artist: track.artist,
@@ -272,7 +272,7 @@ struct ArtistDetailView: View {
                 LibraryTrackRow(track: track, canPlay: client.selectedZone != nil) {
                     playRows([track])
                 }
-                .contextMenu { PlayActionsMenu(fetch: { [track.asTrackRecord] }) }
+                .contextMenu { PlayActionsMenu(fetch: { [track.asTrackRecord] }, trackRadioSeed: track.asTrackRecord) }
             }
         }
     }

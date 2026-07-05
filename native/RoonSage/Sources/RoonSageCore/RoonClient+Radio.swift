@@ -1,3 +1,4 @@
+import AudioAnalysis
 import Foundation
 
 // MARK: - Sonic Radio
@@ -154,12 +155,13 @@ extension RoonClient {
         let hardBan = radioHardBanDisliked
         let taste = await personalTasteVector(lib: lib, index: index)
         let stats = await sonicCache.nnStats(from: db)
+        let gate = await candidateGate(for: key)
         let pool = await Task.detached {
             Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
                                       seed: "\(stamp)-\(key)-0", disliked: disliked,
                                       likedKeys: liked, knownArtists: known,
                                       adventurousness: adv, hardBan: hardBan, tasteVector: taste,
-                                      nnStats: stats)
+                                      nnStats: stats, gate: gate)
         }.value
         guard !pool.isEmpty else {
             reportError("Radio kon geen vergelijkbare tracks vinden — analyseer eerst meer muziek.")
@@ -176,6 +178,35 @@ extension RoonClient {
         startQueue(zoneID: zoneID)                   // observe depth for top-ups
         startRadioMonitor()
         Log.info("Sonic Radio gestart: \(radio.artist) → zone \(zoneID) (\(pool.count) kandidaten)", category: .roon)
+    }
+
+    /// Start an endless station seeded on ONE track — song radio, the Spotify/
+    /// Plexamp "start radio from this song" verb. The station grows around that
+    /// single track's embedding (plus the usual taste steering + dial). The
+    /// `track:` id keeps it outside the bucket gates and the persisted Qobuz
+    /// radio machinery: a song radio is a playback session, not a mirrored
+    /// playlist.
+    public func startTrackRadio(title: String, artist: String?, album: String? = nil, zoneID: String) async {
+        let lib = await radioLibrary()
+        guard !lib.isEmpty else {
+            reportError("Radio mislukt — nog geen geanalyseerde bibliotheek beschikbaar.")
+            return
+        }
+        let mk = TrackIdentity.matchKey(artist: artist, album: album, title: title)
+        let seed = lib.first { !$0.matchKey.isEmpty && $0.matchKey == mk }
+            ?? lib.first {
+                $0.title.lowercased() == title.lowercased()
+                    && ($0.artist ?? "").lowercased() == (artist ?? "").lowercased()
+            }
+        guard let seed else {
+            reportError("Deze track is nog niet geanalyseerd — radio op dit nummer kan nog niet.")
+            return
+        }
+        let radio = SonicRadio(
+            id: "track:\(seed.matchKey.isEmpty ? seed.id : seed.matchKey)",
+            artist: seed.title,   // the banner reads "Radio: <track title>"
+            imageKey: seed.imageKey, trackCount: 1, seedIds: [seed.id])
+        await startRadio(radio, zoneID: zoneID)
     }
 
     /// Stop the running station. Playback already queued in Roon keeps playing;
@@ -252,12 +283,13 @@ extension RoonClient {
         let hardBan = radioHardBanDisliked
         let taste = await personalTasteVector(lib: lib, index: index)
         let stats = await sonicCache.nnStats(from: db)
+        let gate = await candidateGate(for: key)
         let pool = await Task.detached {
             Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
                                       seed: "\(stamp)-\(key)-\(nextGen)", disliked: disliked,
                                       likedKeys: liked, knownArtists: known,
                                       adventurousness: adv, hardBan: hardBan, tasteVector: taste,
-                                      nnStats: stats)
+                                      nnStats: stats, gate: gate)
         }.value
         state.pool = pool
         state.cursor = 0
@@ -294,7 +326,8 @@ extension RoonClient {
         index: VectorIndex?, seed: String, disliked: Set<String> = [],
         likedKeys: Set<String> = [], knownArtists: Set<String> = [],
         adventurousness: Double = defaultAdventurousness, hardBan: Bool = false,
-        tasteVector: [Float]? = nil, nnStats: VectorIndex.NNStats? = nil
+        tasteVector: [Float]? = nil, nnStats: VectorIndex.NNStats? = nil,
+        gate: (@Sendable (DatabaseManager.SonicTrack) -> Bool)? = nil
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
         // Don't seed the station on a disliked track.
@@ -325,13 +358,21 @@ extension RoonClient {
                 disliked: disliked, salt: seed, matchKey: { $0.matchKey })
         }
 
+        // Feature fusion: keep the endless pool true to the bucket's defining
+        // measured constraint (activity/mood/genre/decade); relaxes when the
+        // matching pool alone can't feed the queue.
+        var gatedNeighbours = neighbours
+        if let gate {
+            gatedNeighbours = gatedWithRelaxation(neighbours, gate: gate, minKeep: radioBatchSize * 3)
+        }
+
         // Dedup by CONTENT, not Roon id: the same song often has several library
         // rows (soundtrack + compilation, duplicate albums) with different ids
         // but one match_key — id-dedup would queue it twice.
         var seen = Set<String>()
         var combined: [DatabaseManager.SonicTrack] = []
-        combined.reserveCapacity(own.count + neighbours.count)
-        for t in own + neighbours {
+        combined.reserveCapacity(own.count + gatedNeighbours.count)
+        for t in own + gatedNeighbours {
             let key = t.matchKey.isEmpty ? t.id : t.matchKey
             if seen.insert(key).inserted { combined.append(t) }
         }

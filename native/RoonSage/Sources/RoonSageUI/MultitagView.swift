@@ -104,7 +104,7 @@ struct MultitagView: View {
                     Text(t.title).font(.callout).lineLimit(1)
                     if let a = t.artist { Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                 }
-                .contextMenu { PlayActionsMenu(fetch: { [t] }) }
+                .contextMenu { PlayActionsMenu(fetch: { [t] }, trackRadioSeed: t) }
             }
         }
     }
