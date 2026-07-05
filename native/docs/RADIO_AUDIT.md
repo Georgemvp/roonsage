@@ -50,7 +50,7 @@ zat volledig in de **naamgeving**, met drie root causes:
 - Live her-sturen op duimpjes; dislikes drievoudig verwerkt (query-repulsie,
   down-sampling, optionele hard-ban).
 
-## Ronde 2 (2026-07-05, v1.10.114 / analyzer-v1.1.85) — na live loggen
+## Ronde 2 (2026-07-05, v1.10.114 / analyzer-v1.1.86) — na live loggen
 
 Het loggen van ronde 1 op de mini onthulde de échte kwaliteitsplafonds:
 
