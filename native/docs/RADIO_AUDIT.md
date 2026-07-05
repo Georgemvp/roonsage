@@ -50,13 +50,30 @@ zat volledig in de **naamgeving**, met drie root causes:
 - Live her-sturen op duimpjes; dislikes drievoudig verwerkt (query-repulsie,
   down-sampling, optionele hard-ban).
 
+## Ronde 2 (2026-07-05, v1.10.114 / analyzer-v1.1.85) — na live loggen
+
+Het loggen van ronde 1 op de mini onthulde de échte kwaliteitsplafonds:
+
+| Vondst (uit de logs/DB) | Fix |
+|---|---|
+| **Energy-as stuk**: lineaire RMS, alles geplet in [0,0.6], p99=0.37, 0 tracks ≥0.7, én verkeerde ordening (Knopfler 0.48 > Kobosil 0.37). Vergiftigde de activity-gates (Workout matchte NUL), de energiebanden én mijn eigen claim-validator (verwierp élke 'energiek'-titel). | **Perceptuele `arousal`-CLAP-as** (uit de embedding, geen her-analyse; forced refresh voor bestaande rijen) + energie **percentiel-gekalibreerd** overal: validator/banden/activity-gates bibliotheek-relatief; sequencer-energieboog op arousal. |
+| **Titel-monotonie**: 6+ playlists "Elektronische …" — elk station los benoemd. | **Batch-titelgeneratie**: hele set in één LLM-call met distinctie-eis; per-station validatie + corrigerende retry. |
+| **Geen skip-signaal** (alleen expliciete duimen). | **Skip-leren**: track <25s → impliciete dislike (schema v35 `track_skips`); ≥3× → radio-down-sampling (met like-override), niet zichtbaar als thumbs-down. |
+| **Platte fan-graph-bonus** (+0.06). | **Rang-gewogen** (1.0→0.4) + begrensde **transitieve** hop (cache-only). |
+| **Sprong op de top-up-naad** van de eindeloze radio. | **Cross-batch sequencing**: nieuwe pool opent op de track sonisch dichtst bij de net-gespeelde. |
+| **3/21 geselecteerde radio's nooit gebouwd** (niet-seed artiesten). | Geselecteerde artist-ids ge-union'd bij de auto-seeds. |
+| **Spook-'Jaren 4010'** (corrupte jaartag). | `isPlausibleYear` (1900..volgend jaar). |
+
 ## Nog open (verdieping)
 
-1. **CLAP-assen ijken tegen referentietracks.** De zero-shot-tekstprobes zijn
-   heuristisch; de percentiel-kalibratie maakt ze bibliotheek-relatief, maar een
-   handvol handmatig gelabelde tracks per as zou de absolute drempels valideren.
-2. **ListenBrainz similar-artists** als tweede co-listen-bron naast Deezer
-   (vereist artist-MBID's; de MB-enrichment heeft die deels al).
-3. **Preview-loudness**: previews krijgen bewust geen LUFS (30s ≠ 120s-venster);
-   loudness-normalisatie bij lokaal afspelen raakt ze toch niet (niet lokaal
-   afspeelbaar).
+1. **CLAP-assen ijken tegen referentietracks.** De zero-shot-tekstprobes (incl.
+   de nieuwe arousal-as) blijven heuristisch; percentiel-kalibratie maakt ze
+   bibliotheek-relatief, maar een handvol handmatig gelabelde tracks per as zou
+   de absolute drempels valideren.
+2. **Mood-argmax-ruis**: de mood-buckets (bv. "Stevig") gebruiken CLAP-mood-
+   argmax en kunnen sonisch gemengd zijn; arousal lost de energie-verwarring op
+   maar niet de mood-toewijzing zelf.
+3. **ListenBrainz similar-artists** als tweede co-listen-bron naast Deezer.
+4. **Gemini voor titels**: de batch gebruikt de geconfigureerde provider
+   (nu qwen3.5:9b-mlx lokaal); Gemini 2.5 Flash zou het Nederlands verder tillen —
+   één instelling in Settings → LLM, geen code nodig.
