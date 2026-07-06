@@ -236,6 +236,10 @@ extension RoonClient {
             calibration?.energyPercentile(t) ?? TitleGrounding.energySignal(t) ?? 0.5
         }
         @Sendable func b(_ t: DatabaseManager.SonicTrack) -> Double { t.bpm ?? 0 }
+        // Zero-is-data: a NULL bpm must not slip through a low-tempo `<` gate as 0.
+        // The `>=` gates below already exclude nil-as-0 correctly; only the pure
+        // upper-bound profiles (chillen/lounge) need an explicit presence guard.
+        @Sendable func hasBpm(_ t: DatabaseManager.SonicTrack) -> Bool { t.bpm != nil }
         return [
             ActivityProfile(key: "workout", label: "Workout",
                             matches: { ep($0) >= 0.70 && b($0) >= 120 },
@@ -244,10 +248,10 @@ extension RoonClient {
                             matches: { ep($0) >= 0.45 && ep($0) <= 0.90 && b($0) >= 95 && b($0) <= 140 },
                             rank: { ep($0) }),
             ActivityProfile(key: "chillen", label: "Chillen",
-                            matches: { ep($0) < 0.33 && b($0) < 110 },
+                            matches: { ep($0) < 0.33 && hasBpm($0) && b($0) < 110 },
                             rank: { 1 - ep($0) }),
             ActivityProfile(key: "lounge", label: "Lounge",
-                            matches: { ep($0) >= 0.30 && ep($0) <= 0.60 && b($0) < 115 },
+                            matches: { ep($0) >= 0.30 && ep($0) <= 0.60 && hasBpm($0) && b($0) < 115 },
                             rank: { 1 - ep($0) }),
             ActivityProfile(key: "energiek", label: "Energiek",
                             matches: { ep($0) >= 0.72 },

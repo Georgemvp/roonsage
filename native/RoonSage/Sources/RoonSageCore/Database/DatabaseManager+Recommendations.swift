@@ -235,10 +235,19 @@ extension DatabaseManager {
     /// its highlights from. `DigestSelection.top` handles dedup + ranking.
     public func recentPendingAlbumRecommendations(limit: Int = 300) async throws -> [DigestSelection.Candidate] {
         try await pool.read { db in
+            // Exclude albums already accepted: a later daily run can re-propose the
+            // same album under a DIFFERENT dedup_key (name-fallback vs resolved
+            // release-group MBID), so a pending duplicate would otherwise be bundled
+            // into the digest again. Suppress by dedup_key AND by normalised
+            // artist|album so the MBID-variant is caught too.
             let rows = try Row.fetchAll(db, sql: """
-                SELECT dedup_key, artist, album, qobuz_album_id, score FROM recommendation_items
+                SELECT dedup_key, artist, album, qobuz_album_id, score FROM recommendation_items ri
                 WHERE kind = 'album' AND status = 'pending'
                   AND qobuz_album_id IS NOT NULL AND qobuz_album_id <> ''
+                  AND dedup_key NOT IN (SELECT dedup_key FROM recommendation_items WHERE status = 'accepted')
+                  AND LOWER(TRIM(ri.artist)) || '|' || LOWER(TRIM(ri.album)) NOT IN (
+                        SELECT LOWER(TRIM(artist)) || '|' || LOWER(TRIM(album))
+                        FROM recommendation_items WHERE status = 'accepted')
                 ORDER BY score DESC LIMIT ?
             """, arguments: [limit])
             return rows.compactMap { r -> DigestSelection.Candidate? in
