@@ -257,13 +257,25 @@ public actor QobuzClient {
 
     // MARK: - Login
 
+    // Cached login: every public entry point calls login(), and login() itself
+    // tries up to 3 app_ids × 2 password forms. A discovery pass (resolve albums →
+    // append) previously re-authenticated ~14× where one handshake suffices. Short
+    // TTL so a rotated password / revoked token is picked up promptly.
+    private var cachedSession: (email: String, session: Session, at: Date)?
+    private let sessionTTL: TimeInterval = 600 // 10 minutes
+
     private func login(email: String, password: String) async -> Session? {
+        if let c = cachedSession, c.email == email, Date().timeIntervalSince(c.at) < sessionTTL {
+            return c.session
+        }
         let pwMd5 = Insecure.MD5.hash(data: Data(password.utf8)).map { String(format: "%02x", $0) }.joined()
         var lastFailure: String?
         for appId in knownAppIds {
             for pw in [password, pwMd5] {
                 switch await tryLogin(email: email, password: pw, appId: appId) {
-                case .success(let s): return s
+                case .success(let s):
+                    cachedSession = (email, s, Date())
+                    return s
                 case .failure(let reason): lastFailure = reason
                 }
             }
