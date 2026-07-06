@@ -15,6 +15,14 @@ public struct MusicMapView: View {
     /// Memoized once per data change — recomputing in `body` and on every tap made
     /// the scatter O(n) per render. Recomputed only in `load()`.
     @State private var bounds = Bounds([])
+    /// Per-track normalized (0…1, y-up) map coordinates, index-aligned with
+    /// `tracks`. Plot-independent, so they're computed once in `load()` and merely
+    /// scaled into the plot at render — not recomputed per point per frame.
+    @State private var norm: [CGPoint] = []
+    /// Spatial index over `norm` so a tap resolves the nearest dot by checking only
+    /// nearby grid cells (O(1) amortized) instead of scanning every track. Rebuilt
+    /// only in `load()`, alongside `norm`.
+    @State private var grid = SpatialGrid(points: [])
 
     public var body: some View {
         Group {
@@ -66,8 +74,9 @@ public struct MusicMapView: View {
                     Canvas { ctx, _ in
                         // Frame
                         ctx.stroke(Path(plot), with: .color(.secondary.opacity(0.15)), lineWidth: 1)
-                        for t in tracks {
-                            let pt = position(t, in: plot, bounds: bounds)
+                        for i in tracks.indices where i < norm.count {
+                            let t = tracks[i]
+                            let pt = position(norm[i], in: plot)
                             let isSel = t.id == selected?.id
                             let r: CGFloat = isSel ? 6 : 2.6
                             let rect = CGRect(x: pt.x - r, y: pt.y - r, width: r * 2, height: r * 2)
@@ -81,14 +90,14 @@ public struct MusicMapView: View {
                     }
                     .gesture(
                         SpatialTapGesture().onEnded { value in
-                            selectNearest(to: value.location, in: plot, bounds: bounds)
+                            selectNearest(to: value.location, in: plot)
                         }
                     )
 
                     if let sel = selected {
                         // Put the card on the opposite half from the tapped point so
                         // it never covers the dot you just selected.
-                        let p = position(sel, in: plot, bounds: bounds)
+                        let p = position(normalized(sel, bounds: bounds), in: plot)
                         let cardAtTop = p.y > plot.midY
                         selectionCard(sel)
                             .position(x: min(max(p.x, plot.minX + 124), plot.maxX - 124),
@@ -178,7 +187,10 @@ public struct MusicMapView: View {
         }
     }
 
-    private func position(_ t: DatabaseManager.SonicTrack, in plot: CGRect, bounds: Bounds) -> CGPoint {
+    /// Plot-independent normalized (0…1, y-up) coordinate for a track — the learned
+    /// PCA map when a majority of tracks have coords, else tempo×energy. Computed
+    /// once per data load (see `norm`), then scaled into the plot by `position`.
+    private func normalized(_ t: DatabaseManager.SonicTrack, bounds: Bounds) -> CGPoint {
         let bx: Double, ey: Double
         if bounds.usingMap, let mx = t.mapX, let my = t.mapY {
             bx = (mx - bounds.xMin) / max(0.001, bounds.xMax - bounds.xMin)
@@ -187,21 +199,32 @@ public struct MusicMapView: View {
             bx = ((t.bpm ?? bounds.bpmMin) - bounds.bpmMin) / max(0.001, bounds.bpmMax - bounds.bpmMin)
             ey = ((t.energy ?? bounds.eMin) - bounds.eMin) / max(0.001, bounds.eMax - bounds.eMin)
         }
-        return CGPoint(
-            x: plot.minX + CGFloat(min(1, max(0, bx))) * plot.width,
-            y: plot.maxY - CGFloat(min(1, max(0, ey))) * plot.height
-        )
+        return CGPoint(x: min(1, max(0, bx)), y: min(1, max(0, ey)))
+    }
+
+    /// Scale a normalized (0…1, y-up) point into the plot rect. Cheap — no bounds math.
+    private func position(_ n: CGPoint, in plot: CGRect) -> CGPoint {
+        CGPoint(x: plot.minX + n.x * plot.width, y: plot.maxY - n.y * plot.height)
     }
 
     private var usingMap: Bool { bounds.usingMap }
 
-    private func selectNearest(to loc: CGPoint, in plot: CGRect, bounds: Bounds) {
+    private func selectNearest(to loc: CGPoint, in plot: CGRect) {
+        guard plot.width > 0, plot.height > 0, !norm.isEmpty else { return }
+        // Tap → normalized space, then query only the grid cells within the ~14pt
+        // hit radius (padded to 20pt so the box strictly contains it) instead of
+        // scanning every dot. The exact screen-distance test + threshold below is
+        // unchanged, so selection is identical to the old O(n) scan.
+        let nx = (loc.x - plot.minX) / plot.width
+        let ny = (plot.maxY - loc.y) / plot.height
+        let rx = 20 / plot.width
+        let ry = 20 / plot.height
         var best: DatabaseManager.SonicTrack?
         var bestDist = CGFloat.greatestFiniteMagnitude
-        for t in tracks {
-            let p = position(t, in: plot, bounds: bounds)
+        for i in grid.candidates(x: nx, y: ny, rx: rx, ry: ry) where i < tracks.count {
+            let p = position(norm[i], in: plot)
             let d = (p.x - loc.x) * (p.x - loc.x) + (p.y - loc.y) * (p.y - loc.y)
-            if d < bestDist { bestDist = d; best = t }
+            if d < bestDist { bestDist = d; best = tracks[i] }
         }
         // Only select if reasonably close (≈14pt).
         withAnimation(Motion.quick) {
@@ -233,7 +256,13 @@ public struct MusicMapView: View {
             lib = await client.sonicLibrary()
         }
         tracks = lib
-        bounds = Bounds(lib)
+        let b = Bounds(lib)
+        bounds = b
+        // Precompute normalized coords + the spatial index once per data change,
+        // so render scales cheaply and taps hit-test against the grid, not O(n).
+        let points = lib.map { normalized($0, bounds: b) }
+        norm = points
+        grid = SpatialGrid(points: points)
         isLoading = false
         loaded = true
     }
