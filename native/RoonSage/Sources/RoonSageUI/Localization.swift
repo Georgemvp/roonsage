@@ -49,19 +49,47 @@ public enum LocalePreference: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// Marker class so `Bundle(for:)` resolves the RoonSageUI module bundle.
+private final class BundleToken {}
+
+/// The RoonSageUI resource bundle, found DEFENSIVELY. `Bundle.module`'s generated
+/// accessor calls `fatalError` when the SwiftPM resource bundle isn't beside the
+/// executable at runtime — which crashed the whole app at launch when the release
+/// script packaged the binary into a .app without copying `RoonSage_RoonSageUI.bundle`
+/// (now fixed in build-release.sh). We replicate SwiftPM's own search but fall back
+/// to `.main` so a missing/misplaced bundle degrades to the base (Dutch) strings
+/// instead of a SIGTRAP at launch.
+let uiBundle: Bundle = {
+    let bundleName = "RoonSage_RoonSageUI"
+    let candidates = [
+        Bundle.main.resourceURL,                                   // .app/Contents/Resources
+        Bundle(for: BundleToken.self).resourceURL,
+        Bundle.main.bundleURL,
+        Bundle(for: BundleToken.self).bundleURL,
+        Bundle.main.executableURL?.deletingLastPathComponent(),    // .app/Contents/MacOS
+        Bundle(for: BundleToken.self).resourceURL?.deletingLastPathComponent(),
+    ]
+    for base in candidates.compactMap({ $0 }) {
+        if let bundle = Bundle(url: base.appendingPathComponent("\(bundleName).bundle")) {
+            return bundle
+        }
+    }
+    return .main
+}()
+
 /// Localized `String`, resolved against the RoonSageUI bundle and honouring the
 /// in-app language override.
 public func LS(_ key: String.LocalizationValue) -> String {
     if let loc = LocalePreference.current.locale {
-        return String(localized: key, bundle: .module, locale: loc)
+        return String(localized: key, bundle: uiBundle, locale: loc)
     }
-    return String(localized: key, bundle: .module)
+    return String(localized: key, bundle: uiBundle)
 }
 
 /// Localized `Text`, resolved against the RoonSageUI bundle. Respects the
 /// `\.locale` environment (pinned at the root by `.appLanguage()`).
 public func LT(_ key: LocalizedStringKey) -> Text {
-    Text(key, bundle: .module)
+    Text(key, bundle: uiBundle)
 }
 
 /// Pins the app's `\.locale` from the stored language override. Reactive: changing

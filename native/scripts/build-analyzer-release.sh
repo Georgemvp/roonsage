@@ -32,6 +32,18 @@ echo "── Step 2: assemble .app bundle"
 rm -rf "$APP_PATH"
 mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources"
 cp "$BINARY" "$APP_PATH/Contents/MacOS/$EXEC_NAME"
+
+# Copy SwiftPM resource bundles (RoonSageUI's Localizable.strings, GRDB, …). The
+# analyzer links RoonSageUI, so a localized-string lookup would fatalError via
+# Bundle.module if these weren't packaged. They sit next to the built binary.
+BUILD_DIR="$(dirname "$BINARY")"
+shopt -s nullglob
+for bundle in "$BUILD_DIR"/*.bundle; do
+    echo "   bundling $(basename "$bundle")"
+    cp -R "$bundle" "$APP_PATH/Contents/Resources/"
+done
+shopt -u nullglob
+
 # Stamp the version into both keys by name (robust: works whatever the
 # template currently holds — a magic-placeholder sed silently stamps nothing
 # once the template drifts, which is how it stuck at 1.0.6).

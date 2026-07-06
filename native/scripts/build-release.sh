@@ -45,6 +45,18 @@ mkdir -p "$APP_PATH/Contents/Resources"
 
 cp "$BINARY" "$APP_PATH/Contents/MacOS/$APP_NAME"
 
+# Copy SwiftPM resource bundles (e.g. RoonSage_RoonSageUI.bundle holding the
+# Localizable.strings catalogues). Without these, `Bundle.module` fatalErrors at
+# launch — the app crashes the instant a localized string (LS/LT) is resolved.
+# They sit next to the built binary in .build/release/.
+BUILD_DIR="$(dirname "$BINARY")"
+shopt -s nullglob
+for bundle in "$BUILD_DIR"/*.bundle; do
+    echo "   bundling $(basename "$bundle")"
+    cp -R "$bundle" "$APP_PATH/Contents/Resources/"
+done
+shopt -u nullglob
+
 # Patch version into Info.plist (robust: rewrite the value after the
 # CFBundleShortVersionString/CFBundleVersion keys, whatever it currently is —
 # a magic-placeholder sed silently stamps nothing when the template drifts).
