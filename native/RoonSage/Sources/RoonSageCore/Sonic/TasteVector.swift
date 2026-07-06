@@ -25,12 +25,19 @@ public enum TasteVector {
     ) -> [Float]? {
         guard !stats.isEmpty || !likedKeys.isEmpty else { return nil }
 
-        // content key → embedding (rows are already L2-normalized in the index).
-        var embByKey = [String: [Float]](minimumCapacity: index.tracks.count)
-        for t in index.tracks where !t.matchKey.isEmpty {
-            if let e = index.embedding(forId: t.id) { embByKey[t.matchKey] = e }
+        // content key → track id (cheap strings; no embedding copy). Only the
+        // played + liked keys are pulled as vectors below — building an
+        // embedding-per-track map allocated one [Float] for every row in the
+        // library (tens of thousands) just to look a few hundred of them up.
+        var idByKey = [String: String](minimumCapacity: index.tracks.count)
+        for t in index.tracks where !t.matchKey.isEmpty { idByKey[t.matchKey] = t.id }
+        let dim = index.dim
+        guard dim > 0 else { return nil }
+
+        func embedding(forKey key: String) -> [Float]? {
+            guard let id = idByKey[key] else { return nil }
+            return index.embedding(forId: id)   // rows are already L2-normalized
         }
-        guard let dim = embByKey.values.first?.count, dim > 0 else { return nil }
 
         let parser = ISO8601DateFormatter()
         var acc = [Float](repeating: 0, count: dim)
@@ -39,14 +46,15 @@ public enum TasteVector {
         func add(_ emb: [Float], _ w: Float) {
             guard w > 0 else { return }
             var ws = w
-            var scaled = [Float](repeating: 0, count: dim)
-            vDSP_vsmul(emb, 1, &ws, &scaled, 1, vDSP_Length(dim))
-            vDSP_vadd(acc, 1, scaled, 1, &acc, 1, vDSP_Length(dim))
+            // acc = emb·w + acc in place (vsma with C == D) — no per-add scratch.
+            acc.withUnsafeMutableBufferPointer { ap in
+                vDSP_vsma(emb, 1, &ws, ap.baseAddress!, 1, ap.baseAddress!, 1, vDSP_Length(dim))
+            }
             any = true
         }
 
         for s in stats {
-            guard let emb = embByKey[s.matchKey] else { continue }
+            guard let emb = embedding(forKey: s.matchKey) else { continue }
             let recency: Double
             if let d = parser.date(from: s.lastPlayed) {
                 let ageDays = max(0, now.timeIntervalSince(d) / 86_400)
@@ -59,7 +67,7 @@ public enum TasteVector {
         }
         // Explicit likes are a strong "this is me" signal, regardless of plays.
         for key in likedKeys {
-            if let emb = embByKey[key] { add(emb, Float(likeBonus)) }
+            if let emb = embedding(forKey: key) { add(emb, Float(likeBonus)) }
         }
 
         guard any else { return nil }

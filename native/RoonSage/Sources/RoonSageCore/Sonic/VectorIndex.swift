@@ -75,14 +75,16 @@ public struct VectorIndex: Sendable {
         let rows = ids.compactMap { idToRow[$0] }
         guard !rows.isEmpty else { return nil }
         var acc = [Float](repeating: 0, count: dim)
-        for (j, r) in rows.enumerated() {
-            let w = weights?[safe: j] ?? 1
-            var scaled = [Float](repeating: 0, count: dim)
-            var ws = w
+        // Accumulate wᵢ·rowᵢ into acc in place (vsma: D = A·B + C with C == D), so
+        // the hot loop allocates no per-source scratch buffer.
+        acc.withUnsafeMutableBufferPointer { ap in
             matrix.withUnsafeBufferPointer { mp in
-                vDSP_vsmul(mp.baseAddress! + r * dim, 1, &ws, &scaled, 1, vDSP_Length(dim))
+                for (j, r) in rows.enumerated() {
+                    var w = weights?[safe: j] ?? 1
+                    vDSP_vsma(mp.baseAddress! + r * dim, 1, &w, ap.baseAddress!, 1,
+                              ap.baseAddress!, 1, vDSP_Length(dim))
+                }
             }
-            vDSP_vadd(acc, 1, scaled, 1, &acc, 1, vDSP_Length(dim))
         }
         return Self.normalized(acc)
     }
@@ -107,21 +109,21 @@ public struct VectorIndex: Sendable {
         var sum = 0.0, sumSq = 0.0
         var n = 0
         var row = 0
-        while row < count, n < samples {
-            let q = Array(matrix[row * dim..<(row + 1) * dim])
-            var scores = [Float](repeating: 0, count: count)
-            matrix.withUnsafeBufferPointer { mp in
-                q.withUnsafeBufferPointer { qp in
-                    scores.withUnsafeMutableBufferPointer { sp in
-                        vDSP_mmul(mp.baseAddress!, 1, qp.baseAddress!, 1, sp.baseAddress!, 1,
-                                  vDSP_Length(count), 1, vDSP_Length(dim))
-                    }
+        // Reuse one scores buffer across all samples, and point the query straight
+        // into the matrix row — no per-sample buffer allocation or row copy.
+        var scores = [Float](repeating: 0, count: count)
+        matrix.withUnsafeBufferPointer { mp in
+            scores.withUnsafeMutableBufferPointer { sp in
+                while row < count, n < samples {
+                    vDSP_mmul(mp.baseAddress!, 1, mp.baseAddress! + row * dim, 1, sp.baseAddress!, 1,
+                              vDSP_Length(count), 1, vDSP_Length(dim))
+                    sp[row] = -1   // exclude self
+                    var best: Float = 0
+                    vDSP_maxv(sp.baseAddress!, 1, &best, vDSP_Length(count))
+                    sum += Double(best); sumSq += Double(best) * Double(best); n += 1
+                    row += stride
                 }
             }
-            scores[row] = -1   // exclude self
-            let best = Double(scores.max() ?? 0)
-            sum += best; sumSq += best * best; n += 1
-            row += stride
         }
         guard n > 1 else { return nil }
         let mean = sum / Double(n)

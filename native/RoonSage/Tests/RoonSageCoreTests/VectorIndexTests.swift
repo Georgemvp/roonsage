@@ -34,6 +34,35 @@ final class VectorIndexTests: XCTestCase {
         XCTAssertEqual(hits.first?.track.id, "c", "centroid of a,b nearest to c")
     }
 
+    func testWeightedCentroidLeansToTheHeavierSeed() throws {
+        // Guards the in-place vsma scalar-weight accumulate: weighting a,b as 3:1
+        // must pull the centroid toward a (nearest "ca"), and 1:3 toward b ("cb").
+        let idx = try XCTUnwrap(VectorIndex(tracks: [
+            track("a", [1, 0, 0, 0]),
+            track("b", [0, 1, 0, 0]),
+            track("ca", [1, 0.2, 0, 0]),   // a-heavy
+            track("cb", [0.2, 1, 0, 0]),   // b-heavy
+        ]))
+        let towardA = try XCTUnwrap(idx.centroid(ofIds: ["a", "b"], weights: [3, 1]))
+        XCTAssertEqual(idx.nearest(to: towardA, k: 1, excludingIds: ["a", "b"]).first?.track.id, "ca")
+        let towardB = try XCTUnwrap(idx.centroid(ofIds: ["a", "b"], weights: [1, 3]))
+        XCTAssertEqual(idx.nearest(to: towardB, k: 1, excludingIds: ["a", "b"]).first?.track.id, "cb")
+    }
+
+    func testNNSimilarityStatsAreFiniteAndInRange() throws {
+        // Guards the reused scores buffer in nnSimilarityStats: a corrupted buffer
+        // would yield out-of-range / NaN cosine stats. Needs >= 10 embedded tracks.
+        let tracks = (0..<12).map { i -> DatabaseManager.SonicTrack in
+            var e = [Float](repeating: 0, count: 4)
+            e[i % 4] = 1; e[(i + 1) % 4] = 0.3
+            return track("t\(i)", e)
+        }
+        let idx = try XCTUnwrap(VectorIndex(tracks: tracks))
+        let stats = try XCTUnwrap(idx.nnSimilarityStats(sampleCount: 12))
+        XCTAssertTrue(stats.mean.isFinite && stats.mean >= -1.0001 && stats.mean <= 1.0001)
+        XCTAssertTrue(stats.std.isFinite && stats.std >= 0)
+    }
+
     func testNilWithoutEmbeddings() {
         XCTAssertNil(VectorIndex(tracks: [track("a", []), track("b", [])]),
                      "no embeddings -> no index")
