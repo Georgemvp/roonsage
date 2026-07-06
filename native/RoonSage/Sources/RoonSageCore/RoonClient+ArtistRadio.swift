@@ -599,6 +599,13 @@ extension RoonClient {
     private static func titleSigKey(_ id: String) -> String { "artistradio.titlesig.v1.\(id)" }
     static func qobuzIDKey(_ id: String) -> String        { "artistradio.qobuzid.\(id)" }
 
+    /// The cached AI title for a radio id, or nil when none has been generated yet
+    /// (so the management list falls back to the display label).
+    static func cachedRadioTitle(_ id: String) -> String? {
+        let t = UserDefaults.standard.string(forKey: titleKey(id))
+        return (t?.isEmpty == false) ? t : nil
+    }
+
     /// A stable signature of a track selection (content, order-independent) used to
     /// detect when a radio's tracklist actually changed, so the description can be
     /// regenerated to match while the title (the Qobuz identity) stays cached.
@@ -627,8 +634,15 @@ extension RoonClient {
     /// Compute the title-cache state for a station (no I/O beyond UserDefaults).
     func titlePlan(for radio: SonicRadio, category: RadioCategory,
                    sample: [TrackRecord], sonics: [DatabaseManager.SonicTrack]) -> TitlePlan {
+        titlePlan(for: radio, fallback: Self.fallbackMeta(category: category, label: radio.artist),
+                  sample: sample, sonics: sonics)
+    }
+
+    /// Title-cache state for a station whose fallback isn't category-derived (custom
+    /// radios): same freshness/signature logic, caller supplies the fallback.
+    func titlePlan(for radio: SonicRadio, fallback: (title: String, description: String),
+                   sample: [TrackRecord], sonics: [DatabaseManager.SonicTrack]) -> TitlePlan {
         let d = UserDefaults.standard
-        let fallback = Self.fallbackMeta(category: category, label: radio.artist)
         let cachedTitle = d.string(forKey: Self.titleKey(radio.id))
         let cachedDesc = d.string(forKey: Self.descKey(radio.id))
         let hasRealTitle = (cachedTitle?.isEmpty == false) && cachedTitle != fallback.title
@@ -1153,7 +1167,12 @@ extension RoonClient {
         }
         // The known Qobuz ids of the kept radios: a rename-in-place that failed
         // mid-sync leaves the old name live — protect it by id, not just name.
-        let keepQobuzIDs = Set(keepIds.compactMap { UserDefaults.standard.string(forKey: Self.qobuzIDKey($0)) })
+        var keepQobuzIDs = Set(keepIds.compactMap { UserDefaults.standard.string(forKey: Self.qobuzIDKey($0)) })
+        // Custom radios share this namespace — keep the enabled ones too so the AI
+        // orphan sweep never deletes a user-composed radio.
+        let custom = await customRadioQobuzKeep()
+        keepNames.formUnion(custom.names)
+        keepQobuzIDs.formUnion(custom.ids)
         let removed = await QobuzClient.shared.deleteRadioOrphans(
             keep: keepNames, keepIDs: keepQobuzIDs, namePrefix: Self.qobuzNamePrefix, email: email, password: password)
         if removed > 0 {
@@ -1184,7 +1203,11 @@ extension RoonClient {
             for pl in pls where keepIDs.contains(pl.id) { keepNames.insert(pl.qobuzName) }
         }
         // Protect kept radios by their known Qobuz id too (rename-in-place safety).
-        let keepQobuzIDs = Set(keepIDs.compactMap { UserDefaults.standard.string(forKey: Self.qobuzIDKey($0)) })
+        var keepQobuzIDs = Set(keepIDs.compactMap { UserDefaults.standard.string(forKey: Self.qobuzIDKey($0)) })
+        // Custom radios share this namespace — keep the enabled ones too.
+        let custom = await customRadioQobuzKeep()
+        keepNames.formUnion(custom.names)
+        keepQobuzIDs.formUnion(custom.ids)
         let removed = await QobuzClient.shared.deleteRadioOrphans(
             keep: keepNames, keepIDs: keepQobuzIDs, namePrefix: Self.qobuzNamePrefix, email: email, password: password)
         if removed > 0 {
@@ -1370,6 +1393,15 @@ extension RoonClient {
                     }
                     didSync = total > 0
                     Log.info("AI radio auto-sync (\(daypart.rawValue)): \(total) playlist(s) — artiest + \(rotating.rawValue) — naar Qobuz", category: .network)
+                }
+                // User-composed custom radios sync independently of the AI-radio
+                // selection/daypart logic (own Qobuz name prefix + reconcile).
+                if self.radioSyncEnabled, self.qobuzConfigured {
+                    let n = await self.syncCustomRadiosToQobuz()
+                    if n > 0 {
+                        didSync = true
+                        Log.info("Custom radio auto-sync: \(n) playlist(s) naar Qobuz", category: .network)
+                    }
                 }
                 // Re-sync on the full cadence once it's working; retry sooner while
                 // still warming up (library/features not ready yet, or no Qobuz).

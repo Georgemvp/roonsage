@@ -346,7 +346,24 @@ extension RoonClient {
     /// Isolated convenience: build the gate for `radioID`, fetching the genre/
     /// year maps only when that category actually needs them.
     func candidateGate(for radioID: String) async -> (@Sendable (DatabaseManager.SonicTrack) -> Bool)? {
-        guard let db = database, let cat = RadioCategory(radioID: radioID) else { return nil }
+        guard let db = database else { return nil }
+        // User-composed radios: build the combined facet gate from the config so the
+        // endless top-up stays true to its definition (genre ∧ mood ∧ activity ∧ …).
+        if radioID.hasPrefix("custom:") {
+            let id = String(radioID.dropFirst("custom:".count))
+            guard let cfg = await radioConfig(id: id) else { return nil }
+            let genres = (try? await db.genresByTrackID()) ?? [:]
+            let years = cfg.decades.isEmpty ? [:] : ((try? await db.yearByMatchKey()) ?? [:])
+            let cal: TitleGrounding.Calibration?
+            if cfg.activities.isEmpty {
+                cal = nil
+            } else {
+                let lib = await radioLibrary()
+                cal = await Task.detached { TitleGrounding.Calibration.compute(library: lib) }.value
+            }
+            return Self.customGate(cfg: cfg, genres: genres, years: years, calibration: cal)
+        }
+        guard let cat = RadioCategory(radioID: radioID) else { return nil }
         switch cat {
         case .artist, .sonic:
             return nil

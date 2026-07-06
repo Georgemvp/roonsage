@@ -553,6 +553,30 @@ enum Schema {
             }
         }
 
+        // User-composed sonic radios (RadioConfig) — a named bundle of seed facets
+        // (artists/tracks/genres/moods/activities/decades) the user assembles, edits
+        // and toggles. Server-of-record like playlists/favorites so every client
+        // shows the same set; the analyzer materialises the enabled ones to Qobuz.
+        // Facet lists are JSON-text columns (GRDB stores arrays as JSON).
+        migrator.registerMigration("v36_radio_configs") { db in
+            try db.create(table: "radio_configs", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("name",            .text).notNull()
+                t.column("enabled",         .boolean).notNull().defaults(to: true)
+                t.column("sync_to_qobuz",   .boolean).notNull().defaults(to: true)
+                t.column("artists",         .text).notNull().defaults(to: "[]")
+                t.column("track_keys",      .text).notNull().defaults(to: "[]")
+                t.column("genres",          .text).notNull().defaults(to: "[]")
+                t.column("moods",           .text).notNull().defaults(to: "[]")
+                t.column("activities",      .text).notNull().defaults(to: "[]")
+                t.column("decades",         .text).notNull().defaults(to: "[]")
+                t.column("adventurousness", .double).notNull().defaults(to: 0.35)
+                t.column("target_count",    .integer).notNull().defaults(to: 25)
+                t.column("qobuz_playlist_id", .text)
+                t.column("updated_at",      .text).notNull()
+            }
+        }
+
         try migrator.migrate(db)
     }
 }

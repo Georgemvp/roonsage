@@ -22,6 +22,11 @@ import UIKit
 ///   POST /playlists → SavePlaylistRequest → {"id": n} (save a new playlist)
 ///   DELETE /playlists?id=n → delete a saved playlist
 ///   GET  /playlist-tracks?id=n → [TrackRecord] (stored tracks of a playlist)
+///   GET  /radio-configs → [RadioConfig] (user-composed sonic radios)
+///   POST /radio-configs → RadioConfig → {"id":"…"} (create OR update; upsert)
+///   DELETE /radio-configs?id=… → delete a custom radio config
+///   GET  /ai-radios → AIRadioManagement (auto radios + on/off selection state)
+///   POST /ai-radio-selection → AIRadioSelectionRequest (toggle a radio / master)
 ///   GET  /artist-radios → [SonicRadioPlaylist] (last synced AI radios → Qobuz)
 ///   GET  /discover-weekly → DiscoverWeeklyPlaylist? (library-first weekly, or null)
 ///   POST /discover-weekly/refresh → rebuild this week now → DiscoverWeeklyPlaylist?
@@ -475,6 +480,47 @@ public final class LibraryShareServer: @unchecked Sendable {
                 return ("200 OK", body, "application/json")
             }
             return ("500 Internal Server Error", Data("playlist tracks failed".utf8), "text/plain")
+        }
+        // User-composed sonic radios (RadioConfig) — server-of-record like saved
+        // playlists. POST doubles as create AND update (upsert on the config id),
+        // so there's no need for a PUT verb (which nothing else here uses).
+        if method == "POST", path == "/radio-configs" {
+            guard let cfg = try? JSONDecoder().decode(RadioConfig.self, from: body),
+                  !cfg.name.isEmpty, !cfg.id.isEmpty else {
+                return ("400 Bad Request", Data("bad radio config".utf8), "text/plain")
+            }
+            if (try? await database.upsertRadioConfig(cfg)) != nil {
+                return ("200 OK", Data("{\"id\":\"\(cfg.id)\"}".utf8), "application/json")
+            }
+            return ("500 Internal Server Error", Data("save failed".utf8), "text/plain")
+        }
+        if method == "DELETE", path == "/radio-configs" {
+            guard let id = Self.queryValue("id", in: target), !id.isEmpty else {
+                return ("400 Bad Request", Data("bad id".utf8), "text/plain")
+            }
+            if (try? await database.deleteRadioConfig(id: id)) != nil {
+                return ("200 OK", Data("{\"ok\":true}".utf8), "application/json")
+            }
+            return ("500 Internal Server Error", Data("delete failed".utf8), "text/plain")
+        }
+        if method == "GET", path == "/radio-configs" {
+            if let configs = try? await database.listRadioConfigs(),
+               let body = try? JSONEncoder().encode(configs) {
+                return ("200 OK", body, "application/json")
+            }
+            return ("500 Internal Server Error", Data("radio configs failed".utf8), "text/plain")
+        }
+        // AI-radio management: the auto radios' on/off (Qobuz mirror) selection,
+        // exposed so any client can manage them in the unified "Mijn radio's" view.
+        if method == "POST", path == "/ai-radio-selection" {
+            guard let req = try? JSONDecoder().decode(AIRadioSelectionRequest.self, from: body),
+                  await RoonClient.shared.applyAIRadioChange(req) else {
+                return ("400 Bad Request", Data("bad selection".utf8), "text/plain")
+            }
+            return ("200 OK", Data("{\"ok\":true}".utf8), "application/json")
+        }
+        if method == "GET", path == "/ai-radios" {
+            return ("200 OK", await RoonClient.shared.aiRadioManagementData(), "application/json")
         }
         if path.hasPrefix("/playback") {
             let zone = Self.queryValue("zone", in: target)

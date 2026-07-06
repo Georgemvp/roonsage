@@ -38,6 +38,8 @@ public struct SonicRadioView: View {
 
             header.plainCardRow()
 
+            myRadiosLink.plainCardRow()
+
             adventurousnessTuner.plainCardRow()
 
             categoryPicker.plainCardRow()
@@ -89,6 +91,32 @@ public struct SonicRadioView: View {
     }
 
     // MARK: Sections
+
+    /// Entry point to the user-composed radios (create/edit/enable/sync). Pushed
+    /// within the current navigation stack so both Mac and iOS reach it.
+    private var myRadiosLink: some View {
+        NavigationLink {
+            CustomRadioView()
+        } label: {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "slider.horizontal.2.square")
+                    .font(.title3)
+                    .foregroundStyle(Color.roonGold)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Mijn radio's").font(.subheadline.weight(.semibold))
+                    Text("Stel zelf radio's samen uit artiesten, genres, sferen en activiteiten — en sync ze naar Qobuz.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .cardStyle()
+    }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
