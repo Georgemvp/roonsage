@@ -1,3 +1,4 @@
+import AudioAnalysis
 import Foundation
 
 // MARK: - "Ontdek Wekelijks" — the library-first weekly discovery playlist
@@ -351,15 +352,21 @@ extension RoonClient {
                                                album: m.album, notInLibrary: false))
                 continue
             }
-            // 2) Not owned — does it exist on Qobuz? Label it "nog niet in je bibliotheek".
+            // 2) Not owned — does it exist on Qobuz UNDER THE SAME title+artist?
+            //    Library-first: accept only a hit whose normalised identity matches
+            //    the candidate. Taking `.first` blindly could attach an UNRELATED
+            //    song's id to the candidate's title/artist → the wrong track plays.
             guard qobuzAttempts < maxQobuzAttempts else { continue }
             qobuzAttempts += 1
             let query = [cand.artist, cand.title].compactMap { $0 }.joined(separator: " ")
-            if let q = await searchQobuz(query: query, limit: 3).first {
+            let wantKey = TrackIdentity.matchKey(artist: cand.artist, album: nil, title: cand.title)
+            if let q = await searchQobuz(query: query, limit: 3).first(where: {
+                TrackIdentity.matchKey(artist: $0.artist, album: $0.album, title: $0.title) == wantKey
+            }) {
                 out.append(DiscoverWeeklyTrack(id: q.id, title: cand.title, artist: cand.artist,
                                                album: cand.album, notInLibrary: true))
             }
-            // else: playable nowhere we allow → skip (library-first).
+            // else: no confident Qobuz match → skip (library-first).
         }
         return out
     }

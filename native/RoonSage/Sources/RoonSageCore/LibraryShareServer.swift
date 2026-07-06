@@ -152,6 +152,14 @@ public final class LibraryShareServer: @unchecked Sendable {
         return loadApprovedLocked()[token] != nil
     }
 
+    /// True once at least one client has been paired. After the first approval the
+    /// read grace window closes: every non-/health request then needs a valid
+    /// token, so an un-paired peer can no longer read the library/history at all.
+    public static func hasApprovedDevices() -> Bool {
+        deviceLock.lock(); defer { deviceLock.unlock() }
+        return !loadApprovedLocked().isEmpty
+    }
+
     /// File (or refresh) an unknown-token client in the pending queue.
     static func recordPending(token: String, name: String, ip: String) {
         deviceLock.lock(); defer { deviceLock.unlock() }
@@ -342,7 +350,14 @@ public final class LibraryShareServer: @unchecked Sendable {
                 Log.warning("share-server: throttled \(method) \(path) from \(peerIP) (too many bad tokens)", category: .network)
                 return ("429 Too Many Requests", Data("too many attempts; retry later".utf8), "text/plain")
             }
-            let sensitive = path.hasPrefix("/settings")
+            // /settings carries secrets, and ANY state-changing request (non-GET:
+            // POST /command, /track-feedback, /playlists, /radio-configs,
+            // /discovery/run, DELETE …) can drive Roon or mutate data — grace mode
+            // NEVER applies to either. Read-only GETs keep the grace window only
+            // until the first device is paired, after which enforcement is
+            // automatic (hasApprovedDevices), so an un-paired peer can't read PII.
+            let sensitive = path.hasPrefix("/settings") || method != "GET"
+            let enforcing = Self.enforceToken || Self.hasApprovedDevices()
             let provided = Self.headerValue(Self.tokenHeader, in: header)
             let deviceName = Self.headerValue(Self.deviceHeader, in: header) ?? ""
             if let provided {
@@ -356,8 +371,8 @@ public final class LibraryShareServer: @unchecked Sendable {
                 }
                 Self.authThrottler.recordSuccess(peerIP)
             } else {
-                if Self.enforceToken || sensitive {
-                    let why = sensitive ? "secrets endpoint requires a token" : "pair this client via Apparaten"
+                if enforcing || sensitive {
+                    let why = sensitive ? "secrets/mutation endpoint requires a token" : "pair this client via Apparaten"
                     Log.warning("share-server: rejected \(method) \(path) — no token; \(why)", category: .network)
                     return ("401 Unauthorized", Data("unauthorized".utf8), "text/plain")
                 }

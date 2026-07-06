@@ -93,7 +93,16 @@ public actor QobuzClient {
         if let known = knownPlaylistID, !known.isEmpty {
             existingID = known
         } else {
-            existingID = await findPlaylist(named: name, session: session)
+            switch await findPlaylist(named: name, session: session) {
+            case .found(let id): existingID = id
+            case .absent: existingID = nil
+            case .failed:
+                // Fail closed: a failed read must not look like "no playlist" and
+                // create a duplicate. Leave whatever exists untouched.
+                Log.warning("Qobuz sync '\(name)': could not read existing playlists — skipping to avoid a duplicate",
+                             category: .network)
+                return nil
+            }
         }
 
         // 3. Catastrophic-shrink guard: if we'd replace a populated playlist with
@@ -105,8 +114,12 @@ public actor QobuzClient {
         //    tracklist we deliberately didn't install — then bail.
         if let pid = existingID, !forceReplace {
             let current = await playlistTrackCount(playlistID: pid, session: session)
-            if current > 4, ids.count * 2 < current {
-                Log.warning("Qobuz sync '\(name)': catastrophic-shrink guard — \(ids.count) resolved from \(tracks.count) candidates vs \(current) existing, keeping existing tracks",
+            // Fail closed on an unknown count (transient read failure): treat it
+            // exactly like the shrink guard firing — never destructively replace a
+            // populated playlist on a baseline we could not read.
+            if current == nil || (current! > 4 && ids.count * 2 < current!) {
+                let existing = current.map(String.init) ?? "unknown"
+                Log.warning("Qobuz sync '\(name)': catastrophic-shrink guard — \(ids.count) resolved from \(tracks.count) candidates vs \(existing) existing, keeping existing tracks",
                              category: .network)
                 await updatePlaylist(playlistID: pid, name: name, description: nil, session: session)
                 return nil
@@ -136,14 +149,17 @@ public actor QobuzClient {
         //    we never compound the residue further.
         var clearPasses = 0
         while clearPasses < 5 {
-            let ptIDs = await playlistTrackIDs(playlistID: playlistID, session: session)
+            guard let ptIDs = await playlistTrackIDs(playlistID: playlistID, session: session) else {
+                Log.warning("Qobuz sync '\(name)': could not read existing tracks to clear — aborting to avoid piling on top",
+                             category: .network)
+                return nil
+            }
             if ptIDs.isEmpty { break }
             await deletePlaylistTracks(playlistID: playlistID, playlistTrackIDs: ptIDs, session: session)
             clearPasses += 1
         }
-        let remaining = await playlistTrackIDs(playlistID: playlistID, session: session)
-        guard remaining.isEmpty else {
-            Log.warning("Qobuz sync '\(name)': could not fully clear existing tracks (\(remaining.count) left after \(clearPasses) passes) — aborting to avoid piling on top",
+        guard let remaining = await playlistTrackIDs(playlistID: playlistID, session: session), remaining.isEmpty else {
+            Log.warning("Qobuz sync '\(name)': could not confirm the playlist is cleared — aborting to avoid piling on top",
                          category: .network)
             return nil
         }
@@ -381,9 +397,10 @@ public actor QobuzClient {
     private func searchTracks(query: String, session: Session) async -> [[String: Any]]? {
         var comps = URLComponents(string: "\(base)/track/search")!
         comps.queryItems = [.init(name: "query", value: query), .init(name: "limit", value: "10")]
+        // Routed through getJSON so a transient 429/5xx is retried with backoff
+        // instead of silently returning nil (misread as "no match" → dropped track).
         guard let url = comps.url,
-              let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let json = await getJSON(authedRequest(url, session: session)),
               let items = (json["tracks"] as? [String: Any])?["items"] as? [[String: Any]],
               !items.isEmpty else { return nil }
         return items
@@ -575,24 +592,66 @@ public actor QobuzClient {
         return nil
     }
 
+    // MARK: - Networking (status-aware, fail-closed)
+
+    /// GET → parsed JSON, or `nil` ONLY on a genuine failure: a transport error, a
+    /// non-2xx status (after retrying 429/5xx with backoff), or an undecodable body.
+    /// A 2xx with a valid-but-empty payload returns a non-nil dictionary, so callers
+    /// can tell "the read failed" (nil → fail closed) from "legitimately empty"
+    /// (non-nil). Retrying transient rate-limits/outages stops a hiccup from being
+    /// misread as "no data" — the root cause of the recurring silent Qobuz breakage.
+    private func getJSON(_ request: URLRequest, attempts: Int = 3) async -> [String: Any]? {
+        let path = request.url?.path ?? "?"
+        var delay: UInt64 = 400_000_000 // 0.4s, doubled per retry
+        for attempt in 0..<max(1, attempts) {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if status == 429 || (500...599).contains(status) {
+                    if attempt < attempts - 1 {
+                        try? await Task.sleep(nanoseconds: delay); delay *= 2; continue
+                    }
+                    Log.warning("Qobuz GET \(path): HTTP \(status) after \(attempt + 1) attempts", category: .network)
+                    return nil
+                }
+                guard (200...299).contains(status) else {
+                    Log.warning("Qobuz GET \(path): HTTP \(status)", category: .network)
+                    return nil
+                }
+                return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            } catch {
+                if attempt < attempts - 1 {
+                    try? await Task.sleep(nanoseconds: delay); delay *= 2; continue
+                }
+                Log.warning("Qobuz GET \(path): transport error — \(error.localizedDescription)", category: .network)
+                return nil
+            }
+        }
+        return nil
+    }
+
     // MARK: - Playlist sync helpers (find / update / clear)
+
+    /// Result of a playlist lookup. `.failed` is DISTINCT from `.absent` so a
+    /// transient read error is never mistaken for "no such playlist" and turned
+    /// into a duplicate.
+    private enum PlaylistLookup { case found(String), absent, failed }
 
     /// Look up one of the user's playlists by exact (case-insensitive) name.
     /// `limit` is generous so an existing radio playlist isn't missed behind a
     /// large library of other playlists (which would create a duplicate).
-    private func findPlaylist(named name: String, session: Session) async -> String? {
+    private func findPlaylist(named name: String, session: Session) async -> PlaylistLookup {
         var comps = URLComponents(string: "\(base)/playlist/getUserPlaylists")!
         comps.queryItems = [.init(name: "limit", value: "500"), .init(name: "offset", value: "0")]
         guard let url = comps.url,
-              let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let items = (json["playlists"] as? [String: Any])?["items"] as? [[String: Any]] else { return nil }
+              let json = await getJSON(authedRequest(url, session: session)),
+              let items = (json["playlists"] as? [String: Any])?["items"] as? [[String: Any]] else { return .failed }
         let target = name.lowercased()
         for p in items where (p["name"] as? String ?? "").lowercased() == target {
-            if let id = p["id"] as? Int { return String(id) }
-            if let id = p["id"] as? String { return id }
+            if let id = p["id"] as? Int { return .found(String(id)) }
+            if let id = p["id"] as? String { return .found(id) }
         }
-        return nil
+        return .absent
     }
 
     /// All of the user's playlists as `(id, name)`. Used by orphan reconciliation.
@@ -635,12 +694,14 @@ public actor QobuzClient {
         _ = try? await URLSession.shared.data(for: req)
     }
 
-    private func playlistTrackCount(playlistID: String, session: Session) async -> Int {
+    /// Current track count, or `nil` when the read failed (transport/non-2xx) — the
+    /// caller fails closed on nil rather than treating "unknown" as "empty" and
+    /// destructively replacing a good playlist.
+    private func playlistTrackCount(playlistID: String, session: Session) async -> Int? {
         var comps = URLComponents(string: "\(base)/playlist/get")!
         comps.queryItems = [.init(name: "playlist_id", value: playlistID), .init(name: "extra", value: "tracks")]
         guard let url = comps.url,
-              let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return 0 }
+              let json = await getJSON(authedRequest(url, session: session)) else { return nil }
         if let tracks = json["tracks"] as? [String: Any] {
             if let total = tracks["total"] as? Int { return total }
             if let items = tracks["items"] as? [[String: Any]] { return items.count }
@@ -656,7 +717,10 @@ public actor QobuzClient {
     /// NOT a raw 0-based position, which is what an earlier version of this
     /// method sent and which Qobuz silently rejected. Paginated since a large
     /// playlist's `items` page is capped.
-    private func playlistTrackIDs(playlistID: String, session: Session) async -> [String] {
+    /// Every track's opaque `playlist_track_id`, or `nil` when a page read failed —
+    /// so the caller never treats "couldn't read" as "already empty" and piles new
+    /// tracks on top of an un-cleared playlist (the unbounded-bloat bug).
+    private func playlistTrackIDs(playlistID: String, session: Session) async -> [String]? {
         var ids: [String] = []
         var offset = 0
         let pageSize = 500
@@ -669,9 +733,8 @@ public actor QobuzClient {
                 .init(name: "offset", value: String(offset)),
             ]
             guard let url = comps.url,
-                  let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let tracks = json["tracks"] as? [String: Any],
+                  let json = await getJSON(authedRequest(url, session: session)) else { return nil }
+            guard let tracks = json["tracks"] as? [String: Any],
                   let items = tracks["items"] as? [[String: Any]], !items.isEmpty else { break }
             for item in items {
                 if let pt = item["playlist_track_id"] as? Int { ids.append(String(pt)) }
@@ -801,11 +864,15 @@ extension QobuzClient {
         let ids = Self.dedupePreservingOrder(await albumTrackIDs(albumID: albumID, session: session))
         guard !ids.isEmpty else { return false }
         let plID: String
-        if let existing = await findPlaylist(named: name, session: session) {
-            plID = existing
-        } else if let created = await createPlaylist(name: name, description: description, session: session) {
+        switch await findPlaylist(named: name, session: session) {
+        case .found(let existing): plID = existing
+        case .absent:
+            guard let created = await createPlaylist(name: name, description: description, session: session) else { return false }
             plID = created
-        } else {
+        case .failed:
+            // Fail closed: don't create a duplicate when the lookup read failed.
+            Log.warning("Qobuz append '\(name)': could not read existing playlists — aborting to avoid a duplicate",
+                         category: .network)
             return false
         }
         await addTracks(playlistID: plID, trackIDs: ids, session: session)
@@ -847,9 +914,10 @@ extension QobuzClient {
         // See albumTrackIDs: Qobuz dropped `extra=tracks` (now 400s); the default
         // album/get response already carries `tracks.items`.
         comps.queryItems = [.init(name: "album_id", value: albumID)]
+        // Routed through getJSON so a 400/401 on album/get is logged (mirrors
+        // albumTrackIDs) instead of silently yielding an unplayable accepted album.
         guard let url = comps.url,
-              let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let json = await getJSON(authedRequest(url, session: session)),
               let items = (json["tracks"] as? [String: Any])?["items"] as? [[String: Any]] else { return [] }
         let albumArtist = (json["artist"] as? [String: Any])?["name"] as? String
         return items.compactMap { it in
