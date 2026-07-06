@@ -844,7 +844,9 @@ extension QobuzClient {
     public func albumTrackTitles(albumID: String, email: String, password: String) async -> [(title: String, artist: String?)] {
         guard let session = await login(email: email, password: password) else { return [] }
         var comps = URLComponents(string: "https://www.qobuz.com/api.json/0.2/album/get")!
-        comps.queryItems = [.init(name: "album_id", value: albumID), .init(name: "extra", value: "tracks")]
+        // See albumTrackIDs: Qobuz dropped `extra=tracks` (now 400s); the default
+        // album/get response already carries `tracks.items`.
+        comps.queryItems = [.init(name: "album_id", value: albumID)]
         guard let url = comps.url,
               let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -906,7 +908,9 @@ extension QobuzClient {
     /// Track ids of a Qobuz album (for the playlist-append accept action).
     private func albumTrackIDs(albumID: String, session: Session) async -> [Int] {
         var comps = URLComponents(string: "https://www.qobuz.com/api.json/0.2/album/get")!
-        comps.queryItems = [.init(name: "album_id", value: albumID), .init(name: "extra", value: "tracks")]
+        // No `extra=tracks`: Qobuz rejects it (400 "Invalid argument: extra");
+        // the default album/get response already carries `tracks.items`.
+        comps.queryItems = [.init(name: "album_id", value: albumID)]
         guard let url = comps.url else { return [] }
         guard let (data, resp) = try? await URLSession.shared.data(for: authedRequest(url, session: session)) else {
             Log.warning("Qobuz album/get netwerkfout voor album_id \(albumID)", category: .network)
