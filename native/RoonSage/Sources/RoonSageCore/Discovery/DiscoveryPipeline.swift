@@ -105,6 +105,30 @@ struct DiscoveryPipeline {
         }
         resolved = Self.rededupe(resolved)
 
+        // 3a-ter. (PERF-M5) Drop identity-rejected candidates (in-library /
+        // already-listened / permanently blocked / within reject cooldown) NOW —
+        // right after MB canonicalisation gives us stable artist names — instead of
+        // only after the album/cover resolution below. None of these rules depend on
+        // the release-group MBID (3a-bis), the Qobuz album id (3b), or cover art
+        // (3b-bis/3c), so resolving all of that for a candidate that's guaranteed to
+        // be filtered just burns MB/Qobuz round-trips and wall-clock. Seeds are drawn
+        // from top/liked/watchlisted artists, so a meaningful fraction of resolved
+        // candidates ARE already-owned by construction (gap-fill's whole job is
+        // proposing albums by owned artists). Correctness is unchanged: the final
+        // Score/Filter step re-applies the full rule set with the fully-resolved
+        // dedup key, so a cooldown/block that only becomes keyable once 3a-bis sets
+        // the release-group MBID is still caught there — this early pass can only
+        // drop a strict subset (identity signals that don't need later resolution).
+        resolved = resolved.filter { it in
+            let dedup = DiscoveryKey.dedupKey(kind: it.kind, artist: it.artist, album: it.album,
+                                              artistMbid: it.artistMbid, releaseGroupMbid: it.releaseGroupMbid)
+            // A score that can never trip the (score-dependent) threshold rule, so
+            // only the identity-based rejections (1-4) can fire here.
+            return DiscoveryFilter.keep(kind: it.kind, artist: it.artist, album: it.album,
+                                        dedupKey: dedup, score: .greatestFiniteMagnitude, context: filterContext)
+        }
+        guard !resolved.isEmpty else { return [] }
+
         // 3a-bis. Validate `.album` candidates that carry no release-group MBID —
         // i.e. ai-picks, where an LLM names album titles freely and can hallucinate
         // a plausible title for a real artist (gap-fill / release-radar always set a
@@ -192,25 +216,6 @@ struct DiscoveryPipeline {
                     resolved[idx].imageURL = url.absoluteString
                 }
             }
-        }
-
-        // 3d. Drop identity-rejected candidates (in-library / already-listened /
-        // blocked / cooldown — none of which depend on score) BEFORE the Last.fm
-        // popularity fetch, not after. These rules are a meaningful fraction of a
-        // typical run (seeds are drawn from top/liked/watchlisted artists, so many
-        // resolved candidates ARE already-owned by construction — e.g. gap-fill's
-        // whole job is proposing albums by owned artists) — fetching popularity for
-        // items that are guaranteed to be filtered out regardless of score just
-        // burns Last.fm calls and wall-clock for nothing. The final Score/Filter
-        // step below re-applies the full rule set (now effectively a no-op for
-        // rules 1-4, since only survivors reach it) plus the real threshold check.
-        resolved = resolved.filter { it in
-            let dedup = DiscoveryKey.dedupKey(kind: it.kind, artist: it.artist, album: it.album,
-                                              artistMbid: it.artistMbid, releaseGroupMbid: it.releaseGroupMbid)
-            // A score that can never trip the (score-dependent) threshold rule, so
-            // only the identity-based rejections (1-4) can fire here.
-            return DiscoveryFilter.keep(kind: it.kind, artist: it.artist, album: it.album,
-                                        dedupKey: dedup, score: .greatestFiniteMagnitude, context: filterContext)
         }
 
         // 3e. C2: attach a popularity signal from Last.fm listeners, when

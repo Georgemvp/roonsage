@@ -830,10 +830,22 @@ extension QobuzClient {
         email: String, password: String
     ) async -> [String: ResolvedAlbum] {
         guard !wants.isEmpty, let session = await login(email: email, password: password) else { return [:] }
+        // (PERF-M6) Bounded concurrency (≤5 in flight) instead of one round-trip at
+        // a time: a full discovery batch can carry dozens of album wants, and each
+        // is an independent Qobuz search. The cap keeps us polite to Qobuz while
+        // cutting wall-clock from sum-of-latencies to roughly its fifth.
         var out: [String: ResolvedAlbum] = [:]
-        for w in wants {
-            if let r = await resolveAlbum(wantArtist: w.artist, wantAlbum: w.album, session: session) {
-                out[w.key] = r
+        let maxConcurrent = 5
+        await withTaskGroup(of: (String, ResolvedAlbum?).self) { group in
+            var iterator = wants.makeIterator()
+            func addNext() {
+                guard let w = iterator.next() else { return }
+                group.addTask { (w.key, await self.resolveAlbum(wantArtist: w.artist, wantAlbum: w.album, session: session)) }
+            }
+            for _ in 0..<min(maxConcurrent, wants.count) { addNext() }
+            for await (key, album) in group {
+                if let album { out[key] = album }
+                addNext()
             }
         }
         return out
@@ -849,19 +861,38 @@ extension QobuzClient {
         email: String, password: String
     ) async -> [String: URL] {
         guard !wants.isEmpty, let session = await login(email: email, password: password) else { return [:] }
+        // (PERF-M6) Bounded concurrency (≤5 in flight) — same rationale as
+        // resolveAlbums: each artist cover is an independent Qobuz search.
         var out: [String: URL] = [:]
-        for w in wants {
-            guard let items = await searchAlbums(query: w.artist, session: session) else { continue }
-            let wantForm = Self.artistForm(w.artist)
-            for item in items {
-                let candidateArtist = (item["artist"] as? [String: Any])?["name"] as? String
-                    ?? (item["performer"] as? [String: Any])?["name"] as? String
-                guard Self.artistForm(candidateArtist) == wantForm, let cover = Self.albumCover(item) else { continue }
-                out[w.key] = cover
-                break
+        let maxConcurrent = 5
+        await withTaskGroup(of: (String, URL?).self) { group in
+            var iterator = wants.makeIterator()
+            func addNext() {
+                guard let w = iterator.next() else { return }
+                group.addTask { (w.key, await self.artistCover(artist: w.artist, session: session)) }
+            }
+            for _ in 0..<min(maxConcurrent, wants.count) { addNext() }
+            for await (key, cover) in group {
+                if let cover { out[key] = cover }
+                addNext()
             }
         }
         return out
+    }
+
+    /// A representative Qobuz cover for one artist — first search hit whose artist
+    /// name matches (normalised). Extracted from `resolveArtistCovers` so its body
+    /// is a single async unit the bounded task group can dispatch.
+    private func artistCover(artist: String, session: Session) async -> URL? {
+        guard let items = await searchAlbums(query: artist, session: session) else { return nil }
+        let wantForm = Self.artistForm(artist)
+        for item in items {
+            let candidateArtist = (item["artist"] as? [String: Any])?["name"] as? String
+                ?? (item["performer"] as? [String: Any])?["name"] as? String
+            guard Self.artistForm(candidateArtist) == wantForm, let cover = Self.albumCover(item) else { continue }
+            return cover
+        }
+        return nil
     }
 
     /// Append a whole Qobuz album's tracks to a find-or-create playlist (the
