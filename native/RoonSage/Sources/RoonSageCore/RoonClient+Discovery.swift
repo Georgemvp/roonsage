@@ -24,6 +24,9 @@ extension RoonClient {
     nonisolated static let discoveryDigestCheckInterval: UInt64 = 60 * 60 * 1_000_000_000
     /// Albums kept in the weekly digest playlist.
     nonisolated static let discoveryDigestSize = 20
+    /// Hourly digest tries per ISO week before giving up (watermark → 0), so a
+    /// persistently failing Qobuz save doesn't retry — and log — every hour forever.
+    nonisolated static let discoveryDigestMaxAttempts = 3
 
     /// The producers that run each pipeline pass. Ships every Last.fm/MusicBrainz/
     /// ListenBrainz/AI producer; the gated Deezer/Spotify/Discogs producers (each
@@ -751,11 +754,33 @@ extension RoonClient {
             if ok { saved += 1 }
         }
         guard saved > 0 else {
-            Log.warning("Ontdekkingen-digest (\(weekKey)): Qobuz-opslag mislukte voor alle \(top.count) albums — watermark niet gezet", category: .network)
+            let attempt = bumpDigestFailure(weekKey)
+            if attempt >= Self.discoveryDigestMaxAttempts {
+                // Give up for this week so the hourly check stops retrying (and stops
+                // spamming the log). A count-0 watermark advances past this week; the
+                // week key changes next week, which re-arms the digest.
+                discoveryLastDigest = DiscoveryDigestStatus(week: weekKey, count: 0, playlistName: nil, builtAt: builtAt)
+                Log.warning("Ontdekkingen-digest (\(weekKey)): Qobuz-opslag \(attempt)× mislukt voor alle \(top.count) albums — opgegeven voor deze week (volgende week opnieuw)", category: .network)
+            } else {
+                Log.warning("Ontdekkingen-digest (\(weekKey)): Qobuz-opslag mislukte voor alle \(top.count) albums (poging \(attempt)/\(Self.discoveryDigestMaxAttempts)) — watermark niet gezet", category: .network)
+            }
             return
         }
         discoveryLastDigest = DiscoveryDigestStatus(week: weekKey, count: saved, playlistName: playlistName, builtAt: builtAt)
         Log.info("Ontdekkingen-digest (\(weekKey)): \(saved) albums opgeslagen naar '\(playlistName)'", category: .roon)
+    }
+
+    /// Count this week's consecutive digest failures (persisted, so a restart
+    /// doesn't reset the back-off and re-spam). Resets when the ISO week changes.
+    private func bumpDigestFailure(_ weekKey: String) -> Int {
+        let d = UserDefaults.standard
+        if d.string(forKey: "discovery_digest_fail_week") != weekKey {
+            d.set(weekKey, forKey: "discovery_digest_fail_week")
+            d.set(0, forKey: "discovery_digest_fail_count")
+        }
+        let n = d.integer(forKey: "discovery_digest_fail_count") + 1
+        d.set(n, forKey: "discovery_digest_fail_count")
+        return n
     }
 
     // MARK: - Digest status (client + server)

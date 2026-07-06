@@ -907,11 +907,28 @@ extension QobuzClient {
     private func albumTrackIDs(albumID: String, session: Session) async -> [Int] {
         var comps = URLComponents(string: "https://www.qobuz.com/api.json/0.2/album/get")!
         comps.queryItems = [.init(name: "album_id", value: albumID), .init(name: "extra", value: "tracks")]
-        guard let url = comps.url,
-              let (data, _) = try? await URLSession.shared.data(for: authedRequest(url, session: session)),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let items = (json["tracks"] as? [String: Any])?["items"] as? [[String: Any]] else { return [] }
-        return items.compactMap { Self.itemID($0) }
+        guard let url = comps.url else { return [] }
+        guard let (data, resp) = try? await URLSession.shared.data(for: authedRequest(url, session: session)) else {
+            Log.warning("Qobuz album/get netwerkfout voor album_id \(albumID)", category: .network)
+            return []
+        }
+        // Diagnose the "digest saved 0 albums" failure: an HTTP error / error body
+        // means the stored album_id is rejected; a 200 with no `tracks.items` means
+        // the response schema drifted. Snippet makes the two distinguishable in the log.
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = (json["tracks"] as? [String: Any])?["items"] as? [[String: Any]] else {
+            let snippet = String(decoding: data.prefix(220), as: UTF8.self)
+            Log.warning("Qobuz album/get gaf geen tracks-lijst voor album_id \(albumID) (HTTP \(status)): \(snippet)",
+                         category: .network)
+            return []
+        }
+        let ids = items.compactMap { Self.itemID($0) }
+        if ids.isEmpty {
+            Log.warning("Qobuz album/get: \(items.count) track-items maar 0 bruikbare ids voor album_id \(albumID) (HTTP \(status))",
+                         category: .network)
+        }
+        return ids
     }
 
     private static func albumID(_ item: [String: Any]) -> String? {
