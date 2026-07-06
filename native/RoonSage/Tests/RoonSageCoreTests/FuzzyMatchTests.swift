@@ -35,4 +35,14 @@ final class FuzzyMatchTests: XCTestCase {
         // Track prefix + feat credit are stripped before comparison.
         XCTAssertEqual(FuzzyMatch.score("1-04 Stan (feat. Dido)", "Stan"), 1.0)
     }
+
+    func testVersionQualifierBlocksStudioMerge() {
+        // A one-sided "Live"/"Acoustic"/"Remix" is a different recording — must not
+        // merge onto the studio take (else its features attach to the wrong track).
+        XCTAssertEqual(FuzzyMatch.score("Karma Police - Live", "Karma Police"), 0.0)
+        XCTAssertEqual(FuzzyMatch.score("Heartless (Acoustic)", "Heartless"), 0.0)
+        XCTAssertEqual(FuzzyMatch.score("One More Time - Remix", "One More Time"), 0.0)
+        // But two live takes of the same title still match.
+        XCTAssertEqual(FuzzyMatch.score("Karma Police - Live", "Karma Police (Live)"), 1.0)
+    }
 }

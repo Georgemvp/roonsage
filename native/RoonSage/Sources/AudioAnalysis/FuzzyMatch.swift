@@ -24,8 +24,22 @@ public enum FuzzyMatch {
         score(tokens(a), tokens(b))
     }
 
+    /// Tokens that mark a DIFFERENT recording of the same title (unparenthesised,
+    /// so they survive cleanTitle's remaster/feat stripping): "Karma Police - Live",
+    /// "Song - Acoustic", "Track - Remix". A title carrying one the other lacks must
+    /// NOT fuzzy-merge onto the studio take (else its features attach to the wrong
+    /// recording). Both-live / both-remix pairs still match — only a one-sided
+    /// qualifier blocks the merge.
+    static let versionQualifiers: Set<String> = [
+        "live", "acoustic", "demo", "remix", "edit", "reprise", "instrumental",
+        "unplugged", "rework", "session", "mono", "stereo", "karaoke",
+    ]
+
     public static func score(_ ta: Set<String>, _ tb: Set<String>) -> Double {
         guard !ta.isEmpty, !tb.isEmpty else { return 0 }
+        // Distinct-recording guard: a version qualifier on exactly one side means
+        // these are different takes — never merge (studio ↔ live/acoustic/remix/…).
+        if !ta.symmetricDifference(tb).isDisjoint(with: versionQualifiers) { return 0 }
         let smaller = min(ta.count, tb.count)
         if smaller < 2 { return ta == tb ? 1 : 0 }
         return Double(ta.intersection(tb).count) / Double(smaller)

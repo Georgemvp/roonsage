@@ -838,7 +838,6 @@ public final class FeatureStore {
                 "title": r["title"] as String? ?? "",
                 "album": r["album"] as String? ?? "",
                 "bpm": r["bpm"] as Double? ?? 0,
-                "bpm_confidence": r["bpm_confidence"] as Double? ?? 0,
                 "camelot": r["camelot"] as String? ?? "",
                 "key_root": r["key_root"] as String? ?? "",
                 "key_mode": r["key_mode"] as String? ?? "",
@@ -846,6 +845,10 @@ public final class FeatureStore {
                 "duration": r["duration"] as Double? ?? 0,
             ]
             if let year = r["year"] as Int?, year > 0 { obj["year"] = year }
+            // Only emit when actually measured: a pre-column NULL must read as
+            // "unknown", not as 0.0 (which the flow sequencer treats as lowest
+            // tempo-confidence and wrongly distrusts).
+            if let bc = r["bpm_confidence"] as Double? { obj["bpm_confidence"] = bc }
             if let loudness = r["loudness"] as Double? { obj["loudness"] = loudness }
             if let tags = r["tags"] as String? { obj["tags"] = tags }
             // MusicBrainz genres as an actual array (the app parses it directly).

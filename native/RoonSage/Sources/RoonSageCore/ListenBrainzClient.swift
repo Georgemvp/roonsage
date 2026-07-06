@@ -36,7 +36,17 @@ public actor ListenBrainzClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = data
 
-        _ = try? await URLSession.shared.data(for: req)
+        // Inspect the result: submitting listens is this client's primary job, so a
+        // bad token / 429 / 5xx must be logged, not silently dropped.
+        do {
+            let (_, resp) = try await URLSession.shared.data(for: req)
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            if !(200...299).contains(status) {
+                Log.warning("ListenBrainz submit: HTTP \(status) for ‘\(title)’ — listen not recorded", category: .network)
+            }
+        } catch {
+            Log.warning("ListenBrainz submit error for ‘\(title)’: \(error.localizedDescription)", category: .network)
+        }
     }
 
     // MARK: - Playlists
@@ -183,9 +193,14 @@ public actor ListenBrainzClient {
         while out.count < maxCount {
             guard let data = await get(
                 "/1/feedback/user/\(username)/get-feedback?score=1&metadata=true&count=\(pageSize)&offset=\(offset)",
-                token: token),
-                let page = try? JSONDecoder().decode(Page.self, from: data),
-                let items = page.feedback, !items.isEmpty else { break }
+                token: token) else {
+                // A mid-pagination read failure returns a PARTIAL set — make that
+                // visible rather than presenting it as the complete loved list.
+                if offset > 0 { Log.warning("ListenBrainz lovedTracks: page read failed at offset \(offset) — returning \(out.count) (partial)", category: .network) }
+                break
+            }
+            guard let page = try? JSONDecoder().decode(Page.self, from: data),
+                  let items = page.feedback, !items.isEmpty else { break }
             for i in items {
                 guard let m = i.track_metadata, let t = m.track_name, let a = m.artist_name,
                       !t.isEmpty, !a.isEmpty else { continue }
