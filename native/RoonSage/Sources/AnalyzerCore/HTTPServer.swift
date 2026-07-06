@@ -155,7 +155,6 @@ public final class HTTPServer {
         var header = "HTTP/1.1 \(status)\r\n"
         for (k, v) in headers { header += "\(k): \(v)\r\n" }
         header += "Content-Length: \(body.count)\r\n"
-        header += "Access-Control-Allow-Origin: *\r\n"
         header += "Connection: close\r\n\r\n"
         var out = Data(header.utf8); out.append(body)
         conn.send(content: out, completion: .contentProcessed { _ in

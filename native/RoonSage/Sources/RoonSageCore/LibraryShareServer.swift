@@ -160,6 +160,10 @@ public final class LibraryShareServer: @unchecked Sendable {
         return !loadApprovedLocked().isEmpty
     }
 
+    /// Hard cap on the pending-approval queue so an attacker rotating tokens/IPs
+    /// can't grow it without bound (memory + a flooded "Apparaten" list).
+    private static let maxPending = 50
+
     /// File (or refresh) an unknown-token client in the pending queue.
     static func recordPending(token: String, name: String, ip: String) {
         deviceLock.lock(); defer { deviceLock.unlock() }
@@ -172,6 +176,12 @@ public final class LibraryShareServer: @unchecked Sendable {
             if !ip.isEmpty { p.ip = ip }
             _pending[token] = p
         } else {
+            // Evict the stalest entry when full (like AuthThrottler.maxEntries) so
+            // the queue can't be flooded past a bounded size.
+            if _pending.count >= Self.maxPending,
+               let stalest = _pending.min(by: { $0.value.lastSeen < $1.value.lastSeen })?.key {
+                _pending.removeValue(forKey: stalest)
+            }
             _pending[token] = PendingDevice(token: token, name: display, ip: ip,
                                             firstSeen: now, lastSeen: now)
         }
@@ -335,6 +345,20 @@ public final class LibraryShareServer: @unchecked Sendable {
         let method = parts.first ?? "GET"
         let target = parts.count > 1 ? parts[1] : "/"
         let path = target.split(separator: "?").first.map(String.init) ?? target
+
+        // CSRF hardening: a POST (the only CORS-"simple" state-changing method —
+        // GET is read-only, DELETE is always preflighted) must declare JSON. A
+        // browser cross-origin fetch with application/json triggers a CORS preflight
+        // this server never answers, so a malicious web page can't drive Roon or
+        // mutate data even through the loopback auth-exemption. Legit native clients
+        // already send application/json on every POST.
+        if method == "POST" {
+            let ctype = Self.headerValue("Content-Type", in: header)?.lowercased() ?? ""
+            if !ctype.contains("application/json") {
+                Log.warning("share-server: rejected POST \(path) — non-JSON Content-Type ‘\(ctype)’ (CSRF guard)", category: .network)
+                return ("415 Unsupported Media Type", Data("json content-type required".utf8), "text/plain")
+            }
+        }
 
         // Auth: everything but /health needs a valid token, unless the peer is
         // loopback (same machine — already OS-trusted) or we're in the grace
