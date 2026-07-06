@@ -26,7 +26,8 @@ import UIKit
 ///   POST /radio-configs → RadioConfig → {"id":"…"} (create OR update; upsert)
 ///   DELETE /radio-configs?id=… → delete a custom radio config
 ///   GET  /ai-radios → AIRadioManagement (auto radios + on/off selection state)
-///   POST /ai-radio-selection → AIRadioSelectionRequest (toggle a radio / master)
+///   POST /ai-radio-selection → AIRadioSelectionRequest (toggle a radio / master / hide)
+///   GET  /radio-hidden → [String] (radio ids hidden from the main Radio's screen)
 ///   GET  /artist-radios → [SonicRadioPlaylist] (last synced AI radios → Qobuz)
 ///   GET  /discover-weekly → DiscoverWeeklyPlaylist? (library-first weekly, or null)
 ///   POST /discover-weekly/refresh → rebuild this week now → DiscoverWeeklyPlaylist?
@@ -521,6 +522,9 @@ public final class LibraryShareServer: @unchecked Sendable {
         }
         if method == "GET", path == "/ai-radios" {
             return ("200 OK", await RoonClient.shared.aiRadioManagementData(), "application/json")
+        }
+        if method == "GET", path == "/radio-hidden" {
+            return ("200 OK", await RoonClient.shared.hiddenRadioIDsData(), "application/json")
         }
         if path.hasPrefix("/playback") {
             let zone = Self.queryValue("zone", in: target)

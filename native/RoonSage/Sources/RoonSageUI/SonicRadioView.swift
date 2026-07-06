@@ -76,6 +76,10 @@ public struct SonicRadioView: View {
             // the full mirror across all categories, so it isn't reloaded here.
             Task { await load(force: true) }
         }
+        .onChange(of: client.radioVisibilityRevision) {
+            // Returned from "Mijn radio's" after hiding/showing a radio → re-filter.
+            Task { await load(force: true) }
+        }
         .sheet(item: $detailPlaylist) { playlistDetailSheet($0) }
     }
 
@@ -255,7 +259,9 @@ public struct SonicRadioView: View {
         guard force || !loaded else { return }
         isLoading = true
         defer { isLoading = false; loaded = true }
-        radios = await client.dailyRadios(category: category)
+        // Drop radios the user hid from "Mijn radio's" (server-of-record set).
+        let hidden = await client.hiddenRadioIDs()
+        radios = await client.dailyRadios(category: category).filter { !hidden.contains($0.id) }
     }
 
     // MARK: AI artist radios → Qobuz

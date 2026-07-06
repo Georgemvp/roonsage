@@ -239,13 +239,24 @@ public struct CustomRadioView: View {
     }
 
     private func aiRow(_ item: AIRadioItem) -> some View {
-        HStack(spacing: Spacing.md) {
+        let hidden = aiMgmt?.radios.first { $0.id == item.id }?.hidden ?? item.hidden
+        return HStack(spacing: Spacing.md) {
             AlbumArtView(imageKey: item.imageKey, size: 40, cornerRadius: Radius.sm)
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title).font(.subheadline).lineLimit(1)
                 Text("\(item.label) · \(item.trackCount) tracks").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
+            .opacity(hidden ? 0.4 : 1)
             Spacer()
+            Button {
+                aiHiddenBinding(item).wrappedValue.toggle()
+            } label: {
+                Image(systemName: hidden ? "eye.slash" : "eye")
+                    .foregroundStyle(hidden ? Color.secondary : Color.roonGold)
+            }
+            .buttonStyle(.borderless)
+            .help(hidden ? "Verborgen op hoofdscherm — tik om te tonen" : "Verberg op het hoofdscherm")
+
             Button {
                 Haptics.tap()
                 editing = RoonClient.radioConfigFromAIRadio(item)
@@ -329,6 +340,19 @@ public struct CustomRadioView: View {
                     aiMgmt?.radios[i].selected = on
                 }
                 Task { await client.setAIRadioSelected(item.id, on) }
+            }
+        )
+    }
+
+    private func aiHiddenBinding(_ item: AIRadioItem) -> Binding<Bool> {
+        Binding(
+            get: { aiMgmt?.radios.first { $0.id == item.id }?.hidden ?? item.hidden },
+            set: { on in
+                Haptics.tap()
+                if let i = aiMgmt?.radios.firstIndex(where: { $0.id == item.id }) {
+                    aiMgmt?.radios[i].hidden = on
+                }
+                Task { await client.setAIRadioHidden(item.id, on) }
             }
         )
     }

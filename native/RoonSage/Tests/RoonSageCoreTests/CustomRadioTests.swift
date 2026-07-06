@@ -181,7 +181,34 @@ final class CustomRadioTests: XCTestCase {
 
     private func aiItem(_ id: String, label: String) -> AIRadioItem {
         AIRadioItem(id: id, category: RoonClient.RadioCategory(radioID: id)?.rawValue ?? "",
-                    label: label, title: label, trackCount: 20, imageKey: nil, selected: true)
+                    label: label, title: label, trackCount: 20, imageKey: nil,
+                    selected: true, hidden: false)
+    }
+
+    // MARK: AI-radio hide/sync wire contract (server-of-record over HTTP)
+
+    func testAIRadioSelectionRequestCarriesHiddenAndSelected() throws {
+        // The management routes hinge on these fields surviving JSON both ways.
+        for req in [AIRadioSelectionRequest(id: "artist:x", hidden: true),
+                    AIRadioSelectionRequest(id: "genre:house", selected: false),
+                    AIRadioSelectionRequest(syncEnabled: true)] {
+            let data = try JSONEncoder().encode(req)
+            let back = try JSONDecoder().decode(AIRadioSelectionRequest.self, from: data)
+            XCTAssertEqual(back.id, req.id)
+            XCTAssertEqual(back.hidden, req.hidden)
+            XCTAssertEqual(back.selected, req.selected)
+            XCTAssertEqual(back.syncEnabled, req.syncEnabled)
+        }
+    }
+
+    func testAIRadioItemRoundTripsHidden() throws {
+        let item = aiItem("artist:boards", label: "Boards of Canada")
+        let mgmt = AIRadioManagement(syncEnabled: true, qobuzConfigured: true, radios: [item])
+        let back = try JSONDecoder().decode(AIRadioManagement.self,
+                                            from: try JSONEncoder().encode(mgmt))
+        XCTAssertEqual(back.radios.first?.id, item.id)
+        XCTAssertEqual(back.radios.first?.hidden, item.hidden)
+        XCTAssertEqual(back.radios.first?.selected, item.selected)
     }
 
     func testForkMapsEachCategoryToItsFacet() {

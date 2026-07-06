@@ -20,10 +20,12 @@ public struct AIRadioItem: Codable, Sendable, Identifiable {
     public let trackCount: Int
     public let imageKey: String?
     public var selected: Bool       // currently mirrored to Qobuz
+    public var hidden: Bool         // hidden from the main Radio's screen
     public init(id: String, category: String, label: String, title: String,
-                trackCount: Int, imageKey: String?, selected: Bool) {
+                trackCount: Int, imageKey: String?, selected: Bool, hidden: Bool) {
         self.id = id; self.category = category; self.label = label; self.title = title
-        self.trackCount = trackCount; self.imageKey = imageKey; self.selected = selected
+        self.trackCount = trackCount; self.imageKey = imageKey
+        self.selected = selected; self.hidden = hidden
     }
 }
 
@@ -42,8 +44,9 @@ public struct AIRadioSelectionRequest: Codable, Sendable {
     public var id: String?
     public var selected: Bool?
     public var syncEnabled: Bool?
-    public init(id: String? = nil, selected: Bool? = nil, syncEnabled: Bool? = nil) {
-        self.id = id; self.selected = selected; self.syncEnabled = syncEnabled
+    public var hidden: Bool?
+    public init(id: String? = nil, selected: Bool? = nil, syncEnabled: Bool? = nil, hidden: Bool? = nil) {
+        self.id = id; self.selected = selected; self.syncEnabled = syncEnabled; self.hidden = hidden
     }
 }
 
@@ -59,12 +62,26 @@ extension RoonClient {
         if isRemote { return await fetchRemoteAIRadioManagement() }
         var items: [AIRadioItem] = []
         for cat in Self.manageableRadioCategories {
-            for d in await availableRadios(category: cat) {
-                items.append(AIRadioItem(
-                    id: d.id, category: d.category, label: d.label,
-                    title: Self.cachedRadioTitle(d.id) ?? d.label,
-                    trackCount: d.trackCount, imageKey: d.imageKey,
-                    selected: isRadioSelected(d.id)))
+            if cat == .artist {
+                // Mirror the main Radio's screen exactly: the full play-scored list
+                // from `dailyRadios()`, not the ~6-seed Qobuz-mirror subset from
+                // `availableRadios(.artist)` — so every station the user sees is
+                // manageable (toggle sync / hide / "overnemen") from here.
+                for r in await dailyRadios() {
+                    items.append(AIRadioItem(
+                        id: r.id, category: cat.rawValue, label: r.artist,
+                        title: Self.cachedRadioTitle(r.id) ?? r.artist,
+                        trackCount: r.trackCount, imageKey: r.imageKey,
+                        selected: isRadioSelected(r.id), hidden: isRadioHidden(r.id)))
+                }
+            } else {
+                for d in await availableRadios(category: cat) {
+                    items.append(AIRadioItem(
+                        id: d.id, category: d.category, label: d.label,
+                        title: Self.cachedRadioTitle(d.id) ?? d.label,
+                        trackCount: d.trackCount, imageKey: d.imageKey,
+                        selected: isRadioSelected(d.id), hidden: isRadioHidden(d.id)))
+                }
             }
         }
         return AIRadioManagement(syncEnabled: radioSyncEnabled,
@@ -81,6 +98,23 @@ extension RoonClient {
     public func setAIRadioSyncEnabled(_ on: Bool) async {
         if isRemote { await postAIRadioChange(.init(syncEnabled: on)); return }
         radioSyncEnabled = on
+    }
+
+    /// Hide/show one AI radio on the main Radio's screen (server-of-record).
+    public func setAIRadioHidden(_ id: String, _ on: Bool) async {
+        if isRemote { await postAIRadioChange(.init(id: id, hidden: on)) }
+        else { setRadioHidden(id, on) }
+        // Nudge the main Radio's screen to re-filter on return (both paths: local
+        // set, or the remote POST whose result the next /radio-hidden fetch reads).
+        radioVisibilityRevision &+= 1
+    }
+
+    /// The set of radio ids hidden from the main screen. Local reads the setting;
+    /// a thin client fetches the server's set over `/radio-hidden` (returns `[]`
+    /// on any failure, so the main screen simply shows everything).
+    public func hiddenRadioIDs() async -> Set<String> {
+        if isRemote { return await fetchRemoteHiddenIDs() }
+        return radioHidden
     }
 
     // MARK: Fork an AI radio into an editable custom config ("overnemen")
@@ -110,12 +144,18 @@ extension RoonClient {
         (try? JSONEncoder().encode(await aiRadioManagement())) ?? Data("{}".utf8)
     }
 
+    /// JSON array of hidden radio ids, for the `/radio-hidden` route.
+    public func hiddenRadioIDsData() -> Data {
+        (try? JSONEncoder().encode(Array(radioHidden))) ?? Data("[]".utf8)
+    }
+
     /// Apply a change server-side. Returns true on a recognised request.
     @discardableResult
     public func applyAIRadioChange(_ req: AIRadioSelectionRequest) -> Bool {
         var handled = false
         if let enabled = req.syncEnabled { radioSyncEnabled = enabled; handled = true }
         if let id = req.id, let sel = req.selected, !id.isEmpty { setRadioSelected(id, sel); handled = true }
+        if let id = req.id, let hid = req.hidden, !id.isEmpty { setRadioHidden(id, hid); handled = true }
         return handled
     }
 
@@ -130,6 +170,16 @@ extension RoonClient {
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let payload = try? JSONDecoder().decode(AIRadioManagement.self, from: data) else { return empty }
         return payload
+    }
+
+    private func fetchRemoteHiddenIDs() async -> Set<String> {
+        guard let base = remoteBaseURL, let url = URL(string: "\(base)/radio-hidden") else { return [] }
+        var req = URLRequest(url: url); req.timeoutInterval = 10
+        authorizeShareRequest(&req)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let ids = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return Set(ids)
     }
 
     private func postAIRadioChange(_ change: AIRadioSelectionRequest) async {

@@ -21,6 +21,7 @@ extension RoonClient {
 
     private static let radioSyncEnabledKey   = "radiosync.enabled"
     private static let radioSyncSelectionKey = "radiosync.selection.v1"
+    private static let radioHiddenKey        = "radiosync.hidden.v1"
 
     /// Master switch for the Qobuz mirror. Defaults to `true` (the prior always-on
     /// behaviour) when never set.
@@ -46,6 +47,25 @@ extension RoonClient {
             }
         }
     }
+
+    /// Radios the user has hidden from the main "Radio's" screen. Server-of-record
+    /// like `radioSyncSelection`, but a plain set — empty means "hide nothing", so
+    /// there's no first-edit seeding to do. Independent of the Qobuz-mirror
+    /// selection: hiding a station only removes its tile, it doesn't stop a sync.
+    public var radioHidden: Set<String> {
+        get { Set((UserDefaults.standard.array(forKey: Self.radioHiddenKey) as? [String]) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: Self.radioHiddenKey) }
+    }
+
+    /// Hide or un-hide one radio id from the main screen.
+    public func setRadioHidden(_ id: String, _ hidden: Bool) {
+        var set = radioHidden
+        if hidden { set.insert(id) } else { set.remove(id) }
+        radioHidden = set
+    }
+
+    /// Whether a radio id is currently hidden from the main screen.
+    public func isRadioHidden(_ id: String) -> Bool { radioHidden.contains(id) }
 
     /// Toggle one radio id in the selection. Seeds the allow-list from the currently
     /// live radios on first edit, so unticking one radio doesn't silently drop all

@@ -73,6 +73,11 @@ public final class RoonClient {
     /// disconnect; the background poll loop keeps retrying meanwhile.
     public internal(set) var hasLiveSession = false
 
+    /// Bumped whenever a radio is hidden/shown from "Mijn radio's", so the main
+    /// Radio's screen re-filters its tiles the moment the user returns (the
+    /// `radioHidden` set itself is UserDefaults-backed and not observable).
+    public internal(set) var radioVisibilityRevision = 0
+
     public internal(set) var connectionState: ConnectionState = .disconnected {
         didSet { if connectionState.isConnected { hasLiveSession = true } }
     }
