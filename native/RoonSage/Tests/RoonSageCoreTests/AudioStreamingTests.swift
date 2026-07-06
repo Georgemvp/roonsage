@@ -123,5 +123,19 @@ final class AudioStreamingTests: XCTestCase {
         XCTAssertTrue(store.playableMatchKeys().contains(key))
 
         XCTAssertNil(store.filePath(forMatchKey: "definitely-not-present"))
+
+        // (PERF-H1) The fallback map is memoized on the corpus signature; adding a
+        // row must invalidate it so a newly-analysed track resolves via the map.
+        let row2 = TrackFeatureRow(
+            matchKey: "seed2", artist: "Aphex Twin", title: "Xtal", album: "SAW 85-92",
+            year: 1992, filePath: "/Volumes/Music/AFX/Xtal.flac", fileMtime: 1,
+            bpm: 100, bpmConfidence: 0.9, keyRoot: "A", keyMode: "minor", camelot: "8A",
+            energy: 0.4, duration: 293, tags: nil, analyzedAt: "now")
+        try store.upsert(row2)
+        let key2 = TrackIdentity.matchKey(artist: "Aphex Twin", album: "SAW 85-92", title: "Xtal")
+        XCTAssertEqual(store.filePath(forMatchKey: key2), "/Volumes/Music/AFX/Xtal.flac")
+        XCTAssertTrue(store.playableMatchKeys().contains(key2))
+        // The first track still resolves after the rebuild.
+        XCTAssertEqual(store.filePath(forMatchKey: key), "/Volumes/Music/BoC/Roygbiv.flac")
     }
 }

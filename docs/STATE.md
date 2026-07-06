@@ -13,10 +13,10 @@ bv. "Werk feature #1 (skip = live re-steer) volledig uit" of "Doe alleen B7".
 Fix ALLES uit de 6-dimensie audit (2026-07-06): security, correctheid, performance, UX, architectuur én de 13 nieuwe features. Incrementeel per batch: bewerken → build/test → commit+push+tag.
 
 ## Now
-B1-B3 + B4a/B4b GESHIPT. Volgende in B4: analyzer hot paths H1-3 (schema-migratie current_match_key index, signature memoize, embeddings ETag — migratie-bewust). Grote resterende brokken: B5 perf-client, B6 UX, B7 architectuur-refactor, B8+ 13 features.
+B1-B3 + B4a/B4b/B4c GESHIPT → B4 (perf serverside) KLAAR. Volgende brokken: B5 perf-client (Music Map spatial index H7/M9, taste/embedding alloc M1-4), B6 UX, B7 architectuur-refactor, B8+ 13 features.
 
 ## Next
-- B4 Perf serverside (rest): analyzer hot paths H1-3 (current_match_key index, signature memoize, embeddings ETag — schema-migratie, migratie-bewust)
+- B5 Perf client: Music Map spatial index (H7/M9), taste/embedding alloc (M1-4)
 - B3 rest (uitgesteld, migratie-bewust): MED-2/3 matchKey-normaliser (unicode-translit + and/with/x/vs joiners) — raakt gepersisteerde keys; MED-4 dedup-key stabiliteit
 - B2 rest: SEC-M2 cleartext secrets (TLS/ZeroTier-only — architectuurbeslissing), SEC-L9 DuckDNS-token roteren (user-actie) + .env verwijderen (Docker weg)
 - B5 Perf client: Music Map spatial index (H7/M9), taste/embedding alloc (M1-4)
@@ -32,6 +32,7 @@ B1-B3 + B4a/B4b GESHIPT. Volgende in B4: analyzer hot paths H1-3 (schema-migrati
 
 ## Constraints
 - Commit + push + tag per geverifieerde batch (user, 2026-07-06)
+- "iOS moet je ook taggen he" — tag ook ios-vX.Y.Z per batch, naast vX.Y.Z + analyzer-vX.Y.Z (user, 2026-07-06)
 - NIET tests verzwakken om ze groen te krijgen (hard stop)
 - Nooit client-app op de mini deployen (alleen analyzer-server); zie memory
 
@@ -52,13 +53,15 @@ B1-B3 + B4a/B4b GESHIPT. Volgende in B4: analyzer hot paths H1-3 (schema-migrati
 - B3a Correctheid GESHIPT — RESULT: commit 8486494, v1.10.120 + analyzer-v1.1.96. FuzzyMatch version-qualifier-guard +regressietest (MED-1), LB submit status-check + loved partial-log (MED-7), bpm_confidence NULL conditioneel (MED-8). 464 tests
 - B3b Correctheid GESHIPT — RESULT: commit 000b02b, v1.10.121 + analyzer-v1.1.97. Digest sluit accepted albums uit op dedup_key+artiest|album (MED-5), Chillen/Lounge vereisen echt bpm (zero-is-data LOW). 464 tests
 - B4a Perf GESHIPT — RESULT: commit b44a9f2, v1.10.122 + analyzer-v1.1.98. Qobuz session-cache 10-min TTL (PERF-H6). 464 tests
-- B4b Perf GESHIPT — RESULT: v1.10.124 + analyzer-v1.1.100. Discovery filter-reorder (PERF-M5): identity-drop (in-library/listened/blocked/cooldown) verplaatst naar 3a-ter, vóór álle album/cover-resolutie (MB studioAlbums/coverArt + Qobuz resolveAlbums/artistCovers) i.p.v. erna; final Score/Filter blijft autoriteit → correctheid ongewijzigd. Bounded concurrency (PERF-M6): QobuzClient.resolveAlbums + resolveArtistCovers nu ≤5 in flight via withTaskGroup (was volledig sequentieel over ~dozijnen wants); artistCover-helper geëxtraheerd. swift build+test exit 0, 464 tests 0 failures
+- B4b Perf GESHIPT — RESULT: commit 0703238, v1.10.124 + analyzer-v1.1.100. Discovery filter-reorder (PERF-M5): identity-drop (in-library/listened/blocked/cooldown) verplaatst naar 3a-ter, vóór álle album/cover-resolutie (MB studioAlbums/coverArt + Qobuz resolveAlbums/artistCovers) i.p.v. erna; final Score/Filter blijft autoriteit → correctheid ongewijzigd. Bounded concurrency (PERF-M6): QobuzClient.resolveAlbums + resolveArtistCovers nu ≤5 in flight via withTaskGroup (was volledig sequentieel over ~dozijnen wants); artistCover-helper geëxtraheerd. swift build+test exit 0, 464 tests 0 failures
+- B4c Perf GESHIPT — RESULT: v1.10.125 + analyzer-v1.1.101 + ios-v1.7.90. PERF-H1: FeatureStore.filePath deed per /audio-request een FULL TABLE SCAN (matchKey per rij herberekend) als de client-key ≠ stored PK (oud-schema rijen); nu O(1)-lookup in gememoiseerde current-scheme [matchKey→file_path]-map, herbouwd alleen als contentSignature wijzigt (proces-scoped → normaliser-wijziging = nieuwe binary = restart = herbouw, dus nooit stale). playableMatchKeys deelt dezelfde map. **H2 (signature memoize) + H3 (embeddings ETag) NIET gedaan — REDUNDANT**: client gate't de hele /features+/embeddings pull al op featuresRevision (RoonClient+Features.swift:186-187 → geen HTTP-request bij ongewijzigde revisie), dus ETag heeft geen caller en contentSignature draait op de 30s revision-timer i.p.v. per poll. swift build+test exit 0, 464 tests. GEEN schema-migratie (in-memory map i.p.v. current_match_key kolom → geen stale-key 404-risico bij schemawissel)
 - LAUNCH-CRASH GEFIXT + GESHIPT — RESULT: commit fccf37d, v1.10.123 + analyzer-v1.1.99. v1.10.117 crashte bij opstarten (SIGTRAP): LS→Bundle.module fatalError want release-packaging kopieerde RoonSage_RoonSageUI.bundle niet in .app. Fix: beide release-scripts kopiëren *.bundle → Contents/Resources; LS/LT defensieve uiBundle-lookup (fallback .main ipv fatal). GEVERIFIEERD: .app mét bundle start (ALIVE 5s), .app zónder bundle start óók (fallback). 464 tests
 - Alle batches gepusht; NIET gedeployd op de mini (alleen tags → CI-artefacten)
 
 ## Open items
 - SEC-M2 cleartext secrets: TLS of ZeroTier-only transport — architectuurbeslissing, in B2 afwegen
 - searchTracks conflateert nog hard-fail vs leeg naar caller (resolveTrackID); retry dekt transient, diepere abort-op-hardfail = mogelijke follow-up
+- PERF-H2/H3 GESLOTEN als redundant (zie B4c) — als /features ooit ZONDER revision-gate gepolld wordt, heropenen: contentSignature memoize vereist write-generatie-invalidatie over ~12 write-sites (data_version werkt niet bij single-connection GRDB) + botst met MusicBrainzGenreTests:59 (write moet signature direct wijzigen)
 
 ## Failed attempts
 (none)

@@ -56,6 +56,20 @@ public final class FeatureStore {
     private let dbQueue: DatabaseQueue
     public let databasePath: String
 
+    // (PERF-H1) Memoized current-scheme [matchKey → real file_path] map. The
+    // `/audio` endpoint resolves a client's CURRENT-scheme key; when it doesn't
+    // match the stored PK (older-scheme rows that were never re-analysed) the
+    // resolution used to fall back to a FULL TABLE SCAN that recomputed
+    // TrackIdentity.matchKey for every row — on EVERY audio Range request. This
+    // caches that map, rebuilt only when the corpus signature changes (same gate
+    // the /features HTTP cache uses), so the fallback becomes an O(1) lookup. The
+    // in-memory map is process-scoped: a normaliser (scheme) change ships in a new
+    // binary → restart → it rebuilds with the current scheme, so it never serves a
+    // stale key without re-analysis. `playableMatchKeys()` reuses the same map.
+    private let pathMapLock = NSLock()
+    private var pathMap: [String: String]?
+    private var pathMapSig = ""
+
     public init(path: String) throws {
         databasePath = path
         dbQueue = try DatabaseQueue(path: path)
@@ -417,14 +431,34 @@ public final class FeatureStore {
             try String.fetchOne(db, sql: "SELECT file_path FROM track_features WHERE match_key = ?",
                                 arguments: [key])
         }) ?? nil) { return p }
-        return (try? dbQueue.read { db -> String? in
+        // Fallback: the stored PK is an older-scheme key. Resolve against the
+        // memoized current-scheme map instead of rescanning the whole table.
+        return currentKeyPathMap()[key]
+    }
+
+    /// Current-scheme `[matchKey → real file_path]` for every locally-playable
+    /// row, memoized and rebuilt only when the corpus signature changes (see the
+    /// pathMap field note). Only real, non-preview paths are included, so a hit is
+    /// always a serveable file. First path wins on a key collision.
+    private func currentKeyPathMap() -> [String: String] {
+        let sig = contentSignature()
+        pathMapLock.lock()
+        if pathMapSig == sig, let cached = pathMap { pathMapLock.unlock(); return cached }
+        pathMapLock.unlock()
+
+        let built: [String: String] = (try? dbQueue.read { db -> [String: String] in
             let rows = try Row.fetchAll(db, sql: "SELECT artist, album, title, file_path FROM track_features")
+            var m = [String: String](minimumCapacity: rows.count)
             for r in rows {
+                guard let p = r["file_path"] as String?, !p.isEmpty, !p.hasPrefix(Self.previewPathPrefix) else { continue }
                 let k = TrackIdentity.matchKey(artist: r["artist"], album: r["album"], title: r["title"])
-                if k == key, let p = real(r["file_path"] as String?) { return p }
+                if m[k] == nil { m[k] = p }
             }
-            return nil
-        }) ?? nil
+            return m
+        }) ?? [:]
+
+        pathMapLock.lock(); pathMap = built; pathMapSig = sig; pathMapLock.unlock()
+        return built
     }
 
     /// The locally-playable set: every match key (current scheme) that has an
@@ -432,17 +466,10 @@ public final class FeatureStore {
     /// is effectively "tracks the analyser walked from disk". Recomputes keys to
     /// match the `/features` export the client syncs against.
     public func playableMatchKeys() -> Set<String> {
-        let rows = (try? dbQueue.read { db in
-            try Row.fetchAll(db, sql: """
-                SELECT artist, album, title FROM track_features
-                WHERE file_path IS NOT NULL AND file_path != '' AND file_path NOT LIKE ?
-            """, arguments: [Self.previewPathPrefix + "%"])
-        }) ?? []
-        var set = Set<String>(minimumCapacity: rows.count)
-        for r in rows {
-            set.insert(TrackIdentity.matchKey(artist: r["artist"], album: r["album"], title: r["title"]))
-        }
-        return set
+        // The memoized map's keys ARE the current-scheme keys of every real,
+        // non-preview (i.e. locally-playable) row — the same filter this used to
+        // scan for, now shared with `/audio` resolution instead of re-scanned.
+        Set(currentKeyPathMap().keys)
     }
 
     /// Full row for a (path, mtime), including the embedding BLOB. Used by tests
