@@ -616,6 +616,15 @@ public final class LibraryShareServer: @unchecked Sendable {
             }
             return ("500 Internal Server Error", Data("year-review failed".utf8), "text/plain")
         }
+        // "Op deze dag": plays from today's month-day in earlier years. Thin clients
+        // have no local listening_history, so they pull it from the server-of-record.
+        if path.hasPrefix("/on-this-day") {
+            if let entries = try? await database.onThisDay(),
+               let body = try? JSONEncoder().encode(entries) {
+                return ("200 OK", body, "application/json")
+            }
+            return ("500 Internal Server Error", Data("on-this-day failed".utf8), "text/plain")
+        }
         if path.hasPrefix("/settings") {
             if let body = try? JSONEncoder().encode(SyncableSettings.exportCurrent()) {
                 return ("200 OK", body, "application/json")

@@ -92,6 +92,50 @@ extension DatabaseManager {
         }
     }
 
+    // MARK: - Op deze dag
+
+    public struct OnThisDayEntry: Sendable, Codable {
+        public var year: Int
+        public var title: String
+        public var artist: String?
+        public var album: String?
+        public var playedAt: String
+        public init(year: Int, title: String, artist: String?, album: String?, playedAt: String) {
+            self.year = year; self.title = title; self.artist = artist; self.album = album; self.playedAt = playedAt
+        }
+    }
+
+    /// "Op deze dag": plays from THIS calendar day (month + day) in earlier years —
+    /// a genuine look back, so the current year is excluded. Month/day are matched
+    /// in UTC to line up with how `played_at` is stored (ISO-8601 Z). Newest play
+    /// first. `now` is injectable so the query is deterministically testable.
+    public func onThisDay(now: Date = Date(), limit: Int = 100) async throws -> [OnThisDayEntry] {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC") ?? cal.timeZone
+        let c = cal.dateComponents([.year, .month, .day], from: now)
+        let monthDay = String(format: "%02d-%02d", c.month ?? 1, c.day ?? 1)
+        let thisYear = c.year ?? 0
+        return try await pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT title, artist, album, played_at,
+                       CAST(strftime('%Y', played_at) AS INTEGER) AS yr
+                FROM listening_history
+                WHERE strftime('%m-%d', played_at) = ?
+                  AND CAST(strftime('%Y', played_at) AS INTEGER) < ?
+                ORDER BY played_at DESC
+                LIMIT ?
+            """, arguments: [monthDay, thisYear, limit])
+            return rows.map {
+                OnThisDayEntry(
+                    year:     $0["yr"]     as Int? ?? 0,
+                    title:    $0["title"]  as String? ?? "",
+                    artist:   $0["artist"],
+                    album:    $0["album"],
+                    playedAt: $0["played_at"] as String? ?? "")
+            }
+        }
+    }
+
     // MARK: - Last.fm history import
 
     public struct ImportedListen: Sendable {
