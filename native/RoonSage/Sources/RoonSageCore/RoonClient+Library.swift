@@ -427,16 +427,25 @@ extension RoonClient {
         public var decades: [Int]
         public var keywords: String
         public var tags: [String]
+        /// CLAP mood keys (`RoonClient.knownMoodKeys`) — a MEASURED gate on the
+        /// candidate pool, not a text filter (M2, GENERATE_AUDIT).
+        public var moods: [String]
+        /// Activity profile keys (workout/onderweg/…) — measured energy/BPM gate.
+        public var activities: [String]
 
-        public init(genres: [String] = [], decades: [Int] = [], keywords: String = "", tags: [String] = []) {
+        public init(genres: [String] = [], decades: [Int] = [], keywords: String = "", tags: [String] = [],
+                    moods: [String] = [], activities: [String] = []) {
             self.genres = genres
             self.decades = decades
             self.keywords = keywords
             self.tags = tags
+            self.moods = moods
+            self.activities = activities
         }
 
         public var isEmpty: Bool {
             genres.isEmpty && decades.isEmpty && keywords.isEmpty && tags.isEmpty
+                && moods.isEmpty && activities.isEmpty
         }
 
         /// Human-readable Dutch scope line for a result header, e.g.
@@ -445,6 +454,10 @@ extension RoonClient {
             var parts: [String] = []
             if !genres.isEmpty  { parts.append(genres.joined(separator: ", ")) }
             if !tags.isEmpty    { parts.append(tags.joined(separator: ", ")) }
+            if !moods.isEmpty   { parts.append(moods.map { RoonClient.moodLabel($0) }.joined(separator: ", ")) }
+            if !activities.isEmpty {
+                parts.append(activities.map { RoonClient.activityLabel($0) }.joined(separator: ", "))
+            }
             if !decades.isEmpty { parts.append(decades.sorted().map { "\($0)s" }.joined(separator: ", ")) }
             if parts.isEmpty, !keywords.isEmpty { parts.append("“\(keywords)”") }
             let scope = parts.isEmpty ? "hele bibliotheek" : parts.joined(separator: " · ")
@@ -489,13 +502,17 @@ extension RoonClient {
         let genreList = available.prefix(80).joined(separator: ", ")
         let tagLine = availableTags.isEmpty ? ""
             : "\n- tags: 0-5 mood/vibe tags chosen EXACTLY from this list that fit the request: \(availableTags.prefix(50).joined(separator: ", "))"
+        // Measured facets (M2): moods/activities gate on ANALYZED audio, so the
+        // model may only pick from the fixed vocabularies the analyzer scores.
+        let moodLine = "\n- moods: 0-2 mood keys chosen EXACTLY from: \(Self.knownMoodKeys.joined(separator: ", ")) — only when the request clearly implies a mood, else []."
+        let activityLine = "\n- activities: 0-1 activity keys chosen EXACTLY from: \(Self.activityProfiles(calibration: nil).map(\.key).joined(separator: ", ")) — only when the request names an activity or situation (working out, driving, studying, relaxing…), else []."
         let system = """
         You map a music playlist request to library filters. \
         Respond with ONLY a JSON object, no prose: \
-        {"genres": [], "decades": [], "keywords": "", "tags": []} \
+        {"genres": [], "decades": [], "keywords": "", "tags": [], "moods": [], "activities": []} \
         - genres: 0-6 names copied VERBATIM from the available list that fit the request's mood/style. The list is the COMPLETE vocabulary — never invent names. Map any sub-style in the request to its closest PARENT in the list (e.g. bebop/swing/smooth jazz/hard bop -> "Jazz"; techno/house -> the closest electronic name; baroque/opera -> "Classical"). Empty = no genre constraint. \
         - decades: 0-3 decade start years like 1980 if an era is implied, else []. \
-        - keywords: short extra search terms for title/artist, or "".\(tagLine)
+        - keywords: short extra search terms for title/artist, or "".\(tagLine)\(moodLine)\(activityLine)
         Available genres: \(genreList)
         """
         guard let resp = try? await LLMClient.shared.complete(
@@ -531,7 +548,18 @@ extension RoonClient {
         // ids stay unique.
         let tags = (obj["tags"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() }
             .filter { tagSet.contains($0) && seenTags.insert($0).inserted } ?? []
-        return RequestFilters(genres: genres, decades: decades, keywords: keywords, tags: tags)
+        // Moods/activities: validate against the fixed measured vocabularies —
+        // an invented key would gate the pool on nothing and empty it.
+        let moodVocab = Set(Self.knownMoodKeys)
+        var seenMoods = Set<String>()
+        let moods = (obj["moods"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() }
+            .filter { moodVocab.contains($0) && seenMoods.insert($0).inserted } ?? []
+        let activityVocab = Set(Self.activityProfiles(calibration: nil).map(\.key))
+        var seenActs = Set<String>()
+        let activities = (obj["activities"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() }
+            .filter { activityVocab.contains($0) && seenActs.insert($0).inserted } ?? []
+        return RequestFilters(genres: genres, decades: decades, keywords: keywords, tags: tags,
+                              moods: moods, activities: activities)
     }
 
     static func firstJSONObject(_ text: String) -> [String: Any]? {

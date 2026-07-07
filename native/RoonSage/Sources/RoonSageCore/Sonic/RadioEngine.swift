@@ -113,7 +113,8 @@ public enum RadioEngine {
         genresById: [String: Set<String>] = [:],
         seedWeights: [Double]? = nil,
         relatedArtists: [String: Double] = [:],
-        salt: String = ""
+        salt: String = "",
+        queryAnchor: [Float]? = nil
     ) -> [Result] {
         // Anchors: the seed vectors that exist in the index. Cap for cost.
         // (Callers pass seeds heaviest-first, so the cap keeps what matters.)
@@ -123,17 +124,30 @@ public enum RadioEngine {
         for id in seedIds where anchors.count < maxAnchors {
             if let e = index.embedding(forId: id) { anchors.append(e) }
         }
+        // A free-text request (CLAP text embedding) can join as an extra anchor —
+        // and carries the query alone when there are no track seeds (Generate).
+        let queryAnchorNorm = queryAnchor.map(VectorIndex.normalized)
+        if let qa = queryAnchorNorm { anchors.append(qa) }
         // Weighted centroid when the caller knows how much each seed matters
         // (Sonic DNA: play-recency weights). Pair vector+weight BEFORE filtering
         // out un-embedded seeds so the weights can't misalign.
-        let centroidOpt: [Float]?
+        let seedCentroid: [Float]?
         if let seedWeights, seedWeights.count == seeds.count {
-            centroidOpt = VectorIndex.weightedCentroid(zip(seeds, seedWeights).compactMap {
+            seedCentroid = VectorIndex.weightedCentroid(zip(seeds, seedWeights).compactMap {
                 guard let e = index.embedding(forId: $0.0.id) else { return nil }
                 return (e, Float(max(0, $0.1)))
             })
         } else {
-            centroidOpt = index.centroid(ofIds: seedIds)
+            seedCentroid = index.centroid(ofIds: seedIds)
+        }
+        // Query base: seed centroid, request anchor, or their midpoint — the
+        // final query is re-normalized after the taste/dislike nudges below.
+        let centroidOpt: [Float]?
+        switch (seedCentroid, queryAnchorNorm) {
+        case let (c?, q?): centroidOpt = zip(c, q).map { ($0 + $1) / 2 }
+        case let (c?, nil): centroidOpt = c
+        case let (nil, q?): centroidOpt = q
+        default: centroidOpt = nil
         }
         guard let centroid = centroidOpt else { return [] }
 

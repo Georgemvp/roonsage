@@ -15,6 +15,8 @@ Fix ALLES uit de 6-dimensie audit (2026-07-06): security, correctheid, performan
 ## Now
 B1-B6a + B7a + B8-features + consumers + share KLAAR. loudness-normalisatie bleek AL GESHIPT (LocalLoudness.swift off/track/album + LocalLoudnessTests). Live op mini = analyzer-v1.1.108. Resterende backlog is grotendeels NIET-headless-verifieerbaar (audio/OS/GUI).
 
+ZIJSPOOR 2026-07-07 ("doe alles" generate-audit, eigen batch): AI-playlistgeneratie erft de radio-engine — zie native/docs/GENERATE_AUDIT.md. QW1-5+M1+M2+U1+U4 geïmplementeerd: RadioEngine.rank(queryAnchor:) over sub-VectorIndex van de gefilterde pool (taste/like/dislike-push, MMR near-dup-drop, dial), mood/activity-facetten in analyzeForFilters + gemeten gate met verzachting, sonische [mood, bpm]-hints in de curator-lijst, RadioSequencer-flow-ordening met arc-keuze, TitleGrounding-gevalideerde titel, reasons per track + dial/arc in GenerateView. Verified: swift build && swift test → 506 tests 0 failures; release-build + swiftlint schoon. Open (GENERATE_AUDIT-statusblok): U2 seed-facetten-UI, U3 duur-doel, fan-graph+σ-vloer in generate-pool.
+
 ## Next
 - Resterend maar NIET headless verifieerbaar (vereist toestel/GUI): crossfade + gapless (AVPlayer→AVAudioEngine, groot/risico), Siri-intents, Control Center, CarPlay (OS-integratie), chat-agent (LLM), share-CARDS als afbeelding (ImageRenderer — kan niet getest: testtarget importeert RoonSageUI niet)
 - B7b Architectuur (groot/risico): RoonClient god-object-split, alleen build-verifieerbaar

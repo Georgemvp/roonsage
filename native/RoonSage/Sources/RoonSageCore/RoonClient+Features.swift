@@ -526,7 +526,7 @@ extension RoonClient {
     /// instrumentation, energy) for any — including Dutch — request, so the CLAP
     /// text embedding (English-trained) is sharp. nil on failure → caller falls
     /// back to the raw request.
-    private func sonicPhrase(for request: String) async -> String? {
+    func sonicPhrase(for request: String) async -> String? {
         let q = request.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return nil }
         let system = """
@@ -545,7 +545,7 @@ extension RoonClient {
 
     /// Embed a free-text query into CLAP space via the analyzer's /text-embed.
     /// nil when the query is empty or the analyzer/text model is unavailable.
-    private func requestTextVector(_ query: String) async -> [Float]? {
+    func requestTextVector(_ query: String) async -> [Float]? {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return nil }
         let base = analyzerURL.trimmingCharacters(in: .whitespaces)

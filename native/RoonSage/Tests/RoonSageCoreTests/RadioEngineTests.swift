@@ -59,6 +59,28 @@ final class RadioEngineTests: XCTestCase {
         XCTAssertFalse(r.contains { $0.track.id == "far" }, "hard-banned track is gone entirely")
     }
 
+    func testQueryAnchorRanksWithoutSeeds() {
+        let (_, lib, index) = fixture()
+        let opts = RadioEngine.Options(adventurousness: 0.35, poolLimit: 10, sequence: false)
+        // No track seeds: the request embedding alone carries the query (Generate).
+        let r = RadioEngine.rank(seeds: [], library: lib, index: index, options: opts,
+                                 salt: "", queryAnchor: [1, 0, 0, 0])
+        XCTAssertEqual(r.first?.track.id, "seed", "cosine-nearest to the anchor leads")
+        XCTAssertEqual(r.count, lib.count, "no seeds → nothing excluded")
+    }
+
+    func testQueryAnchorBlendsWithSeeds() {
+        let (seed, lib, index) = fixture()
+        let opts = RadioEngine.Options(adventurousness: 0, poolLimit: 3, sequence: false)
+        // Anchor on `far`'s vector: with the 50/50 query blend, far must outrank
+        // mid even at a fully familiar dial (so distance-novelty can't be the cause).
+        let r = RadioEngine.rank(seeds: [seed], library: lib, index: index, options: opts,
+                                 salt: "", queryAnchor: [0.50, 0, 0.866, 0])
+        let farIdx = r.firstIndex { $0.track.id == "far" } ?? .max
+        let midIdx = r.firstIndex { $0.track.id == "mid" } ?? .max
+        XCTAssertLessThan(farIdx, midIdx, "request anchor pulls the query toward its own region")
+    }
+
     func testSkippedTracksSteerTheQueryAwaySymmetrically() {
         // seed at +x; two candidates equidistant from the seed, one toward +y and
         // one toward −y. Skipping a pure +y track must push the query −y (so −y

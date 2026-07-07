@@ -195,6 +195,12 @@ extension RoonClient {
         return map[key.lowercased()] ?? key.capitalized
     }
 
+    /// Dutch label for an activity profile key — public so UI chips/summaries
+    /// can translate `RequestFilters.activities` without seeing the profiles.
+    public nonisolated static func activityLabel(_ key: String) -> String {
+        activityProfiles(calibration: nil).first { $0.key == key }?.label ?? key.capitalized
+    }
+
     private nonisolated static func moodBuckets(
         lib: [DatabaseManager.SonicTrack], disliked: Set<String>, daySeed: String
     ) -> [RadioBucket] {

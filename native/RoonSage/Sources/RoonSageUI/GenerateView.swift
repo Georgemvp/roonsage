@@ -13,6 +13,10 @@ import RoonSageCore
 final class GenerateModel {
     var prompt        = ""
     var targetCount   = 20
+    /// The radio dial, reused for generation: 0 = vertrouwd, 1 = ontdekkend.
+    var adventurousness = RoonClient.defaultAdventurousness
+    /// Energy shape the final set is flow-ordered into.
+    var arc: RadioSequencer.Arc = .peak
     var isGenerating  = false
     var phase: RoonClient.GenerationPhase? = nil
     var result: RoonClient.GenerationResult? = nil
@@ -61,7 +65,9 @@ final class GenerateModel {
         defer { if token == genToken { isGenerating = false; phase = nil } }
 
         do {
-            let r = try await client.generatePlaylist(request: request, target: targetCount) { [weak self] p in
+            let r = try await client.generatePlaylist(request: request, target: targetCount,
+                                                      adventurousness: adventurousness,
+                                                      arc: arc) { [weak self] p in
                 guard let self, token == self.genToken else { return }
                 withAnimation(Motion.quick) { self.phase = p }
             }
@@ -251,11 +257,44 @@ public struct GenerateView: View {
                 .labelsHidden()
                 .frame(maxWidth: 220)
             }
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                HStack {
+                    Text("Avontuurlijkheid")
+                    Spacer()
+                    Text(adventureLabel).font(.caption).foregroundStyle(Color.roonGold)
+                }
+                Slider(value: $model.adventurousness, in: 0...1, step: 0.05)
+                    .tint(Color.roonGold)
+            }
+            HStack {
+                Text("Verloop")
+                Spacer()
+                Picker("Verloop", selection: $model.arc) {
+                    Text("Vloeiend").tag(RadioSequencer.Arc.smooth)
+                    Text("Oplopend").tag(RadioSequencer.Arc.gentleRise)
+                    Text("Piek").tag(RadioSequencer.Arc.peak)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 220)
+                .help("De energie-vorm waarin de playlist wordt geordend")
+            }
             HStack {
                 Text("Afspelen op")
                 Spacer()
                 ZonePicker()
             }
+        }
+    }
+
+    /// Mirrors CustomRadioEditorView's dial wording so the knob reads the same
+    /// everywhere.
+    private var adventureLabel: String {
+        switch model.adventurousness {
+        case ..<0.2:  return "Vooral bekend"
+        case ..<0.45: return "Lichte verkenning"
+        case ..<0.7:  return "Verkennend"
+        default:      return "Op ontdekking"
         }
     }
 
@@ -471,6 +510,10 @@ public struct GenerateView: View {
     private func subtitle(_ t: TrackRecord) -> String {
         var s = t.artist ?? ""
         if let y = t.year { s += s.isEmpty ? "\(y)" : " · \(y)" }
+        // "Waarom deze track" — the engine's reason per pick (U4).
+        if let reason = model.result?.reasonByTrackID[t.id], !reason.isEmpty {
+            s += s.isEmpty ? reason : " · \(reason)"
+        }
         return s
     }
 }

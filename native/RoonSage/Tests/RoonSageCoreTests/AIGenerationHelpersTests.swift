@@ -57,6 +57,76 @@ final class AIGenerationHelpersTests: XCTestCase {
     func testRequestFiltersIsEmpty() {
         XCTAssertTrue(RoonClient.RequestFilters().isEmpty)
         XCTAssertFalse(RoonClient.RequestFilters(tags: ["x"]).isEmpty)
+        XCTAssertFalse(RoonClient.RequestFilters(moods: ["relaxed"]).isEmpty)
+        XCTAssertFalse(RoonClient.RequestFilters(activities: ["focus"]).isEmpty)
+    }
+
+    func testScopeSummaryTranslatesMoodsAndActivities() {
+        let f = RoonClient.RequestFilters(moods: ["relaxed"], activities: ["workout"])
+        XCTAssertEqual(f.scopeSummary(poolSize: 9), "Uit Ontspannen · Workout (9 kandidaten)")
+    }
+
+    // MARK: Generate — measured request gate (M2)
+
+    private func sonic(_ id: String, moods: [String: Float] = [:], bpm: Double? = nil,
+                       energy: Double? = nil, attributes: [String: Float] = [:]) -> DatabaseManager.SonicTrack {
+        DatabaseManager.SonicTrack(id: id, title: id, artist: "A", album: nil, imageKey: nil,
+                                   matchKey: id, bpm: bpm, camelot: "8B", energy: energy, tags: [],
+                                   moods: moods, attributes: attributes)
+    }
+
+    func testRequestGateNilWithoutFacets() {
+        XCTAssertNil(RoonClient.requestGate(moods: [], activities: [], calibration: nil))
+    }
+
+    func testRequestGateMatchesDominantOrThresholdMood() {
+        let gate = RoonClient.requestGate(moods: ["relaxed"], activities: [], calibration: nil)!
+        XCTAssertTrue(gate(sonic("dominant", moods: ["relaxed": 0.2, "sad": 0.1])),
+                      "dominant mood matches even under the absolute threshold")
+        XCTAssertTrue(gate(sonic("threshold", moods: ["happy": 0.6, "relaxed": 0.4])),
+                      "non-dominant mood ≥ 0.3 still matches")
+        XCTAssertFalse(gate(sonic("neither", moods: ["happy": 0.6, "relaxed": 0.1])))
+        XCTAssertFalse(gate(sonic("unanalyzed")), "no moods at all → no match")
+    }
+
+    func testRequestGateAppliesActivityProfile() {
+        // Workout: energy percentile ≥ 0.70 && bpm ≥ 120 (uncalibrated: raw signal).
+        let gate = RoonClient.requestGate(moods: [], activities: ["workout"], calibration: nil)!
+        XCTAssertTrue(gate(sonic("banger", bpm: 140, energy: 0.9)))
+        XCTAssertFalse(gate(sonic("ballad", bpm: 70, energy: 0.2)))
+    }
+
+    // MARK: Generate — flow ordering (QW1)
+
+    func testFlowOrderKeepsAllTracksIncludingUnanalyzed() {
+        let recs = [TrackRecord(id: "r1", title: "T1", artist: "A", matchKey: "k1"),
+                    TrackRecord(id: "r2", title: "T2", artist: "B", matchKey: nil),   // unanalyzed
+                    TrackRecord(id: "r3", title: "T3", artist: "C", matchKey: "k3"),
+                    TrackRecord(id: "r4", title: "T4", artist: "D", matchKey: "k4")]
+        let byKey = ["k1": sonic("s1", bpm: 100, energy: 0.4),
+                     "k3": sonic("s3", bpm: 104, energy: 0.5),
+                     "k4": sonic("s4", bpm: 160, energy: 0.9)]
+        let out = RoonClient.flowOrder(recs, byKey: byKey, arc: .smooth)
+        XCTAssertEqual(Set(out.map(\.id)), Set(recs.map(\.id)), "nothing dropped or duplicated")
+        XCTAssertEqual(out.count, recs.count)
+    }
+
+    func testFlowOrderIsDeterministic() {
+        let recs = (0..<6).map { TrackRecord(id: "r\($0)", title: "T\($0)", artist: "A\($0)", matchKey: "k\($0)") }
+        let byKey = Dictionary(uniqueKeysWithValues: (0..<6).map {
+            ("k\($0)", sonic("s\($0)", bpm: 90 + Double($0) * 10, energy: Double($0) / 6))
+        })
+        XCTAssertEqual(RoonClient.flowOrder(recs, byKey: byKey, arc: .peak).map(\.id),
+                       RoonClient.flowOrder(recs, byKey: byKey, arc: .peak).map(\.id))
+    }
+
+    // MARK: Generate — reason copy
+
+    func testReasonTextRewordsSimilarForRequests() {
+        XCTAssertEqual(RoonClient.reasonText(.init(kind: .similar, detail: "X")),
+                       "Sluit aan bij je verzoek")
+        XCTAssertEqual(RoonClient.reasonText(.init(kind: .favorite, detail: "Nick Cave")),
+                       "Omdat je Nick Cave mooi vond")
     }
 
     // MARK: LLMClient.stripReasoning

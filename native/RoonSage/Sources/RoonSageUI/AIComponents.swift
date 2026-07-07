@@ -247,8 +247,11 @@ public struct FilterChips: View {
         FlowLayout(spacing: Spacing.xs, lineSpacing: Spacing.xs) {
             ForEach(filters.genres, id: \.self) { Badge($0, tint: .roonGold) }
             ForEach(filters.tags, id: \.self) { Badge($0, tint: .roonInfo) }
+            ForEach(filters.moods, id: \.self) { Badge(RoonClient.moodLabel($0), tint: .roonInfo) }
+            ForEach(filters.activities, id: \.self) { Badge(RoonClient.activityLabel($0), tint: .roonInfo) }
             ForEach(filters.decades.sorted(), id: \.self) { Badge("\($0)s") }
-            if filters.genres.isEmpty && filters.tags.isEmpty && filters.decades.isEmpty {
+            if filters.genres.isEmpty && filters.tags.isEmpty && filters.moods.isEmpty
+                && filters.activities.isEmpty && filters.decades.isEmpty {
                 Badge("hele bibliotheek")
             }
             if let poolSize { Badge("\(poolSize) kandidaten") }
