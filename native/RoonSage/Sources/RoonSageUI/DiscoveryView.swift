@@ -30,7 +30,8 @@ public struct DiscoveryView: View {
                 summaryCards(stats).plainCardRow()
                 if !undiscovered.isEmpty {
                     shelf("Onontdekte albums", "sparkles",
-                          covers: undiscovered.map(albumCover)) {
+                          covers: undiscovered.map(albumCover),
+                          zoneAvailable: client.selectedZone != nil) {
                         Button { Task { undiscovered = await client.undiscoveredAlbums() } } label: {
                             Image(systemName: "shuffle")
                         }
@@ -41,14 +42,16 @@ public struct DiscoveryView: View {
                 }
                 if !topTracks.isEmpty {
                     shelf("Jouw toptracks", "star.fill",
-                          covers: topTracks.map(trackCover)) {
+                          covers: topTracks.map(trackCover),
+                          zoneAvailable: client.selectedZone != nil) {
                         playAllButton(topTracks)
                     }
                     .plainCardRow()
                 }
                 if forgotten.count > 1 {
                     shelf("Vergeten favorieten", "clock.arrow.circlepath",
-                          covers: forgotten.dropFirst().map(trackCover)) {
+                          covers: forgotten.dropFirst().map(trackCover),
+                          zoneAvailable: client.selectedZone != nil) {
                         playAllButton(Array(forgotten))
                     }
                     .plainCardRow()
@@ -166,15 +169,6 @@ public struct DiscoveryView: View {
 
     // MARK: - Cover shelves
 
-    private struct Cover: Identifiable {
-        let id: String
-        let title: String
-        let subtitle: String?
-        let imageKey: String?
-        let play: () -> Void
-        let playLocal: () -> Void
-    }
-
     private func albumCover(_ a: DatabaseManager.AlbumResult) -> Cover {
         Cover(id: a.albumKey, title: a.album, subtitle: a.artist, imageKey: a.imageKey) {
             play { await client.playAlbum(albumKey: a.albumKey, zoneID: $0) }
@@ -191,55 +185,6 @@ public struct DiscoveryView: View {
         }
     }
 
-    @ViewBuilder
-    private func shelf<Trailing: View>(
-        _ title: String, _ icon: String, covers: [Cover],
-        @ViewBuilder trailing: () -> Trailing
-    ) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            sectionHeader(title, icon, trailing: trailing)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: Spacing.md) {
-                    ForEach(covers) { coverTile($0) }
-                }
-                .padding(.horizontal, 2)
-            }
-        }
-    }
-
-    private func coverTile(_ c: Cover) -> some View {
-        Button {
-            Haptics.tap()
-            c.play()
-        } label: {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                AlbumArtView(imageKey: c.imageKey, size: 130)
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.md))
-                    .shadow(color: .roonShadow, radius: 4, y: 2)
-                    .overlay(alignment: .bottomTrailing) {
-                        Image(systemName: "play.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.white, Color.roonGold)
-                            .shadow(radius: 3)
-                            .padding(6)
-                    }
-                Text(c.title).font(.caption.weight(.medium)).lineLimit(1)
-                if let sub = c.subtitle {
-                    Text(sub).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            .frame(width: 130)
-        }
-        .buttonStyle(.plain)
-        .disabled(client.selectedZone == nil)
-        .accessibilityLabel("Speel \(c.title)\(c.subtitle.map { " van \($0)" } ?? "")")
-        .contextMenu {
-            Button("Speel nu", systemImage: "play.fill") { Haptics.tap(); c.play() }
-                .disabled(client.selectedZone == nil)
-            Button("Speel op dit apparaat", systemImage: "iphone") { c.playLocal() }
-        }
-    }
-
     private func playAllButton(_ tracks: [TrackRecord]) -> some View {
         HStack(spacing: Spacing.sm) {
             Button {
@@ -252,21 +197,6 @@ public struct DiscoveryView: View {
             LocalPlayButton { tracks }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-        }
-    }
-
-    @ViewBuilder
-    private func sectionHeader<Trailing: View>(
-        _ title: String, _ icon: String, @ViewBuilder trailing: () -> Trailing
-    ) -> some View {
-        HStack {
-            Label {
-                Text(title).font(.headline).lineLimit(1)
-            } icon: {
-                Image(systemName: icon).foregroundStyle(Color.roonGold)
-            }
-            Spacer(minLength: Spacing.sm)
-            trailing()
         }
     }
 
@@ -457,25 +387,5 @@ private struct DiscoverySkeleton: View {
         RoundedRectangle(cornerRadius: radius)
             .fill(.quaternary)
             .frame(width: width, height: height)
-    }
-}
-
-// MARK: - Stat card
-
-private struct StatCard: View {
-    let label: String
-    let value: String
-
-    public var body: some View {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(.title2.bold().monospacedDigit())
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 }

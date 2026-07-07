@@ -16,7 +16,7 @@ public struct LibraryView: View {
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
     @State private var sort: SortField = .title
-    @State private var viewMode: ViewMode = .tracks
+    @State private var viewMode: ViewMode = .overview
     /// Grid filter: only starred albums/artists (LMS "Starred" browse mode).
     @State private var favoritesOnly = false
     @State private var selection = Set<String>()
@@ -25,16 +25,34 @@ public struct LibraryView: View {
     @State private var infoTrack: DatabaseManager.LibraryTrackRow?
     @State private var similarSeed: SonicSeed?
 
-    /// Library browsing modes: a flat track list, or a grid of albums / artists.
+    // Overview landing state — loaded once (guarded by `overviewLoaded`) and
+    // refreshed when the library re-syncs (via `reload()` on `client.trackCount`).
+    @State private var stats: DatabaseManager.LibraryStats?
+    @State private var analyzedTotal = 0
+    @State private var analyzedMatched = 0
+    @State private var recentlyAdded: [DatabaseManager.LibraryTrackRow] = []
+    @State private var recentPlayed: [DatabaseManager.LibraryTrackRow] = []
+    @State private var undiscovered: [DatabaseManager.AlbumResult] = []
+    @State private var topTracks: [TrackRecord] = []
+    @State private var forgotten: [TrackRecord] = []
+    @State private var stations: [RoonClient.SonicRadio] = []
+    @State private var facets: RoonClient.RadioFacetOptions?
+    @State private var overviewLoaded = false
+
+    /// Library modes: an overview landing, then the flat track list / album / artist grids.
     enum ViewMode: String, CaseIterable, Identifiable {
-        case tracks, albums, artists
+        case overview, tracks, albums, artists
         var id: String { rawValue }
         var label: String {
-            switch self { case .tracks: "Tracks"; case .albums: "Albums"; case .artists: "Artiesten" }
+            switch self {
+            case .overview: "Overzicht"; case .tracks: "Tracks"
+            case .albums: "Albums"; case .artists: "Artiesten"
+            }
         }
         var icon: String {
             switch self {
-            case .tracks: "music.note.list"; case .albums: "square.grid.2x2"; case .artists: "person.2"
+            case .overview: "house"; case .tracks: "music.note.list"
+            case .albums: "square.grid.2x2"; case .artists: "person.2"
             }
         }
     }
@@ -102,6 +120,7 @@ public struct LibraryView: View {
             modePicker
 
             switch viewMode {
+            case .overview: overviewContent
             case .tracks:  tracksContent
             case .albums:  albumsContent
             case .artists: artistsContent
@@ -110,6 +129,7 @@ public struct LibraryView: View {
         .animation(Motion.quick, value: selection.isEmpty)
         .navigationDestination(for: DatabaseManager.AlbumResult.self) { AlbumDetailView(album: $0) }
         .navigationDestination(for: DatabaseManager.ArtistResult.self) { ArtistDetailView(artist: $0) }
+        .navigationDestination(for: LibraryFilter.self) { FilteredTracksView(filter: $0) }
         .navigationTitle("Bibliotheek (\(client.trackCount) tracks)")
         .searchable(text: $searchText, prompt: searchPrompt)
         .toolbar {
@@ -126,7 +146,7 @@ public struct LibraryView: View {
                     .pickerStyle(.menu)
                     .help("Sorteer tracks")
                 }
-            } else {
+            } else if viewMode == .albums || viewMode == .artists {
                 ToolbarItem {
                     Button {
                         favoritesOnly.toggle()
@@ -159,6 +179,9 @@ public struct LibraryView: View {
             #endif
         }
         .onChange(of: searchText) { _, _ in
+            // Searching in the overview jumps to the track browser — the overview has
+            // no result list of its own. Clearing search stays put (less surprising).
+            if !searchText.isEmpty, viewMode == .overview { viewMode = .tracks }
             isSearching = true
             searchTask?.cancel()
             searchTask = Task {
@@ -195,20 +218,36 @@ public struct LibraryView: View {
 
     // MARK: - Mode switcher + content
 
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    /// Four segments + titles overflow a compact iPhone width, so drop to icon-only there.
+    private var compactPicker: Bool { hSizeClass == .compact }
+    #else
+    private var compactPicker: Bool { false }
+    #endif
+
     private var modePicker: some View {
-        Picker("Weergave", selection: $viewMode) {
+        let picker = Picker("Weergave", selection: $viewMode) {
             ForEach(ViewMode.allCases) { mode in
                 Label(mode.label, systemImage: mode.icon).tag(mode)
             }
         }
         .pickerStyle(.segmented)
-        .labelStyle(.titleAndIcon)
+
+        return Group {
+            if compactPicker {
+                picker.labelStyle(.iconOnly)
+            } else {
+                picker.labelStyle(.titleAndIcon)
+            }
+        }
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.sm)
     }
 
     private var searchPrompt: String {
         switch viewMode {
+        case .overview: "Zoek in je bibliotheek…"
         case .tracks:  "Zoek op titel, artiest of album…"
         case .albums:  "Zoek op album of artiest…"
         case .artists: "Zoek op artiest…"
@@ -402,6 +441,7 @@ public struct LibraryView: View {
     }
 
     private func reload() {
+        overviewLoaded = false   // a resync (trackCount change) should repopulate the overview
         Task { tags = await client.topTags(limit: 28) }
         Task { await client.ensureFavoritesLoaded() }   // drives the star filter
         reloadContent()
@@ -410,6 +450,7 @@ public struct LibraryView: View {
     /// Loads data for whichever browse mode is active.
     private func reloadContent() {
         switch viewMode {
+        case .overview: loadOverview()
         case .tracks:  reloadTracks()
         case .albums:  loadAlbums()
         case .artists: loadArtists()
@@ -488,6 +529,8 @@ public struct LibraryView: View {
     private func refresh() async {
         tags = await client.topTags(limit: 28)
         switch viewMode {
+        case .overview:
+            await refreshOverview()
         case .tracks:
             let currentSort = sort
             let rows = await fetchTracks(query: searchText, tag: selectedTag, sort: currentSort)
@@ -509,6 +552,281 @@ public struct LibraryView: View {
             ContentUnavailableView("Niet verbonden", systemImage: "wifi.slash",
                 description: Text("Verbind eerst met je Roon Core."))
         }
+    }
+
+    // MARK: - Overview landing
+
+    /// The library landing: a stats hero, recently-added / recently-played shelves,
+    /// "voor jou" recommendation shelves, and browse-by tiles. A List-as-feed (like
+    /// DiscoveryView) lazily hosts the shelves and dodges the iOS 26 NavigationStack
+    /// + custom-ScrollView layout bug.
+    @ViewBuilder
+    private var overviewContent: some View {
+        List {
+            if let stats {
+                statsHero(stats).plainCardRow()
+                if !recentlyAdded.isEmpty {
+                    trackShelf("Recent toegevoegd", "clock.badge.plus", recentlyAdded).plainCardRow()
+                }
+                if !recentPlayed.isEmpty {
+                    trackShelf("Onlangs gespeeld", "play.circle", recentPlayed).plainCardRow()
+                }
+                if !topTracks.isEmpty {
+                    recordShelf("Jouw toptracks", "star.fill", topTracks).plainCardRow()
+                }
+                if !undiscovered.isEmpty {
+                    albumShelf("Onontdekte albums", "sparkles", undiscovered).plainCardRow()
+                }
+                if forgotten.count > 1 {
+                    recordShelf("Vergeten favorieten", "clock.arrow.circlepath", forgotten).plainCardRow()
+                }
+                if !stations.isEmpty {
+                    stationShelf.plainCardRow()
+                }
+                browseTiles.plainCardRow()
+                weeklyInstap.plainCardRow()
+            } else if !overviewLoaded {
+                SkeletonRows().plainCardRow()
+            } else {
+                overviewEmpty.plainCardRow()
+            }
+        }
+        .listStyle(.plain)
+        .refreshable { await refreshOverview() }
+    }
+
+    // MARK: Overview — hero + shelves
+
+    @ViewBuilder
+    private func statsHero(_ stats: DatabaseManager.LibraryStats) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack(spacing: Spacing.md) {
+                StatCard(label: "Tracks", value: stats.totalTracks.formatted())
+                StatCard(label: "Artiesten", value: stats.totalArtists.formatted())
+                StatCard(label: "Albums", value: stats.totalAlbums.formatted())
+            }
+            HStack(spacing: Spacing.md) {
+                if let top = stats.topGenres.first {
+                    Label(top.genre.capitalized, systemImage: "guitars.fill")
+                }
+                if analyzedTotal > 0 {
+                    Label("\(analyzedMatched * 100 / analyzedTotal)% geanalyseerd", systemImage: "waveform")
+                }
+                Spacer(minLength: 0)
+            }
+            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+    }
+
+    private func trackShelf(_ title: String, _ icon: String,
+                            _ rows: [DatabaseManager.LibraryTrackRow]) -> some View {
+        shelf(title, icon, covers: rows.map(trackCover),
+              zoneAvailable: client.selectedZone != nil) { EmptyView() }
+    }
+
+    private func recordShelf(_ title: String, _ icon: String, _ recs: [TrackRecord]) -> some View {
+        shelf(title, icon, covers: recs.map(recordCover),
+              zoneAvailable: client.selectedZone != nil) { EmptyView() }
+    }
+
+    private func albumShelf(_ title: String, _ icon: String,
+                            _ albums: [DatabaseManager.AlbumResult]) -> some View {
+        shelf(title, icon, covers: albums.map(albumCover),
+              zoneAvailable: client.selectedZone != nil) { EmptyView() }
+    }
+
+    private func trackCover(_ t: DatabaseManager.LibraryTrackRow) -> Cover {
+        let rec = asRecord(t)
+        return Cover(id: t.id, title: t.title, subtitle: t.artist, imageKey: t.imageKey) {
+            Task { await client.playToActiveOutput([rec]) }
+        } playLocal: {
+            Task { _ = await client.playLocally([rec]) }
+        }
+    }
+
+    private func recordCover(_ t: TrackRecord) -> Cover {
+        Cover(id: t.id, title: t.title, subtitle: t.artist, imageKey: t.imageKey) {
+            Task { await client.playToActiveOutput([t]) }
+        } playLocal: {
+            Task { _ = await client.playLocally([t]) }
+        }
+    }
+
+    private func albumCover(_ a: DatabaseManager.AlbumResult) -> Cover {
+        Cover(id: a.albumKey, title: a.album, subtitle: a.artist, imageKey: a.imageKey) {
+            guard let zone = client.selectedZone else { return }
+            Task { await client.playAlbum(albumKey: a.albumKey, zoneID: zone.id) }
+        } playLocal: {
+            Task { _ = await client.playAlbumLocally(albumKey: a.albumKey) }
+        }
+    }
+
+    // MARK: Overview — sonic radio stations
+
+    private var stationShelf: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            sectionHeader("Radiostations", "dot.radiowaves.left.and.right") { EmptyView() }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: Spacing.md) {
+                    ForEach(stations) { stationTile($0) }
+                }
+                .padding(.horizontal, 2)
+            }
+        }
+    }
+
+    private func stationTile(_ radio: RoonClient.SonicRadio) -> some View {
+        Button {
+            guard let zone = client.selectedZone else { return }
+            Haptics.tap()
+            Task { await client.startRadio(radio, zoneID: zone.id) }
+        } label: {
+            VStack(spacing: Spacing.xs) {
+                AlbumArtView(imageKey: radio.imageKey, size: 110, cornerRadius: 55)
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .font(.caption).foregroundStyle(.white)
+                            .padding(6).background(Color.roonGold, in: Circle()).padding(4)
+                    }
+                Text(radio.artist).font(.caption.weight(.medium)).lineLimit(1)
+                Text("Radio").font(.caption2).foregroundStyle(.secondary)
+            }
+            .frame(width: 110)
+        }
+        .buttonStyle(.plain)
+        .disabled(client.selectedZone == nil)
+        .accessibilityLabel("Start radio op \(radio.artist)")
+    }
+
+    // MARK: Overview — browse by genre / sfeer / decade
+
+    /// Tappable tiles that deep-link into a filtered library list. Genres + decades
+    /// come from `radioFacetOptions()`; "sfeer" reuses the audio-tag vocabulary
+    /// (`topTags`) — the CLAP moods aren't a `FilterOptions` dimension, the tags are.
+    @ViewBuilder
+    private var browseTiles: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            sectionHeader("Blader door", "square.grid.2x2") { EmptyView() }
+            if let facets, !facets.genres.isEmpty {
+                filterChipRow("Genres", facets.genres.prefix(16).map {
+                    LibraryFilter(kind: .genre($0.key), title: $0.label.capitalized)
+                })
+            }
+            if !tags.isEmpty {
+                filterChipRow("Sfeer", tags.prefix(16).map {
+                    LibraryFilter(kind: .tag($0.tag), title: $0.tag.capitalized)
+                })
+            }
+            if let facets, !facets.decades.isEmpty {
+                filterChipRow("Decennia", facets.decades.map {
+                    LibraryFilter(kind: .decade($0), title: "\($0)s")
+                })
+            }
+        }
+    }
+
+    private func filterChipRow(_ heading: String, _ filters: [LibraryFilter]) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text(heading).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.sm) {
+                    ForEach(filters, id: \.self) { filter in
+                        NavigationLink(value: filter) {
+                            Label(filter.title, systemImage: filter.icon)
+                                .labelStyle(.titleAndIcon)
+                                .font(.caption)
+                                .padding(.horizontal, 12).padding(.vertical, 7)
+                                .background(Color.platformQuaternaryFill.opacity(0.5), in: Capsule())
+                                .foregroundStyle(.primary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
+        }
+    }
+
+    // MARK: Overview — Ontdek Wekelijks entry + states
+
+    private var weeklyInstap: some View {
+        NavigationLink {
+            DiscoverWeeklyView()
+        } label: {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "sparkles")
+                    .font(.title2).foregroundStyle(Color.roonGold)
+                    .frame(width: 44, height: 44)
+                    .background(Color.roonGold.opacity(0.15), in: RoundedRectangle(cornerRadius: Radius.lg))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ontdek Wekelijks").font(.headline)
+                    Text("Verse ontdekkingen uit je eigen bibliotheek — elke week vernieuwd.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(Spacing.md)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var overviewEmpty: some View {
+        ContentUnavailableView(
+            client.connectionState.isConnected ? "Nog geen bibliotheek" : "Niet verbonden",
+            systemImage: client.connectionState.isConnected ? "music.note.house" : "wifi.slash",
+            description: Text(client.connectionState.isConnected
+                ? "Synchroniseer je bibliotheek om je overzicht te vullen."
+                : "Verbind eerst met je Roon Core."))
+    }
+
+    // MARK: Overview — data loading
+
+    private func loadOverview() {
+        guard !overviewLoaded else { return }
+        overviewLoaded = true
+        Task { await performOverviewLoad() }
+    }
+
+    private func refreshOverview() async {
+        overviewLoaded = true   // keep the onChange guard from double-firing mid-refresh
+        await performOverviewLoad()
+    }
+
+    /// Stats first (drives the hero + progressive reveal), then the shelves concurrently.
+    private func performOverviewLoad() async {
+        async let statsV = client.libraryStats()
+        async let analyzedV = client.audioFeaturesStats()
+        async let addedV = client.browseTracks(query: "", tag: nil, order: .recentlyAdded)
+        async let playedV = recentPlayedRows()
+        async let undiscV = client.undiscoveredAlbums()
+        async let topV = client.topTracks()
+        async let forgottenV = client.forgottenFavorites()
+        async let stationsV = client.dailyRadios()
+        async let facetsV = client.radioFacetOptions()
+
+        stats = await statsV
+        let a = await analyzedV
+        analyzedTotal = a.total
+        analyzedMatched = a.matched
+        recentlyAdded = Array(await addedV.prefix(15))
+        recentPlayed = await playedV
+        undiscovered = await undiscV
+        topTracks = await topV
+        forgotten = await forgottenV
+        stations = await stationsV
+        facets = await facetsV
+    }
+
+    /// Recently-played rows *with artwork*: `ListenEntry` carries no image, so rank the
+    /// play stats by last-played and resolve the top keys to full library rows.
+    private func recentPlayedRows() async -> [DatabaseManager.LibraryTrackRow] {
+        let ps = await client.playStats()
+        let keys = ps.sorted { $0.lastPlayed > $1.lastPlayed }
+            .map(\.matchKey).filter { !$0.isEmpty }
+        return await client.tracksByMatchKeys(Array(keys.prefix(15)))
     }
 }
 
