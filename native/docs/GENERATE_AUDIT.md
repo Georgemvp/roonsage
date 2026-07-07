@@ -79,4 +79,8 @@ Ontdek Wekelijks al voedt — het patroon `RadioEngine.rank → RadioSequencer.o
 ## Status
 - 2026-07-07: QW1–QW5, M1, M2, U1, U4 (batch 1: commits a5e1244 + c956ceb).
 - 2026-07-07: U2 (+fan-graph +σ-vloer), U3, M3-auto-arc (batch 2).
+- 2026-07-07: U2-picker-UX — de seed-pickers pinnen nu een "Favorieten"-sectie
+  (liked + vaak-gespeeld) bovenaan i.p.v. één alfabetische lijst van de hele
+  bibliotheek; `.searchable` doorzoekt het geheel. `RadioFacetOptions` kreeg
+  `featuredArtists`/`featuredTracks`; `FacetMultiSelectView` een `featured`-param.
 - Open: alleen nog "volledig M3" (bewust; regressierisico).

@@ -433,10 +433,17 @@ extension RoonClient {
         public var moods: [FacetOption]       // key = CLAP mood key
         public var activities: [FacetOption]  // key = activity profile key
         public var decades: [Int]
+        /// Liked + most-played artists, relevance-ordered — pinned above the full
+        /// A-Z list in the seed pickers so favourites aren't buried in a huge library.
+        public var featuredArtists: [String]
+        /// Liked + most-played tracks, relevance-ordered (same purpose).
+        public var featuredTracks: [FacetOption]
         public init(artists: [String], tracks: [FacetOption], genres: [FacetOption],
-                    moods: [FacetOption], activities: [FacetOption], decades: [Int]) {
+                    moods: [FacetOption], activities: [FacetOption], decades: [Int],
+                    featuredArtists: [String] = [], featuredTracks: [FacetOption] = []) {
             self.artists = artists; self.tracks = tracks; self.genres = genres
             self.moods = moods; self.activities = activities; self.decades = decades
+            self.featuredArtists = featuredArtists; self.featuredTracks = featuredTracks
         }
     }
 
@@ -447,15 +454,44 @@ extension RoonClient {
         var artistSet = Set<String>()
         var tracks: [FacetOption] = []
         var seenTracks = Set<String>()
+        var trackByKey: [String: FacetOption] = [:]
+        var artistDisplay: [String: String] = [:]   // lowercased → library display name
         for t in lib {
-            if let a = t.artist, !a.isEmpty { artistSet.insert(a) }
+            if let a = t.artist, !a.isEmpty {
+                artistSet.insert(a)
+                if artistDisplay[a.lowercased()] == nil { artistDisplay[a.lowercased()] = a }
+            }
             let mk = t.matchKey
             if !mk.isEmpty, seenTracks.insert(mk).inserted {
-                tracks.append(FacetOption(key: mk, label: t.title, subtitle: t.artist))
+                let opt = FacetOption(key: mk, label: t.title, subtitle: t.artist)
+                tracks.append(opt)
+                trackByKey[mk] = opt
             }
         }
         let artists = artistSet.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
         tracks.sort { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+
+        // Favourites-first: liked, then most-played, deduped. Resolved to the
+        // library's display name / track option so the pickers can pin them.
+        let (likedArtists, _) = await feedbackArtistHints()
+        let topArtists = ((try? await database?.topArtistsListened(limit: 40)) ?? []).map(\.artist)
+        var featuredArtists: [String] = []
+        var seenArtist = Set<String>()
+        for a in likedArtists + topArtists {
+            let display = artistDisplay[a.lowercased()] ?? a
+            guard artistSet.contains(display), seenArtist.insert(display.lowercased()).inserted else { continue }
+            featuredArtists.append(display)
+            if featuredArtists.count >= 30 { break }
+        }
+        let likedTrackKeys = Array(likedMatchKeys)
+        let topTrackKeys = (await playStats()).sorted { $0.count > $1.count }.map(\.matchKey)
+        var featuredTracks: [FacetOption] = []
+        var seenTrack = Set<String>()
+        for mk in likedTrackKeys + topTrackKeys {
+            guard let opt = trackByKey[mk], seenTrack.insert(mk).inserted else { continue }
+            featuredTracks.append(opt)
+            if featuredTracks.count >= 30 { break }
+        }
 
         var genres: [FacetOption] = []
         if let db = database, let map = try? await db.genresByTrackID() {
@@ -484,7 +520,8 @@ extension RoonClient {
         let decades = decadeSet.sorted(by: >)
 
         return RadioFacetOptions(artists: artists, tracks: tracks, genres: genres,
-                                 moods: moods, activities: activities, decades: decades)
+                                 moods: moods, activities: activities, decades: decades,
+                                 featuredArtists: featuredArtists, featuredTracks: featuredTracks)
     }
 
     // MARK: Playback (all builds)

@@ -179,8 +179,13 @@ struct CustomRadioEditorView: View {
 struct FacetMultiSelectView: View {
     let title: String
     let options: [RoonClient.FacetOption]
+    /// Liked/most-played favourites, pinned in their own section above the full
+    /// list so they aren't buried in a big library. Hidden while searching.
+    var featured: [RoonClient.FacetOption] = []
     @Binding var selection: Set<String>
     @State private var query = ""
+
+    private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
     var body: some View {
         List {
@@ -190,25 +195,13 @@ struct FacetMultiSelectView: View {
                         .font(.caption)
                 }
             }
-            Section {
-                ForEach(filtered) { opt in
-                    Button { toggle(opt.key) } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(opt.label).lineLimit(1)
-                                if let s = opt.subtitle, !s.isEmpty {
-                                    Text(s).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                }
-                            }
-                            Spacer()
-                            if selection.contains(opt.key) {
-                                Image(systemName: "checkmark").foregroundStyle(Color.roonGold)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+            if !searching, !featured.isEmpty {
+                Section("Favorieten") {
+                    ForEach(featured) { row($0) }
                 }
+            }
+            Section(featured.isEmpty || searching ? "" : "Alle") {
+                ForEach(filtered) { row($0) }
             }
         }
         .searchable(text: $query, prompt: "Zoeken")
@@ -218,9 +211,35 @@ struct FacetMultiSelectView: View {
         #endif
     }
 
+    @ViewBuilder
+    private func row(_ opt: RoonClient.FacetOption) -> some View {
+        Button { toggle(opt.key) } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(opt.label).lineLimit(1)
+                    if let s = opt.subtitle, !s.isEmpty {
+                        Text(s).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer()
+                if selection.contains(opt.key) {
+                    Image(systemName: "checkmark").foregroundStyle(Color.roonGold)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private var filtered: [RoonClient.FacetOption] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return options }
+        guard !q.isEmpty else {
+            // No query: the "Alle" section lists everything EXCEPT the pinned
+            // favourites (they already show above), so nothing appears twice.
+            guard !featured.isEmpty else { return options }
+            let pinned = Set(featured.map(\.key))
+            return options.filter { !pinned.contains($0.key) }
+        }
         return options.filter {
             $0.label.lowercased().contains(q) || ($0.subtitle?.lowercased().contains(q) ?? false)
         }

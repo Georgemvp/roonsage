@@ -271,12 +271,14 @@ public struct GenerateView: View {
                 NavigationLink {
                     FacetMultiSelectView(title: "Artiesten",
                                          options: opts.artists.map { .init(key: $0, label: $0) },
+                                         featured: opts.featuredArtists.map { .init(key: $0, label: $0) },
                                          selection: $model.seedArtists.asSet)
                 } label: {
                     seedRow("Artiesten", systemImage: "music.mic", count: model.seedArtists.count)
                 }
                 NavigationLink {
                     FacetMultiSelectView(title: "Nummers", options: opts.tracks,
+                                         featured: opts.featuredTracks,
                                          selection: $model.seedTrackKeys.asSet)
                 } label: {
                     seedRow("Nummers", systemImage: "music.note", count: model.seedTrackKeys.count)
