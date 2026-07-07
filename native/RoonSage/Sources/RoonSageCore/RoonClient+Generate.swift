@@ -247,10 +247,18 @@ extension RoonClient {
             let opts = RadioEngine.Options(
                 adventurousness: adv, poolLimit: 400, candidateK: poolSonic.count,
                 hardBanDisliked: false, sequence: false)
-            return RadioEngine.rank(seeds: [], library: poolSonic, index: subIndex,
-                                    options: opts, disliked: dislikedKeys, likedKeys: liked,
-                                    knownArtists: known, tasteVector: taste,
-                                    salt: "", queryAnchor: queryVec)
+            let ranked = RadioEngine.rank(seeds: [], library: poolSonic, index: subIndex,
+                                          options: opts, disliked: dislikedKeys, likedKeys: liked,
+                                          knownArtists: known, tasteVector: taste,
+                                          salt: "", queryAnchor: queryVec)
+            // QW2 — guarantee near-duplicate removal (same recording on album +
+            // compilation, different matchKeys) even on pools ≤ poolLimit, where
+            // RadioEngine's internal MMR — and thus its near-dup drop — is
+            // bypassed. Order-preserving; keeps the whole list (limit = count).
+            let hits = ranked.map { VectorIndex.Hit(track: $0.track, score: Float($0.score)) }
+            let keptIDs = Set(SonicSelection.dropNearDuplicates(hits, index: subIndex, limit: hits.count)
+                .map(\.track.id))
+            return ranked.filter { keptIDs.contains($0.track.id) }
         }.value
         guard !ranked.isEmpty else { return nil }
 

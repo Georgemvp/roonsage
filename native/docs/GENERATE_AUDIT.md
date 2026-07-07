@@ -29,8 +29,11 @@ Ontdek Wekelijks al voedt — het patroon `RadioEngine.rank → RadioSequencer.o
 
 - **QW1 Flow-sequencing** — eindresultaat door `RadioSequencer.order` met
   kiesbare arc (Gelijkmatig/Oplopend/Piek; default Piek zoals custom radio's).
-- **QW2 Near-dup + spreiding** — engine-MMR levert de hard-drop (zelfde opname
-  via remaster/compilatie) en album/artiest-penalties gratis mee.
+- **QW2 Near-dup + spreiding** — engine-MMR levert album/artiest-penalties mee;
+  de near-dup hard-drop (zelfde opname via remaster/compilatie) draait
+  bovendien EXPLICIET via `SonicSelection.dropNearDuplicates`, omdat MMR wordt
+  overgeslagen zodra de pool ≤ poolLimit is (de gangbare situatie bij een
+  gerichte aanvraag) — anders zou een dubbel er dan doorheen glippen.
 - **QW3 Taste in vectorruimte** — request-embedding als `queryAnchor` in
   `RadioEngine.rank`; TasteVector + like/dislike-push sturen de query zoals bij
   elke radio ("near de request, zoals jij het lekker vindt").
