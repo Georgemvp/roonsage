@@ -329,6 +329,20 @@ extension RoonClient {
         Log.info("Radio live bijgestuurd op nieuwe feedback: \(state.artist)", category: .roon)
     }
 
+    /// Natural-language steer: nudge the adventurousness dial from a phrase
+    /// ("avontuurlijker", "veiliger", "verras me minder") and live re-steer the
+    /// running station. Returns false when the phrase carries no recognised steer,
+    /// so a caller (voice / chat / a text field) can fall back. The dial change
+    /// persists (radioAdventurousness), so new stations inherit it too.
+    @discardableResult
+    public func steerActiveRadio(phrase: String) async -> Bool {
+        guard let steer = RadioSteerParser.parse(phrase) else { return false }
+        radioAdventurousness = min(1, max(0, radioAdventurousness + steer.adventurousnessDelta))
+        if radioState != nil { await resteerActiveRadio() }
+        Log.info("Radio NL-steer '\(phrase)' → avontuurlijkheid \(String(format: "%.2f", radioAdventurousness))", category: .roon)
+        return true
+    }
+
     /// Record a skip during the active station and re-steer: the skipped track
     /// becomes a soft negative (softer than a thumbs-down) so the upcoming pool
     /// drifts away from it. No-op off-station or on a duplicate skip. Session-only —
