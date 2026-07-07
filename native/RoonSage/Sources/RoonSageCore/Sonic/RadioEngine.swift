@@ -105,6 +105,7 @@ public enum RadioEngine {
         index: VectorIndex,
         options: Options,
         disliked: Set<String> = [],
+        skippedKeys: Set<String> = [],
         likedKeys: Set<String> = [],
         knownArtists: Set<String> = [],
         tasteVector: [Float]? = nil,
@@ -157,6 +158,16 @@ public enum RadioEngine {
             let dislikedIds = disliked.compactMap { idByKey[$0] }
             if let disC = index.centroid(ofIds: dislikedIds) {
                 addScaled(&query, disC, -dislikePush)
+            }
+        }
+        // Live skip re-steer: tracks skipped THIS session push the query away too,
+        // but softer than an explicit thumbs-down — a skip is a weaker "less like
+        // this" (you might've just been in the mood to move on). Session-scoped, so
+        // it fades when the station restarts.
+        if !skippedKeys.isEmpty {
+            let skippedIds = skippedKeys.compactMap { idByKey[$0] }
+            if let skipC = index.centroid(ofIds: skippedIds) {
+                addScaled(&query, skipC, -skipPush)
             }
         }
         query = VectorIndex.normalized(query)
@@ -365,6 +376,7 @@ public enum RadioEngine {
     private static let tasteBias: Float = 0.30        // pull toward liked centroid
     private static let tasteVectorBias: Float = 0.35  // pull toward the recency-weighted taste vector
     private static let dislikePush: Float = 0.40      // push away from disliked centroid
+    private static let skipPush: Float = 0.20         // softer push away from session-skipped tracks
     private static let popularityBias = 0.12          // max ± tilt from the hits↔deep-cuts steer
     static let relatedAffinityBonus = 0.06            // flat nudge for Deezer fan-graph artists
     static let sameArtistPenalty = 0.08   // soft penalty per already-picked track by this artist (cap 3)

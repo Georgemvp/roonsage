@@ -55,6 +55,9 @@ extension RoonClient {
         var cursor: Int
         var queuedKeys: Set<String>
         var generation: Int
+        /// Content keys skipped during THIS station — feed the re-steer as a soft
+        /// negative so the upcoming pool drifts away from what you keep skipping.
+        var skippedKeys: Set<String> = []
     }
 
     // MARK: Daily radios
@@ -291,9 +294,11 @@ extension RoonClient {
         // on the exhaustion path — a live re-steer keeps its queued tracks and
         // shouldn't reorder around a track that hasn't played yet.
         let continueFrom = preserveQueuedKeys ? nil : state.pool.last?.id
+        let skipped = state.skippedKeys
         let pool = await Task.detached {
             Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
                                       seed: "\(stamp)-\(key)-\(nextGen)", disliked: disliked,
+                                      skippedKeys: skipped,
                                       likedKeys: liked, knownArtists: known,
                                       adventurousness: adv, hardBan: hardBan, tasteVector: taste,
                                       nnStats: stats, relatedArtists: related, gate: gate,
@@ -324,6 +329,18 @@ extension RoonClient {
         Log.info("Radio live bijgestuurd op nieuwe feedback: \(state.artist)", category: .roon)
     }
 
+    /// Record a skip during the active station and re-steer: the skipped track
+    /// becomes a soft negative (softer than a thumbs-down) so the upcoming pool
+    /// drifts away from it. No-op off-station or on a duplicate skip. Session-only —
+    /// the set resets when the station restarts.
+    func recordRadioSkip(matchKey: String) {
+        guard !matchKey.isEmpty, var state = radioState else { return }
+        guard state.skippedKeys.insert(matchKey).inserted else { return }
+        radioState = state
+        Log.debug("Radio: skip geregistreerd (\(matchKey)) → bijsturen", category: .roon)
+        Task { await resteerActiveRadio() }
+    }
+
     // MARK: Candidate building (pure, off-main)
 
     /// The ordered station pool: the artist's own tracks plus their sonic
@@ -332,6 +349,7 @@ extension RoonClient {
     nonisolated static func buildRadioCandidates(
         seedIds: [String], lib: [DatabaseManager.SonicTrack],
         index: VectorIndex?, seed: String, disliked: Set<String> = [],
+        skippedKeys: Set<String> = [],
         likedKeys: Set<String> = [], knownArtists: Set<String> = [],
         adventurousness: Double = defaultAdventurousness, hardBan: Bool = false,
         tasteVector: [Float]? = nil, nnStats: VectorIndex.NNStats? = nil,
@@ -359,7 +377,7 @@ extension RoonClient {
                 similarityFloor: nnStats.map { RadioEngine.Options.floor(stats: $0, adventurousness: adventurousness) })
             let ranked = RadioEngine.rank(
                 seeds: own, library: lib, index: index, options: opts,
-                disliked: disliked, likedKeys: likedKeys, knownArtists: knownArtists,
+                disliked: disliked, skippedKeys: skippedKeys, likedKeys: likedKeys, knownArtists: knownArtists,
                 tasteVector: tasteVector, relatedArtists: relatedArtists, salt: seed)
             neighbours = applyFeedbackWeighting(
                 ranked.map(\.track), disliked: disliked, salt: seed, matchKey: { $0.matchKey })

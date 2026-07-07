@@ -17,7 +17,19 @@ extension RoonClient {
 
     public func next(zoneID: String) async {
         if isRemote { var c = RemoteCommand("next"); c.zoneID = zoneID; await remote(c); return }
+        // Skip re-steer: a skip on the active station's zone is a soft negative.
+        // Capture the outgoing now-playing track before advancing. Remote skips
+        // land here too — the server routes RemoteCommand("next") through next().
+        noteRadioSkipIfActive(zoneID: zoneID)
         await runAction("Volgende track") { _ = try await $0.control(.next, zoneID: zoneID) }
+    }
+
+    /// Feed the current now-playing track into the active station's skip re-steer,
+    /// when this zone IS the running station. No-op otherwise.
+    private func noteRadioSkipIfActive(zoneID: String) {
+        guard let state = radioState, state.zoneID == zoneID,
+              let np = zoneMap[zoneID]?.nowPlaying else { return }
+        recordRadioSkip(matchKey: TrackIdentity.matchKey(artist: np.artist, album: np.album, title: np.title))
     }
 
     public func previous(zoneID: String) async {

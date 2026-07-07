@@ -59,6 +59,32 @@ final class RadioEngineTests: XCTestCase {
         XCTAssertFalse(r.contains { $0.track.id == "far" }, "hard-banned track is gone entirely")
     }
 
+    func testSkippedTracksSteerTheQueryAwaySymmetrically() {
+        // seed at +x; two candidates equidistant from the seed, one toward +y and
+        // one toward −y. Skipping a pure +y track must push the query −y (so −y
+        // wins), and skipping a pure −y track must push it +x→+y (so +y wins).
+        // The symmetry proves the skip push works regardless of tie-breaking.
+        let seed = track("seed", [1, 0, 0, 0], artist: "S")
+        let plusY  = track("plusY",  [0.8, 0.6, 0, 0], artist: "A")
+        let minusY = track("minusY", [0.8, -0.6, 0, 0], artist: "B")
+        let skipPlus  = track("skipPlus",  [0, 1, 0, 0], artist: "C")
+        let skipMinus = track("skipMinus", [0, -1, 0, 0], artist: "E")
+        let lib = [seed, plusY, minusY, skipPlus, skipMinus]
+        let index = VectorIndex(tracks: lib)!
+        // adv 0 + salt "" + poolLimit ≥ count → pure, jitter-free relevance order.
+        let opts = RadioEngine.Options(adventurousness: 0, poolLimit: 10, sequence: false)
+        func order(skip: Set<String>) -> [String] {
+            RadioEngine.rank(seeds: [seed], library: lib, index: index, options: opts,
+                             skippedKeys: skip, salt: "").map { $0.track.id }
+        }
+        let awayFromPlus = order(skip: ["skipPlus"])
+        XCTAssertLessThan(awayFromPlus.firstIndex(of: "minusY")!, awayFromPlus.firstIndex(of: "plusY")!,
+                          "skipping a +y track steers the station toward −y")
+        let awayFromMinus = order(skip: ["skipMinus"])
+        XCTAssertLessThan(awayFromMinus.firstIndex(of: "plusY")!, awayFromMinus.firstIndex(of: "minusY")!,
+                          "skipping a −y track steers the station toward +y")
+    }
+
     func testRelatedArtistBonusLiftsFanGraphNeighbour() {
         // `mid` and a twin at the same distance: only the fan-graph membership
         // differs, so the related artist must outrank the unrelated one.
