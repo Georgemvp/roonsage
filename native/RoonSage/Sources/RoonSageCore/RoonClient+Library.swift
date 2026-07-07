@@ -346,14 +346,14 @@ extension RoonClient {
         return (try? await db.searchTracks(query: query, limit: 300)) ?? []
     }
 
-    public func searchAlbums(query: String) async -> [DatabaseManager.AlbumResult] {
+    public func searchAlbums(query: String, limit: Int = 100, offset: Int = 0) async -> [DatabaseManager.AlbumResult] {
         guard let db = database else { return [] }
-        return (try? await db.searchAlbums(query: query)) ?? []
+        return (try? await db.searchAlbums(query: query, limit: limit, offset: offset)) ?? []
     }
 
-    public func searchArtists(query: String) async -> [DatabaseManager.ArtistResult] {
+    public func searchArtists(query: String, limit: Int = 200, offset: Int = 0) async -> [DatabaseManager.ArtistResult] {
         guard let db = database else { return [] }
-        return (try? await db.searchArtists(query: query)) ?? []
+        return (try? await db.searchArtists(query: query, limit: limit, offset: offset)) ?? []
     }
 
     public func albumsByArtist(_ name: String) async -> [DatabaseManager.AlbumResult] {
@@ -367,9 +367,10 @@ extension RoonClient {
     }
 
     public func browseTracks(query: String, tag: String?, limit: Int = 300,
-                             order: DatabaseManager.BrowseOrder = .artist) async -> [DatabaseManager.LibraryTrackRow] {
+                             order: DatabaseManager.BrowseOrder = .artist,
+                             offset: Int = 0) async -> [DatabaseManager.LibraryTrackRow] {
         guard let db = database else { return [] }
-        return (try? await db.browseTracks(query: query, tag: tag, limit: limit, order: order)) ?? []
+        return (try? await db.browseTracks(query: query, tag: tag, limit: limit, order: order, offset: offset)) ?? []
     }
 
     /// Library rows for a pre-ranked match-key list (play-stat sorts) —

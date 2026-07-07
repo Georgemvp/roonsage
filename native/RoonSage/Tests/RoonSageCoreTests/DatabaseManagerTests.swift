@@ -101,6 +101,42 @@ final class DatabaseManagerTests: XCTestCase {
         XCTAssertTrue(Set(page1.map(\.id)).isDisjoint(with: page2.map(\.id)), "pages must not overlap")
     }
 
+    func testBrowseTracksPaginatesWithOffset() async throws {
+        let records = (0..<250).map { track("b\($0)", "Title \(String(format: "%03d", $0))", "Artist \($0 % 5)") }
+        try await db.upsertTracks(records)
+
+        let p1 = try await db.browseTracks(query: "", tag: nil, limit: 100, order: .title, offset: 0)
+        let p2 = try await db.browseTracks(query: "", tag: nil, limit: 100, order: .title, offset: 100)
+        let p3 = try await db.browseTracks(query: "", tag: nil, limit: 100, order: .title, offset: 200)
+        XCTAssertEqual(p1.count, 100)
+        XCTAssertEqual(p2.count, 100)
+        XCTAssertEqual(p3.count, 50)
+        XCTAssertEqual(p1.first?.title, "Title 000", "title order is stable across pages")
+        let ids = Set(p1.map(\.id)).union(p2.map(\.id)).union(p3.map(\.id))
+        XCTAssertEqual(ids.count, 250, "pages together cover every track")
+        XCTAssertTrue(Set(p1.map(\.id)).isDisjoint(with: p2.map(\.id)), "pages must not overlap")
+    }
+
+    func testAlbumAndArtistGridsPaginate() async throws {
+        // 60 distinct albums across 12 artists.
+        let records = (0..<60).map {
+            track("g\($0)", "T\($0)", "Artist \($0 % 12)", album: "Album \(String(format: "%02d", $0))")
+        }
+        try await db.upsertTracks(records)
+
+        let a1 = try await db.searchAlbums(query: "", limit: 25, offset: 0)
+        let a2 = try await db.searchAlbums(query: "", limit: 25, offset: 25)
+        let a3 = try await db.searchAlbums(query: "", limit: 25, offset: 50)
+        XCTAssertEqual([a1.count, a2.count, a3.count], [25, 25, 10])
+        let keys = Set(a1.map(\.albumKey)).union(a2.map(\.albumKey)).union(a3.map(\.albumKey))
+        XCTAssertEqual(keys.count, 60, "album pages cover every album")
+
+        let r1 = try await db.searchArtists(query: "", limit: 8, offset: 0)
+        let r2 = try await db.searchArtists(query: "", limit: 8, offset: 8)
+        XCTAssertEqual([r1.count, r2.count], [8, 4], "12 artists → 8 + 4")
+        XCTAssertTrue(Set(r1.map(\.name)).isDisjoint(with: r2.map(\.name)))
+    }
+
     func testGenreMappingBatched() async throws {
         try await db.upsertTracks([
             track("a", "Song A", "X", album: "Blue"),

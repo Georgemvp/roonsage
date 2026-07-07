@@ -106,6 +106,12 @@ extension DatabaseManager {
     public enum BrowseOrder: Sendable {
         case artist          // the classic artist/year/title browse order
         case recentlyAdded   // newest first_seen first (track_first_seen side table)
+        // Column sorts done in SQL so offset pagination stays consistent (a client-
+        // side re-sort of one page would reshuffle across page boundaries).
+        case title
+        case album
+        case year
+        case bpm
     }
 
     /// All tracks of one album (by album_key), in sync/browse order, joined with
@@ -128,7 +134,7 @@ extension DatabaseManager {
     /// Tracks (left-joined with audio features) filtered by free-text query and
     /// an optional tag. Returns title/artist/album + bpm/camelot/tags when known.
     public func browseTracks(query: String, tag: String?, limit: Int = 300,
-                             order: BrowseOrder = .artist) async throws ->[LibraryTrackRow] {
+                             order: BrowseOrder = .artist, offset: Int = 0) async throws ->[LibraryTrackRow] {
         try await pool.read { db in
             var conditions: [String] = []
             var args: [DatabaseValueConvertible] = []
@@ -152,6 +158,18 @@ extension DatabaseManager {
                 joinFirstSeen = "LEFT JOIN track_first_seen fs ON fs.match_key = t.match_key"
                 // NULL first_seen (pre-migration rows not yet re-synced) sorts last.
                 orderClause = "ORDER BY (fs.first_seen IS NULL), fs.first_seen DESC, t.rowid DESC"
+            case .title:
+                joinFirstSeen = ""
+                orderClause = "ORDER BY t.title COLLATE NOCASE, t.artist, t.rowid"
+            case .album:
+                joinFirstSeen = ""
+                orderClause = "ORDER BY t.album COLLATE NOCASE, t.year, t.title, t.rowid"
+            case .year:
+                joinFirstSeen = ""
+                orderClause = "ORDER BY (t.year IS NULL), t.year, t.artist, t.title, t.rowid"
+            case .bpm:
+                joinFirstSeen = ""
+                orderClause = "ORDER BY (f.bpm IS NULL), f.bpm, t.title, t.rowid"
             }
             let sql = """
                 SELECT t.id, t.title, t.artist, t.album, t.year, t.is_live, t.image_key, t.match_key AS mk,
@@ -159,9 +177,10 @@ extension DatabaseManager {
                 FROM tracks t LEFT JOIN track_audio_features f ON t.match_key = f.match_key
                 \(joinFirstSeen)
                 \(whereClause)
-                \(orderClause) LIMIT ?
+                \(orderClause) LIMIT ? OFFSET ?
             """
             args.append(limit)
+            args.append(offset)
             let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
             return rows.map { Self.libraryTrackRow($0) }
         }

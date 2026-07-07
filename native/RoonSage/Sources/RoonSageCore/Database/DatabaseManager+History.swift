@@ -576,7 +576,7 @@ extension DatabaseManager {
         }
     }
 
-    public func searchAlbums(query: String, limit: Int = 100) async throws ->[AlbumResult] {
+    public func searchAlbums(query: String, limit: Int = 100, offset: Int = 0) async throws ->[AlbumResult] {
         try await pool.read { db in
             let sql: String
             let args: StatementArguments
@@ -584,9 +584,9 @@ extension DatabaseManager {
                 sql = """
                     SELECT album_key, album, artist, year, COUNT(*) as track_count, MAX(image_key) as image_key
                     FROM tracks GROUP BY album_key
-                    ORDER BY artist, year, album LIMIT ?
+                    ORDER BY artist, year, album LIMIT ? OFFSET ?
                 """
-                args = StatementArguments([limit] as [DatabaseValueConvertible])
+                args = StatementArguments([limit, offset] as [DatabaseValueConvertible])
             } else {
                 let pattern = "%\(query)%"
                 sql = """
@@ -594,9 +594,9 @@ extension DatabaseManager {
                     FROM tracks
                     WHERE LOWER(album) LIKE LOWER(?) OR LOWER(artist) LIKE LOWER(?)
                     GROUP BY album_key
-                    ORDER BY artist, year, album LIMIT ?
+                    ORDER BY artist, year, album LIMIT ? OFFSET ?
                 """
-                args = StatementArguments([pattern, pattern, limit] as [DatabaseValueConvertible])
+                args = StatementArguments([pattern, pattern, limit, offset] as [DatabaseValueConvertible])
             }
             let rows = try Row.fetchAll(db, sql: sql, arguments: args)
             return rows.map {
@@ -655,7 +655,7 @@ extension DatabaseManager {
     }
 
     /// Distinct library artists with track/album counts and a representative cover.
-    public func searchArtists(query: String, limit: Int = 200) async throws ->[ArtistResult] {
+    public func searchArtists(query: String, limit: Int = 200, offset: Int = 0) async throws ->[ArtistResult] {
         try await pool.read { db in
             let base = """
                 SELECT artist,
@@ -668,12 +668,12 @@ extension DatabaseManager {
             let sql: String
             let args: StatementArguments
             if query.isEmpty {
-                sql = base + " GROUP BY artist ORDER BY artist LIMIT ?"
-                args = StatementArguments([limit] as [DatabaseValueConvertible])
+                sql = base + " GROUP BY artist ORDER BY artist LIMIT ? OFFSET ?"
+                args = StatementArguments([limit, offset] as [DatabaseValueConvertible])
             } else {
                 let pattern = "%\(query)%"
-                sql = base + " AND LOWER(artist) LIKE LOWER(?) GROUP BY artist ORDER BY artist LIMIT ?"
-                args = StatementArguments([pattern, limit] as [DatabaseValueConvertible])
+                sql = base + " AND LOWER(artist) LIKE LOWER(?) GROUP BY artist ORDER BY artist LIMIT ? OFFSET ?"
+                args = StatementArguments([pattern, limit, offset] as [DatabaseValueConvertible])
             }
             let rows = try Row.fetchAll(db, sql: sql, arguments: args)
             return rows.map {

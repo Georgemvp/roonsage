@@ -40,6 +40,15 @@ public struct LibraryView: View {
     @State private var facets: RoonClient.RadioFacetOptions?
     @State private var overviewLoaded = false
 
+    // Pagination cursors for the browse list + grids (offset = current array count).
+    @State private var tracksReachedEnd = false
+    @State private var albumsReachedEnd = false
+    @State private var artistsReachedEnd = false
+    @State private var loadingMore = false
+    @State private var seenTrackKeys = Set<String>()
+    private let pageSize = 200
+    private let gridPageSize = 120
+
     /// Library modes: an overview landing, then the flat track list / album / artist grids.
     enum ViewMode: String, CaseIterable, Identifiable {
         case overview, tracks, albums, artists
@@ -74,13 +83,6 @@ public struct LibraryView: View {
             case .recentlyAdded: "Recent toegevoegd"
             case .mostPlayed: "Meest gespeeld"
             case .recentlyPlayed: "Recent gespeeld"
-            }
-        }
-        /// Ranking is decided before/while fetching; keep the fetched order.
-        var isDatasetRanked: Bool {
-            switch self {
-            case .recentlyAdded, .mostPlayed, .recentlyPlayed: true
-            default: false
             }
         }
     }
@@ -196,12 +198,8 @@ public struct LibraryView: View {
             }
         }
         .onChange(of: selectedTag) { _, _ in reloadTracks() }
-        .onChange(of: sort) { old, new in
-            // Dataset-ranked modes need a refetch; switching between local
-            // sorts keeps re-sorting the already-fetched page.
-            if new.isDatasetRanked || old.isDatasetRanked { reloadTracks() }
-            else { displayTracks = Self.sortAndDedupe(tracks, by: new) }
-        }
+        // Every sort now orders in SQL and paginates, so a change is a full reload.
+        .onChange(of: sort) { _, _ in reloadTracks() }
         .onChange(of: viewMode) { _, _ in reloadContent() }
         .onChange(of: client.trackCount) { _, _ in reload() }
         .onAppear { reload() }
@@ -274,17 +272,25 @@ public struct LibraryView: View {
 
     @ViewBuilder
     private var tracksContent: some View {
-        if isLoadingTracks && tracks.isEmpty {
+        if isLoadingTracks && displayTracks.isEmpty {
             SkeletonRows()
-        } else if tracks.isEmpty && !client.isSyncing {
+        } else if displayTracks.isEmpty && !client.isSyncing {
             emptyState
         } else {
-            List(displayTracks, selection: $selection) { track in
-                LibraryTrackRow(track: track, canPlay: client.hasActiveOutput) {
-                    play([asRecord(track)])
+            List(selection: $selection) {
+                ForEach(Array(displayTracks.enumerated()), id: \.element.id) { index, track in
+                    LibraryTrackRow(track: track, canPlay: client.hasActiveOutput) {
+                        play([asRecord(track)])
+                    }
+                    .contextMenu { rowMenu(track) }
+                    .tag(track.id)
+                    .onAppear {
+                        if index >= displayTracks.count - 8 { Task { await loadMoreTracks() } }
+                    }
                 }
-                .contextMenu { rowMenu(track) }
-                .tag(track.id)
+                if loadingMore {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                }
             }
             .refreshable { await refresh() }
         }
@@ -307,7 +313,7 @@ public struct LibraryView: View {
                        onRetry: { reloadContent() }) {
             ScrollView {
                 LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
-                    ForEach(visibleAlbums) { album in
+                    ForEach(Array(visibleAlbums.enumerated()), id: \.element.id) { index, album in
                         NavigationLink(value: album) { AlbumGridCell(album: album) }
                             .buttonStyle(.plain)
                             .contextMenu {
@@ -315,9 +321,15 @@ public struct LibraryView: View {
                                     await client.tracksForAlbum(album.albumKey).map(\.asTrackRecord)
                                 })
                             }
+                            .onAppear {
+                                if index >= visibleAlbums.count - 6 { Task { await loadMoreAlbums() } }
+                            }
                     }
                 }
                 .padding(Spacing.lg)
+                if loadingMore {
+                    ProgressView().padding(.bottom, Spacing.lg)
+                }
             }
             .refreshable { await refresh() }
         } empty: {
@@ -331,7 +343,7 @@ public struct LibraryView: View {
                        onRetry: { reloadContent() }) {
             ScrollView {
                 LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
-                    ForEach(visibleArtists) { artist in
+                    ForEach(Array(visibleArtists.enumerated()), id: \.element.id) { index, artist in
                         NavigationLink(value: artist) { ArtistGridCell(artist: artist) }
                             .buttonStyle(.plain)
                             .contextMenu {
@@ -343,9 +355,15 @@ public struct LibraryView: View {
                                     return records
                                 })
                             }
+                            .onAppear {
+                                if index >= visibleArtists.count - 6 { Task { await loadMoreArtists() } }
+                            }
                     }
                 }
                 .padding(Spacing.lg)
+                if loadingMore {
+                    ProgressView().padding(.bottom, Spacing.lg)
+                }
             }
             .refreshable { await refresh() }
         } empty: {
@@ -472,24 +490,82 @@ public struct LibraryView: View {
         }
     }
 
-    private func reloadTracks() {
-        let q = searchText, tag = selectedTag, currentSort = sort
-        if tracks.isEmpty { isLoadingTracks = true }
-        Task {
-            let rows = await fetchTracks(query: q, tag: tag, sort: currentSort)
-            let display = await Task.detached { Self.sortAndDedupe(rows, by: currentSort) }.value
-            tracks = rows
-            displayTracks = display
-            isLoadingTracks = false
-            isSearching = false
+    // MARK: - Tracks (paginated, endless scroll)
+
+    /// Sorts ordered in SQL → offset pagination. Random + play-stat sorts are
+    /// single-shot (naturally bounded), so they don't paginate.
+    private func isPaginable(_ sort: SortField) -> Bool {
+        switch sort {
+        case .random, .mostPlayed, .recentlyPlayed: false
+        default: true
         }
     }
 
-    /// Fetch honouring the sort mode at the dataset level: play-stat sorts rank
-    /// ALL play stats first and resolve the top keys to rows (a page fetched in
-    /// artist-order can't be re-sorted into "most played"); recently-added
-    /// sorts in SQL via the track_first_seen side table.
-    private func fetchTracks(query: String, tag: String?, sort: SortField) async -> [DatabaseManager.LibraryTrackRow] {
+    private func browseOrder(for sort: SortField) -> DatabaseManager.BrowseOrder {
+        switch sort {
+        case .title:         .title
+        case .artist:        .artist
+        case .album:         .album
+        case .year:          .year
+        case .bpm:           .bpm
+        case .recentlyAdded: .recentlyAdded
+        case .random, .mostPlayed, .recentlyPlayed: .artist   // unused (single-shot)
+        }
+    }
+
+    private func reloadTracks() {
+        tracks = []
+        displayTracks = []
+        seenTrackKeys = []
+        tracksReachedEnd = false
+        isLoadingTracks = true
+        Task { await loadTracksPage() }
+    }
+
+    private func loadMoreTracks() async {
+        guard isPaginable(sort), !tracksReachedEnd, !loadingMore else { return }
+        loadingMore = true
+        await loadTracksPage()
+        loadingMore = false
+    }
+
+    /// Loads and appends one page for the active sort. Dedupes artist+title
+    /// incrementally across pages (so remasters/duplicate editions don't repeat)
+    /// while the SQL order stays stable for consistent paging.
+    private func loadTracksPage() async {
+        let q = searchText, tag = selectedTag, currentSort = sort
+        if !isPaginable(currentSort) {
+            let rows = await fetchBoundedTracks(query: q, tag: tag, sort: currentSort)
+            let display = await Task.detached { Self.sortAndDedupe(rows, by: currentSort) }.value
+            guard currentSort == sort, q == searchText, tag == selectedTag else { return }
+            tracks = rows
+            displayTracks = display
+            tracksReachedEnd = true
+            isLoadingTracks = false
+            isSearching = false
+            return
+        }
+        let page = await client.browseTracks(query: q, tag: tag, limit: pageSize,
+                                             order: browseOrder(for: currentSort), offset: tracks.count)
+        // Drop a page whose request no longer matches the current query/tag/sort.
+        guard currentSort == sort, q == searchText, tag == selectedTag else { return }
+        var appended: [DatabaseManager.LibraryTrackRow] = []
+        for r in page {
+            let key = "\(r.artist?.lowercased() ?? "")|\(r.title.lowercased())"
+            if seenTrackKeys.insert(key).inserted { appended.append(r) }
+        }
+        tracks.append(contentsOf: page)
+        displayTracks.append(contentsOf: appended)
+        if page.count < pageSize { tracksReachedEnd = true }
+        isLoadingTracks = false
+        isSearching = false
+        // A page that fully deduped away would otherwise stall the scroll trigger.
+        if appended.isEmpty, !tracksReachedEnd { await loadTracksPage() }
+    }
+
+    /// Single-shot fetch for the non-paginable sorts: play-stat ranking (bounded by
+    /// history) and random (a bounded shuffle).
+    private func fetchBoundedTracks(query: String, tag: String?, sort: SortField) async -> [DatabaseManager.LibraryTrackRow] {
         switch sort {
         case .mostPlayed, .recentlyPlayed:
             let stats = await client.playStats()
@@ -498,7 +574,6 @@ public struct LibraryView: View {
                 : stats.sorted { $0.lastPlayed > $1.lastPlayed }
             let keys = ranked.lazy.map(\.matchKey).filter { !$0.isEmpty }
             var rows = await client.tracksByMatchKeys(Array(keys.prefix(400)))
-            // Search/tag still apply — filter the ranked rows client-side.
             if !query.isEmpty {
                 let needle = query.lowercased()
                 rows = rows.filter {
@@ -512,49 +587,77 @@ public struct LibraryView: View {
                 rows = rows.filter { $0.tags.contains { $0.lowercased() == t } }
             }
             return Array(rows.prefix(300))
-        case .recentlyAdded:
-            return await client.browseTracks(query: query, tag: tag, order: .recentlyAdded)
-        default:
-            return await client.browseTracks(query: query, tag: tag)
+        default:   // .random — a bounded shuffle window
+            return await client.browseTracks(query: query, tag: tag, limit: 500)
         }
     }
 
+    // MARK: - Albums / Artists grids (paginated, endless scroll)
+
     private func loadAlbums() {
+        albums = []
+        albumsReachedEnd = false
+        isLoadingGrid = true
+        Task { await loadAlbumsPage() }
+    }
+
+    private func loadMoreAlbums() async {
+        // The favorites filter is client-side over loaded pages, so pause paging there.
+        guard !albumsReachedEnd, !loadingMore, !favoritesOnly else { return }
+        loadingMore = true
+        await loadAlbumsPage()
+        loadingMore = false
+    }
+
+    private func loadAlbumsPage() async {
         let q = searchText
-        if albums.isEmpty { isLoadingGrid = true }
-        Task {
-            albums = await client.searchAlbums(query: q)
-            isLoadingGrid = false
-            isSearching = false
-        }
+        let page = await client.searchAlbums(query: q, limit: gridPageSize, offset: albums.count)
+        guard q == searchText else { return }
+        albums.append(contentsOf: page)
+        if page.count < gridPageSize { albumsReachedEnd = true }
+        isLoadingGrid = false
+        isSearching = false
     }
 
     private func loadArtists() {
-        let q = searchText
-        if artists.isEmpty { isLoadingGrid = true }
-        Task {
-            artists = await client.searchArtists(query: q)
-            isLoadingGrid = false
-            isSearching = false
-        }
+        artists = []
+        artistsReachedEnd = false
+        isLoadingGrid = true
+        Task { await loadArtistsPage() }
     }
 
-    /// Pull-to-refresh: re-reads the active mode's data from the local cache.
-    /// Awaited so the iOS refresh control shows its spinner until data lands.
+    private func loadMoreArtists() async {
+        guard !artistsReachedEnd, !loadingMore, !favoritesOnly else { return }
+        loadingMore = true
+        await loadArtistsPage()
+        loadingMore = false
+    }
+
+    private func loadArtistsPage() async {
+        let q = searchText
+        let page = await client.searchArtists(query: q, limit: gridPageSize, offset: artists.count)
+        guard q == searchText else { return }
+        artists.append(contentsOf: page)
+        if page.count < gridPageSize { artistsReachedEnd = true }
+        isLoadingGrid = false
+        isSearching = false
+    }
+
+    /// Pull-to-refresh: reset the active mode's pagination and reload the first page.
     private func refresh() async {
         tags = await client.topTags(limit: 28)
         switch viewMode {
         case .overview:
             await refreshOverview()
         case .tracks:
-            let currentSort = sort
-            let rows = await fetchTracks(query: searchText, tag: selectedTag, sort: currentSort)
-            tracks = rows
-            displayTracks = await Task.detached { Self.sortAndDedupe(rows, by: currentSort) }.value
+            tracks = []; displayTracks = []; seenTrackKeys = []; tracksReachedEnd = false
+            await loadTracksPage()
         case .albums:
-            albums = await client.searchAlbums(query: searchText)
+            albums = []; albumsReachedEnd = false
+            await loadAlbumsPage()
         case .artists:
-            artists = await client.searchArtists(query: searchText)
+            artists = []; artistsReachedEnd = false
+            await loadArtistsPage()
         }
     }
 
