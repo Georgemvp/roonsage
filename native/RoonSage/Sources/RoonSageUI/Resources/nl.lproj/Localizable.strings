@@ -57,3 +57,6 @@
 "recent.empty.title"   = "Nog niks gespeeld";
 "recent.empty.desc"    = "Zodra je muziek afspeelt verschijnt hier je recente geschiedenis.";
 "recent.pivotLabel"    = "Weergave";
+"radio.steer.placeholder"  = "Stuur bij: ‘avontuurlijker’, ‘veiliger’…";
+"radio.steer.send"         = "Radio bijsturen";
+"radio.steer.unrecognised" = "Kon ‘%@’ niet herkennen — probeer bv. ‘avontuurlijker’ of ‘veiliger’.";

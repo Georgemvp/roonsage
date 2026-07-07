@@ -57,3 +57,6 @@
 "recent.empty.title"   = "Nothing played yet";
 "recent.empty.desc"    = "Your recent history appears here once you start playing music.";
 "recent.pivotLabel"    = "View";
+"radio.steer.placeholder"  = "Steer it: ‘more adventurous’, ‘safer’…";
+"radio.steer.send"         = "Steer the station";
+"radio.steer.unrecognised" = "Couldn’t read ‘%@’ — try e.g. ‘avontuurlijker’ or ‘veiliger’.";

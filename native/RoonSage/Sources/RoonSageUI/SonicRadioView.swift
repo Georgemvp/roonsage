@@ -184,22 +184,25 @@ public struct SonicRadioView: View {
     }
 
     private func activeBanner(_ radio: RoonClient.RadioStatus) -> some View {
-        HStack(spacing: Spacing.md) {
-            Image(systemName: "dot.radiowaves.left.and.right")
-                .font(.title3)
-                .foregroundStyle(Color.roonGold)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Radio speelt").font(.caption).foregroundStyle(.secondary)
-                Text(radio.artist).font(.headline)
+        VStack(spacing: Spacing.sm) {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.title3)
+                    .foregroundStyle(Color.roonGold)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Radio speelt").font(.caption).foregroundStyle(.secondary)
+                    Text(radio.artist).font(.headline)
+                }
+                Spacer()
+                Button(role: .destructive) {
+                    Haptics.tap()
+                    client.stopRadio()
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .buttonStyle(.bordered)
             }
-            Spacer()
-            Button(role: .destructive) {
-                Haptics.tap()
-                client.stopRadio()
-            } label: {
-                Label("Stop", systemImage: "stop.fill")
-            }
-            .buttonStyle(.bordered)
+            RadioSteerField()
         }
         .cardStyle()
     }
