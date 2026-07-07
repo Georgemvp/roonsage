@@ -57,19 +57,26 @@ Ontdek Wekelijks al voedt — het patroon `RadioEngine.rank → RadioSequencer.o
 - **U4 Redenen** — `GenerationResult.reasonByTrackID` toont per track waarom
   hij erin zit (RadioEngine.Reason, NL).
 
+- **U2 seed-tracks/artiesten** — GenerateView-facetpicker (hergebruikt
+  `FacetMultiSelectView` uit CustomRadioEditor). Seeds → echte embedding-ankers
+  in `RadioEngine.rank(seeds:)` (in de sub-index opgenomen), naast het
+  tekst-anker. Ontsluit meteen **fan-graph** (`relatedArtistWeights` gemerged
+  over de seed-artiesten) én de **σ-vloer** (`nnStats` → `Options.floor`), die
+  beide echte track-ankers vereisen — daarom niet los te leveren.
+- **U3 duur-doel** — `targetMinutes` cureert een ruime overschatting, ordent,
+  en `trimToDuration` knipt op de gemeten `durationByMatchKey` tot de
+  minuut-budget. UI-toggle Aantal/Duur (30/60/90/120).
+- **M3 (veilige slice)** — `suggestedArc(for:)` leidt de energie-arc af uit de
+  gemeten activity/mood-facetten (workout→piek, focus/chill→vloeiend,
+  onderweg→oplopend); arc="Auto" in de UI. Deterministisch, geen extra LLM-call.
+
 ## Bewust niet gedaan
-- **Volledig M3** (LLM ontwerpt alleen structuur, engine kiest alles): de
-  LLM-picks vangen semantiek die embeddings missen ("liedjes over regen");
-  de combinatie engine-ranking → LLM-picks → deterministische assemblage →
-  flow-sequencing ís de hybride. Herzien als de curator structureel
-  onderpresteert.
-- **U2 seed-tracks/artiesten in Genereer** — backend kan het nu (seeds +
-  queryAnchor in `rank`), UI-facetpicker à la CustomRadioEditor is een eigen
-  batch.
-- **U3 duur-doel i.p.v. trackaantal** — vereist duration-plumbing in
-  TrackRecord/picker; aparte batch.
+- **Volledig M3** (LLM ontwerpt structuur, engine kiest álles, LLM-picks weg):
+  de LLM-picks vangen semantiek die embeddings missen ("liedjes over regen");
+  engine-ranking → LLM-picks → deterministische assemblage → flow-sequencing
+  ís de hybride. De veilige structurele slice (auto-arc) is wél gedaan.
 
 ## Status
-- 2026-07-07: QW1–QW5, M1, M2, U1, U4 geïmplementeerd (deze batch).
-- Open: U2 (seed-facetten in UI), U3 (duur-doel), M3-herevaluatie,
-  fan-graph (`relatedArtists`) + σ-vloer in de generate-pool.
+- 2026-07-07: QW1–QW5, M1, M2, U1, U4 (batch 1: commits a5e1244 + c956ceb).
+- 2026-07-07: U2 (+fan-graph +σ-vloer), U3, M3-auto-arc (batch 2).
+- Open: alleen nog "volledig M3" (bewust; regressierisico).

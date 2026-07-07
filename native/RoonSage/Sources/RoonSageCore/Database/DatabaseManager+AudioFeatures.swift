@@ -569,6 +569,29 @@ extension DatabaseManager {
         }
     }
 
+    /// Per-track duration (seconds) for the given content keys — batched IN
+    /// queries, mirroring `loudnessByMatchKey`. Powers the generator's duration
+    /// target (assemble to ~N minutes instead of N tracks). Keys without an
+    /// analysed duration are simply absent.
+    public func durationByMatchKey(_ keys: [String]) async -> [String: Double] {
+        guard !keys.isEmpty else { return [:] }
+        return (try? await pool.read { db -> [String: Double] in
+            var out: [String: Double] = [:]
+            var start = 0
+            while start < keys.count {
+                let slice = Array(keys[start..<min(start + 500, keys.count)])
+                let placeholders = slice.map { _ in "?" }.joined(separator: ",")
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT match_key, duration FROM track_audio_features
+                    WHERE duration IS NOT NULL AND match_key IN (\(placeholders))
+                    """, arguments: StatementArguments(slice))
+                for r in rows { out[r["match_key"]] = r["duration"] }
+                start += 500
+            }
+            return out
+        }) ?? [:]
+    }
+
     /// Total play-time of the analysed library, in seconds (sum of track durations).
     /// Only analysed tracks carry a duration, so this tracks the "% geanalyseerd" figure.
     public func libraryDurationSeconds() async throws -> Double {

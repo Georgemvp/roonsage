@@ -120,6 +120,57 @@ final class AIGenerationHelpersTests: XCTestCase {
                        RoonClient.flowOrder(recs, byKey: byKey, arc: .peak).map(\.id))
     }
 
+    // MARK: Generate — duration target (U3)
+
+    func testTrimToDurationKeepsBestPrefix() {
+        let recs = (0..<6).map { TrackRecord(id: "r\($0)", title: "T\($0)", matchKey: "k\($0)") }
+        let byKey = Dictionary(uniqueKeysWithValues: (0..<6).map { ("k\($0)", 300.0) })  // 5 min each
+        // Budget 16 min: 3 tracks = 15 min (under by 1), 4 = 20 (over by 4) → keep 3.
+        let out = RoonClient.trimToDuration(recs, budgetSeconds: 16 * 60, durationByKey: byKey)
+        XCTAssertEqual(out.map(\.id), ["r0", "r1", "r2"])
+    }
+
+    func testTrimToDurationIncludesCrossingTrackWhenCloser() {
+        let recs = (0..<4).map { TrackRecord(id: "r\($0)", title: "T\($0)", matchKey: "k\($0)") }
+        let byKey = Dictionary(uniqueKeysWithValues: (0..<4).map { ("k\($0)", 300.0) })
+        // Budget 14 min: 2 tracks = 10 (under 4), 3 = 15 (over 1) → 15 is closer, keep 3.
+        let out = RoonClient.trimToDuration(recs, budgetSeconds: 14 * 60, durationByKey: byKey)
+        XCTAssertEqual(out.map(\.id), ["r0", "r1", "r2"])
+    }
+
+    func testTrimToDurationAlwaysKeepsAtLeastOne() {
+        let recs = [TrackRecord(id: "r0", title: "Long", matchKey: "k0")]
+        let out = RoonClient.trimToDuration(recs, budgetSeconds: 60, durationByKey: ["k0": 600])
+        XCTAssertEqual(out.map(\.id), ["r0"], "a single over-budget track is still returned")
+    }
+
+    func testTrimToDurationUsesAverageForUnknown() {
+        // No durations known → 3.5-min average per track; budget 8 min keeps 2 (7 min).
+        let recs = (0..<5).map { TrackRecord(id: "r\($0)", title: "T\($0)", matchKey: "k\($0)") }
+        let out = RoonClient.trimToDuration(recs, budgetSeconds: 8 * 60, durationByKey: [:])
+        XCTAssertEqual(out.count, 2)
+    }
+
+    // MARK: Generate — request-derived arc (M3)
+
+    func testSuggestedArcFromActivity() {
+        XCTAssertEqual(RoonClient.suggestedArc(for: .init(activities: ["workout"])), .peak)
+        XCTAssertEqual(RoonClient.suggestedArc(for: .init(activities: ["focus"])), .smooth)
+        XCTAssertEqual(RoonClient.suggestedArc(for: .init(activities: ["onderweg"])), .gentleRise)
+    }
+
+    func testSuggestedArcFromMoodAndDefault() {
+        XCTAssertEqual(RoonClient.suggestedArc(for: .init(moods: ["relaxed"])), .smooth)
+        XCTAssertEqual(RoonClient.suggestedArc(for: .init(moods: ["party"])), .peak)
+        XCTAssertEqual(RoonClient.suggestedArc(for: .init()), .peak, "no facets → default peak journey")
+    }
+
+    func testSuggestedArcActivityBeatsMood() {
+        // Activity is the stronger structural signal: focus stays smooth even if a
+        // party mood also leaked in.
+        XCTAssertEqual(RoonClient.suggestedArc(for: .init(moods: ["party"], activities: ["focus"])), .smooth)
+    }
+
     // MARK: Generate — reason copy
 
     func testReasonTextRewordsSimilarForRequests() {

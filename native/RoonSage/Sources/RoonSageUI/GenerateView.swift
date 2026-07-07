@@ -13,10 +13,19 @@ import RoonSageCore
 final class GenerateModel {
     var prompt        = ""
     var targetCount   = 20
+    /// Size the set by play-time instead of track count (U3).
+    var useDuration   = false
+    var targetMinutes = 60
     /// The radio dial, reused for generation: 0 = vertrouwd, 1 = ontdekkend.
     var adventurousness = RoonClient.defaultAdventurousness
-    /// Energy shape the final set is flow-ordered into.
-    var arc: RadioSequencer.Arc = .peak
+    /// Energy shape the final set is flow-ordered into; nil = auto (derived from
+    /// the request).
+    var arc: RadioSequencer.Arc? = nil
+    /// Optional seed anchors (U2): shape the sound like a station's seeds.
+    var seedArtists: [String] = []
+    var seedTrackKeys: [String] = []
+    /// Library artists/tracks to pick seeds from — loaded lazily.
+    var facetOptions: RoonClient.RadioFacetOptions? = nil
     var isGenerating  = false
     var phase: RoonClient.GenerationPhase? = nil
     var result: RoonClient.GenerationResult? = nil
@@ -52,6 +61,12 @@ final class GenerateModel {
 
     func stop() { genTask?.cancel() }
 
+    /// Load the seed pickers' options once (artists + tracks from the library).
+    func loadFacetOptions(client: RoonClient) async {
+        guard facetOptions == nil else { return }
+        facetOptions = await client.radioFacetOptions()
+    }
+
     private func generate(token: Int, client: RoonClient) async {
         let request = prompt.trimmingCharacters(in: .whitespaces)
         guard !request.isEmpty else { return }
@@ -67,7 +82,10 @@ final class GenerateModel {
         do {
             let r = try await client.generatePlaylist(request: request, target: targetCount,
                                                       adventurousness: adventurousness,
-                                                      arc: arc) { [weak self] p in
+                                                      arc: arc,
+                                                      targetMinutes: useDuration ? targetMinutes : nil,
+                                                      seedArtists: seedArtists,
+                                                      seedTrackKeys: seedTrackKeys) { [weak self] p in
                 guard let self, token == self.genToken else { return }
                 withAnimation(Motion.quick) { self.phase = p }
             }
@@ -173,6 +191,7 @@ public struct GenerateView: View {
         return List {
             promptSection
             templatesSection
+            seedsSection
             optionsSection
             generateSection
 
@@ -189,6 +208,7 @@ public struct GenerateView: View {
         .animation(Motion.standard, value: model.result?.title)
         .animation(Motion.quick, value: model.errorMessage)
         .navigationTitle("Playlist genereren")
+        .task { await model.loadFacetOptions(client: client) }
         #if os(iOS)
         .scrollDismissesKeyboard(.interactively)
         #endif
@@ -242,20 +262,76 @@ public struct GenerateView: View {
         }
     }
 
+    /// Optional seed anchors (U2) — shape the sound around chosen artists/tracks,
+    /// exactly like a custom radio's seeds. Hidden until the library options load.
+    @ViewBuilder
+    private var seedsSection: some View {
+        if let opts = model.facetOptions, !opts.artists.isEmpty || !opts.tracks.isEmpty {
+            Section {
+                NavigationLink {
+                    FacetMultiSelectView(title: "Artiesten",
+                                         options: opts.artists.map { .init(key: $0, label: $0) },
+                                         selection: $model.seedArtists.asSet)
+                } label: {
+                    seedRow("Artiesten", systemImage: "music.mic", count: model.seedArtists.count)
+                }
+                NavigationLink {
+                    FacetMultiSelectView(title: "Nummers", options: opts.tracks,
+                                         selection: $model.seedTrackKeys.asSet)
+                } label: {
+                    seedRow("Nummers", systemImage: "music.note", count: model.seedTrackKeys.count)
+                }
+            } header: {
+                Text("Seeds (optioneel)")
+            } footer: {
+                Text("Kies artiesten of nummers om de klank te sturen — de playlist klinkt als deze seeds én je omschrijving.")
+            }
+        }
+    }
+
+    private func seedRow(_ title: String, systemImage: String, count: Int) -> some View {
+        HStack {
+            Label(title, systemImage: systemImage)
+            Spacer()
+            Text(count == 0 ? "Geen" : "\(count)").foregroundStyle(.secondary)
+        }
+    }
+
     private var optionsSection: some View {
         Section {
-            HStack {
-                Text("Aantal tracks")
-                Spacer()
-                Picker("Aantal tracks", selection: $model.targetCount) {
-                    Text("10").tag(10)
-                    Text("20").tag(20)
-                    Text("30").tag(30)
-                    Text("50").tag(50)
+            Picker("Omvang", selection: $model.useDuration) {
+                Text("Aantal").tag(false)
+                Text("Duur").tag(true)
+            }
+            .pickerStyle(.segmented)
+            if model.useDuration {
+                HStack {
+                    Text("Speelduur")
+                    Spacer()
+                    Picker("Speelduur", selection: $model.targetMinutes) {
+                        Text("30 min").tag(30)
+                        Text("60 min").tag(60)
+                        Text("90 min").tag(90)
+                        Text("120 min").tag(120)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 240)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 220)
+            } else {
+                HStack {
+                    Text("Aantal tracks")
+                    Spacer()
+                    Picker("Aantal tracks", selection: $model.targetCount) {
+                        Text("10").tag(10)
+                        Text("20").tag(20)
+                        Text("30").tag(30)
+                        Text("50").tag(50)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 220)
+                }
             }
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 HStack {
@@ -270,14 +346,15 @@ public struct GenerateView: View {
                 Text("Verloop")
                 Spacer()
                 Picker("Verloop", selection: $model.arc) {
-                    Text("Vloeiend").tag(RadioSequencer.Arc.smooth)
-                    Text("Oplopend").tag(RadioSequencer.Arc.gentleRise)
-                    Text("Piek").tag(RadioSequencer.Arc.peak)
+                    Text("Auto").tag(RadioSequencer.Arc?.none)
+                    Text("Vloeiend").tag(RadioSequencer.Arc?.some(.smooth))
+                    Text("Oplopend").tag(RadioSequencer.Arc?.some(.gentleRise))
+                    Text("Piek").tag(RadioSequencer.Arc?.some(.peak))
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(maxWidth: 220)
-                .help("De energie-vorm waarin de playlist wordt geordend")
+                .frame(maxWidth: 260)
+                .help("De energie-vorm waarin de playlist wordt geordend — Auto leidt die af uit je omschrijving")
             }
             HStack {
                 Text("Afspelen op")

@@ -67,14 +67,25 @@ extension RoonClient {
     /// `GenerationError` when the library can't supply candidates.
     ///
     /// `adventurousness` mirrors the radio dial (0 = vertrouwd, 1 = ontdekkend);
-    /// `arc` is the energy shape the final set is flow-ordered into.
+    /// `arc` is the energy shape the final set is flow-ordered into — nil derives
+    /// it from the request (M3: "workout" peaks, "focus/chill" stays smooth).
+    /// `targetMinutes` (U3), when set, overrides `target`: the pipeline curates a
+    /// generous over-estimate of tracks, flow-orders them, then trims the set to
+    /// the requested play-time using measured per-track durations.
     public func generatePlaylist(
         request: String, target: Int,
         adventurousness: Double = RoonClient.defaultAdventurousness,
-        arc: RadioSequencer.Arc = .peak,
+        arc: RadioSequencer.Arc? = nil,
+        targetMinutes: Int? = nil,
+        seedArtists: [String] = [],
+        seedTrackKeys: [String] = [],
         onProgress: ((GenerationPhase) -> Void)? = nil
     ) async throws -> GenerationResult {
         let config = effectiveLLMConfig()
+        // A duration target curates extra tracks so the post-trim set still hits
+        // the minute budget (avg track ≈ 3.5 min, +4 slack); trimming happens
+        // after flow-ordering so the journey — not just the count — is preserved.
+        let target = targetMinutes.map { min(100, max(5, Int(ceil(Double($0) / 3.5)) + 4)) } ?? target
 
         // Stage 1 — analyse the request into library filters (genres/tags/decades
         // + measured moods/activities).
@@ -92,12 +103,21 @@ extension RoonClient {
         let calibration: TitleGrounding.Calibration? = lib.isEmpty ? nil
             : await Task.detached { TitleGrounding.Calibration.compute(library: lib) }.value
 
+        // U2 — resolve user-picked seed artists/tracks into real embedding anchors
+        // (like a station's seeds) and their Deezer fan-graph. `queryAnchor` (the
+        // request phrase) still joins them, so a seeded generation is "sounds like
+        // these AND like the request". Cap per artist so a prolific one can't
+        // dominate the centroid.
+        let (seeds, relatedArtists) = await resolveGenerationSeeds(
+            artists: seedArtists, trackKeys: seedTrackKeys, sonicByKey: sonicByKey, lib: lib)
+
         // Stage 2 — build a sonically-ranked candidate pool (broadened as needed).
         try Task.checkCancellation()
         onProgress?(.candidates)
         let built = await buildCandidatePool(request: request, filters: analysis, target: target,
                                              adventurousness: adventurousness,
-                                             sonicByKey: sonicByKey, calibration: calibration)
+                                             sonicByKey: sonicByKey, calibration: calibration,
+                                             seeds: seeds, relatedArtists: relatedArtists)
         guard !built.pool.isEmpty else { throw GenerationError.noCandidates }
         let candidates = built.pool
         let survived = built.survived
@@ -122,7 +142,20 @@ extension RoonClient {
         // QW1 — order the set into a designed journey (CLAP/BPM/key/energy-arc)
         // instead of leaving it in LLM pick order.
         let picks = curated.tracks
-        let ordered = await Task.detached { Self.flowOrder(picks, byKey: sonicByKey, arc: arc) }.value
+        // M3 — derive the energy arc from the request when the caller left it to
+        // "Auto" (nil), so a workout set peaks and a focus set glides.
+        let effectiveArc = arc ?? Self.suggestedArc(for: analysis)
+        var ordered = await Task.detached { Self.flowOrder(picks, byKey: sonicByKey, arc: effectiveArc) }.value
+
+        // U3 — trim the flow-ordered set to the requested play-time. Durations
+        // come from the analysed features; unanalysed tracks fall back to the
+        // 3.5-min average so an un-timed track still advances the budget.
+        if let targetMinutes {
+            let keys = ordered.compactMap(\.matchKey)
+            let durations = await (database?.durationByMatchKey(keys) ?? [:])
+            ordered = Self.trimToDuration(ordered, budgetSeconds: Double(targetMinutes) * 60,
+                                          durationByKey: durations)
+        }
 
         // Stage 4 — grounded AI title + description (Dutch).
         try Task.checkCancellation()
@@ -143,6 +176,60 @@ extension RoonClient {
         )
     }
 
+    /// M3 — the energy arc a request implies, from its measured activity/mood
+    /// facets: high-energy contexts build to a peak, calm ones stay smooth,
+    /// travel drifts up. Default is a peak journey. Deterministic, no LLM call.
+    nonisolated static func suggestedArc(for filters: RequestFilters) -> RadioSequencer.Arc {
+        let acts = Set(filters.activities)
+        if acts.contains("workout") || acts.contains("energiek") { return .peak }
+        if acts.contains("focus") || acts.contains("chillen") || acts.contains("lounge") { return .smooth }
+        if acts.contains("onderweg") { return .gentleRise }
+        let moods = Set(filters.moods)
+        if moods.contains("party") || moods.contains("aggressive") { return .peak }
+        if moods.contains("relaxed") || moods.contains("sad") { return .smooth }
+        return .peak
+    }
+
+    // MARK: - Seeds (U2)
+
+    /// Resolve user-picked seed artists + track keys into embedding-carrying
+    /// `SonicTrack` anchors and the merged Deezer fan-graph. Track keys map
+    /// straight through the analyzed library; each artist contributes up to
+    /// `perArtistCap` of its tracks (so a prolific artist can't swamp the
+    /// centroid) and its rank-weighted related-artist weights (max across seeds).
+    private func resolveGenerationSeeds(
+        artists: [String], trackKeys: [String],
+        sonicByKey: [String: DatabaseManager.SonicTrack],
+        lib: [DatabaseManager.SonicTrack], perArtistCap: Int = 3
+    ) async -> (seeds: [DatabaseManager.SonicTrack], related: [String: Double]) {
+        guard !artists.isEmpty || !trackKeys.isEmpty else { return ([], [:]) }
+        var seeds: [DatabaseManager.SonicTrack] = []
+        var seenIds = Set<String>()
+        func add(_ t: DatabaseManager.SonicTrack) {
+            guard seenIds.insert(t.id).inserted else { return }
+            seeds.append(t)
+        }
+        for key in trackKeys { if let t = sonicByKey[key] { add(t) } }
+        let wantArtists = Set(artists.map { $0.lowercased() })
+        if !wantArtists.isEmpty {
+            var perArtist: [String: Int] = [:]
+            for t in lib {
+                let a = (t.artist ?? "").lowercased()
+                guard wantArtists.contains(a), perArtist[a, default: 0] < perArtistCap else { continue }
+                perArtist[a, default: 0] += 1
+                add(t)
+            }
+        }
+        // Merged rank-weighted fan-graph across the seed artists (max weight wins).
+        var related: [String: Double] = [:]
+        for artist in artists {
+            for (name, w) in await relatedArtistWeights(for: artist) where w > (related[name] ?? 0) {
+                related[name] = w
+            }
+        }
+        return (seeds, related)
+    }
+
     // MARK: - Candidate pool
 
     /// Filter → broaden → measured mood/activity gate → soft-dislike → engine
@@ -153,7 +240,9 @@ extension RoonClient {
         request: String, filters: RequestFilters, target: Int,
         adventurousness: Double = RoonClient.defaultAdventurousness,
         sonicByKey: [String: DatabaseManager.SonicTrack] = [:],
-        calibration: TitleGrounding.Calibration? = nil
+        calibration: TitleGrounding.Calibration? = nil,
+        seeds: [DatabaseManager.SonicTrack] = [],
+        relatedArtists: [String: Double] = [:]
     ) async -> (pool: [TrackRecord], survived: RequestFilters, reasons: [String: String]) {
         let minPool = max(target * 3, 40)
         var opts = DatabaseManager.FilterOptions()
@@ -203,7 +292,8 @@ extension RoonClient {
         // adventurousness), THEN cap. Falls back to a shuffle when embeddings or
         // the analyzer text model aren't available.
         if let sel = await sonicRank(request: request, pool: pool,
-                                     adventurousness: adventurousness, byKey: sonicByKey) {
+                                     adventurousness: adventurousness, byKey: sonicByKey,
+                                     seeds: seeds, relatedArtists: relatedArtists) {
             return (sel.tracks, survived, sel.reasons)
         }
         pool.shuffle()
@@ -218,7 +308,9 @@ extension RoonClient {
     /// nil when reranking isn't possible so the caller falls back to a shuffle.
     private func sonicRank(
         request: String, pool: [TrackRecord], adventurousness: Double,
-        byKey: [String: DatabaseManager.SonicTrack]
+        byKey: [String: DatabaseManager.SonicTrack],
+        seeds: [DatabaseManager.SonicTrack] = [],
+        relatedArtists: [String: Double] = [:]
     ) async -> (tracks: [TrackRecord], reasons: [String: String])? {
         guard useSonicEmbeddings, !pool.isEmpty, !byKey.isEmpty else { return nil }
         // CLAP is English-trained; translate the (possibly Dutch) request into a
@@ -233,6 +325,13 @@ extension RoonClient {
         let dislikedKeys = radioDislikedMatchKeys
         let known = await knownArtistKeys(lib: lib)
         let adv = adventurousness
+        // U2 — with real track/artist seeds the pool cosines become track-to-track
+        // (not text-anchor), so the library-calibrated σ-floor is now sound: drop
+        // candidates too far from every seed for THIS library. No floor without
+        // seeds (a text anchor's cosine distribution differs).
+        let nnStats: VectorIndex.NNStats?
+        if !seeds.isEmpty, let db = database { nnStats = await sonicCache.nnStats(from: db) }
+        else { nnStats = nil }
 
         // Pool → SonicTracks, deduped by analyzed row id (compilation copies of
         // one recording share a matchKey and thus one SonicTrack).
@@ -241,15 +340,22 @@ extension RoonClient {
             guard let mk = t.matchKey, let st = byKey[mk], seenIds.insert(st.id).inserted else { return nil }
             return st
         }
+        // Seeds must live in the ranking index for their embeddings to anchor the
+        // query — include any that aren't already in the pool (they're excluded
+        // from the results by the engine, so they never appear in the playlist).
+        let poolIds = Set(poolSonic.map(\.id))
+        let indexTracks = poolSonic + seeds.filter { !poolIds.contains($0.id) }
 
         let ranked: [RadioEngine.Result] = await Task.detached {
-            guard let subIndex = VectorIndex(tracks: poolSonic) else { return [] }
+            guard let subIndex = VectorIndex(tracks: indexTracks) else { return [] }
+            let floor = nnStats.map { RadioEngine.Options.floor(stats: $0, adventurousness: adv) }
             let opts = RadioEngine.Options(
-                adventurousness: adv, poolLimit: 400, candidateK: poolSonic.count,
-                hardBanDisliked: false, sequence: false)
-            let ranked = RadioEngine.rank(seeds: [], library: poolSonic, index: subIndex,
+                adventurousness: adv, poolLimit: 400, candidateK: indexTracks.count,
+                hardBanDisliked: false, sequence: false, similarityFloor: floor)
+            let ranked = RadioEngine.rank(seeds: seeds, library: indexTracks, index: subIndex,
                                           options: opts, disliked: dislikedKeys, likedKeys: liked,
                                           knownArtists: known, tasteVector: taste,
+                                          relatedArtists: relatedArtists,
                                           salt: "", queryAnchor: queryVec)
             // QW2 — guarantee near-duplicate removal (same recording on album +
             // compilation, different matchKeys) even on pools ≤ poolLimit, where
@@ -278,6 +384,35 @@ extension RoonClient {
         // ranked ones (the engine's near-dup/MMR drops stay dropped).
         out += pool.filter { t in t.matchKey.flatMap { byKey[$0] } == nil }
         return (Array(out.prefix(400)), reasons)
+    }
+
+    /// U3 — keep the flow-ordered prefix whose cumulative duration best meets
+    /// `budgetSeconds`. Walks in order (so the journey is preserved) and stops at
+    /// the track that crosses the budget, keeping it only when that lands closer
+    /// to the target than stopping short. Unknown durations use the library-wide
+    /// 3.5-min average. Always returns at least one track.
+    nonisolated static func trimToDuration(
+        _ tracks: [TrackRecord], budgetSeconds: Double, durationByKey: [String: Double]
+    ) -> [TrackRecord] {
+        guard budgetSeconds > 0, !tracks.isEmpty else { return tracks }
+        let avg = 3.5 * 60
+        func dur(_ t: TrackRecord) -> Double { t.matchKey.flatMap { durationByKey[$0] } ?? avg }
+        var acc = 0.0
+        var kept: [TrackRecord] = []
+        for t in tracks {
+            let d = dur(t)
+            if acc + d <= budgetSeconds || kept.isEmpty {
+                kept.append(t); acc += d
+            } else {
+                // Crossing the budget: include this track only if doing so lands
+                // closer to the target than stopping here.
+                let over = acc + d - budgetSeconds
+                let under = budgetSeconds - acc
+                if over < under { kept.append(t) }
+                break
+            }
+        }
+        return kept
     }
 
     /// The engine's Reason as generation copy. With no track seeds `.similar`

@@ -174,8 +174,9 @@ struct CustomRadioEditorView: View {
 }
 
 /// Searchable multi-select over a large facet (artists / nummers / genres).
+/// Shared by the custom-radio editor and the Generate seed pickers.
 @MainActor
-private struct FacetMultiSelectView: View {
+struct FacetMultiSelectView: View {
     let title: String
     let options: [RoonClient.FacetOption]
     @Binding var selection: Set<String>
@@ -233,7 +234,7 @@ private struct FacetMultiSelectView: View {
 
 /// Bridge a `[String]` config facet to the `Set<String>` the pickers bind to,
 /// preserving nothing about order (facets are unordered sets semantically).
-private extension Binding where Value == [String] {
+extension Binding where Value == [String] {
     var asSet: Binding<Set<String>> {
         Binding<Set<String>>(
             get: { Set(wrappedValue) },
