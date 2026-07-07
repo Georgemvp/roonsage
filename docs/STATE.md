@@ -4,7 +4,7 @@ batch uit ## Next (nu: B4/B5 performance). Werk incrementeel: per batch bewerken
 → cd native/RoonSage && swift build && swift test → commit + push + tag (vX.Y.Z
 én analyzer-vX.Y.Z) → werk STATE.md bij. Constraints in ## Constraints naleven:
 niet tests verzwakken, nooit de client-app op de mini deployen. Doe één batch,
-niet "alles" tegelijk. Laatst geshipt: v1.10.123 / analyzer-v1.1.99.
+niet "alles" tegelijk. Laatst geshipt: v1.10.137 / ios-v1.7.102 / analyzer-v1.1.113.
 Wil je i.p.v. de volgende batch een specifiek onderdeel? Vervang de 2e zin door
 bv. "Werk feature #1 (skip = live re-steer) volledig uit" of "Doe alleen B7".
 ═══════════════════════════════════════════════════════════════════ -->
@@ -53,6 +53,7 @@ B1-B6a + B7a + B8-features + consumers + share KLAAR. loudness-normalisatie blee
 - Kern-audit files: QobuzClient.swift, LibraryShareServer.swift (:91 enforceToken), RoonClient+DiscoverWeekly.swift (:355 searchQobuz-gate), AnalyzerCore/HTTPServer.swift (5766)
 
 ## Done
+- Bibliotheek → overzicht-landing GESHIPT — RESULT: commit 7558266, v1.10.137 + ios-v1.7.102 + analyzer-v1.1.113. Bibliotheek-tab opent nu op scrollbaar Overzicht (nieuw ViewMode `.overview`, default): stats-hero (tracks/artiesten/albums + topgenre + %geanalyseerd), "Recent toegevoegd"/"Onlangs gespeeld" (laatste via playStats→tracksByMatchKeys want ListenEntry heeft geen art), "Voor jou" (toptracks/onontdekte albums/vergeten favorieten), radiostations (dailyRadios→startRadio), Ontdek Wekelijks-instap, en "Blader door" genre/sfeer/decennium-tegels → nieuwe FilteredTracksView (Hashable LibraryFilter {genre/tag/decade} + navigationDestination; FilterOptions niet Hashable dus primitives dragen). Zoeken springt naar Tracks. Shelf/hero/stat-bouwstenen uit DiscoveryView gelicht → publieke Shelves.swift (Ontdek ongewijzigd). "Sfeer"=audio-tags (FilterOptions.tags); CLAP-moods zijn geen FilterOptions-dimensie. swift build (debug+release) + test exit 0, 494 tests 0 failures. NIET headless UI-geverifieerd (GUI-automation geblokkeerd) + swiftlint lokaal niet geïnstalleerd (CI-gate). NIET op mini gedeployd
 - Audit 6 dimensies afgerond — RESULT: rapport met SEC-H1 (default-open server), COR-H1..4 (Qobuz fail-closed + DiscoverWeekly), PERF-H1..7, UX-M1..4, Code-H1..3, 13 features
 - B1 Kritiek GESHIPT — RESULT: commit d8b912e, v1.10.118 + analyzer-v1.1.94. QobuzClient getJSON+fail-closed (count→Int?, ids→[String]?, findPlaylist→PlaylistLookup, searchTracks retry), DiscoverWeekly matchKey-gate, LibraryShareServer non-GET+/settings altijd token + auto-enforce na 1e pairing. 463 tests 0 failures
 - B2 Security GESHIPT — RESULT: commit 5778071, v1.10.119 + analyzer-v1.1.95. Analyzer-server ACAO:* weg (M4), share-server POST vereist application/json (CSRF M5), pending-cap 50 (L6). 463 tests
