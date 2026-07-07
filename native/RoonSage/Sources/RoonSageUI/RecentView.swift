@@ -62,8 +62,25 @@ struct RecentView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.large)
         #endif
+        .toolbar {
+            if let shareText {
+                ShareLink(item: shareText) { Image(systemName: "square.and.arrow.up") }
+            }
+        }
         .task { await load() }
         .refreshable { await load() }
+    }
+
+    /// Shareable summary for the terugblik pivots (nil elsewhere / when empty),
+    /// so the toolbar only offers a share where there's something to share.
+    private var shareText: String? {
+        let text: String
+        switch pivot {
+        case .onThisDay:   text = ShareSummary.onThisDay(onThisDay)
+        case .timeMachine: text = ShareSummary.tasteTimeMachine(timeMachine)
+        default:           return nil
+        }
+        return text.isEmpty ? nil : text
     }
 
     @ViewBuilder
