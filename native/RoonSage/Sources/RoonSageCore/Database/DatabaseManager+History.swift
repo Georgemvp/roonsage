@@ -136,6 +136,48 @@ extension DatabaseManager {
         }
     }
 
+    // MARK: - Taste time machine
+
+    public struct TastePeriod: Sendable, Codable {
+        public var year: Int
+        public var totalPlays: Int
+        public var topArtists: [ArtistPlayCount]
+        public init(year: Int, totalPlays: Int, topArtists: [ArtistPlayCount]) {
+            self.year = year; self.totalPlays = totalPlays; self.topArtists = topArtists
+        }
+    }
+
+    /// "Taste time machine": your top artists per calendar year — how listening
+    /// shifted over time. Aggregates play counts per (year, artist), then keeps the
+    /// `topPerYear` heaviest artists of each year, newest year first. The top-N per
+    /// group is done in Swift (portable across SQLite versions with/without window
+    /// functions) and is what the unit test pins down.
+    public func tasteTimeMachine(topPerYear: Int = 5) async throws -> [TastePeriod] {
+        let rows = try await pool.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT CAST(strftime('%Y', played_at) AS INTEGER) AS yr, artist, COUNT(*) AS c
+                FROM listening_history
+                WHERE artist IS NOT NULL AND artist <> ''
+                GROUP BY yr, artist
+            """)
+        }
+        var byYear: [Int: [(artist: String, count: Int)]] = [:]
+        var totals: [Int: Int] = [:]
+        for r in rows {
+            guard let yr = r["yr"] as Int?, yr > 0,
+                  let artist = r["artist"] as String?, !artist.isEmpty else { continue }
+            let c = r["c"] as Int? ?? 0
+            byYear[yr, default: []].append((artist, c))
+            totals[yr, default: 0] += c
+        }
+        return byYear.keys.sorted(by: >).map { yr in
+            let top = byYear[yr]!.sorted { $0.count > $1.count }
+                .prefix(max(0, topPerYear))
+                .map { ArtistPlayCount(artist: $0.artist, count: $0.count) }
+            return TastePeriod(year: yr, totalPlays: totals[yr] ?? 0, topArtists: Array(top))
+        }
+    }
+
     // MARK: - Last.fm history import
 
     public struct ImportedListen: Sendable {

@@ -625,6 +625,15 @@ public final class LibraryShareServer: @unchecked Sendable {
             }
             return ("500 Internal Server Error", Data("on-this-day failed".utf8), "text/plain")
         }
+        // Taste time machine: top artists per year. Thin clients pull it from the
+        // server-of-record (they have no local listening_history).
+        if path.hasPrefix("/taste-timemachine") {
+            if let periods = try? await database.tasteTimeMachine(),
+               let body = try? JSONEncoder().encode(periods) {
+                return ("200 OK", body, "application/json")
+            }
+            return ("500 Internal Server Error", Data("taste-timemachine failed".utf8), "text/plain")
+        }
         if path.hasPrefix("/settings") {
             if let body = try? JSONEncoder().encode(SyncableSettings.exportCurrent()) {
                 return ("200 OK", body, "application/json")
