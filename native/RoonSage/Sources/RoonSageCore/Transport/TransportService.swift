@@ -5,9 +5,9 @@ import RoonProtocol
 /// Serialised through the actor to prevent out-of-order WebSocket sends.
 actor TransportService {
 
-    private let transport: RoonTransport
+    private let transport: TransportDispatching
 
-    init(transport: RoonTransport) {
+    init(transport: TransportDispatching) {
         self.transport = transport
     }
 
