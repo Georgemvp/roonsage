@@ -569,6 +569,15 @@ extension DatabaseManager {
         }
     }
 
+    /// Total play-time of the analysed library, in seconds (sum of track durations).
+    /// Only analysed tracks carry a duration, so this tracks the "% geanalyseerd" figure.
+    public func libraryDurationSeconds() async throws -> Double {
+        try await pool.read { db in
+            try Double.fetchOne(db, sql:
+                "SELECT COALESCE(SUM(duration), 0) FROM track_audio_features WHERE duration IS NOT NULL") ?? 0
+        }
+    }
+
     // MARK: - Sync state
 
     public func syncStateValue(forKey key: String) throws -> String? {

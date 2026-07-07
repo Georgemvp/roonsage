@@ -123,6 +123,12 @@ extension RoonClient {
         return (try? await db.audioFeaturesStats()) ?? (0, 0)
     }
 
+    /// Total play-time of the analysed library, in seconds.
+    public func libraryDurationSeconds() async -> Double {
+        guard let db = database else { return 0 }
+        return (try? await db.libraryDurationSeconds()) ?? 0
+    }
+
     /// The library's MusicBrainz genre hierarchy (parent → subgenres), for the
     /// MCP `get_genre_tree` tool and a hierarchical genre picker.
     public func libraryGenreTree() async -> [DatabaseManager.GenreTreeNode] {

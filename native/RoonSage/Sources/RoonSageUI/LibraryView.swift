@@ -30,6 +30,7 @@ public struct LibraryView: View {
     @State private var stats: DatabaseManager.LibraryStats?
     @State private var analyzedTotal = 0
     @State private var analyzedMatched = 0
+    @State private var librarySeconds: Double = 0
     @State private var recentlyAdded: [DatabaseManager.LibraryTrackRow] = []
     @State private var recentPlayed: [DatabaseManager.LibraryTrackRow] = []
     @State private var undiscovered: [DatabaseManager.AlbumResult] = []
@@ -584,7 +585,13 @@ public struct LibraryView: View {
                     stationShelf.plainCardRow()
                 }
                 browseTiles.plainCardRow()
-                weeklyInstap.plainCardRow()
+                navCard("Ontdek Wekelijks",
+                        "Verse ontdekkingen uit je eigen bibliotheek — elke week vernieuwd.",
+                        "sparkles") { DiscoverWeeklyView() }.plainCardRow()
+                navCard("Mijn radio's", "Jouw zelf samengestelde sonic radio's.",
+                        "dot.radiowaves.left.and.right") { CustomRadioView() }.plainCardRow()
+                navCard("Aanbevelen", "Beschrijf een vibe → albums uit je bibliotheek.",
+                        "wand.and.stars") { RecommendView() }.plainCardRow()
             } else if !overviewLoaded {
                 SkeletonRows().plainCardRow()
             } else {
@@ -608,6 +615,9 @@ public struct LibraryView: View {
             HStack(spacing: Spacing.md) {
                 if let top = stats.topGenres.first {
                     Label(top.genre.capitalized, systemImage: "guitars.fill")
+                }
+                if librarySeconds > 0 {
+                    Label("\(Int(librarySeconds / 3600).formatted()) uur muziek", systemImage: "clock")
                 }
                 if analyzedTotal > 0 {
                     Label("\(analyzedMatched * 100 / analyzedTotal)% geanalyseerd", systemImage: "waveform")
@@ -749,19 +759,24 @@ public struct LibraryView: View {
 
     // MARK: Overview — Ontdek Wekelijks entry + states
 
-    private var weeklyInstap: some View {
+    /// A prominent navigation card into another feature (Ontdek Wekelijks, Mijn
+    /// radio's, Aanbevelen) — pushed onto this stack so it works on iOS + macOS alike.
+    @ViewBuilder
+    private func navCard<Destination: View>(
+        _ title: String, _ subtitle: String, _ icon: String,
+        @ViewBuilder destination: @escaping () -> Destination
+    ) -> some View {
         NavigationLink {
-            DiscoverWeeklyView()
+            destination()
         } label: {
             HStack(spacing: Spacing.md) {
-                Image(systemName: "sparkles")
+                Image(systemName: icon)
                     .font(.title2).foregroundStyle(Color.roonGold)
                     .frame(width: 44, height: 44)
                     .background(Color.roonGold.opacity(0.15), in: RoundedRectangle(cornerRadius: Radius.lg))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Ontdek Wekelijks").font(.headline)
-                    Text("Verse ontdekkingen uit je eigen bibliotheek — elke week vernieuwd.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text(title).font(.headline)
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
@@ -799,6 +814,7 @@ public struct LibraryView: View {
     private func performOverviewLoad() async {
         async let statsV = client.libraryStats()
         async let analyzedV = client.audioFeaturesStats()
+        async let durationV = client.libraryDurationSeconds()
         async let addedV = client.browseTracks(query: "", tag: nil, order: .recentlyAdded)
         async let playedV = recentPlayedRows()
         async let undiscV = client.undiscoveredAlbums()
@@ -811,6 +827,7 @@ public struct LibraryView: View {
         let a = await analyzedV
         analyzedTotal = a.total
         analyzedMatched = a.matched
+        librarySeconds = await durationV
         recentlyAdded = Array(await addedV.prefix(15))
         recentPlayed = await playedV
         undiscovered = await undiscV
