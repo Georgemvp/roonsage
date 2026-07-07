@@ -78,6 +78,29 @@ final class DatabaseManagerTests: XCTestCase {
         XCTAssertEqual(roonEarliestAgain, roonEarliest)
     }
 
+    func testFilterTracksPaginatesWithOffset() async throws {
+        // 250 tracks, paged 100 at a time → 100 / 100 / 50, disjoint, full coverage.
+        let records = (0..<250).map { track("p\($0)", "Title \(String(format: "%03d", $0))", "Artist \($0 % 5)") }
+        try await db.upsertTracks(records)
+
+        var opts = DatabaseManager.FilterOptions()
+        opts.limit = 100
+        opts.offset = 0
+        let page1 = try await db.filterTracks(options: opts)
+        opts.offset = 100
+        let page2 = try await db.filterTracks(options: opts)
+        opts.offset = 200
+        let page3 = try await db.filterTracks(options: opts)
+
+        XCTAssertEqual(page1.count, 100)
+        XCTAssertEqual(page2.count, 100)
+        XCTAssertEqual(page3.count, 50)   // short last page → the view flips reachedEnd
+
+        let ids = Set(page1.map(\.id)).union(page2.map(\.id)).union(page3.map(\.id))
+        XCTAssertEqual(ids.count, 250, "pages must together cover every track")
+        XCTAssertTrue(Set(page1.map(\.id)).isDisjoint(with: page2.map(\.id)), "pages must not overlap")
+    }
+
     func testGenreMappingBatched() async throws {
         try await db.upsertTracks([
             track("a", "Song A", "X", album: "Blue"),

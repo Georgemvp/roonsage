@@ -16,6 +16,8 @@ extension DatabaseManager {
         /// (AND), not just one of them (OR) — muffon-style narrowing.
         public var matchAllGenres: Bool  = false
         public var limit:       Int      = 500
+        /// Row offset for pagination — powers the filtered library list's infinite scroll.
+        public var offset:      Int      = 0
         public init() {}
     }
 
@@ -79,8 +81,9 @@ extension DatabaseManager {
             if options.excludeLive { conditions.append("t.is_live = 0") }
 
             let whereClause = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
-            let sql = "SELECT t.* FROM tracks t \(whereClause) ORDER BY t.artist, t.year, t.title LIMIT ?"
+            let sql = "SELECT t.* FROM tracks t \(whereClause) ORDER BY t.artist, t.year, t.title LIMIT ? OFFSET ?"
             args.append(options.limit)
+            args.append(options.offset)
 
             return try TrackRecord.fetchAll(db, sql: sql, arguments: StatementArguments(args))
         }

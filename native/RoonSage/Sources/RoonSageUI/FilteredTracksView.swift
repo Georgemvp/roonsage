@@ -50,8 +50,14 @@ public struct LibraryFilter: Hashable, Sendable {
 public struct FilteredTracksView: View {
     @Environment(RoonClient.self) private var client
     private let filter: LibraryFilter
+    /// Page size for the infinite scroll — one genre/decade can span thousands of tracks.
+    private let pageSize = 200
+    /// Upper bound for "Speel alles" — a filtered set can be huge; don't queue it all.
+    private let playAllCap = 500
     @State private var tracks: [TrackRecord] = []
     @State private var loaded = false
+    @State private var loadingMore = false
+    @State private var reachedEnd = false
 
     public init(filter: LibraryFilter) {
         self.filter = filter
@@ -59,10 +65,10 @@ public struct FilteredTracksView: View {
 
     public var body: some View {
         AsyncStateView(isLoading: !loaded, isEmpty: tracks.isEmpty,
-                       onRetry: { Task { await load() } }) {
+                       onRetry: { loaded = false; reachedEnd = false; Task { await load() } }) {
             List {
                 headerBar.plainCardRow()
-                ForEach(tracks, id: \.id) { track in
+                ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
                     FilteredTrackRow(track: track, canPlay: client.hasActiveOutput) {
                         Haptics.tap()
                         Task { await client.playToActiveOutput([track]) }
@@ -70,6 +76,14 @@ public struct FilteredTracksView: View {
                     .contextMenu {
                         PlayActionsMenu(fetch: { [track] }, trackRadioSeed: track)
                     }
+                    .onAppear {
+                        // Prefetch the next page a few rows before the end → endless scroll.
+                        if index >= tracks.count - 8 { Task { await loadMore() } }
+                    }
+                }
+                if loadingMore {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .plainCardRow()
                 }
             }
             .listStyle(.plain)
@@ -85,7 +99,14 @@ public struct FilteredTracksView: View {
         HStack(spacing: Spacing.sm) {
             Button {
                 Haptics.tap()
-                Task { await client.playToActiveOutput(tracks) }
+                Task {
+                    // Play the whole filtered set (up to a queue-sane cap), not just
+                    // the pages scrolled into view.
+                    var opts = filter.options
+                    opts.limit = playAllCap
+                    let all = await client.filterTracks(options: opts)
+                    await client.playToActiveOutput(all)
+                }
             } label: { Label("Speel alles", systemImage: "play.fill") }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
@@ -105,16 +126,35 @@ public struct FilteredTracksView: View {
                 .controlSize(.small)
 
             Spacer(minLength: Spacing.sm)
-            Text("\(tracks.count)")
+            Text(reachedEnd ? "\(tracks.count)" : "\(tracks.count)+")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, Spacing.xs)
     }
 
+    private func pageOptions(offset: Int) -> DatabaseManager.FilterOptions {
+        var opts = filter.options
+        opts.limit = pageSize
+        opts.offset = offset
+        return opts
+    }
+
     private func load() async {
-        tracks = await client.filterTracks(options: filter.options)
+        guard !loaded else { return }
+        let page = await client.filterTracks(options: pageOptions(offset: 0))
+        tracks = page
+        reachedEnd = page.count < pageSize
         loaded = true
+    }
+
+    private func loadMore() async {
+        guard loaded, !loadingMore, !reachedEnd else { return }
+        loadingMore = true
+        let page = await client.filterTracks(options: pageOptions(offset: tracks.count))
+        tracks.append(contentsOf: page)
+        if page.count < pageSize { reachedEnd = true }
+        loadingMore = false
     }
 }
 
