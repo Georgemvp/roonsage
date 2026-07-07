@@ -22,6 +22,9 @@ extension RoonClient {
         /// Per-track "waarom deze track" (RadioEngine.Reason, NL), keyed by
         /// TrackRecord.id. Empty when the engine path wasn't available.
         public var reasonByTrackID: [String: String] = [:]
+        /// A full diagnostic trace of how this playlist was built (also logged,
+        /// category `.llm`). Shown in the app's "Diagnostiek" panel.
+        public var trace: String? = nil
     }
 
     /// Stages reported back to the UI so it can show a staged progress indicator
@@ -87,11 +90,30 @@ extension RoonClient {
         // after flow-ordering so the journey — not just the count — is preserved.
         let target = targetMinutes.map { min(100, max(5, Int(ceil(Double($0) / 3.5)) + 4)) } ?? target
 
+        // Diagnostic trace of the whole run (logged + returned). Purely for
+        // inspection — never read back into the pipeline.
+        let trace = GenerationTrace()
+        trace.section("Verzoek")
+        trace.kv("prompt", "“\(request)”")
+        trace.kv("doel", targetMinutes.map { "\($0) min (≈\(target) tracks)" } ?? "\(target) tracks")
+        trace.kv("avontuurlijkheid", String(format: "%.2f", adventurousness))
+        trace.kv("verloop", arc.map(Self.arcLabel) ?? "auto")
+        trace.kvIf("seed-artiesten", GenerationTrace.list(seedArtists))
+        trace.kvIf("seed-nummers", "\(seedTrackKeys.count)")
+        trace.kv("LLM", "\(config.provider.rawValue)/\(config.effectiveModel)")
+
         // Stage 1 — analyse the request into library filters (genres/tags/decades
         // + measured moods/activities).
         try Task.checkCancellation()
         onProgress?(.analyzing)
         let analysis = await analyzeForFilters(request: request)
+        trace.section("1 · Analyse → filters")
+        trace.kv("genres", GenerationTrace.list(analysis.genres))
+        trace.kv("tags", GenerationTrace.list(analysis.tags))
+        trace.kv("sferen", GenerationTrace.list(analysis.moods.map { Self.moodLabel($0) }))
+        trace.kv("activiteiten", GenerationTrace.list(analysis.activities.map { Self.activityLabel($0) }))
+        trace.kv("decennia", GenerationTrace.list(analysis.decades.sorted().map { "\($0)s" }))
+        trace.kvIf("trefwoorden", analysis.keywords)
 
         // Shared sonic context for the whole pipeline: the analyzed library keyed
         // by content, plus the library calibration that makes mood/energy
@@ -110,6 +132,13 @@ extension RoonClient {
         // dominate the centroid.
         let (seeds, relatedArtists) = await resolveGenerationSeeds(
             artists: seedArtists, trackKeys: seedTrackKeys, sonicByKey: sonicByKey, lib: lib)
+        if !seedArtists.isEmpty || !seedTrackKeys.isEmpty {
+            trace.section("2 · Seeds")
+            trace.kv("opgeloste seed-tracks", "\(seeds.count)")
+            trace.kv("voorbeelden", GenerationTrace.list(seeds.prefix(8).map {
+                "\($0.title) — \($0.artist ?? "?")" }))
+            trace.kv("fan-graph-artiesten (Deezer)", "\(relatedArtists.count)")
+        }
 
         // Stage 2 — build a sonically-ranked candidate pool (broadened as needed).
         try Task.checkCancellation()
@@ -117,7 +146,7 @@ extension RoonClient {
         let built = await buildCandidatePool(request: request, filters: analysis, target: target,
                                              adventurousness: adventurousness,
                                              sonicByKey: sonicByKey, calibration: calibration,
-                                             seeds: seeds, relatedArtists: relatedArtists)
+                                             seeds: seeds, relatedArtists: relatedArtists, trace: trace)
         guard !built.pool.isEmpty else { throw GenerationError.noCandidates }
         let candidates = built.pool
         let survived = built.survived
@@ -135,9 +164,11 @@ extension RoonClient {
         try Task.checkCancellation()
         onProgress?(.curating)
         let taste = await tasteContext(pool: candidates)
+        trace.section("4 · Curatie (LLM)")
+        trace.kv("smaak-hints", "likes \(taste.liked.count) · dislikes \(taste.disliked.count) · voorkeur-artiesten \(taste.preferred.count)")
         let curated = try await curate(request: request, target: target,
                                        candidates: candidates, taste: taste,
-                                       sonic: sonicByKey, config: config)
+                                       sonic: sonicByKey, config: config, trace: trace)
         guard !curated.tracks.isEmpty else { throw GenerationError.emptyResult }
         // QW1 — order the set into a designed journey (CLAP/BPM/key/energy-arc)
         // instead of leaving it in LLM pick order.
@@ -146,6 +177,8 @@ extension RoonClient {
         // "Auto" (nil), so a workout set peaks and a focus set glides.
         let effectiveArc = arc ?? Self.suggestedArc(for: analysis)
         var ordered = await Task.detached { Self.flowOrder(picks, byKey: sonicByKey, arc: effectiveArc) }.value
+        trace.section("5 · Volgorde & duur")
+        trace.kv("verloop", "\(Self.arcLabel(effectiveArc))\(arc == nil ? " (auto)" : "")")
 
         // U3 — trim the flow-ordered set to the requested play-time. Durations
         // come from the analysed features; unanalysed tracks fall back to the
@@ -153,15 +186,30 @@ extension RoonClient {
         if let targetMinutes {
             let keys = ordered.compactMap(\.matchKey)
             let durations = await (database?.durationByMatchKey(keys) ?? [:])
+            let before = ordered.count
             ordered = Self.trimToDuration(ordered, budgetSeconds: Double(targetMinutes) * 60,
                                           durationByKey: durations)
+            let mins = ordered.reduce(0.0) { $0 + ($1.matchKey.flatMap { durations[$0] } ?? 210) } / 60
+            trace.kv("duur-trim", "\(before) → \(ordered.count) tracks (≈\(Int(mins.rounded())) min, doel \(targetMinutes))")
         }
 
         // Stage 4 — grounded AI title + description (Dutch).
         try Task.checkCancellation()
         onProgress?(.naming)
         let meta = await describePlaylist(request: request, tracks: ordered,
-                                          sonic: sonicByKey, calibration: calibration, config: config)
+                                          sonic: sonicByKey, calibration: calibration,
+                                          config: config, trace: trace)
+
+        // Result summary: the final tracklist + why each is here.
+        trace.section("Resultaat")
+        trace.kv("titel", "“\(meta.title)”")
+        trace.kv("tracks", "\(ordered.count) · uit pool van \(candidates.count) · \(curated.aiCurated ? "AI-gecureerd" : "aangevuld (LLM onder-leverde)")")
+        for (i, t) in ordered.prefix(60).enumerated() {
+            let reason = built.reasons[t.id].map { " — \($0)" } ?? ""
+            trace.line(String(format: "%2d. %@ — %@%@", i + 1, t.title, t.artist ?? "?", reason))
+        }
+        let rendered = trace.render()
+        Log.info("\n\(rendered)", category: .llm)
 
         // Only record into the anti-repetition trail once the result is final and
         // not cancelled — a stopped generation the user never saw shouldn't bias
@@ -172,8 +220,17 @@ extension RoonClient {
             tracks: ordered, filters: survived, poolSize: candidates.count,
             title: meta.title, description: meta.description,
             droppedNote: droppedNote, aiCurated: curated.aiCurated,
-            reasonByTrackID: built.reasons
+            reasonByTrackID: built.reasons, trace: rendered
         )
+    }
+
+    /// Dutch label for an energy arc (diagnostics + UI).
+    nonisolated static func arcLabel(_ arc: RadioSequencer.Arc) -> String {
+        switch arc {
+        case .smooth:     "vloeiend"
+        case .gentleRise: "oplopend"
+        case .peak:       "piek"
+        }
     }
 
     /// M3 — the energy arc a request implies, from its measured activity/mood
@@ -242,9 +299,11 @@ extension RoonClient {
         sonicByKey: [String: DatabaseManager.SonicTrack] = [:],
         calibration: TitleGrounding.Calibration? = nil,
         seeds: [DatabaseManager.SonicTrack] = [],
-        relatedArtists: [String: Double] = [:]
+        relatedArtists: [String: Double] = [:],
+        trace: GenerationTrace? = nil
     ) async -> (pool: [TrackRecord], survived: RequestFilters, reasons: [String: String]) {
         let minPool = max(target * 3, 40)
+        trace?.section("3 · Kandidatenpool")
         var opts = DatabaseManager.FilterOptions()
         opts.genres = filters.genres
         opts.decades = filters.decades
@@ -254,11 +313,12 @@ extension RoonClient {
         opts.limit = 3000
 
         var pool = await filterTracks(options: opts)
+        trace?.kv("na filter", "\(pool.count) tracks (drempel \(minPool))")
         // Broaden most-specific-first so the genre intent is the last thing dropped.
-        if pool.count < minPool, !opts.tags.isEmpty     { opts.tags = [];     pool = await filterTracks(options: opts) }
-        if pool.count < minPool, !opts.keywords.isEmpty { opts.keywords = ""; pool = await filterTracks(options: opts) }
-        if pool.count < minPool, !opts.decades.isEmpty  { opts.decades = [];  pool = await filterTracks(options: opts) }
-        if pool.count < minPool, !opts.genres.isEmpty   { opts.genres = [];   pool = await filterTracks(options: opts) }
+        if pool.count < minPool, !opts.tags.isEmpty     { opts.tags = [];     pool = await filterTracks(options: opts); trace?.kv("verbreed: tags weg", "\(pool.count)") }
+        if pool.count < minPool, !opts.keywords.isEmpty { opts.keywords = ""; pool = await filterTracks(options: opts); trace?.kv("verbreed: trefwoorden weg", "\(pool.count)") }
+        if pool.count < minPool, !opts.decades.isEmpty  { opts.decades = [];  pool = await filterTracks(options: opts); trace?.kv("verbreed: decennia weg", "\(pool.count)") }
+        if pool.count < minPool, !opts.genres.isEmpty   { opts.genres = [];   pool = await filterTracks(options: opts); trace?.kv("verbreed: genres weg", "\(pool.count) (hele bibliotheek)") }
 
         var survived = RequestFilters(genres: opts.genres, decades: opts.decades,
                                       keywords: opts.keywords, tags: opts.tags)
@@ -276,6 +336,9 @@ extension RoonClient {
                 pool = gated
                 survived.moods = filters.moods
                 survived.activities = filters.activities
+                trace?.kv("sfeer/activiteit-gate", "toegepast → \(pool.count)")
+            } else {
+                trace?.kv("sfeer/activiteit-gate", "verzacht (slechts \(gated.count) < \(minPool)) → ongefilterd")
             }
         }
 
@@ -284,7 +347,7 @@ extension RoonClient {
         let disliked = Set((await feedbackArtistHints()).disliked.map { $0.lowercased() })
         if !disliked.isEmpty {
             let filtered = pool.filter { !disliked.contains(($0.artist ?? "").lowercased()) }
-            if filtered.count >= minPool { pool = filtered }
+            if filtered.count >= minPool { let dropped = pool.count - filtered.count; pool = filtered; trace?.kvIf("dislike-drop", dropped > 0 ? "\(dropped) tracks van \(disliked.count) artiesten" : "") }
         }
 
         // QW3/M1 — rank the pool with the radio engine around the request's CLAP
@@ -293,9 +356,10 @@ extension RoonClient {
         // the analyzer text model aren't available.
         if let sel = await sonicRank(request: request, pool: pool,
                                      adventurousness: adventurousness, byKey: sonicByKey,
-                                     seeds: seeds, relatedArtists: relatedArtists) {
+                                     seeds: seeds, relatedArtists: relatedArtists, trace: trace) {
             return (sel.tracks, survived, sel.reasons)
         }
+        trace?.kv("sonische rangschikking", "NIET beschikbaar → willekeurige volgorde (geen embeddings/analyzer)")
         pool.shuffle()
         return (Array(pool.prefix(400)), survived, [:])
     }
@@ -310,13 +374,21 @@ extension RoonClient {
         request: String, pool: [TrackRecord], adventurousness: Double,
         byKey: [String: DatabaseManager.SonicTrack],
         seeds: [DatabaseManager.SonicTrack] = [],
-        relatedArtists: [String: Double] = [:]
+        relatedArtists: [String: Double] = [:],
+        trace: GenerationTrace? = nil
     ) async -> (tracks: [TrackRecord], reasons: [String: String])? {
-        guard useSonicEmbeddings, !pool.isEmpty, !byKey.isEmpty else { return nil }
+        guard useSonicEmbeddings, !pool.isEmpty, !byKey.isEmpty else {
+            trace?.kv("sonische rangschikking", "uit (embeddings-vlag uit of lege pool)")
+            return nil
+        }
         // CLAP is English-trained; translate the (possibly Dutch) request into a
         // short English "how it should sound" phrase before embedding.
         let phrase = await sonicPhrase(for: request) ?? request
-        guard let queryVec = await requestTextVector(phrase) else { return nil }
+        trace?.kv("klank-frase (CLAP)", "“\(phrase)”")
+        guard let queryVec = await requestTextVector(phrase) else {
+            trace?.kv("tekst-embedding", "MISLUKT (analyzer/text-model onbereikbaar) → fallback")
+            return nil
+        }
 
         let lib = await radioLibrary()
         let fullIndex = await sonicVectorIndex()
@@ -346,12 +418,14 @@ extension RoonClient {
         let poolIds = Set(poolSonic.map(\.id))
         let indexTracks = poolSonic + seeds.filter { !poolIds.contains($0.id) }
 
-        let ranked: [RadioEngine.Result] = await Task.detached {
-            guard let subIndex = VectorIndex(tracks: indexTracks) else { return [] }
-            let floor = nnStats.map { RadioEngine.Options.floor(stats: $0, adventurousness: adv) }
+        let floorValue = nnStats.map { RadioEngine.Options.floor(stats: $0, adventurousness: adv) }
+        trace?.kv("engine-invoer", "\(poolSonic.count) geanalyseerd · \(seeds.count) seeds · taste-vector \(taste != nil ? "ja" : "nee") · related \(relatedArtists.count)")
+        trace?.kvIf("σ-vloer", floorValue.map { String(format: "%.3f", $0) } ?? "")
+        let outcome: (results: [RadioEngine.Result], rankedCount: Int) = await Task.detached {
+            guard let subIndex = VectorIndex(tracks: indexTracks) else { return ([], 0) }
             let opts = RadioEngine.Options(
                 adventurousness: adv, poolLimit: 400, candidateK: indexTracks.count,
-                hardBanDisliked: false, sequence: false, similarityFloor: floor)
+                hardBanDisliked: false, sequence: false, similarityFloor: floorValue)
             let ranked = RadioEngine.rank(seeds: seeds, library: indexTracks, index: subIndex,
                                           options: opts, disliked: dislikedKeys, likedKeys: liked,
                                           knownArtists: known, tasteVector: taste,
@@ -364,8 +438,10 @@ extension RoonClient {
             let hits = ranked.map { VectorIndex.Hit(track: $0.track, score: Float($0.score)) }
             let keptIDs = Set(SonicSelection.dropNearDuplicates(hits, index: subIndex, limit: hits.count)
                 .map(\.track.id))
-            return ranked.filter { keptIDs.contains($0.track.id) }
+            return (ranked.filter { keptIDs.contains($0.track.id) }, ranked.count)
         }.value
+        let ranked = outcome.results
+        trace?.kv("engine-uitvoer", "\(outcome.rankedCount) gerangschikt → \(ranked.count) na near-dup-drop (\(outcome.rankedCount - ranked.count) verwijderd)")
         guard !ranked.isEmpty else { return nil }
 
         // Map back to the ORIGINAL TrackRecords (keep imageKey/year/albumKey).
@@ -379,11 +455,14 @@ extension RoonClient {
             reasons[rec.id] = Self.reasonText(r.reason)
         }
         guard !out.isEmpty else { return nil }
+        let rankedOut = out.count
         // Coverage guard: a partially-analysed library shouldn't shrink the pool
         // to "whatever happens to be analysed" — UNANALYZED tracks trail the
         // ranked ones (the engine's near-dup/MMR drops stay dropped).
         out += pool.filter { t in t.matchKey.flatMap { byKey[$0] } == nil }
-        return (Array(out.prefix(400)), reasons)
+        let final = Array(out.prefix(400))
+        trace?.kv("pool klaar", "\(final.count) (\(rankedOut) sonisch gerangschikt + \(final.count - rankedOut) ongeanalyseerd achteraan)")
+        return (final, reasons)
     }
 
     /// U3 — keep the flow-ordered prefix whose cumulative duration best meets
@@ -510,7 +589,7 @@ extension RoonClient {
     private func curate(
         request: String, target: Int, candidates: [TrackRecord],
         taste: TasteContext, sonic: [String: DatabaseManager.SonicTrack] = [:],
-        config: LLMConfig
+        config: LLMConfig, trace: GenerationTrace? = nil
     ) async throws -> (tracks: [TrackRecord], aiCurated: Bool) {
         // The model sees the top slice (token budget); the assembler tops up from
         // the full ranked pool, so `picks` index into `llmList`.
@@ -555,22 +634,31 @@ extension RoonClient {
             )
         }
         let floor = Swift.max(3, target / 3)
+        trace?.kv("aan model getoond", "\(llmList.count) tracks (van \(candidates.count)) · doel \(target) · ondergrens \(floor)")
 
         // First attempt (throws on a real LLM failure → surfaces a Dutch error).
         var picks = resolve(try await LLMClient.shared.complete(
             system: system, user: user, config: config, temperature: 0.3, maxTokens: 512))
-        if picks.count >= floor { return (assemble(picks), true) }
+        trace?.kv("1e poging", "\(picks.count) geldige picks")
+        if picks.count >= floor {
+            let out = assemble(picks); trace?.kv("assemblage", "\(out.count) tracks (AI-gecureerd)"); return (out, true)
+        }
 
         // Under-delivered (chatty/short reply) — one retry, slightly warmer.
         if let retry = try? await LLMClient.shared.complete(
             system: system, user: user, config: config, temperature: 0.5, maxTokens: 512) {
             let retryPicks = resolve(retry)
-            if retryPicks.count >= floor { return (assemble(retryPicks), true) }
+            trace?.kv("2e poging (warmer)", "\(retryPicks.count) picks")
+            if retryPicks.count >= floor {
+                let out = assemble(retryPicks); trace?.kv("assemblage", "\(out.count) tracks (AI-gecureerd, retry)"); return (out, true)
+            }
             if retryPicks.count > picks.count { picks = retryPicks }
         }
         // Honest top-up: assemble from whatever the LLM gave + the ranked pool, but
         // flag it so the UI doesn't present a fallback as an AI curation.
-        return (assemble(picks), false)
+        let out = assemble(picks)
+        trace?.kv("assemblage", "\(out.count) tracks — LLM ONDER-leverde (\(picks.count) < \(floor)), aangevuld uit de pool")
+        return (out, false)
     }
 
     // MARK: - Naming
@@ -584,7 +672,7 @@ extension RoonClient {
         request: String, tracks: [TrackRecord],
         sonic: [String: DatabaseManager.SonicTrack] = [:],
         calibration: TitleGrounding.Calibration? = nil,
-        config: LLMConfig
+        config: LLMConfig, trace: GenerationTrace? = nil
     ) async -> (title: String, description: String?) {
         let sample = tracks.prefix(30).map { t -> String in
             var s = t.title; if let a = t.artist { s += " — \(a)" }; return s
@@ -593,6 +681,8 @@ extension RoonClient {
         let stats = sonicSel.isEmpty ? nil : TitleGrounding.SelectionStats.compute(sonicSel)
         let profile = sonicSel.isEmpty ? ""
             : Self.sonicProfileSummary(sonicSel, includeAttributes: true, calibration: calibration)
+        trace?.section("6 · Titel (LLM, gegrond)")
+        trace?.kvIf("gemeten profiel", profile)
 
         let system = """
         Je geeft een Nederlandse muziekplaylist een naam en korte beschrijving. \
@@ -619,16 +709,22 @@ extension RoonClient {
             return (Self.clampTitle(rawTitle, max: 45), (desc?.isEmpty == false) ? desc : nil)
         }
 
-        guard let first = await attempt(user) else { return (Self.fallbackTitle(request), nil) }
-        guard let stats else { return first }
+        guard let first = await attempt(user) else {
+            trace?.kv("titel", "LLM gaf niets → heuristische fallback")
+            return (Self.fallbackTitle(request), nil)
+        }
+        guard let stats else { trace?.kv("titel", "“\(first.title)” (geen meting om te toetsen)"); return first }
         let bad = TitleGrounding.violations(title: first.title, stats: stats, calibration: calibration)
-        guard !bad.isEmpty else { return first }
+        guard !bad.isEmpty else { trace?.kv("titel", "“\(first.title)” (gegrond ✓)"); return first }
+        trace?.kv("titel afgekeurd", "“\(first.title)” — spreekt meting tegen: \(bad.joined(separator: "; "))")
         let corrective = user + "\n\nLET OP — je eerdere titel “\(first.title)” bevatte claims die de metingen tegenspreken: \(bad.joined(separator: "; ")). Maak een nieuwe titel ZONDER deze woorden, trouw aan het gemeten profiel."
         if let retry = await attempt(corrective),
            TitleGrounding.violations(title: retry.title, stats: stats, calibration: calibration).isEmpty {
+            trace?.kv("titel na retry", "“\(retry.title)” (gegrond ✓)")
             return retry
         }
         // Still contradicting the audio → the honest, claim-free fallback.
+        trace?.kv("titel", "retry faalde → heuristische fallback")
         return (Self.fallbackTitle(request), first.description)
     }
 

@@ -171,6 +171,34 @@ final class AIGenerationHelpersTests: XCTestCase {
         XCTAssertEqual(RoonClient.suggestedArc(for: .init(moods: ["party"], activities: ["focus"])), .smooth)
     }
 
+    // MARK: Generate — diagnostic trace
+
+    func testGenerationTraceListCapsAndMarksOverflow() {
+        XCTAssertEqual(GenerationTrace.list([]), "—")
+        XCTAssertEqual(GenerationTrace.list(["a", "b"]), "a, b")
+        let many = (1...15).map { "x\($0)" }
+        XCTAssertEqual(GenerationTrace.list(many, cap: 3), "x1, x2, x3 … (+12)")
+    }
+
+    func testGenerationTraceRendersSectionsAndLines() {
+        let t = GenerationTrace()
+        t.section("Verzoek")
+        t.kv("prompt", "“chill jazz”")
+        t.kvIf("leeg", "")          // skipped
+        t.kvIf("wel", "x")
+        let out = t.render()
+        XCTAssertTrue(out.contains("Verzoek"), out)
+        XCTAssertTrue(out.contains("prompt: “chill jazz”"), out)
+        XCTAssertFalse(out.contains("leeg:"), "empty kvIf is omitted")
+        XCTAssertTrue(out.contains("wel: x"), out)
+    }
+
+    func testArcLabel() {
+        XCTAssertEqual(RoonClient.arcLabel(.smooth), "vloeiend")
+        XCTAssertEqual(RoonClient.arcLabel(.gentleRise), "oplopend")
+        XCTAssertEqual(RoonClient.arcLabel(.peak), "piek")
+    }
+
     // MARK: Generate — reason copy
 
     func testReasonTextRewordsSimilarForRequests() {

@@ -1,6 +1,11 @@
 import SwiftUI
 import Observation
 import RoonSageCore
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 // MARK: - View model
 
@@ -454,6 +459,31 @@ public struct GenerateView: View {
 
         Section("Afspelen") {
             playRow
+        }
+
+        if let trace = r.trace, !trace.isEmpty {
+            Section {
+                DisclosureGroup("Diagnostiek") {
+                    Text(trace)
+                        .font(.system(.caption2, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 2)
+                    Button {
+                        #if os(macOS)
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(trace, forType: .string)
+                        #else
+                        UIPasteboard.general.string = trace
+                        #endif
+                        Haptics.tap()
+                    } label: {
+                        Label("Kopieer diagnostiek", systemImage: "doc.on.doc").font(.caption)
+                    }
+                }
+            } footer: {
+                Text("Laat zien hoe deze playlist is opgebouwd — ook terug te vinden in Instellingen → Logboek.")
+            }
         }
 
         Section("Tracks (\(model.tracks.count))") {

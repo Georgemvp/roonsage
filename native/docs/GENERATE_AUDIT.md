@@ -79,6 +79,12 @@ Ontdek Wekelijks al voedt — het patroon `RadioEngine.rank → RadioSequencer.o
 ## Status
 - 2026-07-07: QW1–QW5, M1, M2, U1, U4 (batch 1: commits a5e1244 + c956ceb).
 - 2026-07-07: U2 (+fan-graph +σ-vloer), U3, M3-auto-arc (batch 2).
+- 2026-07-07: **Diagnostiek** — `GenerationTrace` legt elke fase vast (verzoek,
+  seeds, geanalyseerde filters, poolgroottes per verbreding, gate/relax,
+  klank-frase, σ-vloer, engine-in/uit + near-dup-drops, LLM-picks/retry,
+  duur-trim, titel-grounding, eindlijst). Naar de log (`.llm`, deelbaar via
+  Instellingen → Logboek) én in-app via een "Diagnostiek"-sectie onder het
+  resultaat. Puur additief — verandert de output niet.
 - 2026-07-07: U2-picker-UX — de seed-pickers pinnen nu een "Favorieten"-sectie
   (liked + vaak-gespeeld) bovenaan i.p.v. één alfabetische lijst van de hele
   bibliotheek; `.searchable` doorzoekt het geheel. `RadioFacetOptions` kreeg
