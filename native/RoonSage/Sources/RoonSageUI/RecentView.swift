@@ -11,21 +11,34 @@ struct RecentView: View {
     @Environment(RoonClient.self) private var client
 
     private enum Pivot: String, CaseIterable, Identifiable {
-        case tracks, artists, albums
+        case tracks, artists, albums, onThisDay, timeMachine
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .tracks:  LS("recent.pivot.tracks")
-            case .artists: LS("recent.pivot.artists")
-            case .albums:  LS("recent.pivot.albums")
+            case .tracks:      LS("recent.pivot.tracks")
+            case .artists:     LS("recent.pivot.artists")
+            case .albums:      LS("recent.pivot.albums")
+            case .onThisDay:   LS("recent.pivot.onThisDay")
+            case .timeMachine: LS("recent.pivot.timeMachine")
             }
         }
     }
 
     @State private var recent: [DatabaseManager.ListenEntry] = []
+    @State private var onThisDay: [DatabaseManager.OnThisDayEntry] = []
+    @State private var timeMachine: [DatabaseManager.TastePeriod] = []
     @State private var pivot: Pivot = .tracks
     @State private var loaded = false
     @State private var busy: String?
+
+    /// Empty-state is per-pivot: "op deze dag" can be empty while recent isn't.
+    private var currentIsEmpty: Bool {
+        switch pivot {
+        case .tracks, .artists, .albums: recent.isEmpty
+        case .onThisDay:                 onThisDay.isEmpty
+        case .timeMachine:               timeMachine.isEmpty
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,7 +48,7 @@ struct RecentView: View {
             .pickerStyle(.segmented)
             .padding(Spacing.md)
 
-            AsyncStateView(isLoading: !loaded, isEmpty: recent.isEmpty) {
+            AsyncStateView(isLoading: !loaded, isEmpty: currentIsEmpty) {
                 content
             } empty: {
                 ContentUnavailableView {
@@ -69,6 +82,23 @@ struct RecentView: View {
         case .albums:
             List(distinctAlbums, id: \.id) { a in
                 row(kind: "album", title: a.album, subtitle: a.artist, played: nil, artist: a.artist, album: nil)
+            }
+        case .onThisDay:
+            List(Array(onThisDay.enumerated()), id: \.offset) { _, e in
+                row(kind: "track", title: e.title,
+                    subtitle: [e.artist, e.album].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
+                    played: e.playedAt, artist: e.artist, album: e.album)
+            }
+        case .timeMachine:
+            List {
+                ForEach(timeMachine, id: \.year) { period in
+                    Section("\(String(period.year)) · \(period.totalPlays)×") {
+                        ForEach(period.topArtists, id: \.artist) { a in
+                            row(kind: "artist", title: a.artist, subtitle: "\(a.count)×",
+                                played: nil, artist: a.artist, album: nil)
+                        }
+                    }
+                }
             }
         }
     }
@@ -133,6 +163,8 @@ struct RecentView: View {
         if let snap = await client.tasteProfile(recentLimit: 200) {
             recent = snap.recent
         }
+        onThisDay = await client.onThisDay()
+        timeMachine = await client.tasteTimeMachine()
         loaded = true
     }
 

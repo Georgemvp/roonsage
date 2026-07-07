@@ -52,6 +52,8 @@
 "recent.pivot.tracks"  = "Tracks";
 "recent.pivot.artists" = "Artists";
 "recent.pivot.albums"  = "Albums";
+"recent.pivot.onThisDay"   = "On this day";
+"recent.pivot.timeMachine" = "Time machine";
 "recent.empty.title"   = "Nothing played yet";
 "recent.empty.desc"    = "Your recent history appears here once you start playing music.";
 "recent.pivotLabel"    = "View";

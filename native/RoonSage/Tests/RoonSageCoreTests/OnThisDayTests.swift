@@ -55,6 +55,19 @@ final class OnThisDayTests: XCTestCase {
         XCTAssertFalse(limited.contains { $0.title == "cur" }, "current year is excluded")
     }
 
+    /// Guards the thin-client fetch: the real /on-this-day JSON must decode into
+    /// the shared struct (captured verbatim from the live server).
+    func testDecodesLiveServerJSON() throws {
+        let json = Data("""
+        [{"year":2025,"playedAt":"2025-07-07T18:07:40Z","title":"Postcards from Paraguay","album":"Mark Knopfler Live at Amsterdam","artist":"Mark Knopfler"}]
+        """.utf8)
+        let entries = try JSONDecoder().decode([DatabaseManager.OnThisDayEntry].self, from: json)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].year, 2025)
+        XCTAssertEqual(entries[0].artist, "Mark Knopfler")
+        XCTAssertEqual(entries[0].title, "Postcards from Paraguay")
+    }
+
     func testEmptyWhenNothingMatches() async throws {
         let now = ISO8601DateFormatter().date(from: "2026-01-01T10:00:00Z")!
         try await db.appendImportedListens([

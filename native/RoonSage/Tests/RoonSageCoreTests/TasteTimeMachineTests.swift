@@ -47,6 +47,20 @@ final class TasteTimeMachineTests: XCTestCase {
         XCTAssertEqual(periods.last?.topArtists.first?.artist, "Gamma")
     }
 
+    /// Guards the thin-client fetch: the real /taste-timemachine JSON must decode
+    /// into the shared struct (captured verbatim from the live server).
+    func testDecodesLiveServerJSON() throws {
+        let json = Data("""
+        [{"year":2026,"totalPlays":4662,"topArtists":[{"count":274,"artist":"Dire Straits"},{"count":219,"artist":"Mark Knopfler"}]}]
+        """.utf8)
+        let periods = try JSONDecoder().decode([DatabaseManager.TastePeriod].self, from: json)
+        XCTAssertEqual(periods.count, 1)
+        XCTAssertEqual(periods[0].year, 2026)
+        XCTAssertEqual(periods[0].totalPlays, 4662)
+        XCTAssertEqual(periods[0].topArtists.first?.artist, "Dire Straits")
+        XCTAssertEqual(periods[0].topArtists.first?.count, 274)
+    }
+
     func testTopPerYearCapIsApplied() async throws {
         var seed: [DatabaseManager.ImportedListen] = []
         for (i, name) in ["A", "B", "C", "D"].enumerated() {

@@ -104,6 +104,39 @@ extension RoonClient {
         return try? await db.yearInReview(year: year)
     }
 
+    /// "Op deze dag": plays from today's month-day in earlier years. Thin clients
+    /// pull it from the server-of-record; the server reads its own DB.
+    public func onThisDay() async -> [DatabaseManager.OnThisDayEntry] {
+        if isRemote {
+            guard let base = remoteBaseURL, let url = URL(string: "\(base)/on-this-day") else { return [] }
+            var req = URLRequest(url: url); req.timeoutInterval = 8
+            authorizeShareRequest(&req)
+            guard let (data, resp) = try? await URLSession.shared.data(for: req),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let entries = try? JSONDecoder().decode([DatabaseManager.OnThisDayEntry].self, from: data)
+            else { return [] }
+            return entries
+        }
+        guard let db = database else { return [] }
+        return (try? await db.onThisDay()) ?? []
+    }
+
+    /// "Taste time machine": top artists per year. Same dual-mode fetch.
+    public func tasteTimeMachine() async -> [DatabaseManager.TastePeriod] {
+        if isRemote {
+            guard let base = remoteBaseURL, let url = URL(string: "\(base)/taste-timemachine") else { return [] }
+            var req = URLRequest(url: url); req.timeoutInterval = 8
+            authorizeShareRequest(&req)
+            guard let (data, resp) = try? await URLSession.shared.data(for: req),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let periods = try? JSONDecoder().decode([DatabaseManager.TastePeriod].self, from: data)
+            else { return [] }
+            return periods
+        }
+        guard let db = database else { return [] }
+        return (try? await db.tasteTimeMachine()) ?? []
+    }
+
     public func imageURL(forKey key: String, size: Int = 200) -> URL? {
         guard let host = coreHost else { return nil }
         return URL(string: "http://\(host):\(corePort)/api/image/\(key)?width=\(size)&height=\(size)&scale=fit")

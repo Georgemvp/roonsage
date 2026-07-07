@@ -52,6 +52,8 @@
 "recent.pivot.tracks"  = "Nummers";
 "recent.pivot.artists" = "Artiesten";
 "recent.pivot.albums"  = "Albums";
+"recent.pivot.onThisDay"   = "Op deze dag";
+"recent.pivot.timeMachine" = "Tijdmachine";
 "recent.empty.title"   = "Nog niks gespeeld";
 "recent.empty.desc"    = "Zodra je muziek afspeelt verschijnt hier je recente geschiedenis.";
 "recent.pivotLabel"    = "Weergave";
