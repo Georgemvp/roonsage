@@ -115,17 +115,22 @@ public struct LibraryView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            if client.isSyncing { SyncProgressBanner() }
-
-            modePicker
-
-            switch viewMode {
-            case .overview: overviewContent
-            case .tracks:  tracksContent
-            case .albums:  albumsContent
-            case .artists: artistsContent
+        // The mode's scroll view is the ROOT content so it inherits the tab's bottom
+        // safe-area inset (the shared NowPlayingBar) — a List nested in a VStack does
+        // not, which left the mini-player floating over the last rows. The header
+        // (sync banner + picker + track tag chips) and the selection bar ride in
+        // safe-area insets instead, so both stay clear of the content.
+        modeContent
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                if client.isSyncing { SyncProgressBanner() }
+                modePicker
+                if viewMode == .tracks, !tags.isEmpty { tagChips }
             }
+            .background(.bar)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if viewMode == .tracks, !selection.isEmpty { selectionBar }
         }
         .animation(Motion.quick, value: selection.isEmpty)
         .navigationDestination(for: DatabaseManager.AlbumResult.self) { AlbumDetailView(album: $0) }
@@ -255,10 +260,20 @@ public struct LibraryView: View {
         }
     }
 
+    /// The active mode's scroll view — kept as the view's root content (chrome lives
+    /// in safe-area insets) so it inherits the tab's NowPlayingBar bottom inset.
+    @ViewBuilder
+    private var modeContent: some View {
+        switch viewMode {
+        case .overview: overviewContent
+        case .tracks:  tracksContent
+        case .albums:  albumsContent
+        case .artists: artistsContent
+        }
+    }
+
     @ViewBuilder
     private var tracksContent: some View {
-        if !tags.isEmpty { tagChips }
-
         if isLoadingTracks && tracks.isEmpty {
             SkeletonRows()
         } else if tracks.isEmpty && !client.isSyncing {
@@ -272,7 +287,6 @@ public struct LibraryView: View {
                 .tag(track.id)
             }
             .refreshable { await refresh() }
-            if !selection.isEmpty { selectionBar }
         }
     }
 
