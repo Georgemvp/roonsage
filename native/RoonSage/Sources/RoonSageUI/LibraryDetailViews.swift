@@ -28,7 +28,7 @@ struct AlbumDetailView: View {
                 ProgressView().frame(maxWidth: .infinity).listRowSeparator(.hidden)
             } else {
                 ForEach(tracks) { track in
-                    LibraryTrackRow(track: track, canPlay: client.selectedZone != nil) {
+                    LibraryTrackRow(track: track, canPlay: client.hasActiveOutput) {
                         play([track])
                     }
                     .contextMenu {
@@ -133,9 +133,11 @@ struct AlbumDetailView: View {
     }
 
     private func play(_ rows: [DatabaseManager.LibraryTrackRow]) {
-        guard let zone = client.selectedZone, !rows.isEmpty else { return }
+        guard !rows.isEmpty else { return }
         Haptics.tap()
-        Task { await client.curateTracks(rows.map(record), zoneID: zone.id) }
+        // Per-row "play now" follows the active output (local or Roon); the album
+        // header's "Speel alles" stays Roon beside its own on-device button.
+        Task { await client.playToActiveOutput(rows.map(record)) }
     }
 
     private func queue(_ rows: [DatabaseManager.LibraryTrackRow]) {
@@ -269,7 +271,7 @@ struct ArtistDetailView: View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             Text("Meest gespeeld").font(.headline)
             ForEach(topPlayed) { track in
-                LibraryTrackRow(track: track, canPlay: client.selectedZone != nil) {
+                LibraryTrackRow(track: track, canPlay: client.hasActiveOutput) {
                     playRows([track])
                 }
                 .contextMenu { PlayActionsMenu(fetch: { [track.asTrackRecord] }, trackRadioSeed: track.asTrackRecord) }
@@ -332,9 +334,9 @@ struct ArtistDetailView: View {
     }
 
     private func playRows(_ rows: [DatabaseManager.LibraryTrackRow]) {
-        guard let zone = client.selectedZone, !rows.isEmpty else { return }
+        guard !rows.isEmpty else { return }
         Haptics.tap()
-        Task { await client.curateTracks(rows.map(rowRecord), zoneID: zone.id) }
+        Task { await client.playToActiveOutput(rows.map(rowRecord)) }
     }
 
     private func playArtist() {

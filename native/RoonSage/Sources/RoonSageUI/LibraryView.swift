@@ -225,7 +225,7 @@ public struct LibraryView: View {
             emptyState
         } else {
             List(displayTracks, selection: $selection) { track in
-                LibraryTrackRow(track: track, canPlay: client.selectedZone != nil) {
+                LibraryTrackRow(track: track, canPlay: client.hasActiveOutput) {
                     play([asRecord(track)])
                 }
                 .contextMenu { rowMenu(track) }
@@ -317,7 +317,7 @@ public struct LibraryView: View {
             Text("\(selection.count) geselecteerd").font(.callout).foregroundStyle(.secondary)
             Spacer()
             Button { play(selectedRecords()) } label: { Label("Speel", systemImage: "play.fill") }
-                .disabled(client.selectedZone == nil)
+                .disabled(!client.hasActiveOutput)
             Button { queue(selectedRecords()) } label: { Label("Wachtrij", systemImage: "text.append") }
                 .disabled(client.selectedZone == nil)
             Button { showSaveSheet = true } label: { Label("Bewaar", systemImage: "plus.rectangle.on.folder") }
@@ -363,9 +363,12 @@ public struct LibraryView: View {
     }
 
     private func play(_ tracks: [TrackRecord]) {
-        guard let zone = client.selectedZone, !tracks.isEmpty else { return }
+        guard !tracks.isEmpty else { return }
         Haptics.tap()
-        Task { await client.curateTracks(tracks, zoneID: zone.id) }
+        // Follow the active output: on-device when "dit apparaat" is chosen, else
+        // the selected Roon zone (identical to the old curateTracks path). Queue +
+        // Sonic Radio stay zone-only — there's no local equivalent.
+        Task { await client.playToActiveOutput(tracks) }
     }
 
     private func queue(_ tracks: [TrackRecord], next: Bool = false) {
@@ -575,7 +578,7 @@ struct LibraryTrackRow: View {
                 .buttonStyle(.borderless)
                 .disabled(!canPlay)
                 .accessibilityLabel("Speel nu")
-                .help(canPlay ? "Speel nu" : "Kies eerst een zone")
+                .help(canPlay ? "Speel nu" : "Kies eerst een zone of apparaat")
         }
         .padding(.vertical, 2)
     }
