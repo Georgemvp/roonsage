@@ -171,6 +171,49 @@ final class AIGenerationHelpersTests: XCTestCase {
         XCTAssertEqual(RoonClient.suggestedArc(for: .init(moods: ["party"], activities: ["focus"])), .smooth)
     }
 
+    // MARK: Generate — server-side wire contract (POST /generate)
+
+    func testArcWireRoundTrips() {
+        for arc in [RadioSequencer.Arc.smooth, .gentleRise, .peak] {
+            XCTAssertEqual(RoonClient.arc(fromWire: RoonClient.arcWireKey(arc)), arc)
+        }
+        XCTAssertNil(RoonClient.arc(fromWire: nil), "nil wire key = auto arc")
+        XCTAssertNil(RoonClient.arc(fromWire: "bogus"))
+    }
+
+    func testGenerateRequestDTORoundTrips() throws {
+        let dto = RoonClient.GenerateRequestDTO(
+            request: "chill jazz", target: 20, adventurousness: 0.4, arc: "peak",
+            targetMinutes: 60, seedArtists: ["Bill Evans"], seedTrackKeys: ["k1", "k2"])
+        let back = try JSONDecoder().decode(RoonClient.GenerateRequestDTO.self,
+                                            from: JSONEncoder().encode(dto))
+        XCTAssertEqual(back.request, "chill jazz")
+        XCTAssertEqual(back.target, 20)
+        XCTAssertEqual(back.arc, "peak")
+        XCTAssertEqual(back.targetMinutes, 60)
+        XCTAssertEqual(back.seedArtists, ["Bill Evans"])
+        XCTAssertEqual(back.seedTrackKeys, ["k1", "k2"])
+    }
+
+    func testGenerationResultRoundTripsOverTheWire() throws {
+        let result = RoonClient.GenerationResult(
+            tracks: [TrackRecord(id: "r1", title: "T1", artist: "A", matchKey: "k1")],
+            filters: RoonClient.RequestFilters(genres: ["Jazz"], moods: ["relaxed"]),
+            poolSize: 172, title: "Regen op het raam", description: "Rustige jazz.",
+            droppedNote: nil, aiCurated: true, reasonByTrackID: ["r1": "Sluit aan bij je verzoek"],
+            trace: "╭── AI-playlist generatie ──")
+        let back = try JSONDecoder().decode(RoonClient.GenerationResult.self,
+                                            from: JSONEncoder().encode(result))
+        XCTAssertEqual(back.tracks.map(\.id), ["r1"])
+        XCTAssertEqual(back.filters.genres, ["Jazz"])
+        XCTAssertEqual(back.filters.moods, ["relaxed"])
+        XCTAssertEqual(back.poolSize, 172)
+        XCTAssertEqual(back.title, "Regen op het raam")
+        XCTAssertTrue(back.aiCurated)
+        XCTAssertEqual(back.reasonByTrackID["r1"], "Sluit aan bij je verzoek")
+        XCTAssertEqual(back.trace, "╭── AI-playlist generatie ──")
+    }
+
     // MARK: Generate — diagnostic trace
 
     func testGenerationTraceListCapsAndMarksOverflow() {

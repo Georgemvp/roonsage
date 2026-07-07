@@ -422,7 +422,7 @@ extension RoonClient {
 
     /// The analysed scope of a free-text request: which library genres / mood
     /// tags / decades / keywords it maps to. Shared by Generate, Ask and Recommend.
-    public struct RequestFilters: Sendable {
+    public struct RequestFilters: Sendable, Codable {
         public var genres: [String]
         public var decades: [Int]
         public var keywords: String

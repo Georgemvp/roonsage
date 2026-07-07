@@ -409,6 +409,11 @@ public final class LibraryShareServer: @unchecked Sendable {
             return ok ? ("200 OK", Data("{\"ok\":true}".utf8), "application/json")
                       : ("400 Bad Request", Data("bad command".utf8), "text/plain")
         }
+        // Server-side AI playlist generation: runs the full pipeline on the
+        // server-of-record and logs its trace centrally. Token-gated (non-GET).
+        if method == "POST", path.hasPrefix("/generate") {
+            return await RoonClient.shared.generatePlaylistData(body)
+        }
         if method == "POST", path.hasPrefix("/track-feedback") {
             guard let fb = try? JSONDecoder().decode(TrackFeedback.self, from: body), !fb.matchKey.isEmpty else {
                 return ("400 Bad Request", Data("bad feedback".utf8), "text/plain")

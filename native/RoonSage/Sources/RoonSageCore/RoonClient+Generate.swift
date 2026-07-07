@@ -11,7 +11,7 @@ extension RoonClient {
     /// to present it honestly (the scope that actually survived broadening, an
     /// AI title/description, and whether the LLM really curated it vs a top-up
     /// fallback when the model under-delivered).
-    public struct GenerationResult: Sendable {
+    public struct GenerationResult: Sendable, Codable {
         public var tracks: [TrackRecord]
         public var filters: RequestFilters     // the scope that survived broadening
         public var poolSize: Int
@@ -56,6 +56,31 @@ extension RoonClient {
         }
     }
 
+    /// Wire request for server-side generation (`POST /generate`). The client
+    /// sends the user's raw parameters; the server runs the full local pipeline.
+    public struct GenerateRequestDTO: Codable, Sendable {
+        public var request: String
+        public var target: Int
+        public var adventurousness: Double
+        public var arc: String?            // RadioSequencer.Arc wire key, nil = auto
+        public var targetMinutes: Int?
+        public var seedArtists: [String]
+        public var seedTrackKeys: [String]
+        public init(request: String, target: Int, adventurousness: Double, arc: String?,
+                    targetMinutes: Int?, seedArtists: [String], seedTrackKeys: [String]) {
+            self.request = request; self.target = target; self.adventurousness = adventurousness
+            self.arc = arc; self.targetMinutes = targetMinutes
+            self.seedArtists = seedArtists; self.seedTrackKeys = seedTrackKeys
+        }
+    }
+
+    /// A generation that failed on the server — carries the server's (Dutch)
+    /// error message so the UI shows the same copy as a local failure would.
+    public struct RemoteGenerationError: LocalizedError {
+        public let message: String
+        public var errorDescription: String? { message }
+    }
+
     /// Taste signals folded into curation: artists the listener favours / likes /
     /// dislikes, and identities recently generated (anti-repetition).
     public struct TasteContext: Sendable {
@@ -84,6 +109,19 @@ extension RoonClient {
         seedTrackKeys: [String] = [],
         onProgress: ((GenerationPhase) -> Void)? = nil
     ) async throws -> GenerationResult {
+        // Thin clients run generation on the server-of-record (the mini): it has
+        // the authoritative library + feedback and a local LLM, and — the reason
+        // this exists — it logs the full trace centrally. Falls back to the local
+        // pipeline below when the server is too old to know /generate (404).
+        if isRemote {
+            onProgress?(.analyzing)
+            let dto = GenerateRequestDTO(
+                request: request, target: target, adventurousness: adventurousness,
+                arc: arc.map(Self.arcWireKey), targetMinutes: targetMinutes,
+                seedArtists: seedArtists, seedTrackKeys: seedTrackKeys)
+            if let result = try await remoteGeneratePlaylist(dto) { return result }
+            // else: server has no /generate → fall through to local generation.
+        }
         let config = effectiveLLMConfig()
         // A duration target curates extra tracks so the post-trim set still hits
         // the minute budget (avg track ≈ 3.5 min, +4 slack); trimming happens
@@ -230,6 +268,89 @@ extension RoonClient {
         case .smooth:     "vloeiend"
         case .gentleRise: "oplopend"
         case .peak:       "piek"
+        }
+    }
+
+    /// Stable wire key for an energy arc (server ⇄ client).
+    nonisolated static func arcWireKey(_ arc: RadioSequencer.Arc) -> String {
+        switch arc {
+        case .smooth:     "smooth"
+        case .gentleRise: "gentleRise"
+        case .peak:       "peak"
+        }
+    }
+
+    nonisolated static func arc(fromWire key: String?) -> RadioSequencer.Arc? {
+        switch key {
+        case "smooth":     .smooth
+        case "gentleRise": .gentleRise
+        case "peak":       .peak
+        default:           nil
+        }
+    }
+
+    // MARK: - Server-side generation (POST /generate)
+
+    /// Server handler: decode the wire request, run the LOCAL pipeline (this is
+    /// `RoonClient.shared` on the mini, `.direct` mode, so `generatePlaylist`
+    /// takes the local branch — no recursion), and encode the result. The trace
+    /// is logged on the mini as a side effect of the run. Returns the full HTTP
+    /// (status, body, content-type) triple so the share-server just forwards it.
+    func generatePlaylistData(_ body: Data) async -> (String, Data, String) {
+        guard let dto = try? JSONDecoder().decode(GenerateRequestDTO.self, from: body) else {
+            return ("400 Bad Request", Data("bad generate request".utf8), "text/plain")
+        }
+        do {
+            let result = try await generatePlaylist(
+                request: dto.request, target: dto.target,
+                adventurousness: dto.adventurousness, arc: Self.arc(fromWire: dto.arc),
+                targetMinutes: dto.targetMinutes,
+                seedArtists: dto.seedArtists, seedTrackKeys: dto.seedTrackKeys)
+            guard let data = try? JSONEncoder().encode(result) else {
+                return ("500 Internal Server Error", Data("encode failed".utf8), "text/plain")
+            }
+            return ("200 OK", data, "application/json")
+        } catch is CancellationError {
+            return ("499 Client Closed Request", Data("cancelled".utf8), "text/plain")
+        } catch {
+            // Surface the Dutch LocalizedError copy so the client shows the same
+            // message a local failure would.
+            let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return ("422 Unprocessable Entity", Data(msg.utf8), "text/plain")
+        }
+    }
+
+    /// Client → server-of-record: POST the request to `/generate` and decode the
+    /// result (with its trace). Returns nil ONLY when the server doesn't know the
+    /// endpoint (404) so the caller falls back to local generation; throws a
+    /// `RemoteGenerationError` (Dutch) for a real server-side failure, and rethrows
+    /// transport errors.
+    private func remoteGeneratePlaylist(_ dto: GenerateRequestDTO) async throws -> GenerationResult? {
+        guard let base = remoteBaseURL, let url = URL(string: "\(base)/generate") else {
+            throw RemoteGenerationError(message: "Geen verbinding met de RoonSage-server.")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONEncoder().encode(dto)
+        authorizeShareRequest(&req)
+        req.timeoutInterval = 180   // LLM curation + naming can take a while
+        let data: Data, resp: URLResponse
+        do { (data, resp) = try await URLSession.shared.data(for: req) }
+        catch { throw RemoteGenerationError(message: "Server onbereikbaar — probeer opnieuw.") }
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        switch code {
+        case 200:
+            guard let result = try? JSONDecoder().decode(GenerationResult.self, from: data) else {
+                throw RemoteGenerationError(message: "Kon het serverantwoord niet lezen.")
+            }
+            return result
+        case 404:
+            return nil   // old server without /generate → caller runs locally
+        default:
+            let msg = String(data: data, encoding: .utf8).flatMap { $0.isEmpty ? nil : $0 }
+                ?? "Genereren mislukt op de server (\(code))."
+            throw RemoteGenerationError(message: msg)
         }
     }
 

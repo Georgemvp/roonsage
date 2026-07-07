@@ -76,6 +76,18 @@ Ontdek Wekelijks al voedt — het patroon `RadioEngine.rank → RadioSequencer.o
   engine-ranking → LLM-picks → deterministische assemblage → flow-sequencing
   ís de hybride. De veilige structurele slice (auto-arc) is wél gedaan.
 
+## Server-side generatie (POST /generate)
+De hele pijplijn draait client-side; alleen de LLM-inferentie (mini's Ollama) en
+`/text-embed` zaten al op de mini. Daardoor stond de diagnostiek-trace op het
+client-toestel, niet centraal. `POST /generate` op de share-server (:5767) draait
+`generatePlaylist` nu op de **server-of-record** (mini): autoritatieve
+library+feedback, lokale LLM, en de **trace wordt centraal gelogd** (mini's
+`roonsage.log`, categorie `.llm`). Thin clients (`isRemote`) POST'en hun ruwe
+parameters (`GenerateRequestDTO`) en decoderen `GenerationResult` (nu `Codable`,
+inclusief `trace`) — met **fallback naar lokaal bij 404** (oude server). Token-
+gated (non-GET). De server gebruikt zíjn eigen LLM-config (voor Ollama-users
+identiek). VEREIST analyzer-deploy om te werken.
+
 ## Status
 - 2026-07-07: QW1–QW5, M1, M2, U1, U4 (batch 1: commits a5e1244 + c956ceb).
 - 2026-07-07: U2 (+fan-graph +σ-vloer), U3, M3-auto-arc (batch 2).
