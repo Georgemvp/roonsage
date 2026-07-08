@@ -58,7 +58,7 @@ final class DatasetProducerTests: XCTestCase {
             libraryAlbumKeys: ["dave koz|saxophonic"])   // owned → dropped
         let out = await producer.discover(seeds: seeds, context: ctx)
 
-        XCTAssertEqual(out.count, 3, "capped at perProducerLimit")
+        XCTAssertEqual(out.count, 3, "3 unique candidates survive filtering (owned/disliked/dup dropped), well under the cap")
         let artists = Set(out.map(\.artist))
         XCTAssertFalse(artists.contains("Bob Moses"), "disliked artist must be filtered")
         XCTAssertFalse(out.contains { $0.artist == "Dave Koz" && $0.album == "Saxophonic" },
@@ -84,6 +84,19 @@ final class DatasetProducerTests: XCTestCase {
         let fetched = try XCTUnwrap(DatasetProducer.fetchCandidates(path: path, cap: DatasetProducer.fetchCap))
         XCTAssertEqual(fetched.count, 1_000, "no premature truncation below the full candidate pool")
         XCTAssertTrue(fetched.contains { $0.artist == "Artist 1000" }, "the lowest-fans (tail) row must still be reachable")
+    }
+
+    func testDiscoverCapsAtOwnMaxCandidatesNotContextLimit() async throws {
+        // DatasetProducer.maxCandidates (120) is its own budget, independent of
+        // context.perProducerLimit — a curated, zero-network-cost source earns a
+        // bigger contribution than the shared per-producer default.
+        let rows = (1...200).map { i in (artist: "Artist \(i)", album: "Album \(i)", fans: 200 - i) }
+        let path = try makeSidecar(rows)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let ctx = context(sidecarPath: path)   // perProducerLimit: 3 in the fixture context
+        let out = await DatasetProducer().discover(seeds: DiscoverySeeds(), context: ctx)
+        XCTAssertEqual(out.count, DatasetProducer.maxCandidates, "caps at the producer's own budget, ignoring the small context limit")
     }
 
     func testMalformedSidecarYieldsNothing() async throws {

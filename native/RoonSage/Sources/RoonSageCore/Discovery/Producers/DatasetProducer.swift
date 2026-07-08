@@ -27,6 +27,16 @@ public struct DatasetProducer: DiscoveryProducer {
     /// if a future distill pass ever produced a larger table.
     static let fetchCap = 20_000
 
+    /// This producer's own per-run contribution budget — deliberately larger than
+    /// `context.perProducerLimit` (40), which every producer shares regardless of
+    /// cost/reliability. Unlike the network producers (LLM guesses, web scrapes),
+    /// this one is zero-network-cost, has no rate limit, and — since the real
+    /// import landed (2026-07-08, 40k+ tracks with a verified ISRC feeding its
+    /// owned/disliked filters) — draws from a genuinely curated 50k-row pool with
+    /// real genre tags. Capping it at the same level as speculative producers
+    /// starved the pipeline of its cheapest, most reliable source.
+    static let maxCandidates = 120
+
     public init() {}
 
     public func isEnabled(_ context: ProducerContext) -> Bool {
@@ -50,7 +60,7 @@ public struct DatasetProducer: DiscoveryProducer {
             guard seenAlbum.insert(key).inserted else { continue }
             out.append(Candidate(kind: .album, artist: r.artist, album: r.album, year: r.year,
                                  genres: r.genres, similarity: r.similarity, producer: id))
-            if out.count >= context.perProducerLimit { break }
+            if out.count >= Self.maxCandidates { break }
         }
         return out
     }
