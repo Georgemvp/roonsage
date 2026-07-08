@@ -36,7 +36,7 @@ extension RoonClient {
     public static var discoveryProducers: [DiscoveryProducer] {
         [SimilarArtistWebProducer(), ChartsProducer(), ReleaseRadarProducer(),
          GapFillProducer(), ArtistRelationshipsProducer(), ListenBrainzRadioProducer(), AIPicksProducer(),
-         DiscogsLabelsProducer(), QobuzCatalogProducer()]
+         DiscogsLabelsProducer(), QobuzCatalogProducer(), DatasetProducer()]
     }
 
     /// Whether a Discogs personal access token is configured (Settings → Externe
@@ -65,6 +65,15 @@ extension RoonClient {
     public var discoveryDisabledProducers: Set<String> {
         get { Set((UserDefaults.standard.array(forKey: "discovery_disabled_producers") as? [String]) ?? []) }
         set { UserDefaults.standard.set(Array(newValue), forKey: "discovery_disabled_producers") }
+    }
+
+    /// Path to the distilled MusicMoveArr dataset sidecar (metadata.db) on the
+    /// server host — gates `DatasetProducer`. Empty (default) = producer off,
+    /// same degradation as a missing Discogs token. Server-side setting, like
+    /// the other discovery tuning knobs.
+    public var datasetSidecarPath: String {
+        get { UserDefaults.standard.string(forKey: "dataset_sidecar_path") ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: "dataset_sidecar_path") }
     }
 
     /// Days a rejected recommendation stays hidden before it's eligible to
@@ -320,10 +329,12 @@ extension RoonClient {
             return (e, p)
         }()
 
+        let sidecarPath = datasetSidecarPath
         let context = ProducerContext(
             lastfm: lastfm, listenBrainz: listenBrainz, musicBrainz: MusicBrainzDiscoveryClient.shared,
             llmConfig: llmConfig, perProducerLimit: 40, mood: mood, discogsToken: discogsToken,
-            qobuz: qobuz.map { QobuzCredentials(email: $0.email, password: $0.password) })
+            qobuz: qobuz.map { QobuzCredentials(email: $0.email, password: $0.password) },
+            datasetSidecarPath: sidecarPath.isEmpty ? nil : sidecarPath)
 
         let filterCtx = DiscoveryFilterContext(
             libraryArtists: libraryArtists, libraryAlbumKeys: libraryAlbumKeys,

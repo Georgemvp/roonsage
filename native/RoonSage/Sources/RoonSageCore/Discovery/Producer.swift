@@ -96,14 +96,18 @@ public struct ProducerContext: Sendable {
     /// F2: Qobuz login — gates `QobuzCatalogProducer`, which discovers not-owned
     /// albums straight from the Qobuz catalogue (no MusicBrainz round-trip).
     public var qobuz: QobuzCredentials?
+    /// Path to the distilled MusicMoveArr sidecar (metadata.db) — gates
+    /// `DatasetProducer`. nil / missing file degrades to "one fewer producer".
+    public var datasetSidecarPath: String?
 
     public init(lastfm: LastfmCredentials? = nil, listenBrainz: ListenBrainzCredentials? = nil,
                 musicBrainz: MusicBrainzDiscoveryClient, llmConfig: LLMConfig = LLMConfig(),
                 perProducerLimit: Int = 40, mood: String? = nil, discogsToken: String? = nil,
-                qobuz: QobuzCredentials? = nil) {
+                qobuz: QobuzCredentials? = nil, datasetSidecarPath: String? = nil) {
         self.lastfm = lastfm; self.listenBrainz = listenBrainz; self.musicBrainz = musicBrainz
         self.llmConfig = llmConfig; self.perProducerLimit = perProducerLimit
         self.mood = mood; self.discogsToken = discogsToken; self.qobuz = qobuz
+        self.datasetSidecarPath = datasetSidecarPath
     }
 }
 
