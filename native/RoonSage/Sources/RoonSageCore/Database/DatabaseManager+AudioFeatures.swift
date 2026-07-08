@@ -22,16 +22,23 @@ extension DatabaseManager {
         public var isrc: String?          // hard cross-source identity, from the dataset import
         public var recordingMbid: String? // canonical MusicBrainz recording, from the dataset import
         public var deezerBpm: Double?     // secondary tempo reference, from the dataset import
+        public var albumUpc: String?      // hard cross-source ALBUM identity, from the dataset import
+        public var label: String?         // record label, from the dataset import
+        public var releaseDate: String?   // precise release date (YYYY-MM-DD), from the dataset import
+        public var explicit: Bool?        // explicit-lyrics flag, from the dataset import
         public init(matchKey: String, bpm: Double?, camelot: String?, keyRoot: String?,
                     keyMode: String?, energy: Double?, duration: Double?, tags: String?,
                     moods: String? = nil, bpmConfidence: Double? = nil, attributes: String? = nil,
                     popularity: Int? = nil, loudness: Double? = nil,
-                    isrc: String? = nil, recordingMbid: String? = nil, deezerBpm: Double? = nil) {
+                    isrc: String? = nil, recordingMbid: String? = nil, deezerBpm: Double? = nil,
+                    albumUpc: String? = nil, label: String? = nil, releaseDate: String? = nil,
+                    explicit: Bool? = nil) {
             self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot; self.keyRoot = keyRoot
             self.keyMode = keyMode; self.energy = energy; self.duration = duration; self.tags = tags
             self.moods = moods; self.bpmConfidence = bpmConfidence; self.attributes = attributes
             self.popularity = popularity; self.loudness = loudness
             self.isrc = isrc; self.recordingMbid = recordingMbid; self.deezerBpm = deezerBpm
+            self.albumUpc = albumUpc; self.label = label; self.releaseDate = releaseDate; self.explicit = explicit
         }
     }
 
@@ -89,7 +96,8 @@ extension DatabaseManager {
         return (try? await pool.read { db -> AudioFeatureRow? in
             guard let r = try Row.fetchOne(db, sql: """
                 SELECT bpm, bpm_confidence, camelot, key_root, key_mode, energy, duration,
-                       tags, moods, attributes, popularity, loudness, isrc, recording_mbid
+                       tags, moods, attributes, popularity, loudness, isrc, recording_mbid,
+                       album_upc, label, release_date, explicit
                 FROM track_audio_features WHERE match_key = ?
                 """, arguments: [matchKey]) else { return nil }
             return AudioFeatureRow(
@@ -97,7 +105,9 @@ extension DatabaseManager {
                 keyMode: r["key_mode"], energy: r["energy"], duration: r["duration"],
                 tags: r["tags"], moods: r["moods"], bpmConfidence: r["bpm_confidence"],
                 attributes: r["attributes"], popularity: r["popularity"], loudness: r["loudness"],
-                isrc: r["isrc"], recordingMbid: r["recording_mbid"])
+                isrc: r["isrc"], recordingMbid: r["recording_mbid"],
+                albumUpc: r["album_upc"], label: r["label"], releaseDate: r["release_date"],
+                explicit: (r["explicit"] as Int?).map { $0 != 0 })
         }) ?? nil
     }
 
@@ -160,23 +170,25 @@ extension DatabaseManager {
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) async throws {
         guard !rows.isEmpty else { return }
         let iso = Self.isoFormatter.string(from: Date())
-        let chunk = Self.rowsPerChunk(columns: 17)
+        let chunk = Self.rowsPerChunk(columns: 21)
         try await pool.write { db in
             var start = 0
             while start < rows.count {
                 let slice = rows[start..<min(start + chunk, rows.count)]
-                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
                 var args: [DatabaseValueConvertible?] = []
-                args.reserveCapacity(slice.count * 17)
+                args.reserveCapacity(slice.count * 21)
                 for r in slice {
                     args.append(contentsOf: [r.matchKey, r.bpm, r.camelot, r.keyRoot,
                                              r.keyMode, r.energy, r.duration, r.tags, r.moods,
                                              r.bpmConfidence, r.attributes, r.popularity, r.loudness,
-                                             r.isrc, r.recordingMbid, r.deezerBpm, iso] as [DatabaseValueConvertible?])
+                                             r.isrc, r.recordingMbid, r.deezerBpm,
+                                             r.albumUpc, r.label, r.releaseDate, r.explicit.map { $0 ? 1 : 0 },
+                                             iso] as [DatabaseValueConvertible?])
                 }
                 try db.execute(sql: """
                     INSERT INTO track_audio_features
-                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, attributes, popularity, loudness, isrc, recording_mbid, deezer_bpm, synced_at)
+                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, attributes, popularity, loudness, isrc, recording_mbid, deezer_bpm, album_upc, label, release_date, explicit, synced_at)
                     VALUES \(placeholders)
                     ON CONFLICT(match_key) DO UPDATE SET
                       bpm=excluded.bpm, camelot=excluded.camelot, key_root=excluded.key_root,
@@ -188,6 +200,10 @@ extension DatabaseManager {
                       isrc=COALESCE(excluded.isrc, track_audio_features.isrc),
                       recording_mbid=COALESCE(excluded.recording_mbid, track_audio_features.recording_mbid),
                       deezer_bpm=COALESCE(excluded.deezer_bpm, track_audio_features.deezer_bpm),
+                      album_upc=COALESCE(excluded.album_upc, track_audio_features.album_upc),
+                      label=COALESCE(excluded.label, track_audio_features.label),
+                      release_date=COALESCE(excluded.release_date, track_audio_features.release_date),
+                      explicit=COALESCE(excluded.explicit, track_audio_features.explicit),
                       synced_at=excluded.synced_at
                 """, arguments: StatementArguments(args))
                 start += chunk

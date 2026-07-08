@@ -595,6 +595,17 @@ enum Schema {
             try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN deezer_bpm REAL")
         }
 
+        // Dataset quick-win metadata (same offline import, same sidecar): `album_upc`
+        // hard-identifies the ALBUM the way isrc does the track; `label` + `release_date`
+        // are more precise than Roon's subtitle-parsed year; `explicit` is a flag Roon
+        // never exposes. NULL until the analyzer's sidecar import matches a track.
+        migrator.registerMigration("v39_track_dataset_metadata") { db in
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN album_upc TEXT")
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN label TEXT")
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN release_date TEXT")
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN explicit INTEGER")
+        }
+
         try migrator.migrate(db)
     }
 }

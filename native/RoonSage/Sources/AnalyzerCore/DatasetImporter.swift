@@ -19,6 +19,7 @@ public struct DatasetImportProgress: Sendable {
 ///               artist TEXT, title TEXT, album TEXT,
 ///               isrc TEXT, recording_mbid TEXT,
 ///               duration REAL, bpm REAL, gain REAL, rank INTEGER,
+///               album_upc TEXT, label TEXT, release_date TEXT, explicit INTEGER,
 ///               match_key TEXT)       -- NULL until pass A fills it
 ///     + index on match_key
 ///
@@ -118,7 +119,8 @@ public final class DatasetImporter {
                 let lookupKey = TrackIdentity.matchKey(artist: t.artist, album: t.album, title: t.title)
                 let rows = try sidecar.read { db in
                     try Row.fetchAll(db, sql: """
-                        SELECT source, isrc, recording_mbid, bpm, gain, rank
+                        SELECT source, isrc, recording_mbid, bpm, gain, rank,
+                               album_upc, label, release_date, explicit
                         FROM ds_tracks WHERE match_key = ?
                     """, arguments: [lookupKey])
                 }
@@ -127,6 +129,8 @@ public final class DatasetImporter {
                 try store.setDatasetIdentity(matchKey: t.matchKey, isrc: merged.isrc,
                                              recordingMbid: merged.mbid, deezerBpm: merged.bpm,
                                              deezerGain: merged.gain, popularity: merged.rank,
+                                             albumUpc: merged.albumUpc, label: merged.label,
+                                             releaseDate: merged.releaseDate, explicit: merged.explicit,
                                              checkedAt: Self.now())
                 checked += 1
             }
@@ -134,8 +138,10 @@ public final class DatasetImporter {
         }
     }
 
-    static func merge(_ rows: [Row]) -> (isrc: String?, mbid: String?, bpm: Double?, gain: Double?, rank: Int?) {
+    static func merge(_ rows: [Row]) -> (isrc: String?, mbid: String?, bpm: Double?, gain: Double?, rank: Int?,
+                                          albumUpc: String?, label: String?, releaseDate: String?, explicit: Bool?) {
         var isrc: String?, mbid: String?, bpm: Double?, gain: Double?, rank: Int?
+        var albumUpc: String?, label: String?, releaseDate: String?, explicit: Bool?
         var bestDeezerRank = Int.min   // rank-less Deezer rows still contribute BPM/gain
         for r in rows {
             let source = (r["source"] as String?) ?? ""
@@ -143,19 +149,23 @@ public final class DatasetImporter {
             let rowRank = (r["rank"] as Int?) ?? -1
             if source == "deezer" {
                 // Multiple Deezer rows per key = releases/versions; the highest
-                // rank is the canonical one for metrics AND for its ISRC.
+                // rank is the canonical one for metrics AND for its ISRC/metadata.
                 if rowRank > bestDeezerRank {
                     bestDeezerRank = rowRank
                     if let b = r["bpm"] as Double?, b > 0 { bpm = b }
                     if let g = r["gain"] as Double? { gain = g }
                     if rowRank >= 0 { rank = rowRank }
                     if let i = r["isrc"] as String?, !i.isEmpty { isrc = i }
+                    if let u = r["album_upc"] as String?, !u.isEmpty { albumUpc = u }
+                    if let l = r["label"] as String?, !l.isEmpty { label = l }
+                    if let d = r["release_date"] as String?, !d.isEmpty { releaseDate = d }
+                    if let e = r["explicit"] as Int? { explicit = e != 0 }
                 }
             } else if isrc == nil, let i = r["isrc"] as String?, !i.isEmpty {
                 isrc = i
             }
         }
-        return (isrc, mbid, bpm, gain, rank)
+        return (isrc, mbid, bpm, gain, rank, albumUpc, label, releaseDate, explicit)
     }
 
     private static func now() -> String { ISO8601DateFormatter().string(from: Date()) }

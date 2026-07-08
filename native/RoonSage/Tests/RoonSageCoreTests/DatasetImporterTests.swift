@@ -24,11 +24,17 @@ final class DatasetImporterTests: XCTestCase {
         var bpm: Double?
         var gain: Double?
         var rank: Int?
+        var albumUpc: String?
+        var label: String?
+        var releaseDate: String?
+        var explicit: Int?
         init(source: String, artist: String, title: String, album: String? = nil,
              isrc: String? = nil, mbid: String? = nil, bpm: Double? = nil,
-             gain: Double? = nil, rank: Int? = nil) {
+             gain: Double? = nil, rank: Int? = nil, albumUpc: String? = nil,
+             label: String? = nil, releaseDate: String? = nil, explicit: Int? = nil) {
             self.source = source; self.artist = artist; self.title = title; self.album = album
             self.isrc = isrc; self.mbid = mbid; self.bpm = bpm; self.gain = gain; self.rank = rank
+            self.albumUpc = albumUpc; self.label = label; self.releaseDate = releaseDate; self.explicit = explicit
         }
     }
 
@@ -41,15 +47,18 @@ final class DatasetImporterTests: XCTestCase {
                     source TEXT, artist TEXT, title TEXT, album TEXT,
                     isrc TEXT, recording_mbid TEXT,
                     duration REAL, bpm REAL, gain REAL, rank INTEGER,
+                    album_upc TEXT, label TEXT, release_date TEXT, explicit INTEGER,
                     match_key TEXT
                 )
             """)
             for r in rows {
                 let args: [DatabaseValueConvertible?] = [r.source, r.artist, r.title, r.album,
-                                                         r.isrc, r.mbid, r.bpm, r.gain, r.rank]
+                                                         r.isrc, r.mbid, r.bpm, r.gain, r.rank,
+                                                         r.albumUpc, r.label, r.releaseDate, r.explicit]
                 try db.execute(sql: """
-                    INSERT INTO ds_tracks (source, artist, title, album, isrc, recording_mbid, bpm, gain, rank)
-                    VALUES (?,?,?,?,?,?,?,?,?)
+                    INSERT INTO ds_tracks (source, artist, title, album, isrc, recording_mbid, bpm, gain, rank,
+                                           album_upc, label, release_date, explicit)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, arguments: StatementArguments(args))
             }
         }
@@ -85,7 +94,8 @@ final class DatasetImporterTests: XCTestCase {
         // Sidecar carries RAW strings — the remaster suffix must normalise away.
         let (_, sidecarPath) = try makeSidecar([
             DS(source: "deezer", artist: "Daft Punk", title: "One More Time (2001 Remaster)",
-               isrc: "GBDUW0000059", bpm: 123.0, gain: -7.1, rank: 900_000),
+               isrc: "GBDUW0000059", bpm: 123.0, gain: -7.1, rank: 900_000,
+               albumUpc: "0724384960650", label: "Virgin", releaseDate: "2001-03-07", explicit: 0),
             DS(source: "deezer", artist: "Daft Punk", title: "One More Time",
                isrc: "GBDUW0000OLD", bpm: 118.0, rank: 100),   // lower rank must lose
             DS(source: "musicbrainz", artist: "Daft Punk", title: "One More Time",
@@ -103,6 +113,10 @@ final class DatasetImporterTests: XCTestCase {
         XCTAssertEqual(daft["isrc"] as? String, "GBDUW0000059", "highest-ranked Deezer row's ISRC wins")
         XCTAssertEqual(daft["recording_mbid"] as? String, "mbid-daft-1")
         XCTAssertEqual(daft["popularity"] as? Int, 900_000, "dump rank fills empty popularity")
+        XCTAssertEqual(daft["album_upc"] as? String, "0724384960650")
+        XCTAssertEqual(daft["label"] as? String, "Virgin")
+        XCTAssertEqual(daft["release_date"] as? String, "2001-03-07")
+        XCTAssertEqual(daft["explicit"] as? Bool, false)
 
         let bob = try XCTUnwrap(byArtist["Bob Moses"])
         XCTAssertEqual(bob["isrc"] as? String, "USUG11600976", "non-Deezer ISRC still lands")

@@ -166,6 +166,14 @@ public final class FeatureStore {
             try addColumn("deezer_bpm", "REAL")
             try addColumn("deezer_gain", "REAL")
             try addColumn("dataset_checked_at", "TEXT")
+            // Dataset quick-win metadata (same sidecar, same import pass): UPC hard-
+            // identifies the ALBUM the way isrc does the track; `label` + `release_date`
+            // are more precise than Roon's subtitle-parsed year; `explicit` is a flag
+            // Roon never exposes. All NULL until a matching sidecar row supplies them.
+            try addColumn("album_upc", "TEXT")
+            try addColumn("label", "TEXT")
+            try addColumn("release_date", "TEXT")
+            try addColumn("explicit", "INTEGER")
 
             // Genre hierarchy (parent ← subgenre), built from MusicBrainz. `parent`
             // is NULL for a root genre (or when MB exposes no relation for it).
@@ -726,6 +734,8 @@ public final class FeatureStore {
     /// value beats a quarterly snapshot).
     public func setDatasetIdentity(matchKey: String, isrc: String?, recordingMbid: String?,
                                    deezerBpm: Double?, deezerGain: Double?, popularity: Int?,
+                                   albumUpc: String? = nil, label: String? = nil,
+                                   releaseDate: String? = nil, explicit: Bool? = nil,
                                    checkedAt: String) throws {
         try dbQueue.write { db in
             try db.execute(sql: """
@@ -735,9 +745,15 @@ public final class FeatureStore {
                     deezer_bpm = COALESCE(?, deezer_bpm),
                     deezer_gain = COALESCE(?, deezer_gain),
                     popularity = COALESCE(popularity, ?),
+                    album_upc = COALESCE(?, album_upc),
+                    label = COALESCE(?, label),
+                    release_date = COALESCE(?, release_date),
+                    explicit = COALESCE(?, explicit),
                     dataset_checked_at = ?
                 WHERE match_key = ?
-            """, arguments: [isrc, recordingMbid, deezerBpm, deezerGain, popularity, checkedAt, matchKey])
+            """, arguments: [isrc, recordingMbid, deezerBpm, deezerGain, popularity,
+                             albumUpc, label, releaseDate, explicit.map { $0 ? 1 : 0 },
+                             checkedAt, matchKey])
         }
     }
 
@@ -917,7 +933,8 @@ public final class FeatureStore {
         let rows = (try? dbQueue.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT match_key, artist, title, album, year, bpm, bpm_confidence, camelot, key_root, key_mode, energy, duration,
-                       tags, moods, attributes, mb_genres, popularity, loudness, isrc, recording_mbid, deezer_bpm, embedding_model\(includeEmbedding ? ", embedding" : "")
+                       tags, moods, attributes, mb_genres, popularity, loudness, isrc, recording_mbid, deezer_bpm,
+                       album_upc, label, release_date, explicit, embedding_model\(includeEmbedding ? ", embedding" : "")
                 FROM track_features WHERE bpm IS NOT NULL
             """)
         }) ?? []
@@ -959,6 +976,10 @@ public final class FeatureStore {
             if let isrc = r["isrc"] as String?, !isrc.isEmpty { obj["isrc"] = isrc }
             if let mbid = r["recording_mbid"] as String?, !mbid.isEmpty { obj["recording_mbid"] = mbid }
             if let dbpm = r["deezer_bpm"] as Double?, dbpm > 0 { obj["deezer_bpm"] = dbpm }
+            if let upc = r["album_upc"] as String?, !upc.isEmpty { obj["album_upc"] = upc }
+            if let label = r["label"] as String?, !label.isEmpty { obj["label"] = label }
+            if let rd = r["release_date"] as String?, !rd.isEmpty { obj["release_date"] = rd }
+            if let explicit = r["explicit"] as Int? { obj["explicit"] = explicit != 0 }
             if let model = r["embedding_model"] as String? { obj["embedding_model"] = model }
             if includeEmbedding, let blob = r["embedding"] as Data? {
                 obj["embedding"] = blob.base64EncodedString()

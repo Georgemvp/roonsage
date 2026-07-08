@@ -4,7 +4,8 @@
 #
 #   metadata.db
 #     ds_tracks(source, artist, title, album, isrc, recording_mbid,
-#               duration, bpm, gain, rank, match_key)   -- identity for OWNED tracks
+#               duration, bpm, gain, rank, album_upc, label, release_date, explicit,
+#               match_key)                              -- identity for OWNED tracks
 #     ds_candidates(artist, album, year, genres, fans, source) -- adjacent, NOT owned
 #
 # ds_tracks is filtered to the user's own library artists (the importer only
@@ -71,7 +72,8 @@ CREATE TEMP TABLE lib_artists AS
 -- Raw Deezer view (typed projection of the columns we use).
 CREATE TEMP VIEW deezer AS
   SELECT ArtistName, ArtistNbFan, AlbumName, AlbumGenreName, AlbumReleaseDate,
-         TrackTitle, TrackTitleVersion, TrackISRC, TrackDuration, TrackBPM, TrackGain, TrackRank
+         TrackTitle, TrackTitleVersion, TrackISRC, TrackDuration, TrackBPM, TrackGain, TrackRank,
+         AlbumUPC, Label, TrackReleaseDate, TrackExplicitLyrics, AlbumExplicitLyrics
   FROM read_csv('$DEEZER_CSV', header=true, sample_size=-1, ignore_errors=true,
                 all_varchar=true);
 
@@ -97,6 +99,12 @@ CREATE TABLE side.ds_tracks AS
          TRY_CAST(TrackBPM AS DOUBLE) AS bpm,
          TRY_CAST(TrackGain AS DOUBLE) AS gain,
          TRY_CAST(TrackRank AS BIGINT) AS rank,
+         NULLIF(AlbumUPC, '') AS album_upc,
+         NULLIF(Label, '') AS label,
+         COALESCE(NULLIF(TrackReleaseDate,''), NULLIF(AlbumReleaseDate,'')) AS release_date,
+         CASE WHEN TrackExplicitLyrics = '1' OR AlbumExplicitLyrics = '1' THEN 1
+              WHEN TrackExplicitLyrics IN ('0','2') OR AlbumExplicitLyrics IN ('0','2') THEN 0
+              ELSE NULL END AS explicit,
          CAST(NULL AS VARCHAR) AS match_key
   FROM deezer
   WHERE lower(ArtistName) IN (SELECT artist FROM lib_artists)

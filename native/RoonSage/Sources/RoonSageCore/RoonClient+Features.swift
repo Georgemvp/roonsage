@@ -293,7 +293,11 @@ extension RoonClient {
                     loudness: o["loudness"] as? Double,
                     isrc: o["isrc"] as? String,
                     recordingMbid: o["recording_mbid"] as? String,
-                    deezerBpm: o["deezer_bpm"] as? Double
+                    deezerBpm: o["deezer_bpm"] as? Double,
+                    albumUpc: o["album_upc"] as? String,
+                    label: o["label"] as? String,
+                    releaseDate: o["release_date"] as? String,
+                    explicit: o["explicit"] as? Bool
                 ))
                 identities.append(DatabaseManager.FeatureIdentity(
                     matchKey: mk, artist: o["artist"] as? String, title: o["title"] as? String))
