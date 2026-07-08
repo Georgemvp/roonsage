@@ -54,6 +54,18 @@ final class AnalyzerModel {
     }
     private(set) var maintenanceStatus: String?
 
+    /// Path to the distilled MusicMoveArr sidecar (`metadata.db`) DatasetProducer
+    /// reads for offline discovery candidates. UserDefaults-backed (RoonClient),
+    /// same key the discovery-context builder reads — set either by fetching a
+    /// published dataset release or by pointing at a locally distilled one.
+    var datasetSidecarPath: String {
+        get { RoonClient.shared.datasetSidecarPath }
+        set { RoonClient.shared.datasetSidecarPath = newValue }
+    }
+    private(set) var isrcCount = 0
+    private(set) var isFetchingDataset = false
+    private(set) var datasetFetchStatus: String?
+
     private(set) var trackCount = 0
     private(set) var taggedCount = 0
     private(set) var analyze: AnalyzeProgress?
@@ -127,6 +139,7 @@ final class AnalyzerModel {
         popularityCount = store?.popularityCount() ?? 0
         loudnessCount = store?.loudnessCount() ?? 0
         previewCount = store?.previewRowCount() ?? 0
+        isrcCount = store?.isrcCount() ?? 0
         // Keep the advertised feature revision in step with the store so remotes
         // re-pull after in-app analysis/backfill completes — not only after a
         // re-serve. Cheap: refresh() runs at completion, never on the poll path.
@@ -370,6 +383,50 @@ final class AnalyzerModel {
             do { try store.vacuum(); msg = "Database opgeschoond." }
             catch { msg = "Opschonen mislukt: \(error.localizedDescription)" }
             await MainActor.run { self.maintenanceStatus = msg }
+        }
+    }
+
+    // MARK: - Dataset (MusicMoveArr) — one-click fetch of a published sidecar
+
+    /// Download the newest published `dataset-vN` GitHub Release asset, gunzip it,
+    /// run the same offline identity import `import-dataset` does, and — on
+    /// success — point DatasetProducer at it. Lets a new install skip the
+    /// multi-hour torrent + DuckDB distillation entirely.
+    func downloadCuratedDataset() {
+        guard let store, !isFetchingDataset else { return }
+        isFetchingDataset = true
+        datasetFetchStatus = "Zoeken naar gepubliceerde dataset…"
+        Task.detached {
+            do {
+                guard let release = await DatasetFetcher.fetchLatestRelease() else {
+                    await MainActor.run {
+                        self.isFetchingDataset = false
+                        self.datasetFetchStatus = "Geen gepubliceerde dataset gevonden."
+                    }
+                    return
+                }
+                await MainActor.run { self.datasetFetchStatus = "Downloaden (dataset-v\(release.version))…" }
+                let path = DatasetFetcher.defaultSidecarPath()
+                try await DatasetFetcher.download(release, to: path)
+                await MainActor.run { self.datasetFetchStatus = "Identiteit koppelen (ISRC/MBID)…" }
+                let importer = try DatasetImporter(store: store, sidecarPath: path)
+                try await importer.run { p in
+                    Task { @MainActor in
+                        self.datasetFetchStatus = "Koppelen: \(p.matched)/\(p.checked) tracks (\(p.total) totaal)…"
+                    }
+                }
+                await MainActor.run {
+                    self.datasetSidecarPath = path
+                    self.refresh()
+                    self.isFetchingDataset = false
+                    self.datasetFetchStatus = "Dataset-v\(release.version) actief — \(self.isrcCount)/\(self.trackCount) tracks met ISRC."
+                }
+            } catch {
+                await MainActor.run {
+                    self.isFetchingDataset = false
+                    self.datasetFetchStatus = "Mislukt: \(error)"
+                }
+            }
         }
     }
 

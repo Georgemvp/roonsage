@@ -95,6 +95,30 @@ struct AdvancedSettingsView: View {
                     .padding(6)
                 }
 
+                // Dataset — offline MusicMoveArr sidecar (ISRC/MBID identity,
+                // discovery candidates, DJ-tempo cross-check). One-click fetch of
+                // a published release, or point at a locally distilled sidecar.
+                GroupBox("Dataset (MusicMoveArr)") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Verrijkt tracks met ISRC/MusicBrainz-identiteit, label/UPC/releasedatum en levert offline ontdekkingskandidaten. \(model.isrcCount)/\(model.trackCount) tracks hebben een ISRC.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        HStack {
+                            Button(model.isFetchingDataset ? "Bezig…" : "Dataset ophalen") { model.downloadCuratedDataset() }
+                                .disabled(model.isFetchingDataset)
+                            Spacer()
+                        }
+                        if let s = model.datasetFetchStatus {
+                            Text(s).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
+                        Divider()
+                        Text("Sidecar-pad (handmatig, bv. een lokaal gedistilleerde metadata.db)")
+                            .font(.caption).foregroundStyle(.secondary)
+                        TextField("Pad naar metadata.db", text: $model.datasetSidecarPath)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    .padding(6)
+                }
+
                 // C4 — Maintenance
                 GroupBox("Onderhoud") {
                     VStack(alignment: .leading, spacing: 12) {
