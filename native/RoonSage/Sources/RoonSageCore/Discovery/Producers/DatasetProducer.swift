@@ -18,9 +18,14 @@ import GRDB
 public struct DatasetProducer: DiscoveryProducer {
     public let id = "dataset"
 
-    /// Rows fetched from the sidecar before in-memory filtering — bounds the
-    /// per-run cost however large the sidecar grows.
-    private let fetchCap = 400
+    /// Rows fetched from the sidecar before in-memory filtering — a safety
+    /// ceiling, not a curation cutoff. The distill script already bounds
+    /// ds_candidates to 50k rows; a small cap here (previously 400) meant every
+    /// run drew from the SAME top-of-fans slice (just reshuffled) and the long
+    /// tail — genre-relevant but less famous artists — never surfaced. 20k keeps
+    /// the whole realistic sidecar in play while still bounding worst-case cost
+    /// if a future distill pass ever produced a larger table.
+    static let fetchCap = 20_000
 
     public init() {}
 
@@ -31,7 +36,7 @@ public struct DatasetProducer: DiscoveryProducer {
 
     public func discover(seeds: DiscoverySeeds, context: ProducerContext) async -> [Candidate] {
         guard let path = context.datasetSidecarPath,
-              let rows = Self.fetchCandidates(path: path, cap: fetchCap) else { return [] }
+              let rows = Self.fetchCandidates(path: path, cap: Self.fetchCap) else { return [] }
         let disliked = Set(seeds.dislikedArtists.map { $0.lowercased() })
         var out: [Candidate] = []
         var seenAlbum = Set<String>()

@@ -73,6 +73,19 @@ final class DatasetProducerTests: XCTestCase {
         }
     }
 
+    func testFetchCandidatesDoesNotTruncateToTopFansOnly() throws {
+        // Regression: fetchCap used to be 400, so a sidecar with more candidates
+        // than that always drew from the same top-of-fans slice (reshuffled) and
+        // the long tail (lower fans, still genre-relevant) never got a chance.
+        let rows = (1...1_000).map { i in (artist: "Artist \(i)", album: "Album \(i)", fans: 1_000 - i) }
+        let path = try makeSidecar(rows)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let fetched = try XCTUnwrap(DatasetProducer.fetchCandidates(path: path, cap: DatasetProducer.fetchCap))
+        XCTAssertEqual(fetched.count, 1_000, "no premature truncation below the full candidate pool")
+        XCTAssertTrue(fetched.contains { $0.artist == "Artist 1000" }, "the lowest-fans (tail) row must still be reachable")
+    }
+
     func testMalformedSidecarYieldsNothing() async throws {
         // A database without ds_candidates: producer contributes nothing, no throw.
         let path = NSTemporaryDirectory() + "sidecar_bad_\(UUID().uuidString).sqlite"
