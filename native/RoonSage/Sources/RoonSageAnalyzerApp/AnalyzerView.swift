@@ -146,6 +146,26 @@ struct AnalyzerView: View {
                             Text("Previews: \(p.embedded) geëmbed · \(p.checked) gecontroleerd · backlog \(p.backlog)")
                                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         }
+                        Divider()
+                        HStack {
+                            Button(model.isDeezerGenreEnriching ? "Verrijken…" : "Verrijk Deezer-genres") {
+                                model.startDeezerGenre()
+                            }
+                            .disabled(model.trackCount == 0 || model.isDeezerGenreEnriching)
+                            if model.isDeezerGenreEnriching { Button("Annuleer") { model.cancelDeezerGenre() } }
+                            Spacer()
+                            Text("\(model.deezerGenreCount) / \(model.trackCount) verrijkt")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        if let p = model.deezerGenre, model.isDeezerGenreEnriching {
+                            ProgressView(value: p.total > 0 ? Double(p.checked) / Double(p.total) : 0)
+                            Text("\(p.albums) albums · \(p.enriched) tracks met genres · \(p.checked) gecontroleerd")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        Toggle("Automatisch op de achtergrond verrijken", isOn: $model.autoDeezerGenre)
+                            .font(.caption)
+                        Text("Tweede genre-bron naast MusicBrainz — Deezer's albumgenres vullen de gaten waar MB's dekking sparse is, en voeden de genre-woordenschat die ontdekkingen mee scoort.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(6)
                 }

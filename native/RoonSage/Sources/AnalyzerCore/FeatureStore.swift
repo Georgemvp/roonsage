@@ -174,6 +174,12 @@ public final class FeatureStore {
             try addColumn("label", "TEXT")
             try addColumn("release_date", "TEXT")
             try addColumn("explicit", "INTEGER")
+            // Deezer genre backfill (DeezerGenreEnricher) — a second genre signal
+            // alongside MusicBrainz (mb_genres), whose per-release coverage is
+            // sparse. `deezer_genre_checked_at` marks a row as looked up (incl.
+            // "no match") so the worker is resumable.
+            try addColumn("deezer_genres", "TEXT")
+            try addColumn("deezer_genre_checked_at", "TEXT")
 
             // Genre hierarchy (parent ← subgenre), built from MusicBrainz. `parent`
             // is NULL for a root genre (or when MB exposes no relation for it).
@@ -598,6 +604,71 @@ public final class FeatureStore {
         (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(mb_genres) FROM track_features") ?? 0 }) ?? 0
     }
 
+    // MARK: - Deezer genre backfill
+
+    public struct DeezerAlbumGroup: Sendable {
+        public let artist: String
+        public let album: String
+        public let sampleTitle: String   // Deezer search needs artist+TRACK, not artist+album
+        public let matchKeys: [String]
+    }
+
+    /// Up to `limit` albums that still need a Deezer genre lookup. One track
+    /// search (to resolve the Deezer album id) + one album-detail lookup per
+    /// album; `matchKeys` is every track on the album so they're all marked done
+    /// in one write. Resumable: an interrupted run just re-selects the albums it
+    /// didn't reach.
+    public func albumsNeedingDeezerGenre(limit: Int) -> [DeezerAlbumGroup] {
+        (try? dbQueue.read { db in
+            let albums = try Row.fetchAll(db, sql: """
+                SELECT artist, album FROM track_features
+                WHERE deezer_genre_checked_at IS NULL AND bpm IS NOT NULL
+                  AND album IS NOT NULL AND album != '' AND artist IS NOT NULL AND artist != ''
+                GROUP BY LOWER(artist), LOWER(album)
+                ORDER BY artist, album
+                LIMIT ?
+            """, arguments: [limit])
+            var out: [DeezerAlbumGroup] = []
+            for a in albums {
+                guard let artist = a["artist"] as String?, let album = a["album"] as String? else { continue }
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT match_key, title FROM track_features
+                    WHERE LOWER(artist) = LOWER(?) AND LOWER(album) = LOWER(?)
+                """, arguments: [artist, album])
+                let mks = rows.compactMap { $0["match_key"] as String? }
+                let sampleTitle = rows.compactMap { $0["title"] as String? }.first { !$0.isEmpty } ?? ""
+                if !mks.isEmpty, !sampleTitle.isEmpty {
+                    out.append(DeezerAlbumGroup(artist: artist, album: album, sampleTitle: sampleTitle, matchKeys: mks))
+                }
+            }
+            return out
+        }) ?? []
+    }
+
+    /// Store Deezer genres for a set of tracks and mark them checked. An empty
+    /// `genres` still stamps `deezer_genre_checked_at` (so a fruitless lookup
+    /// isn't retried) but leaves `deezer_genres` NULL.
+    public func setDeezerGenres(matchKeys: [String], genres: [String], checkedAt: String) throws {
+        guard !matchKeys.isEmpty else { return }
+        let value: String? = genres.isEmpty ? nil
+            : (try? JSONSerialization.data(withJSONObject: genres)).flatMap { String(data: $0, encoding: .utf8) }
+        try dbQueue.write { db in
+            let ph = matchKeys.map { _ in "?" }.joined(separator: ",")
+            var args: [DatabaseValueConvertible?] = [value, checkedAt]
+            args.append(contentsOf: matchKeys as [DatabaseValueConvertible])
+            try db.execute(sql: "UPDATE track_features SET deezer_genres = ?, deezer_genre_checked_at = ? WHERE match_key IN (\(ph))",
+                           arguments: StatementArguments(args))
+        }
+    }
+
+    public func deezerGenreEnrichedCount() -> Int {
+        (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(deezer_genres) FROM track_features") ?? 0 }) ?? 0
+    }
+
+    public func deezerGenreCheckedCount() -> Int {
+        (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(deezer_genre_checked_at) FROM track_features") ?? 0 }) ?? 0
+    }
+
     /// One artist whose tracks still lack genres after the album + recording passes.
     public struct MBArtistGroup: Sendable {
         public let artist: String
@@ -934,7 +1005,7 @@ public final class FeatureStore {
             try Row.fetchAll(db, sql: """
                 SELECT match_key, artist, title, album, year, bpm, bpm_confidence, camelot, key_root, key_mode, energy, duration,
                        tags, moods, attributes, mb_genres, popularity, loudness, isrc, recording_mbid, deezer_bpm,
-                       album_upc, label, release_date, explicit, embedding_model\(includeEmbedding ? ", embedding" : "")
+                       album_upc, label, release_date, explicit, deezer_genres, embedding_model\(includeEmbedding ? ", embedding" : "")
                 FROM track_features WHERE bpm IS NOT NULL
             """)
         }) ?? []
@@ -980,6 +1051,10 @@ public final class FeatureStore {
             if let label = r["label"] as String?, !label.isEmpty { obj["label"] = label }
             if let rd = r["release_date"] as String?, !rd.isEmpty { obj["release_date"] = rd }
             if let explicit = r["explicit"] as Int? { obj["explicit"] = explicit != 0 }
+            if let dg = r["deezer_genres"] as String?, let d = dg.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: d) as? [String], !arr.isEmpty {
+                obj["deezer_genres"] = arr
+            }
             if let model = r["embedding_model"] as String? { obj["embedding_model"] = model }
             if includeEmbedding, let blob = r["embedding"] as Data? {
                 obj["embedding"] = blob.base64EncodedString()

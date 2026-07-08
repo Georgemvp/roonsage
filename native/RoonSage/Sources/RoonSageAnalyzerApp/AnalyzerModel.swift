@@ -24,6 +24,10 @@ final class AnalyzerModel {
     /// Deezer 30s previews (network-gentle, resumable) — makes them radio
     /// candidates like any analyzed track.
     var autoPreview: Bool { didSet { UserDefaults.standard.set(autoPreview, forKey: "auto_preview") } }
+    /// Trickle Deezer genre backfill in the background (rate-limited, resumable)
+    /// — a second genre signal alongside MusicBrainz, whose per-release coverage
+    /// is sparse. Feeds the library's genre vocabulary discovery scores against.
+    var autoDeezerGenre: Bool { didSet { UserDefaults.standard.set(autoDeezerGenre, forKey: "auto_deezer_genre") } }
 
     // Analyse-tuning — neemt effect bij de VOLGENDE (re-)analyse, niet met terugwerkende kracht.
     var walkerConcurrency: Int { didSet { UserDefaults.standard.set(walkerConcurrency, forKey: "walker_concurrency") } }
@@ -84,6 +88,9 @@ final class AnalyzerModel {
     private(set) var preview: PreviewProgress?
     private(set) var isPreviewBackfilling = false
     private(set) var previewCount = 0
+    private(set) var deezerGenre: DeezerGenreProgress?
+    private(set) var isDeezerGenreEnriching = false
+    private(set) var deezerGenreCount = 0
     private(set) var isServing = false
     var status = ""
 
@@ -94,6 +101,7 @@ final class AnalyzerModel {
     private var popularityEnricher: PopularityEnricher?
     private var loudnessBackfill: LoudnessBackfill?
     private var previewBackfill: PreviewEmbeddingBackfill?
+    private var deezerGenreEnricher: DeezerGenreEnricher?
     private var server: HTTPServer?
     private var clap: CLAPModel?   // loaded off-main once; enables /text-embed
     /// While serving, periodically re-publishes the feature revision so changes
@@ -112,6 +120,7 @@ final class AnalyzerModel {
         autoPopularity = UserDefaults.standard.object(forKey: "auto_popularity") as? Bool ?? true
         autoLoudness = UserDefaults.standard.object(forKey: "auto_loudness") as? Bool ?? true
         autoPreview = UserDefaults.standard.object(forKey: "auto_preview") as? Bool ?? true
+        autoDeezerGenre = UserDefaults.standard.object(forKey: "auto_deezer_genre") as? Bool ?? true
         walkerConcurrency = UserDefaults.standard.object(forKey: "walker_concurrency") as? Int ?? 3
         excerptSeconds = UserDefaults.standard.object(forKey: "excerpt_seconds") as? Double ?? 120
         analysisSampleRate = UserDefaults.standard.object(forKey: "analysis_sample_rate") as? Double ?? 22050
@@ -140,6 +149,7 @@ final class AnalyzerModel {
         loudnessCount = store?.loudnessCount() ?? 0
         previewCount = store?.previewRowCount() ?? 0
         isrcCount = store?.isrcCount() ?? 0
+        deezerGenreCount = store?.deezerGenreEnrichedCount() ?? 0
         // Keep the advertised feature revision in step with the store so remotes
         // re-pull after in-app analysis/backfill completes — not only after a
         // re-serve. Cheap: refresh() runs at completion, never on the poll path.
@@ -176,6 +186,8 @@ final class AnalyzerModel {
             autoLoudnessIfEnabled()
             // File-less (Qobuz-only) tracks: embed from Deezer previews.
             autoPreviewIfEnabled()
+            // Deezer genre backfill — second signal alongside MB enrichment.
+            autoDeezerGenreIfEnabled()
         }
     }
 
@@ -346,6 +358,38 @@ final class AnalyzerModel {
             return
         }
         startPreview()
+    }
+
+    // MARK: - Deezer genre backfill (second signal alongside MusicBrainz)
+
+    /// Backfill owned tracks' genres from Deezer's album-detail endpoint — MB's
+    /// per-release genre coverage is sparse, and this feeds the library's genre
+    /// vocabulary that discovery scoring compares candidates against (a
+    /// genre-less library side silently zeroes out genreOverlap for otherwise
+    /// good candidates). One track-search + one album-lookup per album,
+    /// resumable, rate-limited by DeezerClient (~6.6 req/s).
+    func startDeezerGenre() {
+        guard let store, !isDeezerGenreEnriching, trackCount > 0 else { return }
+        isDeezerGenreEnriching = true
+        deezerGenre = nil
+        status = "Deezer-genres ophalen…"
+        let e = DeezerGenreEnricher(store: store)
+        deezerGenreEnricher = e
+        Task {
+            await e.run { p in Task { @MainActor in self.deezerGenre = p } }
+            isDeezerGenreEnriching = false
+            refresh()
+            status = "Deezer-genres: \(deezerGenreCount)/\(trackCount) tracks."
+        }
+    }
+
+    func cancelDeezerGenre() { deezerGenreEnricher?.cancel() }
+
+    /// Trickle Deezer genre enrichment in the background when enabled. Exits
+    /// fast when there's nothing left to do, so it's cheap to call on launch.
+    func autoDeezerGenreIfEnabled() {
+        guard autoDeezerGenre, !isDeezerGenreEnriching, store != nil, trackCount > 0 else { return }
+        startDeezerGenre()
     }
 
     // MARK: - Maintenance & login item

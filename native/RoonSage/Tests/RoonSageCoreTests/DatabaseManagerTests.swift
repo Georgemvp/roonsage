@@ -462,4 +462,15 @@ extension DatabaseManagerTests {
         XCTAssertFalse(heavy.contains("b|y"),
                        "a thumbs-up track is never an implicit dislike, however often skipped")
     }
+
+    func testLibraryGenreSetUnionsRoonMBAndDeezerSources() async throws {
+        // No Roon/MB genre fixture helper exists here; the point is specifically
+        // that a Deezer-only genre (nothing from Roon or MB) still reaches the
+        // set discovery scoring compares candidates against — the gap this batch
+        // closes for file-less (Qobuz-only) tracks with sparse MB coverage.
+        try await db.upsertDeezerGenres([(matchKey: "x|y", genres: ["Electro", "Dance"])])
+        let genres = try await db.libraryGenreSet()
+        XCTAssertTrue(genres.contains("electro"))
+        XCTAssertTrue(genres.contains("dance"))
+    }
 }

@@ -46,6 +46,43 @@ extension DatabaseManager {
         }
     }
 
+    /// Replace the Deezer genres for the synced tracks — mirrors `upsertMBGenres`
+    /// exactly, but for the second (Deezer) genre signal in its own table.
+    public func upsertDeezerGenres(_ rows: [(matchKey: String, genres: [String])]) async throws {
+        guard !rows.isEmpty else { return }
+        let keys = rows.map { $0.matchKey }
+        var pairs: [(String, String)] = []
+        for r in rows where !r.matchKey.isEmpty {
+            for g in r.genres {
+                let gl = g.lowercased().trimmingCharacters(in: .whitespaces)
+                if !gl.isEmpty { pairs.append((r.matchKey, gl)) }
+            }
+        }
+        let outKeys = keys, outPairs = pairs
+        try await pool.write { db in
+            let kChunk = Self.rowsPerChunk(columns: 1)
+            var s = 0
+            while s < outKeys.count {
+                let slice = outKeys[s..<min(s + kChunk, outKeys.count)]
+                let ph = slice.map { _ in "?" }.joined(separator: ",")
+                try db.execute(sql: "DELETE FROM track_deezer_genres WHERE match_key IN (\(ph))",
+                               arguments: StatementArguments(Array(slice) as [DatabaseValueConvertible]))
+                s += slice.count
+            }
+            let pChunk = Self.rowsPerChunk(columns: 2)
+            var p = 0
+            while p < outPairs.count {
+                let slice = outPairs[p..<min(p + pChunk, outPairs.count)]
+                let ph = slice.map { _ in "(?,?)" }.joined(separator: ",")
+                var args: [DatabaseValueConvertible] = []
+                for pr in slice { args.append(pr.0); args.append(pr.1) }
+                try db.execute(sql: "INSERT OR IGNORE INTO track_deezer_genres (match_key, genre) VALUES \(ph)",
+                               arguments: StatementArguments(args))
+                p += slice.count
+            }
+        }
+    }
+
     /// Upsert the genre hierarchy nodes pulled from the analyzer's `/genres`.
     /// Empty parents are normalised to NULL (root genre).
     public func upsertGenreTaxonomy(_ nodes: [(genre: String, parent: String?, mbid: String?)]) async throws {

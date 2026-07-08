@@ -337,13 +337,18 @@ extension DatabaseManager {
 
     // MARK: - Library sets (for scoring + filtering)
 
-    /// Union of Roon (`track_genres`) + MusicBrainz (`track_mb_genres`) genres,
-    /// lowercased — the reference set for the genreOverlap score component.
+    /// Union of Roon (`track_genres`) + MusicBrainz (`track_mb_genres`) + Deezer
+    /// (`track_deezer_genres`) genres, lowercased — the reference set for the
+    /// genreOverlap score component. The Deezer source matters most for
+    /// Qobuz-only (file-less) tracks: they get no Roon genre tag (no local file
+    /// to read) and MB's per-release coverage is sparse, so without it those
+    /// tracks contribute nothing to the vocabulary discovery scores against.
     public func libraryGenreSet() async throws -> Set<String> {
         try await pool.read { db in
             var out = Set<String>()
             for g in try String.fetchAll(db, sql: "SELECT DISTINCT genre FROM track_genres") { out.insert(g.lowercased()) }
             for g in try String.fetchAll(db, sql: "SELECT DISTINCT genre FROM track_mb_genres") { out.insert(g.lowercased()) }
+            for g in try String.fetchAll(db, sql: "SELECT DISTINCT genre FROM track_deezer_genres") { out.insert(g.lowercased()) }
             return out
         }
     }

@@ -69,6 +69,53 @@ public actor DeezerClient {
         return want == got || want.contains(got) || got.contains(want)
     }
 
+    // MARK: - Genre (album-detail lookup, for owned-track genre backfill)
+
+    /// The Deezer album id for a matched track — same search + artist-match logic
+    /// as `popularity`, but returns the album id instead of the rank so a caller
+    /// (`DeezerGenreEnricher`) can follow up with an album-detail lookup. A
+    /// second signal alongside MusicBrainz genres, whose per-release coverage is
+    /// sparse — Deezer's `AlbumGenreName` fills gaps MB never resolves.
+    public func trackAlbumID(artist: String, title: String) async -> Int? {
+        let a = artist.trimmingCharacters(in: .whitespaces)
+        let t = title.trimmingCharacters(in: .whitespaces)
+        guard !a.isEmpty, !t.isEmpty else { return nil }
+
+        let q = "artist:\"\(escape(a))\" track:\"\(escape(t))\""
+        guard let url = url("/search", query: ["q": q, "limit": "5"]),
+              let json = await getJSON(url),
+              let data = json["data"] as? [[String: Any]], !data.isEmpty else { return nil }
+
+        let wantArtist = TrackIdentity.normalise(TrackIdentity.primaryArtist(a))
+        guard !wantArtist.isEmpty else { return nil }
+
+        for item in data {
+            let gotArtist = TrackIdentity.normalise(
+                TrackIdentity.primaryArtist((item["artist"] as? [String: Any])?["name"] as? String))
+            guard artistMatches(want: wantArtist, got: gotArtist) else { continue }
+            if let albumID = (item["album"] as? [String: Any])?["id"] as? Int { return albumID }
+        }
+        return nil
+    }
+
+    /// Genres for a Deezer album (`/album/{id}`), or nil on any lookup/parse
+    /// failure or an album Deezer has no genre data for.
+    public func albumGenres(albumID: Int) async -> [String]? {
+        guard let url = url("/album/\(albumID)", query: [:]),
+              let json = await getJSON(url) else { return nil }
+        return Self.parseGenres(fromAlbumJSON: json)
+    }
+
+    /// Pure parse of `/album/{id}`'s `genres.data[].name` — separated so it's
+    /// unit-testable against a fixture payload. Drops Deezer's generic "All"
+    /// bucket (an unclassified placeholder, not a real genre).
+    public static func parseGenres(fromAlbumJSON json: [String: Any]) -> [String]? {
+        guard let genresObj = json["genres"] as? [String: Any],
+              let data = genresObj["data"] as? [[String: Any]] else { return nil }
+        let names = data.compactMap { $0["name"] as? String }.filter { !$0.isEmpty && $0 != "All" }
+        return names.isEmpty ? nil : names
+    }
+
     // MARK: - Preview resolution (embedding backfill for file-less tracks)
 
     /// One confidently-matched Deezer track with a streamable 30s MP3 preview.

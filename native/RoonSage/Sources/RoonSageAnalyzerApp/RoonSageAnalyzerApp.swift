@@ -43,6 +43,7 @@ struct RoonSageAnalyzerApp: App {
             .task { model.autoPopularityIfEnabled() }   // trickle Deezer popularity in the background
             .task { model.autoLoudnessIfEnabled() }   // backfill F3 loudness on pre-F3 tracks (disk-gentle)
             .task { model.autoPreviewIfEnabled() }   // embed file-less (Qobuz) tracks from Deezer previews
+            .task { model.autoDeezerGenreIfEnabled() }   // backfill Deezer genres (2nd signal alongside MB)
             .task { model.autoArousalRefreshIfNeeded() }   // one-time: perceptual-energy axis for older rows
             .task { model.loadCLAPIfNeeded() }   // start loading CLAP immediately — clapReady gates backfill
             .task { model.startServingIfNeeded() }

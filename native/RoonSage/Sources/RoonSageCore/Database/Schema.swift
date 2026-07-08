@@ -606,6 +606,22 @@ enum Schema {
             try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN explicit INTEGER")
         }
 
+        // Deezer genre backfill (DeezerGenreEnricher), synced from the analyzer
+        // alongside MusicBrainz genres. Same shape as track_mb_genres (own table,
+        // keyed by content match_key, so a Roon resync that clears track_genres
+        // never wipes it) — a second signal that feeds libraryGenreSet(), since
+        // MB's per-release genre coverage is sparse and a genre-less library side
+        // silently zeroes out discovery's genreOverlap score for candidates that
+        // would otherwise match.
+        migrator.registerMigration("v40_deezer_genres") { db in
+            try db.create(table: "track_deezer_genres", ifNotExists: true) { t in
+                t.column("match_key", .text).notNull()
+                t.column("genre",     .text).notNull()
+                t.primaryKey(["match_key", "genre"])
+            }
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_deezer_genres_genre ON track_deezer_genres(genre)")
+        }
+
         try migrator.migrate(db)
     }
 }

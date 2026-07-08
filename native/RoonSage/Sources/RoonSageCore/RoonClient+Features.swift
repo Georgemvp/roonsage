@@ -153,6 +153,9 @@ extension RoonClient {
             // MusicBrainz genres (keyed by match_key, like features) — the richer
             // genre set the analyzer enriched.
             try? await db?.upsertMBGenres(payload.genres)
+            // Deezer genres (second signal, feeds libraryGenreSet's genreOverlap
+            // scoring) — same keyed-by-match_key pattern as MB genres above.
+            try? await db?.upsertDeezerGenres(payload.deezerGenres)
             return d
         }.value
         // Pull the 512-dim embeddings (binary bundle) after match_keys are
@@ -262,6 +265,9 @@ extension RoonClient {
         // (match_key, MusicBrainz genres) — the richer, hierarchical genre set
         // the analyzer enriched. Stored in track_mb_genres, joined by match_key.
         var genres: [(matchKey: String, genres: [String])]
+        // (match_key, Deezer genres) — second genre signal (DeezerGenreEnricher),
+        // stored in track_deezer_genres, joined by match_key like mb genres.
+        var deezerGenres: [(matchKey: String, genres: [String])]
     }
 
     /// Fetch + parse the analyzer `/features` JSON off the main actor.
@@ -278,6 +284,7 @@ extension RoonClient {
             var identities: [DatabaseManager.FeatureIdentity] = []
             var years: [(matchKey: String, year: Int)] = []
             var genres: [(matchKey: String, genres: [String])] = []
+            var deezerGenres: [(matchKey: String, genres: [String])] = []
             features.reserveCapacity(arr.count); identities.reserveCapacity(arr.count)
             for o in arr {
                 guard let mk = o["match_key"] as? String, !mk.isEmpty else { continue }
@@ -303,8 +310,10 @@ extension RoonClient {
                     matchKey: mk, artist: o["artist"] as? String, title: o["title"] as? String))
                 if let y = o["year"] as? Int, y > 1900 { years.append((mk, y)) }
                 if let g = o["mb_genres"] as? [String], !g.isEmpty { genres.append((mk, g)) }
+                if let dg = o["deezer_genres"] as? [String], !dg.isEmpty { deezerGenres.append((mk, dg)) }
             }
-            return FeaturePayload(features: features, identities: identities, years: years, genres: genres)
+            return FeaturePayload(features: features, identities: identities, years: years,
+                                  genres: genres, deezerGenres: deezerGenres)
         }.value
     }
 
