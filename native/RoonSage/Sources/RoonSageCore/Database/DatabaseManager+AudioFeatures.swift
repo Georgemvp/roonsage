@@ -21,16 +21,17 @@ extension DatabaseManager {
         public var loudness: Double?  // K-weighted LUFS (BS.1770), from the analyzer
         public var isrc: String?          // hard cross-source identity, from the dataset import
         public var recordingMbid: String? // canonical MusicBrainz recording, from the dataset import
+        public var deezerBpm: Double?     // secondary tempo reference, from the dataset import
         public init(matchKey: String, bpm: Double?, camelot: String?, keyRoot: String?,
                     keyMode: String?, energy: Double?, duration: Double?, tags: String?,
                     moods: String? = nil, bpmConfidence: Double? = nil, attributes: String? = nil,
                     popularity: Int? = nil, loudness: Double? = nil,
-                    isrc: String? = nil, recordingMbid: String? = nil) {
+                    isrc: String? = nil, recordingMbid: String? = nil, deezerBpm: Double? = nil) {
             self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot; self.keyRoot = keyRoot
             self.keyMode = keyMode; self.energy = energy; self.duration = duration; self.tags = tags
             self.moods = moods; self.bpmConfidence = bpmConfidence; self.attributes = attributes
             self.popularity = popularity; self.loudness = loudness
-            self.isrc = isrc; self.recordingMbid = recordingMbid
+            self.isrc = isrc; self.recordingMbid = recordingMbid; self.deezerBpm = deezerBpm
         }
     }
 
@@ -159,23 +160,23 @@ extension DatabaseManager {
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) async throws {
         guard !rows.isEmpty else { return }
         let iso = Self.isoFormatter.string(from: Date())
-        let chunk = Self.rowsPerChunk(columns: 16)
+        let chunk = Self.rowsPerChunk(columns: 17)
         try await pool.write { db in
             var start = 0
             while start < rows.count {
                 let slice = rows[start..<min(start + chunk, rows.count)]
-                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
                 var args: [DatabaseValueConvertible?] = []
-                args.reserveCapacity(slice.count * 16)
+                args.reserveCapacity(slice.count * 17)
                 for r in slice {
                     args.append(contentsOf: [r.matchKey, r.bpm, r.camelot, r.keyRoot,
                                              r.keyMode, r.energy, r.duration, r.tags, r.moods,
                                              r.bpmConfidence, r.attributes, r.popularity, r.loudness,
-                                             r.isrc, r.recordingMbid, iso] as [DatabaseValueConvertible?])
+                                             r.isrc, r.recordingMbid, r.deezerBpm, iso] as [DatabaseValueConvertible?])
                 }
                 try db.execute(sql: """
                     INSERT INTO track_audio_features
-                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, attributes, popularity, loudness, isrc, recording_mbid, synced_at)
+                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, attributes, popularity, loudness, isrc, recording_mbid, deezer_bpm, synced_at)
                     VALUES \(placeholders)
                     ON CONFLICT(match_key) DO UPDATE SET
                       bpm=excluded.bpm, camelot=excluded.camelot, key_root=excluded.key_root,
@@ -186,6 +187,7 @@ extension DatabaseManager {
                       loudness=COALESCE(excluded.loudness, track_audio_features.loudness),
                       isrc=COALESCE(excluded.isrc, track_audio_features.isrc),
                       recording_mbid=COALESCE(excluded.recording_mbid, track_audio_features.recording_mbid),
+                      deezer_bpm=COALESCE(excluded.deezer_bpm, track_audio_features.deezer_bpm),
                       synced_at=excluded.synced_at
                 """, arguments: StatementArguments(args))
                 start += chunk
@@ -384,7 +386,7 @@ extension DatabaseManager {
     public func djCandidates(minBPM: Double, maxBPM: Double, tags: [String], excludeLive: Bool) async throws -> [DJCandidate] {
         try await pool.read { db in
             var sql = """
-                SELECT t.id, t.title, t.artist, t.album, t.image_key, f.bpm, f.camelot, f.energy, f.loudness, f.tags
+                SELECT t.id, t.title, t.artist, t.album, t.image_key, f.bpm, f.bpm_confidence, f.deezer_bpm, f.camelot, f.energy, f.loudness, f.tags
                 FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
                 WHERE f.bpm IS NOT NULL AND (
                       (f.bpm BETWEEN ? AND ?) OR (f.bpm/2.0 BETWEEN ? AND ?) OR (f.bpm*2.0 BETWEEN ? AND ?)
@@ -406,9 +408,16 @@ extension DatabaseManager {
                 let dedup = "\(title.lowercased())|\((artist ?? "").lowercased())"
                 guard !seen.contains(dedup) else { continue }
                 seen.insert(dedup)
+                // Octave-correct a low-confidence native BPM against the Deezer
+                // dump reference (half/double-time fix). Pool membership is
+                // unchanged — only the bpm VALUE moves, and only when our own
+                // confidence is low and the reference agrees (TempoReconciler).
+                let bpm = TempoReconciler.reconcile(
+                    nativeBPM: r["bpm"] ?? 0, confidence: r["bpm_confidence"] ?? 1.0,
+                    reference: r["deezer_bpm"])
                 result.append(DJCandidate(
                     id: r["id"] ?? "", title: title, artist: artist, album: r["album"],
-                    bpm: r["bpm"] ?? 0, camelot: r["camelot"] ?? "", energy: r["energy"] ?? 0.5,
+                    bpm: bpm, camelot: r["camelot"] ?? "", energy: r["energy"] ?? 0.5,
                     loudness: r["loudness"], tags: r["tags"],
                     imageKey: r["image_key"]
                 ))

@@ -587,6 +587,14 @@ enum Schema {
             try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN recording_mbid TEXT")
         }
 
+        // Deezer dump's TrackBPM — a SECONDARY tempo reference (not the source of
+        // truth). Used only to octave-correct a low-confidence native BPM in the
+        // DJ candidate path (TempoReconciler); never introduces tracks. NULL until
+        // the dataset import matches a track.
+        migrator.registerMigration("v38_track_deezer_bpm") { db in
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN deezer_bpm REAL")
+        }
+
         try migrator.migrate(db)
     }
 }

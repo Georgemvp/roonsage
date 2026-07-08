@@ -244,6 +244,31 @@ extension DatabaseManagerTests {
         XCTAssertEqual(bpm, 340)
     }
 
+    /// v38: djCandidates octave-corrects a low-confidence native BPM against the
+    /// Deezer reference — WITHOUT changing pool membership.
+    func testDJCandidatesOctaveCorrectsLowConfidenceBPM() async throws {
+        try await db.upsertTracks([
+            track("a", "Half Locked", "DJ A"),
+            track("b", "Trusted", "DJ B"),
+        ])
+        // a: detector locked half-time (64, low conf), Deezer says 128.
+        // b: confident 128, Deezer disagrees (must be ignored).
+        try await db.upsertAudioFeatures([
+            DatabaseManager.AudioFeatureRow(matchKey: "dj a|half locked", bpm: 64, camelot: "8A",
+                keyRoot: "A", keyMode: "minor", energy: 0.6, duration: 200, tags: nil,
+                bpmConfidence: 0.2, deezerBpm: 128),
+            DatabaseManager.AudioFeatureRow(matchKey: "dj b|trusted", bpm: 128, camelot: "9A",
+                keyRoot: "E", keyMode: "minor", energy: 0.6, duration: 200, tags: nil,
+                bpmConfidence: 0.95, deezerBpm: 64),
+        ])
+        let cands = try await db.djCandidates(minBPM: 120, maxBPM: 130, tags: [], excludeLive: false)
+        // Both are in-window (a via its double-time octave) → pool membership of 2.
+        XCTAssertEqual(cands.count, 2)
+        let byArtist = Dictionary(uniqueKeysWithValues: cands.map { ($0.artist ?? "", $0.bpm) })
+        XCTAssertEqual(byArtist["DJ A"], 128, "low-confidence 64 snapped to 128")
+        XCTAssertEqual(byArtist["DJ B"], 128, "confident BPM untouched by disagreeing reference")
+    }
+
     /// v37: dataset identity (ISRC / recording MBID) survives the sync upsert
     /// and is never wiped by a later export without identity (COALESCE).
     func testUpsertAudioFeaturesKeepsDatasetIdentity() async throws {

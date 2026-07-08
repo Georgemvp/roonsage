@@ -917,7 +917,7 @@ public final class FeatureStore {
         let rows = (try? dbQueue.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT match_key, artist, title, album, year, bpm, bpm_confidence, camelot, key_root, key_mode, energy, duration,
-                       tags, moods, attributes, mb_genres, popularity, loudness, isrc, recording_mbid, embedding_model\(includeEmbedding ? ", embedding" : "")
+                       tags, moods, attributes, mb_genres, popularity, loudness, isrc, recording_mbid, deezer_bpm, embedding_model\(includeEmbedding ? ", embedding" : "")
                 FROM track_features WHERE bpm IS NOT NULL
             """)
         }) ?? []
@@ -958,6 +958,7 @@ public final class FeatureStore {
             if let pop = r["popularity"] as Int?, pop > 0 { obj["popularity"] = pop }
             if let isrc = r["isrc"] as String?, !isrc.isEmpty { obj["isrc"] = isrc }
             if let mbid = r["recording_mbid"] as String?, !mbid.isEmpty { obj["recording_mbid"] = mbid }
+            if let dbpm = r["deezer_bpm"] as Double?, dbpm > 0 { obj["deezer_bpm"] = dbpm }
             if let model = r["embedding_model"] as String? { obj["embedding_model"] = model }
             if includeEmbedding, let blob = r["embedding"] as Data? {
                 obj["embedding"] = blob.base64EncodedString()
