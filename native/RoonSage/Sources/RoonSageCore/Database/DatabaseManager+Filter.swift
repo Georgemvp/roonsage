@@ -89,6 +89,40 @@ extension DatabaseManager {
         }
     }
 
+    /// Fetch the genre tags for a set of tracks from both sources — Roon
+    /// `track_genres` (by id) and MusicBrainz `track_mb_genres` (by content
+    /// match_key) — for the generation genre-purity gate. One chunked read per
+    /// source; returns a tag list per track id / match_key.
+    public func genresForTracks(ids: [String], matchKeys: [String]) async throws
+        -> (roon: [String: [String]], mb: [String: [String]]) {
+        try await pool.read { db in
+            var roon: [String: [String]] = [:]
+            var mb: [String: [String]] = [:]
+            let chunk = Self.rowsPerChunk(columns: 1)
+            var i = 0
+            while i < ids.count {
+                let slice = ids[i..<min(i + chunk, ids.count)]
+                let ph = slice.map { _ in "?" }.joined(separator: ",")
+                for r in try Row.fetchAll(db, sql: "SELECT track_id, genre FROM track_genres WHERE track_id IN (\(ph))",
+                                          arguments: StatementArguments(Array(slice) as [DatabaseValueConvertible])) {
+                    if let id = r["track_id"] as String?, let g = r["genre"] as String? { roon[id, default: []].append(g) }
+                }
+                i += slice.count
+            }
+            var k = 0
+            while k < matchKeys.count {
+                let slice = matchKeys[k..<min(k + chunk, matchKeys.count)]
+                let ph = slice.map { _ in "?" }.joined(separator: ",")
+                for r in try Row.fetchAll(db, sql: "SELECT match_key, genre FROM track_mb_genres WHERE match_key IN (\(ph))",
+                                          arguments: StatementArguments(Array(slice) as [DatabaseValueConvertible])) {
+                    if let key = r["match_key"] as String?, let g = r["genre"] as String? { mb[key, default: []].append(g) }
+                }
+                k += slice.count
+            }
+            return (roon, mb)
+        }
+    }
+
     // MARK: - Playlists
 
     public struct PlaylistSummary: Sendable, Codable {

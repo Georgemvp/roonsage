@@ -444,6 +444,32 @@ extension RoonClient {
         var survived = RequestFilters(genres: opts.genres, decades: opts.decades,
                                       keywords: opts.keywords, tags: opts.tags)
 
+        // Genre-purity gate: filterTracks matches a track tagged with the genre in
+        // EITHER source, so one spurious crowd-tag (a lone "jazz" on an electronic
+        // track) leaks off-genre material in. Keep only tracks whose requested
+        // genre's *family* is the plurality of their tags, or is confirmed by both
+        // sources — relaxing to the ungated pool when it would fall below minPool
+        // (so a genuinely thin genre still fills).
+        if !opts.genres.isEmpty, pool.count >= minPool, let db = database {
+            let ids = pool.map(\.id)
+            let keys = pool.compactMap(\.matchKey).filter { !$0.isEmpty }
+            if let genres = try? await db.genresForTracks(ids: ids, matchKeys: keys) {
+                let pure = pool.filter { t in
+                    DatabaseManager.passesGenrePurity(
+                        roon: genres.roon[t.id] ?? [],
+                        mb: t.matchKey.flatMap { genres.mb[$0] } ?? [],
+                        requested: opts.genres)
+                }
+                if pure.count >= minPool {
+                    let dropped = pool.count - pure.count
+                    pool = pure
+                    trace?.kvIf("genre-zuiverheid", dropped > 0 ? "\(dropped) off-genre tracks weg → \(pool.count)" : "")
+                } else {
+                    trace?.kv("genre-zuiverheid", "verzacht (slechts \(pure.count) < \(minPool)) → ongefilterd")
+                }
+            }
+        }
+
         // M2 — measured mood/activity gate (feature fusion, like the radio
         // buckets): keep only tracks whose ANALYZED character matches the
         // request's mood/activity, relaxing to the ungated pool when the

@@ -293,4 +293,63 @@ final class AIGenerationHelpersTests: XCTestCase {
         XCTAssertEqual(LLMConfig(provider: .openai, model: " ").effectiveModel, "gpt-4.1-mini")
         XCTAssertEqual(LLMConfig(provider: .ollama, model: "custom:1b").effectiveModel, "custom:1b")
     }
+
+    // MARK: DatabaseManager.genreFamily
+
+    func testGenreFamilyFoldsSubgenresIntoJazz() {
+        // "smooth"/"contemporary"/"vocal jazz" must land in jazz, not easy-listening.
+        XCTAssertEqual(DatabaseManager.genreFamily("Smooth Jazz"), "jazz")
+        XCTAssertEqual(DatabaseManager.genreFamily("contemporary jazz"), "jazz")
+        XCTAssertEqual(DatabaseManager.genreFamily("vocal jazz"), "jazz")
+    }
+
+    func testGenreFamilyGroupsElectronicDanceTags() {
+        for tag in ["House", "electro", "french house", "progressive house", "dance", "techno"] {
+            XCTAssertEqual(DatabaseManager.genreFamily(tag), "electronic", "\(tag) → electronic")
+        }
+    }
+
+    func testGenreFamilyUnknownTagIsItsOwnFamily() {
+        XCTAssertEqual(DatabaseManager.genreFamily("Stage & Screen"), "stage & screen")
+    }
+
+    // MARK: DatabaseManager.passesGenrePurity — real library genre profiles
+
+    func testPurityKeepsRealJazzConfirmedBySboth() {
+        // Jay Beckenstein / Boney James: jazz in Roon AND MB → confirmed.
+        XCTAssertTrue(DatabaseManager.passesGenrePurity(
+            roon: ["Jazz"], mb: ["jazz", "smooth jazz"], requested: ["jazz"]))
+        XCTAssertTrue(DatabaseManager.passesGenrePurity(
+            roon: ["Jazz"], mb: ["jazz"], requested: ["jazz"]))
+    }
+
+    func testPurityKeepsSingleSourceJazzWhenFamilyDominant() {
+        // Dave Koz "Christmas Waltz": no Roon genre, MB all jazz-family → plurality.
+        XCTAssertTrue(DatabaseManager.passesGenrePurity(
+            roon: [], mb: ["contemporary jazz", "jazz", "smooth jazz"], requested: ["jazz"]))
+    }
+
+    func testPurityDropsSpuriousJazzTagOnElectronicTrack() {
+        // Bob Moses "Here We Are": lone MB "jazz" among electronic/house → dropped.
+        XCTAssertFalse(DatabaseManager.passesGenrePurity(
+            roon: ["Electronic", "Pop/Rock"], mb: ["electronic", "house", "jazz"], requested: ["jazz"]))
+        // Daft Punk "Nightvision": lone Roon "Jazz" against 6 electronic MB tags.
+        XCTAssertFalse(DatabaseManager.passesGenrePurity(
+            roon: ["Electronic", "Jazz", "Pop/Rock"],
+            mb: ["dance", "electro", "electronic", "french house", "house", "progressive house"],
+            requested: ["jazz"]))
+    }
+
+    func testPurityDropsOffGenreWhereOtherFamilyDominates() {
+        // Chet Atkins country instrumental with a minority MB "jazz" tag → dropped.
+        XCTAssertFalse(DatabaseManager.passesGenrePurity(
+            roon: ["Country", "Country"],
+            mb: ["classical", "country", "country pop", "easy listening", "folk", "jazz"],
+            requested: ["jazz"]))
+    }
+
+    func testPurityLenientWhenNoGenreData() {
+        // No tags at all → don't penalise (stay in the pool).
+        XCTAssertTrue(DatabaseManager.passesGenrePurity(roon: [], mb: [], requested: ["jazz"]))
+    }
 }

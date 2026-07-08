@@ -83,6 +83,69 @@ extension DatabaseManager {
         return try String.fetchAll(db, sql: sql, arguments: StatementArguments(lowered as [DatabaseValueConvertible]))
     }
 
+    // MARK: - Genre families & purity (generation)
+
+    /// Coarse genre family for a raw tag (Roon or MusicBrainz), used by the
+    /// genre-purity gate. The `genre_taxonomy` is flat in practice (subgenres
+    /// carry no parent), so we group by keyword instead: "smooth jazz" and
+    /// "contemporary jazz" both fold into `jazz`, "house"/"electro"/"french
+    /// house" into `electronic`, etc. Order matters — the first family whose
+    /// keyword the tag contains wins (jazz before "smooth", blues/folk before
+    /// "rock"). An unrecognised tag becomes its own singleton family, so it can
+    /// never out-vote a real one.
+    static func genreFamily(_ raw: String) -> String {
+        let t = raw.lowercased()
+        // (family, keywords) — scanned in order; specific genres before broad ones.
+        let table: [(String, [String])] = [
+            ("jazz",       ["jazz"]),
+            ("classical",  ["classical", "baroque", "opera", "symphon", "orchestr", "chamber", "choral"]),
+            ("metal",      ["metal", "metalcore", "grindcore", "djent"]),
+            ("hiphop",     ["hip hop", "hip-hop", "rap", "trap", "grime", "drill"]),
+            ("rnb",        ["r&b", "rnb", "soul", "funk", "motown", "disco"]),
+            ("electronic", ["electronic", "electro", "house", "techno", "trance", "edm", "dance",
+                            "dubstep", "drum and bass", "dnb", "idm", "downtempo", "breakbeat",
+                            "big beat", "garage", "ambient"]),
+            ("reggae",     ["reggae", "ska", "dub", "dancehall"]),
+            ("latin",      ["latin", "salsa", "bossa", "samba", "tango", "flamenco"]),
+            ("country",    ["country", "bluegrass", "americana", "honky"]),
+            ("blues",      ["blues"]),
+            ("folk",       ["folk", "singer-songwriter", "singer/songwriter"]),
+            ("rock",       ["rock", "punk", "grunge", "indie", "shoegaze", "emo"]),
+            ("pop",        ["pop"]),
+            ("easy",       ["easy listening", "lounge", "smooth", "adult contemporary", "new age"]),
+            ("world",      ["world", "international", "afro", "celtic", "traditional"]),
+        ]
+        for (family, keywords) in table where keywords.contains(where: { t.contains($0) }) {
+            return family
+        }
+        return t   // unrecognised → its own singleton family
+    }
+
+    /// Genre-purity test for the generation pool. A track legitimately belongs to
+    /// a requested genre when that genre's *family* is the plurality of its tags
+    /// (Roon ∪ MusicBrainz), OR the literal requested genre is confirmed by BOTH
+    /// sources. This blocks a single spurious crowd-tag — a lone "jazz" on an
+    /// electronic track — from promoting off-genre material into a genre-scoped
+    /// pool, while a genuinely on-genre track (even one only one source tagged)
+    /// survives. With no genre data at all it stays lenient (returns true).
+    static func passesGenrePurity(roon: [String], mb: [String], requested: [String]) -> Bool {
+        let reqFamilies = Set(requested.map(genreFamily))
+        guard !reqFamilies.isEmpty else { return true }
+        // Cross-source confirmation: the literal requested genre in both sources.
+        let reqLower = Set(requested.map { $0.lowercased() })
+        let roonSet = Set(roon.map { $0.lowercased() })
+        let mbSet = Set(mb.map { $0.lowercased() })
+        if !reqLower.isDisjoint(with: roonSet), !reqLower.isDisjoint(with: mbSet) { return true }
+        // Plurality: the requested family occurs at least as often as any other.
+        let allTags = roon + mb
+        guard !allTags.isEmpty else { return true }
+        var histogram: [String: Int] = [:]
+        for tag in allTags { histogram[genreFamily(tag), default: 0] += 1 }
+        let reqCount = reqFamilies.reduce(0) { $0 + (histogram[$1] ?? 0) }
+        let maxOther = histogram.filter { !reqFamilies.contains($0.key) }.values.max() ?? 0
+        return reqCount > 0 && reqCount >= maxOther
+    }
+
     public struct GenreTreeNode: Sendable, Codable {
         public let genre: String
         public let subgenres: [String]
