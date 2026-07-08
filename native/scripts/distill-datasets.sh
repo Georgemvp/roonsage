@@ -102,8 +102,11 @@ CREATE TABLE side.ds_tracks AS
          NULLIF(AlbumUPC, '') AS album_upc,
          NULLIF(Label, '') AS label,
          COALESCE(NULLIF(TrackReleaseDate,''), NULLIF(AlbumReleaseDate,'')) AS release_date,
-         CASE WHEN TrackExplicitLyrics = '1' OR AlbumExplicitLyrics = '1' THEN 1
-              WHEN TrackExplicitLyrics IN ('0','2') OR AlbumExplicitLyrics IN ('0','2') THEN 0
+         -- Deezer's dump encodes these as the strings "True"/"False" (Python-style),
+         -- NOT "1"/"0" — verified against a raw CSV sample after a first pass came
+         -- back all-NULL.
+         CASE WHEN lower(TrackExplicitLyrics) = 'true' OR lower(AlbumExplicitLyrics) = 'true' THEN 1
+              WHEN lower(TrackExplicitLyrics) = 'false' OR lower(AlbumExplicitLyrics) = 'false' THEN 0
               ELSE NULL END AS explicit,
          CAST(NULL AS VARCHAR) AS match_key
   FROM deezer
