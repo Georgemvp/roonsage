@@ -53,6 +53,22 @@ case "enrich":
     }
     print("Enrichment done: \(store.mbEnrichedCount())/\(store.count()) tracks, \(store.taxonomyCount()) genres in taxonomy.")
 
+case "import-dataset":
+    // Offline identity import from a distilled MusicMoveArr sidecar (metadata.db,
+    // built by native/scripts/distill-datasets.sh). Resumable in both passes.
+    guard let sidecarPath = option("--sidecar") else {
+        print("usage: roonsage-analyzer import-dataset --sidecar <metadata.db> [--db <path>]"); exit(1)
+    }
+    let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
+    print("Importing dataset identity from \(sidecarPath) (resumable)…")
+    let importer = try DatasetImporter(store: store, sidecarPath: sidecarPath)
+    try await importer.run { p in
+        if p.keyed % 50_000 == 0 || p.checked % 2_000 == 0 {
+            print("  keyed \(p.keyed) sidecar rows, matched \(p.matched)/\(p.checked) tracks (\(p.total) total)")
+        }
+    }
+    print("Dataset import done: \(store.isrcCount()) tracks with ISRC, \(store.datasetCheckedCount())/\(store.count()) checked.")
+
 case "serve":
     let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
     let port = UInt16(option("--port") ?? "5766") ?? 5766
@@ -112,6 +128,7 @@ case "":
       analyze <musicdir> [--db path] [--workers N] [--no-clap]   walk + analyze + store
       tag [--db path] [--ollama url] [--model name]    LLM-tag stored tracks
       enrich [--db path] [--user-agent ua]             MusicBrainz genre enrichment + hierarchy
+      import-dataset --sidecar <metadata.db> [--db path]  offline ISRC/MBID/Deezer-metrics import
       serve [--db path] [--port 5766]                  serve features over HTTP
       stats [--db path]                                show counts
       matchcheck --library <library.db> [--db path]    measure analyzer↔library match rate

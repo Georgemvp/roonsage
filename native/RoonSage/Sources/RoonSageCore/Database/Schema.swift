@@ -577,6 +577,16 @@ enum Schema {
             }
         }
 
+        // Hard cross-source identity from the offline MusicMoveArr dataset import
+        // (analyzer `import-dataset`), synced via /features. `isrc` joins the
+        // library to Qobuz/Deezer/Tidal catalogs without string matching;
+        // `recording_mbid` is the canonical MusicBrainz recording. NULL until the
+        // analyzer's sidecar import matches a track.
+        migrator.registerMigration("v37_track_identity") { db in
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN isrc TEXT")
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN recording_mbid TEXT")
+        }
+
         try migrator.migrate(db)
     }
 }

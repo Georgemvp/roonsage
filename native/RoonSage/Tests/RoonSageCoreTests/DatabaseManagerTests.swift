@@ -244,6 +244,22 @@ extension DatabaseManagerTests {
         XCTAssertEqual(bpm, 340)
     }
 
+    /// v37: dataset identity (ISRC / recording MBID) survives the sync upsert
+    /// and is never wiped by a later export without identity (COALESCE).
+    func testUpsertAudioFeaturesKeepsDatasetIdentity() async throws {
+        try await db.upsertAudioFeatures([DatabaseManager.AudioFeatureRow(
+            matchKey: "k", bpm: 120, camelot: "8A", keyRoot: "A", keyMode: "minor",
+            energy: 0.5, duration: 200, tags: nil, isrc: "GBDUW0000059", recordingMbid: "mbid-1")])
+        try await db.upsertAudioFeatures([DatabaseManager.AudioFeatureRow(
+            matchKey: "k", bpm: 121, camelot: "8A", keyRoot: "A", keyMode: "minor",
+            energy: 0.5, duration: 200, tags: nil)])
+        let maybeRow = await db.audioFeatureRow(matchKey: "k")
+        let row = try XCTUnwrap(maybeRow)
+        XCTAssertEqual(row.isrc, "GBDUW0000059")
+        XCTAssertEqual(row.recordingMbid, "mbid-1")
+        XCTAssertEqual(row.bpm, 121)
+    }
+
     // MARK: - FTS5 search
 
     func testFTSSearchMatchesPrefixAndStaysInSync() async throws {

@@ -290,7 +290,9 @@ extension RoonClient {
                     bpmConfidence: o["bpm_confidence"] as? Double,
                     attributes: o["attributes"] as? String,
                     popularity: o["popularity"] as? Int,
-                    loudness: o["loudness"] as? Double
+                    loudness: o["loudness"] as? Double,
+                    isrc: o["isrc"] as? String,
+                    recordingMbid: o["recording_mbid"] as? String
                 ))
                 identities.append(DatabaseManager.FeatureIdentity(
                     matchKey: mk, artist: o["artist"] as? String, title: o["title"] as? String))

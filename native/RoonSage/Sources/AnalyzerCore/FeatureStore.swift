@@ -155,6 +155,17 @@ public final class FeatureStore {
             // re-decodes a finished/unreadable file.
             try addColumn("loudness", "REAL")
             try addColumn("loudness_checked_at", "TEXT")
+            // Dataset-sidecar identity (offline MusicMoveArr dumps). `isrc` and
+            // `recording_mbid` are hard cross-source identity; `deezer_bpm` /
+            // `deezer_gain` are the dump's DJ metrics (a cross-check next to the
+            // native analyzer, not the source of truth). `dataset_checked_at`
+            // marks a row as matched against the sidecar (incl. "no match") so
+            // the importer is resumable and never redoes a finished row.
+            try addColumn("isrc", "TEXT")
+            try addColumn("recording_mbid", "TEXT")
+            try addColumn("deezer_bpm", "REAL")
+            try addColumn("deezer_gain", "REAL")
+            try addColumn("dataset_checked_at", "TEXT")
 
             // Genre hierarchy (parent ← subgenre), built from MusicBrainz. `parent`
             // is NULL for a root genre (or when MB exposes no relation for it).
@@ -681,6 +692,65 @@ public final class FeatureStore {
         (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(mb_checked_at) FROM track_features") ?? 0 }) ?? 0
     }
 
+    // MARK: - Dataset-sidecar import (MusicMoveArr)
+
+    /// One analyzed track still needing a sidecar-match. Mirrors `PopularityTrack`.
+    public struct DatasetTrack: Sendable {
+        public let matchKey: String
+        public let artist: String
+        public let title: String
+        public let album: String?
+    }
+
+    /// Up to `limit` tracks not yet matched against the dataset sidecar
+    /// (`dataset_checked_at IS NULL`). Resumable, like the other enrichers.
+    public func tracksNeedingDatasetCheck(limit: Int) -> [DatasetTrack] {
+        (try? dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT match_key, artist, title, album FROM track_features
+                WHERE dataset_checked_at IS NULL
+                  AND artist IS NOT NULL AND artist != '' AND title IS NOT NULL AND title != ''
+                LIMIT ?
+            """, arguments: [limit])
+        })?.compactMap { r in
+            guard let mk = r["match_key"] as String?,
+                  let artist = r["artist"] as String?, let title = r["title"] as String? else { return nil }
+            return DatasetTrack(matchKey: mk, artist: artist, title: title, album: r["album"])
+        } ?? []
+    }
+
+    /// Store one track's sidecar match and stamp `dataset_checked_at`. All-nil
+    /// (no match) still stamps the marker. Existing values are never overwritten
+    /// by NULL (COALESCE); `popularity` is only filled when the API enricher
+    /// hasn't set it yet (the dump's rank is the same metric, but a fresh API
+    /// value beats a quarterly snapshot).
+    public func setDatasetIdentity(matchKey: String, isrc: String?, recordingMbid: String?,
+                                   deezerBpm: Double?, deezerGain: Double?, popularity: Int?,
+                                   checkedAt: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE track_features SET
+                    isrc = COALESCE(?, isrc),
+                    recording_mbid = COALESCE(?, recording_mbid),
+                    deezer_bpm = COALESCE(?, deezer_bpm),
+                    deezer_gain = COALESCE(?, deezer_gain),
+                    popularity = COALESCE(popularity, ?),
+                    dataset_checked_at = ?
+                WHERE match_key = ?
+            """, arguments: [isrc, recordingMbid, deezerBpm, deezerGain, popularity, checkedAt, matchKey])
+        }
+    }
+
+    /// Rows matched against the sidecar (incl. "no match") — progress meter.
+    public func datasetCheckedCount() -> Int {
+        (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(dataset_checked_at) FROM track_features") ?? 0 }) ?? 0
+    }
+
+    /// Rows that got an ISRC — the identity yield of the import.
+    public func isrcCount() -> Int {
+        (try? dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(isrc) FROM track_features") ?? 0 }) ?? 0
+    }
+
     // MARK: - Loudness backfill (F3)
 
     /// One analyzed track still needing its perceptual loudness computed. Carries
@@ -847,7 +917,7 @@ public final class FeatureStore {
         let rows = (try? dbQueue.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT match_key, artist, title, album, year, bpm, bpm_confidence, camelot, key_root, key_mode, energy, duration,
-                       tags, moods, attributes, mb_genres, popularity, loudness, embedding_model\(includeEmbedding ? ", embedding" : "")
+                       tags, moods, attributes, mb_genres, popularity, loudness, isrc, recording_mbid, embedding_model\(includeEmbedding ? ", embedding" : "")
                 FROM track_features WHERE bpm IS NOT NULL
             """)
         }) ?? []
@@ -886,6 +956,8 @@ public final class FeatureStore {
             if let moods = r["moods"] as String? { obj["moods"] = moods }
             if let attributes = r["attributes"] as String? { obj["attributes"] = attributes }
             if let pop = r["popularity"] as Int?, pop > 0 { obj["popularity"] = pop }
+            if let isrc = r["isrc"] as String?, !isrc.isEmpty { obj["isrc"] = isrc }
+            if let mbid = r["recording_mbid"] as String?, !mbid.isEmpty { obj["recording_mbid"] = mbid }
             if let model = r["embedding_model"] as String? { obj["embedding_model"] = model }
             if includeEmbedding, let blob = r["embedding"] as Data? {
                 obj["embedding"] = blob.base64EncodedString()
