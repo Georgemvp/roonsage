@@ -406,21 +406,21 @@ struct RootView: View {
                     .toolbar { navToolbar }
                     .ambientSurface()
             }
-            .nowPlayingBarInset()
+            .nowPlayingBarDocked()
             .tabItem { Label { LT("nav.library") } icon: { Image(systemName: "music.note.list") } }
             .tag(SidebarItem.library)
 
             NavigationStack {
                 iOSCreateHub.toolbar { navToolbar }.ambientSurface()
             }
-            .nowPlayingBarInset()
+            .nowPlayingBarDocked()
             .tabItem { Label { LT("section.create") } icon: { Image(systemName: "wand.and.stars") } }
             .tag(SidebarItem.generate)
 
             NavigationStack {
                 iOSExploreHub.toolbar { navToolbar }.ambientSurface()
             }
-            .nowPlayingBarInset()
+            .nowPlayingBarDocked()
             .tabItem { Label { LT("nav.discovery") } icon: { Image(systemName: "sparkles") } }
             .tag(SidebarItem.discovery)
 
@@ -431,7 +431,7 @@ struct RootView: View {
                     .toolbar { navToolbar }
                     .ambientSurface()
             }
-            .nowPlayingBarInset()
+            .nowPlayingBarDocked()
             .tabItem { Label { LT("nav.settings") } icon: { Image(systemName: "gearshape") } }
             .tag(SidebarItem.settings)
         }

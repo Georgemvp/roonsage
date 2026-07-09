@@ -173,4 +173,20 @@ extension View {
             if !hidden { NowPlayingBar() }
         }
     }
+
+    /// Docks the shared `NowPlayingBar` as a real layout sibling *below* this view
+    /// (typically a tab's `NavigationStack`), so it occupies genuine vertical space
+    /// instead of overlaying the content. Use this on iOS tabs: a bottom
+    /// `safeAreaInset` on a `NavigationStack` does **not** reliably inset a
+    /// large-title `List`'s scroll content, so rows slide under the bar; a VStack
+    /// sibling can't be scrolled under. When nothing is playing the bar renders
+    /// empty (zero height) and the wrapped view fills the whole area. Because the
+    /// bar sits outside the `NavigationStack`, it also persists across pushes.
+    @MainActor @ViewBuilder
+    public func nowPlayingBarDocked(hidden: Bool = false) -> some View {
+        VStack(spacing: 0) {
+            self
+            if !hidden { NowPlayingBar() }
+        }
+    }
 }
