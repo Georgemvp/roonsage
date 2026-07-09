@@ -136,8 +136,8 @@ private struct LocalNowPlayingHero: View {
         .frame(width: maxContentWidth)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.bottom, Spacing.sm)
-        .onAppear { refreshFeatures(lp); volumeValue = (lp.isMuted ? 0 : lp.volume) * 100 }
-        .onChange(of: lp.current?.id) { _, _ in refreshFeatures(lp) }
+        .onAppear { volumeValue = (lp.isMuted ? 0 : lp.volume) * 100 }
+        .task(id: lp.current?.id) { await refreshFeatures(lp) }
         .onChange(of: lp.volume) { _, v in volumeValue = v * 100 }
         .onChange(of: lp.isMuted) { _, m in volumeValue = (m ? 0 : lp.volume) * 100 }
         .task { await client.ensureFeedbackLoaded() }
@@ -470,10 +470,10 @@ private struct LocalNowPlayingHero: View {
         lp.queue.indices.contains(lp.index + 1) ? lp.queue[lp.index + 1] : nil
     }
 
-    private func refreshFeatures(_ lp: LocalPlaybackController) {
+    private func refreshFeatures(_ lp: LocalPlaybackController) async {
         if let track = lp.current {
-            feat = client.featuresFor(title: track.title, artist: track.artist, album: track.album)
-            attrs = client.attributesFor(title: track.title, artist: track.artist, album: track.album)
+            feat = await client.featuresFor(title: track.title, artist: track.artist, album: track.album)
+            attrs = await client.attributesFor(title: track.title, artist: track.artist, album: track.album)
         } else {
             feat = nil
             attrs = [:]

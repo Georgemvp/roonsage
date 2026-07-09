@@ -657,7 +657,14 @@ public struct SettingsView: View {
     }
 
     private func refreshLastSync() {
-        lastSync = (try? client.database?.syncStateValue(forKey: "last_sync")) ?? "Nooit"
+        // `syncStateValue` is a synchronous GRDB `pool.read`; running it inline
+        // here blocks the main thread (it stalls behind an in-flight import
+        // write). Hop off the MainActor for the read, then assign on return.
+        guard let db = client.database else { lastSync = "Nooit"; return }
+        Task {
+            let value = await Task.detached { (try? db.syncStateValue(forKey: "last_sync")) ?? nil }.value
+            lastSync = value ?? "Nooit"
+        }
     }
 
     /// Client role: pull settings + library + analyses from the server. With an

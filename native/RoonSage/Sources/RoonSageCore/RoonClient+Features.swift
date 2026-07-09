@@ -57,8 +57,8 @@ extension RoonClient {
     }
 
     /// Attribute scores (valence/danceability/…) for a now-playing track, if synced.
-    public func attributesFor(title: String, artist: String?, album: String?) -> [String: Float] {
-        database?.attributesForMatchKey(TrackIdentity.matchKey(artist: artist, album: album, title: title)) ?? [:]
+    public func attributesFor(title: String, artist: String?, album: String?) async -> [String: Float] {
+        await database?.attributesForMatchKey(TrackIdentity.matchKey(artist: artist, album: album, title: title)) ?? [:]
     }
 
     /// Lowercased artist names the user actually engages with — those they play
@@ -340,15 +340,15 @@ extension RoonClient {
     }
 
     /// Audio features for a now-playing track (by content match key), if synced.
-    public func featuresFor(title: String, artist: String?, album: String?) -> (bpm: Double, camelot: String, tags: [String])? {
-        database?.featuresForMatchKey(TrackIdentity.matchKey(artist: artist, album: album, title: title))
+    public func featuresFor(title: String, artist: String?, album: String?) async -> (bpm: Double, camelot: String, tags: [String])? {
+        await database?.featuresForMatchKey(TrackIdentity.matchKey(artist: artist, album: album, title: title))
     }
 
     /// Build an endless-style mix seeded from a track: harmonically-compatible
     /// tracks within ±12 BPM of the seed, ordered by the DJ-set builder.
     public func buildRadio(title: String, artist: String?, album: String?, count: Int = 25) async -> [DatabaseManager.DJCandidate] {
         guard let db = database,
-              let seed = featuresFor(title: title, artist: artist, album: album), seed.bpm > 0 else { return [] }
+              let seed = await featuresFor(title: title, artist: artist, album: album), seed.bpm > 0 else { return [] }
         return await Task.detached {
             let cands = (try? await db.djCandidates(minBPM: seed.bpm - 12, maxBPM: seed.bpm + 12, tags: [], excludeLive: true)) ?? []
             guard !cands.isEmpty else { return [] }
@@ -476,7 +476,11 @@ extension RoonClient {
         // match_key diverges from the analyzer's. Without this, Radio seeded
         // from such a track silently returned [] (spinner, then nothing).
         let inLib = lib.first(where: { $0.matchKey == matchKey })
-        guard let seed = inLib ?? db.sonicSeed(matchKey: matchKey) else { return [] }
+        // `??` can't take an `await` (its RHS is a non-async autoclosure), so
+        // resolve the synthesized fallback explicitly.
+        let seedOrNil: DatabaseManager.SonicTrack?
+        if let inLib { seedOrNil = inLib } else { seedOrNil = await db.sonicSeed(matchKey: matchKey) }
+        guard let seed = seedOrNil else { return [] }
         let seedInLib = inLib != nil
         return await Task.detached {
             let raw: [SonicEngine.Scored]

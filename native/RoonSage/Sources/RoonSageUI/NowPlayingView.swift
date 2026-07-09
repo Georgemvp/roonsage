@@ -310,13 +310,14 @@ private struct NowPlayingHero: View {
         .frame(width: maxContentWidth)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.bottom, Spacing.sm)
-        .onAppear { setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
-        .onChange(of: zone.id) { _, _ in setAnchor(zone.seekPosition ?? 0); refreshFeatures() }
+        .onAppear { setAnchor(zone.seekPosition ?? 0) }
+        .onChange(of: zone.id) { _, _ in setAnchor(zone.seekPosition ?? 0) }
+        .task(id: zone.id) { await refreshFeatures() }
+        .task(id: zone.nowPlaying?.title) { await refreshFeatures() }
         .onChange(of: zone.seekPosition) { _, pos in if !isSeeking { setAnchor(pos ?? 0) } }
         // Pause/resume: re-anchor at the frozen value so resuming continues from
         // where the bar stopped instead of jumping by the paused interval.
         .onChange(of: zone.state) { _, _ in setAnchor(displayPosition) }
-        .onChange(of: zone.nowPlaying?.title) { _, _ in refreshFeatures() }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in tickPosition() }
         .task { await client.ensureFeedbackLoaded() }
         .sheet(isPresented: $showLyrics) { LyricsView(zone: zone) }
@@ -417,7 +418,7 @@ private struct NowPlayingHero: View {
                 }
                 // CLAP attribute axes (when analyzed) — the "meer meta" the engine
                 // can use; shown here so you can eyeball the values per track.
-                ForEach(NowPlayingHeroOptions.attributeBadges(client.attributesFor(title: np.title, artist: np.artist, album: np.album)), id: \.self) { label in
+                ForEach(NowPlayingHeroOptions.attributeBadges(attrs), id: \.self) { label in
                     Badge(label, tint: .secondary)
                 }
                 Button {
@@ -789,10 +790,10 @@ private struct NowPlayingHero: View {
         displayPosition = p
     }
 
-    private func refreshFeatures() {
+    private func refreshFeatures() async {
         if let np = zone.nowPlaying {
-            feat = client.featuresFor(title: np.title, artist: np.artist, album: np.album)
-            attrs = client.attributesFor(title: np.title, artist: np.artist, album: np.album)
+            feat = await client.featuresFor(title: np.title, artist: np.artist, album: np.album)
+            attrs = await client.attributesFor(title: np.title, artist: np.artist, album: np.album)
         } else {
             feat = nil
             attrs = [:]

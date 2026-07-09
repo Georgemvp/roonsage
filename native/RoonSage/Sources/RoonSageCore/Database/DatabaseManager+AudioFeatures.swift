@@ -48,8 +48,11 @@ extension DatabaseManager {
     }
 
     /// Audio features for one track by its content match key (for Now Playing).
-    public func featuresForMatchKey(_ matchKey: String) -> (bpm: Double, camelot: String, tags: [String])? {
-        (try? pool.read { db -> (Double, String, [String])? in
+    /// `async` on purpose: callers run on the MainActor, and a synchronous
+    /// `pool.read` here blocks the UI thread (it stalls behind any in-flight
+    /// import `pool.write`) — the recurring Now Playing freeze.
+    public func featuresForMatchKey(_ matchKey: String) async -> (bpm: Double, camelot: String, tags: [String])? {
+        (try? await pool.read { db -> (Double, String, [String])? in
             guard let r = try Row.fetchOne(db, sql: "SELECT bpm, camelot, tags FROM track_audio_features WHERE match_key = ?", arguments: [matchKey]) else { return nil }
             var tags: [String] = []
             if let t = r["tags"] as String?, let d = t.data(using: .utf8),
@@ -66,9 +69,9 @@ extension DatabaseManager {
     /// (id = match_key); callers must drive the engine off its features /
     /// embedding rather than its identity. nil when no feature row carries this
     /// match key.
-    public func sonicSeed(matchKey: String) -> SonicTrack? {
+    public func sonicSeed(matchKey: String) async -> SonicTrack? {
         guard !matchKey.isEmpty else { return nil }
-        return (try? pool.read { db -> SonicTrack? in
+        return (try? await pool.read { db -> SonicTrack? in
             guard let r = try Row.fetchOne(db, sql: """
                 SELECT bpm, camelot, energy, tags, embedding, moods
                 FROM track_audio_features WHERE match_key = ?
@@ -112,8 +115,10 @@ extension DatabaseManager {
     }
 
     /// CLAP attribute scores for one track by content match key (for Now Playing).
-    public func attributesForMatchKey(_ matchKey: String) -> [String: Float] {
-        (try? pool.read { db -> [String: Float] in
+    /// `async` on purpose — see `featuresForMatchKey`: a synchronous MainActor
+    /// read here is the per-second Now Playing freeze.
+    public func attributesForMatchKey(_ matchKey: String) async -> [String: Float] {
+        (try? await pool.read { db -> [String: Float] in
             guard let s = try String.fetchOne(
                 db, sql: "SELECT attributes FROM track_audio_features WHERE match_key = ?", arguments: [matchKey]),
                 let d = s.data(using: .utf8) else { return [:] }

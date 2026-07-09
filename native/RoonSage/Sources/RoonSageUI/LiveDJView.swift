@@ -158,7 +158,7 @@ public struct LiveDJView: View {
     private func reload(_ np: NowPlaying) async {
         loading = true
         defer { loading = false }
-        guard let feat = client.featuresFor(title: np.title, artist: np.artist, album: np.album),
+        guard let feat = await client.featuresFor(title: np.title, artist: np.artist, album: np.album),
               feat.bpm > 0 else {
             hasFeatures = false
             currentBPM = 0; currentCamelot = ""; suggestions = []
