@@ -13,7 +13,9 @@ bv. "Werk feature #1 (skip = live re-steer) volledig uit" of "Doe alleen B7".
 Fix ALLES uit de 6-dimensie audit (2026-07-06): security, correctheid, performance, UX, architectuur én de 13 nieuwe features. Incrementeel per batch: bewerken → build/test → commit+push+tag.
 
 ## Now
-LAATST (2026-07-09): Mac-client vastloper-fix geshipt+getagd (v1.10.154 / ios-v1.7.119 / analyzer-v1.1.129) — alle synchrone GRDB-reads van de MainActor gehaald (per-seconde NowPlaying-read was de hoofdoorzaak). Zie ## Done. Niet gedeployd (alleen client-code; analyzer ongewijzigd). Open vervolg: launch-DB-open async (grote refactor), sonicSeed-pad al gedekt.
+LAATST (2026-07-09): NowPlayingBar gedockt geshipt+getagd (v1.10.155 / ios-v1.7.120 / analyzer-v1.1.130) — mini-player was een zwevende afgeronde kaart (schaduw+horizontale marge+translucent) die over de laatste hub-lijstrijen hoverde; nu een volledige-breedte balk vlak boven de tabbalk (.bar-materiaal + top-hairline), onderdeel van de UI-chrome. safeAreaInset reserveert hoogte al; show/hide-logica ongewijzigd. RESULT: 4908b9c v1.10.155/ios-v1.7.120/analyzer-v1.1.130, 552 tests 0 failures. Visuele docking niet headless verifieerbaar (vereist toestel). Niet gedeployd (alleen client-UI).
+
+EERDER (2026-07-09): Mac-client vastloper-fix geshipt+getagd (v1.10.154 / ios-v1.7.119 / analyzer-v1.1.129) — alle synchrone GRDB-reads van de MainActor gehaald (per-seconde NowPlaying-read was de hoofdoorzaak). Zie ## Done. Niet gedeployd (alleen client-code; analyzer ongewijzigd). Open vervolg: launch-DB-open async (grote refactor), sonicSeed-pad al gedekt.
 
 B1-B6a + B7a + B8-features + consumers + share KLAAR. loudness-normalisatie bleek AL GESHIPT (LocalLoudness.swift off/track/album + LocalLoudnessTests). Live op mini = analyzer-v1.1.108. Resterende backlog is grotendeels NIET-headless-verifieerbaar (audio/OS/GUI).
 
