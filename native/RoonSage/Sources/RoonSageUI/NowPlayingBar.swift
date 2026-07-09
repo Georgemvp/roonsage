@@ -134,14 +134,14 @@ public struct NowPlayingBar: View {
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.xs)
         }
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.lg).strokeBorder(.white.opacity(0.08))
-        )
-        .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
-        .padding(.horizontal, Spacing.sm)
-        .padding(.bottom, Spacing.xs)
+        // Docked, full-width bar flush above the tab bar (not a floating card):
+        // same `.bar` material as the system tab bar below it, with a top hairline
+        // so it reads as part of the chrome instead of hovering over content. The
+        // enclosing `.safeAreaInset(edge: .bottom)` reserves its height so list
+        // rows rest above it rather than sliding underneath.
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(.isButton)
