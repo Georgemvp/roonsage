@@ -45,6 +45,18 @@ struct PlayActionsMenu: View {
                                                  album: seed.album, zoneID: zone.id)
                 }
             }.disabled(!hasZone)
+            Menu("Start als DJ…", systemImage: "person.wave.2") {
+                ForEach(DJMode.allCases, id: \.self) { mode in
+                    Button(mode.title) {
+                        guard let zone = client.selectedZone else { return }
+                        Haptics.tap()
+                        Task {
+                            await client.startTrackRadio(title: seed.title, artist: seed.artist,
+                                                         album: seed.album, zoneID: zone.id, djMode: mode)
+                        }
+                    }
+                }
+            }.disabled(!hasZone)
         }
         if includeLocal {
             Divider()

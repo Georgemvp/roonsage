@@ -17,7 +17,7 @@ import Foundation
 public enum RadioSequencer {
 
     /// Shape of the energy curve across the sequence.
-    public enum Arc: Sendable {
+    public enum Arc: Sendable, Equatable {
         case smooth      // minimise track-to-track energy jumps (endless radio)
         case gentleRise  // start calm, drift up (a "set" with a little lift)
         case peak        // rise to a middle peak, then ease off

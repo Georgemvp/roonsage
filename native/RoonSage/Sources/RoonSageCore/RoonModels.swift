@@ -9,6 +9,10 @@ public struct Zone: Identifiable, Equatable, Sendable, Codable {
     public var outputs: [Output]
     public var nowPlaying: NowPlaying?
     public var seekPosition: Double?    // seconds
+    /// Tracks still queued after the current one, when Roon reports it. Optional:
+    /// an older snapshot (or a frame without it) reads as nil, and the Guest-DJ
+    /// autoplay simply doesn't fire rather than guessing the queue is empty.
+    public var queueItemsRemaining: Int?
     // Playback settings from Roon's `zone.settings`. Optional so a snapshot from
     // an older server (which never encoded them) still decodes cleanly — a nil
     // simply reads as "unknown" and the toggle shows its neutral state.
@@ -28,6 +32,7 @@ public struct Zone: Identifiable, Equatable, Sendable, Codable {
            let pos = seek["seek_position"] as? Double {
             seekPosition = pos
         }
+        queueItemsRemaining = dict["queue_items_remaining"] as? Int
         if let settings = dict["settings"] as? [String: Any] {
             shuffle = settings["shuffle"] as? Bool
             loopMode = settings["loop"] as? String

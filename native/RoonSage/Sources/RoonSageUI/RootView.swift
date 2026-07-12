@@ -142,6 +142,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case bookmarks   = "Bookmarks"
     case djSet       = "DJ Set"
     case liveDJ      = "Live DJ"
+    case djModes     = "DJ Modes"
     case radios      = "Radios"
     case fingerprint = "Sonic DNA"
     case musicMap    = "Music Map"
@@ -172,6 +173,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .bookmarks:   LS("nav.bookmarks")
         case .djSet:       LS("nav.djSet")
         case .liveDJ:      LS("nav.liveDJ")
+        case .djModes:     LS("nav.djModes")
         case .radios:      LS("nav.radios")
         case .fingerprint: LS("nav.fingerprint")
         case .musicMap:    LS("nav.musicMap")
@@ -200,6 +202,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .bookmarks:   "bookmark"
         case .djSet:       "slider.horizontal.3"
         case .liveDJ:      "slider.horizontal.2.gobackward"
+        case .djModes:     "person.wave.2"
         case .radios:      "dot.radiowaves.left.and.right"
         case .fingerprint: "waveform.path.ecg"
         case .musicMap:    "map"
@@ -511,6 +514,9 @@ struct RootView: View {
                 NavigationLink { SonicRadioView().navigationTitle("Radio's").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Radio's", systemImage: SidebarItem.radios.icon)
                 }
+                NavigationLink { DJModesView() } label: {
+                    Label("DJ-modi", systemImage: SidebarItem.djModes.icon)
+                }
                 NavigationLink { RecentView() } label: {
                     Label("Recent gespeeld", systemImage: SidebarItem.recent.icon)
                 }
@@ -562,6 +568,7 @@ struct RootView: View {
         case .bookmarks:   BookmarksView()
         case .djSet:       DJSetView()
         case .liveDJ:      LiveDJView()
+        case .djModes:     DJModesView()
         case .fingerprint: SonicFingerprintView()
         case .musicMap:    MusicMapView()
         case .songPaths:   SongPathsView()

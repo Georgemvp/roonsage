@@ -40,6 +40,8 @@ public struct SonicRadioView: View {
 
             myRadiosLink.plainCardRow()
 
+            djModesLink.plainCardRow()
+
             adventurousnessTuner.plainCardRow()
 
             categoryPicker.plainCardRow()
@@ -109,6 +111,31 @@ public struct SonicRadioView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Mijn radio's").font(.subheadline.weight(.semibold))
                     Text("Stel zelf radio's samen uit artiesten, genres, sferen en activiteiten — en sync ze naar Qobuz.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .cardStyle()
+    }
+
+    /// Entry point to the Guest-DJ personas (start-from-track + autoplay).
+    private var djModesLink: some View {
+        NavigationLink {
+            DJModesView()
+        } label: {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "person.wave.2")
+                    .font(.title3)
+                    .foregroundStyle(Color.roonGold)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("DJ-modi").font(.subheadline.weight(.semibold))
+                    Text("Kies een DJ-persona die overneemt vanaf het nummer dat speelt — dichtbij, op avontuur, dezelfde artiest of hetzelfde tijdperk.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)

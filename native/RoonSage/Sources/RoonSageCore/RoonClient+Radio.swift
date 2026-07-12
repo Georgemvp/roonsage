@@ -58,6 +58,9 @@ extension RoonClient {
         /// Content keys skipped during THIS station — feed the re-steer as a soft
         /// negative so the upcoming pool drifts away from what you keep skipping.
         var skippedKeys: Set<String> = []
+        /// The active DJ persona, if the station was started as one — kept so the
+        /// endless top-up regenerations preserve its dial/arc/gate.
+        var djMode: DJMode? = nil
     }
 
     // MARK: Daily radios
@@ -141,7 +144,7 @@ extension RoonClient {
 
     /// Start an endless station for `radio` in `zoneID`: play the first batch,
     /// subscribe to the queue, and let the monitor refill it as it drains.
-    public func startRadio(_ radio: SonicRadio, zoneID: String) async {
+    public func startRadio(_ radio: SonicRadio, zoneID: String, djMode: DJMode? = nil) async {
         guard let db = database else {
             reportError("Radio mislukt — geen bibliotheek beschikbaar.")
             return
@@ -154,18 +157,24 @@ extension RoonClient {
         let disliked = radioDislikedMatchKeys
         let liked = likedMatchKeys
         let known = await knownArtistKeys(lib: lib)
-        let adv = radioAdventurousness
+        // A DJ persona overrides the dial + arc and adds its seed-derived gate;
+        // without one the station keeps the user's global adventurousness / smooth
+        // flow, exactly as before.
+        let adv = djMode?.adventurousness ?? radioAdventurousness
+        let arc = djMode?.arc ?? .smooth
         let hardBan = radioHardBanDisliked
         let taste = await personalTasteVector(lib: lib, index: index)
         let stats = await sonicCache.nnStats(from: db)
-        let gate = await candidateGate(for: key)
+        let baseGate = await candidateGate(for: key)
+        let modeGate = await djModeGate(djMode, seedIds: seedIds, lib: lib, db: db)
+        let gate = Self.composeGates(baseGate, modeGate)
         let related = await relatedSeedArtists(radioID: key, artist: radio.artist)
         let pool = await Task.detached {
             Self.buildRadioCandidates(seedIds: seedIds, lib: lib, index: index,
                                       seed: "\(stamp)-\(key)-0", disliked: disliked,
                                       likedKeys: liked, knownArtists: known,
                                       adventurousness: adv, hardBan: hardBan, tasteVector: taste,
-                                      nnStats: stats, relatedArtists: related, gate: gate)
+                                      nnStats: stats, relatedArtists: related, gate: gate, arc: arc)
         }.value
         guard !pool.isEmpty else {
             reportError("Radio kon geen vergelijkbare tracks vinden — analyseer eerst meer muziek.")
@@ -175,7 +184,8 @@ extension RoonClient {
         let first = Array(pool.prefix(Self.radioBatchSize))
         radioState = RadioRunState(
             artist: radio.artist, artistKey: key, zoneID: zoneID, seedIds: seedIds,
-            pool: pool, cursor: first.count, queuedKeys: Set(first.map { $0.id }), generation: 0)
+            pool: pool, cursor: first.count, queuedKeys: Set(first.map { $0.id }), generation: 0,
+            djMode: djMode)
         activeRadio = RadioStatus(artist: radio.artist, zoneID: zoneID)
 
         await curateTracks(first, zoneID: zoneID)   // first plays now, rest queue
@@ -190,7 +200,8 @@ extension RoonClient {
     /// `track:` id keeps it outside the bucket gates and the persisted Qobuz
     /// radio machinery: a song radio is a playback session, not a mirrored
     /// playlist.
-    public func startTrackRadio(title: String, artist: String?, album: String? = nil, zoneID: String) async {
+    public func startTrackRadio(title: String, artist: String?, album: String? = nil,
+                                zoneID: String, djMode: DJMode? = nil) async {
         let lib = await radioLibrary()
         guard !lib.isEmpty else {
             reportError("Radio mislukt — nog geen geanalyseerde bibliotheek beschikbaar.")
@@ -210,7 +221,55 @@ extension RoonClient {
             id: "track:\(seed.matchKey.isEmpty ? seed.id : seed.matchKey)",
             artist: seed.title,   // the banner reads "Radio: <track title>"
             imageKey: seed.imageKey, trackCount: 1, seedIds: [seed.id])
-        await startRadio(radio, zoneID: zoneID)
+        await startRadio(radio, zoneID: zoneID, djMode: djMode)
+    }
+
+    // MARK: DJ personas (Guest DJ)
+
+    /// The seed-derived candidate gate for a persona, or nil. Fetches the year map
+    /// only for The Timekeeper (the one persona that needs it).
+    private func djModeGate(
+        _ djMode: DJMode?, seedIds: [String],
+        lib: [DatabaseManager.SonicTrack], db: DatabaseManager
+    ) async -> (@Sendable (DatabaseManager.SonicTrack) -> Bool)? {
+        guard let djMode, let seedId = seedIds.first,
+              let seed = lib.first(where: { $0.id == seedId }) else { return nil }
+        let years = (djMode == .timekeeper) ? ((try? await db.yearByMatchKey()) ?? [:]) : [:]
+        return djMode.gate(seed: seed, years: years)
+    }
+
+    /// AND two optional candidate gates. A candidate must satisfy both to pass;
+    /// when either is nil the other stands alone (nil ∧ nil = no gate).
+    nonisolated static func composeGates(
+        _ a: (@Sendable (DatabaseManager.SonicTrack) -> Bool)?,
+        _ b: (@Sendable (DatabaseManager.SonicTrack) -> Bool)?
+    ) -> (@Sendable (DatabaseManager.SonicTrack) -> Bool)? {
+        switch (a, b) {
+        case (nil, nil): return nil
+        case let (x?, nil): return x
+        case let (nil, y?): return y
+        case let (x?, y?): return { x($0) && y($0) }
+        }
+    }
+
+    /// Guest-DJ autoplay: when enabled and no RoonSage station is running, a zone
+    /// whose queue is nearly empty is topped up by seeding a persona station on
+    /// its now-playing track. Idempotent per track (see `lastAutoplayTitle`) so a
+    /// track that can't seed a station isn't retried on every zone frame.
+    func maybeAutoplayGuestDJ(for zone: Zone) {
+        guard djAutoplayEnabled, radioState == nil, !autoplayInFlight,
+              zone.state == .playing, let np = zone.nowPlaying,
+              let remaining = zone.queueItemsRemaining, remaining <= Self.radioLowWater,
+              lastAutoplayTitle != np.title else { return }
+        lastAutoplayTitle = np.title
+        autoplayInFlight = true
+        let mode = selectedDJMode
+        Task { [weak self] in
+            guard let self else { return }
+            await self.startTrackRadio(title: np.title, artist: np.artist, album: np.album,
+                                       zoneID: zone.id, djMode: mode)
+            self.autoplayInFlight = false
+        }
     }
 
     /// Stop the running station. Playback already queued in Roon keeps playing;
@@ -283,11 +342,15 @@ extension RoonClient {
         let disliked = radioDislikedMatchKeys
         let liked = likedMatchKeys
         let known = await knownArtistKeys(lib: lib)
-        let adv = radioAdventurousness
+        let djMode = state.djMode
+        let adv = djMode?.adventurousness ?? radioAdventurousness
+        let arc = djMode?.arc ?? .smooth
         let hardBan = radioHardBanDisliked
         let taste = await personalTasteVector(lib: lib, index: index)
         let stats = await sonicCache.nnStats(from: db)
-        let gate = await candidateGate(for: key)
+        let baseGate = await candidateGate(for: key)
+        let modeGate = await djModeGate(djMode, seedIds: seedIds, lib: lib, db: db)
+        let gate = Self.composeGates(baseGate, modeGate)
         let related = await relatedSeedArtists(radioID: key, artist: state.artist)
         // Continuation anchor: the final track of the generation that just drained,
         // so the new pool opens on a sonically-adjacent track (seamless seam). Only
@@ -302,7 +365,7 @@ extension RoonClient {
                                       likedKeys: liked, knownArtists: known,
                                       adventurousness: adv, hardBan: hardBan, tasteVector: taste,
                                       nnStats: stats, relatedArtists: related, gate: gate,
-                                      continueFromId: continueFrom)
+                                      continueFromId: continueFrom, arc: arc)
         }.value
         state.pool = pool
         state.cursor = 0
@@ -369,7 +432,8 @@ extension RoonClient {
         tasteVector: [Float]? = nil, nnStats: VectorIndex.NNStats? = nil,
         relatedArtists: [String: Double] = [:],
         gate: (@Sendable (DatabaseManager.SonicTrack) -> Bool)? = nil,
-        continueFromId: String? = nil
+        continueFromId: String? = nil,
+        arc: RadioSequencer.Arc = .smooth
     ) -> [TrackRecord] {
         let seedSet = Set(seedIds)
         // Don't seed the station on a disliked track.
@@ -434,7 +498,7 @@ extension RoonClient {
             } else {
                 startIds = seedSet
             }
-            let ordered = RadioSequencer.order(combined, preferredStartIds: startIds, arc: .smooth)
+            let ordered = RadioSequencer.order(combined, preferredStartIds: startIds, arc: arc)
             return ordered.map { TrackRecord(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album) }
         }
 

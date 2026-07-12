@@ -13,6 +13,7 @@
 "nav.playlists"    = "Playlists";
 "nav.djSet"        = "DJ Set";
 "nav.liveDJ"       = "Live DJ";
+"nav.djModes"      = "DJ Modes";
 "nav.radios"       = "Radios";
 "nav.recent"       = "Recent";
 "nav.fingerprint"  = "Sonic DNA";

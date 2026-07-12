@@ -138,6 +138,11 @@ public final class RoonClient {
     var radioRegenerating = false
     /// Polls the queue depth and tops the station up when it runs low.
     var radioMonitorTask: Task<Void, Never>?
+    /// Guest-DJ autoplay guards: an in-flight launch, and the last now-playing
+    /// title we attempted from — so a track that can't seed a station (e.g. not
+    /// yet analyzed) is tried once, not on every zone frame.
+    var autoplayInFlight = false
+    var lastAutoplayTitle: String?
     /// Periodic "AI artist radios → Qobuz" sync on the always-on server build
     /// (see RoonClient+ArtistRadio). A stored property here because extensions
     /// can't add stored state.
@@ -256,6 +261,20 @@ public final class RoonClient {
     /// picking a zone. Persisted to UserDefaults in didSet; restored at init.
     public internal(set) var localOutputSelected: Bool = UserDefaults.standard.bool(forKey: "local_output_selected") {
         didSet { UserDefaults.standard.set(localOutputSelected, forKey: "local_output_selected") }
+    }
+
+    /// The active DJ persona (Guest-DJ preset over the smart-radio engine). STORED
+    /// + observable so the persona picker re-renders live (same reason as
+    /// `localOutputSelected`). Persisted in didSet; restored at init.
+    public var selectedDJMode: DJMode = DJMode(rawValue: UserDefaults.standard.string(forKey: "dj_mode") ?? "") ?? .default {
+        didSet { UserDefaults.standard.set(selectedDJMode.rawValue, forKey: "dj_mode") }
+    }
+
+    /// When on, normal playback that runs dry is topped up by `selectedDJMode`
+    /// seeded on the now-playing track (Plexamp's Guest-DJ autoplay). Off by
+    /// default so we never inject tracks the user didn't ask for.
+    public var djAutoplayEnabled: Bool = UserDefaults.standard.bool(forKey: "dj_autoplay") {
+        didSet { UserDefaults.standard.set(djAutoplayEnabled, forKey: "dj_autoplay") }
     }
 
     public var selectedZone: Zone? {
@@ -869,6 +888,7 @@ public final class RoonClient {
             // play-pause), so a snapshot doesn't briefly overlay the previous
             // track's position before the next per-second frame arrives.
             liveSeek[zone.id] = zone.seekPosition ?? 0
+            maybeAutoplayGuestDJ(for: zone)
         }
         for id in toRemove {
             lastNowPlaying.removeValue(forKey: id)
