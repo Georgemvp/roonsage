@@ -86,5 +86,10 @@ De vier substraten:
   Radio's/DJ-modi/Journeys — delen RadioEngine) embed `SonicRadioView`/`DJModesView`/`SonicJourneysView`;
   `DJView` (segmented Set/Live — harmonische mixer) embed `DJSetView`/`LiveDJView`. Stations-groep
   gaat van 5 losse items → 2 (`.stationsHub`, `.dj`); iOS idem. Engines ongewijzigd. 577 tests groen.
-- **Batch 5 — Create-consolidatie.** Ask als Generate-"Snel"-modus; Recommend als Generate-"Albums"-scope.
+- **Batch 5 — Create-consolidatie — ✅ GESHIPT.** Nieuwe `CreateHubView` = segmented
+  Genereer/Snel/Albums die `GenerateView`/`AskView`/`RecommendView` embed. `.generate` wijst nu
+  naar de hub (geen nieuw enum-case); Create-groep 4 → 2 items (Generate-hub + Playlists); iOS
+  "AI-curatie" idem. Engines ongewijzigd. 577 tests groen.
+  *Resultaat IA-consolidatie (Batch 1–5): sidebar ~23 → 15 items, intentie-gegroepeerd, geen wezen,
+  geen naamcollisie. Vervolg (later): de hubs écht 1 pipeline laten delen i.p.v. losse views embedden.*
 - **Batch 6 — Slimmer.** Feedback-bus, smaak-gestuurde Herontdek, Music Map-generator (engine-werk).

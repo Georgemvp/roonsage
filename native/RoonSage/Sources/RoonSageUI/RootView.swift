@@ -286,7 +286,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         //   Explore   — discover new music + navigate the sonic space of what you own
         //   You       — your taste, history and yearly recap
         case .playback: [.nowPlaying, .queue, .library, .bookmarks]
-        case .create:   [.ask, .generate, .recommend, .playlists]
+        case .create:   [.generate, .playlists]
         case .stations: [.stationsHub, .dj]
         case .explore:  [.discover, .discovery, .sonicLab, .musicMap, .multitag]
         case .you:      [.tasteHub]
@@ -490,14 +490,8 @@ struct RootView: View {
     private var iOSCreateHub: some View {
         List {
             Section("AI-curatie") {
-                NavigationLink { GenerateView().navigationTitle("Genereer").navigationBarTitleDisplayMode(.inline) } label: {
-                    Label("Genereer playlist", systemImage: SidebarItem.generate.icon)
-                }
-                NavigationLink { AskView().navigationTitle("Vraag het").navigationBarTitleDisplayMode(.inline) } label: {
-                    Label("Vraag het je bibliotheek", systemImage: SidebarItem.ask.icon)
-                }
-                NavigationLink { RecommendView().navigationTitle("Aanbevelen").navigationBarTitleDisplayMode(.inline) } label: {
-                    Label("Albums aanbevelen", systemImage: SidebarItem.recommend.icon)
+                NavigationLink { CreateHubView().navigationTitle("Maak").navigationBarTitleDisplayMode(.inline) } label: {
+                    Label("Maak (genereer · snel · albums)", systemImage: SidebarItem.generate.icon)
                 }
             }
             Section("Afspelen") {
@@ -569,7 +563,7 @@ struct RootView: View {
         case .queue:       QueueView()
         case .library:     LibraryView()
         case .ask:         AskView()
-        case .generate:    GenerateView()
+        case .generate:    CreateHubView()
         case .recommend:   RecommendView()
         case .playlists:   PlaylistsView()
         case .bookmarks:   BookmarksView()
