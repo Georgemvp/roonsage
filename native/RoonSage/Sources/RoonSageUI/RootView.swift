@@ -246,10 +246,11 @@ extension EnvironmentValues {
 
 // MARK: - Sidebar grouping (macOS / iPad)
 
-/// Groups the 18 destinations into scannable sections, mirroring the iOS
-/// "Maak"/"Ontdek" hubs so the macOS sidebar isn't one long flat list.
+/// Groups the destinations into scannable, intent-based sections (Play /
+/// Create / Stations / Explore / You), mirroring the iOS "Maak"/"Ontdek"
+/// hubs so the macOS sidebar isn't one long flat list.
 enum SidebarSection: String, CaseIterable, Identifiable {
-    case playback, create, explore, settings
+    case playback, create, stations, explore, you, settings
 
     var id: String { rawValue }
 
@@ -257,16 +258,26 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         switch self {
         case .playback: LS("section.playback")
         case .create:   LS("section.create")
+        case .stations: LS("section.stations")
         case .explore:  LS("section.explore")
+        case .you:      LS("section.you")
         case .settings: LS("section.settings")
         }
     }
 
     var items: [SidebarItem] {
         switch self {
+        // Grouped by user intent, not by underlying engine:
+        //   Play      — what's on now / your collection
+        //   Create    — make a playlist from an idea
+        //   Stations  — self-driving / mixing playback (all share RadioEngine or the harmonic mixer)
+        //   Explore   — discover new music + navigate the sonic space of what you own
+        //   You       — your taste, history and yearly recap
         case .playback: [.nowPlaying, .queue, .library, .bookmarks]
-        case .create:   [.ask, .generate, .recommend, .playlists, .djSet, .liveDJ]
-        case .explore:  [.discover, .discovery, .radios, .recent, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .multitag, .taste, .yearInReview]
+        case .create:   [.ask, .generate, .recommend, .playlists]
+        case .stations: [.radios, .djModes, .journeys, .djSet, .liveDJ]
+        case .explore:  [.discover, .discovery, .sonicSearch, .alchemy, .songPaths, .musicMap, .multitag]
+        case .you:      [.fingerprint, .taste, .recent, .yearInReview]
         case .settings: [.settings]
         }
     }
@@ -427,7 +438,7 @@ struct RootView: View {
                 iOSExploreHub.toolbar { navToolbar }.ambientSurface()
             }
             .nowPlayingBarDocked()
-            .tabItem { Label { LT("nav.discovery") } icon: { Image(systemName: "sparkles") } }
+            .tabItem { Label { LT("section.explore") } icon: { Image(systemName: "sparkles") } }
             .tag(SidebarItem.discovery)
 
             NavigationStack {
@@ -451,8 +462,8 @@ struct RootView: View {
     }
 
     private var iOSTabSelection: Binding<SidebarItem> {
-        let createItems: Set<SidebarItem> = [.generate, .ask, .recommend, .djSet, .liveDJ, .queue, .playlists, .bookmarks]
-        let exploreItems: Set<SidebarItem> = [.discover, .discovery, .radios, .recent, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .multitag, .taste, .yearInReview]
+        let createItems: Set<SidebarItem> = [.generate, .ask, .recommend, .queue, .playlists, .bookmarks]
+        let exploreItems: Set<SidebarItem> = [.discover, .discovery, .radios, .djModes, .journeys, .djSet, .liveDJ, .recent, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .multitag, .taste, .yearInReview]
         return Binding(
             get: {
                 if createItems.contains(selection) { return .generate }
@@ -475,14 +486,6 @@ struct RootView: View {
                 }
                 NavigationLink { RecommendView().navigationTitle("Aanbevelen").navigationBarTitleDisplayMode(.inline) } label: {
                     Label("Albums aanbevelen", systemImage: SidebarItem.recommend.icon)
-                }
-            }
-            Section("DJ") {
-                NavigationLink { DJSetView().navigationTitle("DJ Set").navigationBarTitleDisplayMode(.inline) } label: {
-                    Label("DJ Set", systemImage: SidebarItem.djSet.icon)
-                }
-                NavigationLink { LiveDJView().navigationTitle("Live DJ").navigationBarTitleDisplayMode(.inline) } label: {
-                    Label("Live DJ", systemImage: SidebarItem.liveDJ.icon)
                 }
             }
             Section("Afspelen") {
@@ -508,12 +511,14 @@ struct RootView: View {
                 NavigationLink { DiscoverWeeklyView().navigationBarTitleDisplayMode(.large) } label: {
                     Label("Ontdek Wekelijks", systemImage: "sparkles")
                 }
-                NavigationLink { DiscoveryView().navigationTitle("Ontdek").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Ontdek", systemImage: SidebarItem.discovery.icon)
+                NavigationLink { DiscoverFeedView().navigationTitle("Nieuw voor jou").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Nieuw voor jou", systemImage: SidebarItem.discover.icon)
                 }
-                NavigationLink { DiscoverFeedView().navigationTitle("Nieuwe Ontdekkingen").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Nieuwe Ontdekkingen", systemImage: SidebarItem.discover.icon)
+                NavigationLink { DiscoveryView().navigationTitle("Herontdek").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Herontdek", systemImage: SidebarItem.discovery.icon)
                 }
+            }
+            Section("Stations") {
                 NavigationLink { SonicRadioView().navigationTitle("Radio's").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Radio's", systemImage: SidebarItem.radios.icon)
                 }
@@ -523,31 +528,39 @@ struct RootView: View {
                 NavigationLink { SonicJourneysView() } label: {
                     Label("Sonic Journeys", systemImage: SidebarItem.journeys.icon)
                 }
-                NavigationLink { RecentView() } label: {
-                    Label("Recent gespeeld", systemImage: SidebarItem.recent.icon)
+                NavigationLink { DJSetView().navigationTitle("DJ Set").navigationBarTitleDisplayMode(.inline) } label: {
+                    Label("DJ Set", systemImage: SidebarItem.djSet.icon)
                 }
-                NavigationLink { TasteProfileView().navigationTitle("Smaakprofiel").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Smaakprofiel", systemImage: SidebarItem.taste.icon)
+                NavigationLink { LiveDJView().navigationTitle("Live DJ").navigationBarTitleDisplayMode(.inline) } label: {
+                    Label("Live DJ", systemImage: SidebarItem.liveDJ.icon)
                 }
             }
             Section("Sonic-tools") {
-                NavigationLink { SonicFingerprintView().navigationTitle("Sonic DNA").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Sonic DNA", systemImage: SidebarItem.fingerprint.icon)
-                }
-                NavigationLink { MusicMapView().navigationTitle("Music Map").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Music Map", systemImage: SidebarItem.musicMap.icon)
-                }
-                NavigationLink { SongPathsView().navigationTitle("The Bridge").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("The Bridge", systemImage: SidebarItem.songPaths.icon)
+                NavigationLink { SonicSearchView().navigationTitle("Sonisch zoeken").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Sonisch zoeken", systemImage: SidebarItem.sonicSearch.icon)
                 }
                 NavigationLink { SongAlchemyView().navigationTitle("Song Alchemy").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Song Alchemy", systemImage: SidebarItem.alchemy.icon)
                 }
-                NavigationLink { SonicSearchView().navigationTitle("Sonisch zoeken").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Sonisch zoeken", systemImage: SidebarItem.sonicSearch.icon)
+                NavigationLink { SongPathsView().navigationTitle("The Bridge").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("The Bridge", systemImage: SidebarItem.songPaths.icon)
+                }
+                NavigationLink { MusicMapView().navigationTitle("Music Map").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Music Map", systemImage: SidebarItem.musicMap.icon)
                 }
                 NavigationLink { MultitagView() } label: {
                     Label("Multitag", systemImage: SidebarItem.multitag.icon)
+                }
+            }
+            Section("Jouw smaak") {
+                NavigationLink { SonicFingerprintView().navigationTitle("Sonic DNA").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Sonic DNA", systemImage: SidebarItem.fingerprint.icon)
+                }
+                NavigationLink { TasteProfileView().navigationTitle("Smaakprofiel").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Smaakprofiel", systemImage: SidebarItem.taste.icon)
+                }
+                NavigationLink { RecentView() } label: {
+                    Label("Recent gespeeld", systemImage: SidebarItem.recent.icon)
                 }
                 NavigationLink { YearInReviewView().navigationTitle("Jaaroverzicht").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Jaaroverzicht", systemImage: SidebarItem.yearInReview.icon)

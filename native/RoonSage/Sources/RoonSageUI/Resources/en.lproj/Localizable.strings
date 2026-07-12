@@ -23,8 +23,8 @@
 "nav.alchemy"      = "Song Alchemy";
 "nav.sonicSearch"  = "Sonic search";
 "nav.multitag"     = "Multitag";
-"nav.discover"     = "New Discoveries";
-"nav.discovery"    = "Discover";
+"nav.discover"     = "New for You";
+"nav.discovery"    = "Rediscover";
 "nav.taste"        = "Taste Profile";
 "nav.yearInReview" = "Year in Review";
 "nav.settings"     = "Settings";
@@ -32,7 +32,9 @@
 /* Sidebar sections */
 "section.playback" = "Play";
 "section.create"   = "Create";
+"section.stations" = "Stations";
 "section.explore"  = "Explore";
+"section.you"      = "You";
 "section.settings" = "System";
 
 /* Settings / language */

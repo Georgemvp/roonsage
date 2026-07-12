@@ -23,8 +23,8 @@
 "nav.alchemy"      = "Song Alchemy";
 "nav.sonicSearch"  = "Sonisch zoeken";
 "nav.multitag"     = "Multitag";
-"nav.discover"     = "Nieuwe Ontdekkingen";
-"nav.discovery"    = "Ontdek";
+"nav.discover"     = "Nieuw voor jou";
+"nav.discovery"    = "Herontdek";
 "nav.taste"        = "Smaakprofiel";
 "nav.yearInReview" = "Jaaroverzicht";
 "nav.settings"     = "Instellingen";
@@ -32,7 +32,9 @@
 /* Sidebar sections */
 "section.playback" = "Afspelen";
 "section.create"   = "Maak";
+"section.stations" = "Stations";
 "section.explore"  = "Ontdek";
+"section.you"      = "Jouw smaak";
 "section.settings" = "Systeem";
 
 /* Settings / language */
