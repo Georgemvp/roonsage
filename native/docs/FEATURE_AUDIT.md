@@ -103,4 +103,7 @@ De vier substraten:
   - **#3 Ask→Generate-doorgeef — ✅ GESHIPT.** In de Create-hub geeft Snel (Ask) nu een
     "Verfijn tot playlist →"-knop die de query doorgeeft aan Genereer (`GenerateView(initialPrompt:)`
     seedt de prompt als die leeg is). Client-side UI-wiring, geen engine-wijziging. 577 tests groen.
-  - #4 Music Map-generator · #5 auto-persona — nog te doen (client-side).
+  - **#5 auto-persona — ✅ GESHIPT.** Nieuwe pure `DJMode.forTimeOfDay(hour:)` (getest); toggle
+    "Kies persona automatisch op tijdstip" in DJModesView + pref `djAutoplayAutoPersona`; Guest-DJ-autoplay
+    kiest de persona nu op het lokale uur i.p.v. de vaste `selectedDJMode`. Client-side. 579 tests groen.
+  - #4 Music Map-generator — nog te doen (client-side; nieuwe scatter-interactie).

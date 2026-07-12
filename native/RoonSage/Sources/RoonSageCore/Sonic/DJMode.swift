@@ -24,6 +24,20 @@ public enum DJMode: String, CaseIterable, Sendable, Codable {
     /// The default persona for a fresh station / autoplay.
     public static let `default`: DJMode = .wanderer
 
+    /// Auto-persona for Guest-DJ autoplay: pick a persona by the local hour so the
+    /// self-driving station fits the time of day — calm and seamless overnight,
+    /// exploratory around midday, favourites in the evening. Pure + deterministic
+    /// (the caller supplies the hour, so it's testable without a clock).
+    public static func forTimeOfDay(hour: Int) -> DJMode {
+        switch ((hour % 24) + 24) % 24 {
+        case 5..<9:   return .purist     // early morning — gentle, seamless
+        case 9..<12:  return .vibe       // late morning — hold a mood
+        case 12..<17: return .wanderer   // afternoon — roam a little
+        case 17..<22: return .superfan   // evening — lean into favourites
+        default:      return .purist     // late night — deep, close flow
+        }
+    }
+
     public var title: String {
         switch self {
         case .purist:     return "The Purist"

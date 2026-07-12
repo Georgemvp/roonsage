@@ -94,4 +94,20 @@ final class DJModeTests: XCTestCase {
     func testVibeNoGateWhenSeedHasNoMoods() {
         XCTAssertNil(DJMode.vibe.gate(seed: track("s", artist: "X")))
     }
+
+    // MARK: Auto-persona by time of day
+
+    func testForTimeOfDayMapsHoursToPersonas() {
+        XCTAssertEqual(DJMode.forTimeOfDay(hour: 7),  .purist)    // early morning
+        XCTAssertEqual(DJMode.forTimeOfDay(hour: 10), .vibe)      // late morning
+        XCTAssertEqual(DJMode.forTimeOfDay(hour: 14), .wanderer)  // afternoon
+        XCTAssertEqual(DJMode.forTimeOfDay(hour: 20), .superfan)  // evening
+        XCTAssertEqual(DJMode.forTimeOfDay(hour: 2),  .purist)    // late night
+    }
+
+    func testForTimeOfDayHandlesOutOfRangeHours() {
+        // Wraparound so a bad clock value can't crash or fall through.
+        XCTAssertEqual(DJMode.forTimeOfDay(hour: 26), DJMode.forTimeOfDay(hour: 2))
+        XCTAssertEqual(DJMode.forTimeOfDay(hour: -2), DJMode.forTimeOfDay(hour: 22))
+    }
 }

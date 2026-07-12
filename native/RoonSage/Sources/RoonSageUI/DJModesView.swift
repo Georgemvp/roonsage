@@ -41,10 +41,16 @@ public struct DJModesView: View {
                     Text("Autoplay via de gekozen DJ").font(.caption)
                 }
                 .toggleStyle(.switch)
+                Toggle(isOn: $client.djAutoplayAutoPersona) {
+                    Text("Kies persona automatisch op tijdstip").font(.caption)
+                }
+                .toggleStyle(.switch)
+                .disabled(!client.djAutoplayEnabled)
                 Picker("DJ", selection: $client.selectedDJMode) {
                     ForEach(DJMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.menu)
+                .disabled(client.djAutoplayAutoPersona)
                 Text(client.selectedDJMode.blurb)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

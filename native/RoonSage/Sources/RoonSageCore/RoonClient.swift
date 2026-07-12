@@ -277,6 +277,14 @@ public final class RoonClient {
         didSet { UserDefaults.standard.set(djAutoplayEnabled, forKey: "dj_autoplay") }
     }
 
+    /// When on (with autoplay), the Guest-DJ persona is chosen by time of day
+    /// (`DJMode.forTimeOfDay`) instead of the fixed `selectedDJMode` — the station
+    /// picks its own mood so you don't have to. STORED + observable so the toggle
+    /// re-renders live.
+    public var djAutoplayAutoPersona: Bool = UserDefaults.standard.bool(forKey: "dj_autoplay_auto") {
+        didSet { UserDefaults.standard.set(djAutoplayAutoPersona, forKey: "dj_autoplay_auto") }
+    }
+
     public var selectedZone: Zone? {
         if let id = selectedZoneID, let z = zoneMap[id] { return z }
         // Never silently fall back to an arbitrary idle zone: doing so once

@@ -263,7 +263,9 @@ extension RoonClient {
               lastAutoplayTitle != np.title else { return }
         lastAutoplayTitle = np.title
         autoplayInFlight = true
-        let mode = selectedDJMode
+        let mode = djAutoplayAutoPersona
+            ? DJMode.forTimeOfDay(hour: Calendar.current.component(.hour, from: Date()))
+            : selectedDJMode
         Task { [weak self] in
             guard let self else { return }
             await self.startTrackRadio(title: np.title, artist: np.artist, album: np.album,
