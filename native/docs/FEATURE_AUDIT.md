@@ -106,4 +106,7 @@ De vier substraten:
   - **#5 auto-persona — ✅ GESHIPT.** Nieuwe pure `DJMode.forTimeOfDay(hour:)` (getest); toggle
     "Kies persona automatisch op tijdstip" in DJModesView + pref `djAutoplayAutoPersona`; Guest-DJ-autoplay
     kiest de persona nu op het lokale uur i.p.v. de vaste `selectedDJMode`. Client-side. 579 tests groen.
-  - #4 Music Map-generator — nog te doen (client-side; nieuwe scatter-interactie).
+  - **#4 Music Map-generator — ✅ GESHIPT.** De selectie-kaart op de Music Map krijgt naast "Speel nu"
+    een "Start station hier" (`startTrackRadio` vanaf de gekozen stip) — de kaart wordt een station-launcher
+    i.p.v. tik→speel-één-track, en verbindt zo motor D (scatter) met de RadioEngine. Client-side. 579 tests groen.
+    *(Volledige regio/lasso-selectie = latere verfijning; deze tap-seed dekt de kernwaarde met minimale interactie.)*

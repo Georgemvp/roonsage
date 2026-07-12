@@ -150,6 +150,14 @@ public struct MusicMapView: View {
             }
             Button {
                 guard let zone = client.selectedZone else { return }
+                Task { await client.startTrackRadio(title: t.title, artist: t.artist, album: t.album, zoneID: zone.id) }
+            } label: { Image(systemName: "dot.radiowaves.left.and.right").tappable44() }
+            .buttonStyle(.borderless)
+            .disabled(client.selectedZone == nil)
+            .accessibilityLabel("Start station vanaf \(t.title)")
+            .help(client.selectedZone == nil ? "Kies eerst een zone" : "Start een sonisch station vanaf deze plek op de kaart")
+            Button {
+                guard let zone = client.selectedZone else { return }
                 Task { await client.playTrack(id: t.id, title: t.title, artist: t.artist, zoneID: zone.id) }
             } label: { Image(systemName: "play.fill").tappable44() }
             .buttonStyle(.borderless)
