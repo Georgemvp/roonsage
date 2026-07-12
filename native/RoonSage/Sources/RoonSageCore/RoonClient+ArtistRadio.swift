@@ -59,7 +59,7 @@ extension RoonClient {
     /// Shared namespace prefix for our Qobuz playlists — also the marker orphan
     /// reconciliation uses to recognise (and prune) stale radio playlists.
     nonisolated static let qobuzNamePrefix = "RoonSage · "
-    nonisolated static func qobuzPlaylistName(for title: String) -> String { "\(qobuzNamePrefix)\(title)" }
+    public nonisolated static func qobuzPlaylistName(for title: String) -> String { "\(qobuzNamePrefix)\(title)" }
 
     // MARK: Stable seed set
     //

@@ -144,6 +144,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case liveDJ      = "Live DJ"
     case djModes     = "DJ Modes"
     case radios      = "Radios"
+    case journeys    = "Sonic Journeys"
     case fingerprint = "Sonic DNA"
     case musicMap    = "Music Map"
     case songPaths   = "Song Paths"
@@ -175,6 +176,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .liveDJ:      LS("nav.liveDJ")
         case .djModes:     LS("nav.djModes")
         case .radios:      LS("nav.radios")
+        case .journeys:    LS("nav.journeys")
         case .fingerprint: LS("nav.fingerprint")
         case .musicMap:    LS("nav.musicMap")
         case .songPaths:   LS("nav.songPaths")
@@ -204,6 +206,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .liveDJ:      "slider.horizontal.2.gobackward"
         case .djModes:     "person.wave.2"
         case .radios:      "dot.radiowaves.left.and.right"
+        case .journeys:    "map"
         case .fingerprint: "waveform.path.ecg"
         case .musicMap:    "map"
         case .songPaths:   "point.topleft.down.curvedto.point.bottomright.up"
@@ -517,6 +520,9 @@ struct RootView: View {
                 NavigationLink { DJModesView() } label: {
                     Label("DJ-modi", systemImage: SidebarItem.djModes.icon)
                 }
+                NavigationLink { SonicJourneysView() } label: {
+                    Label("Sonic Journeys", systemImage: SidebarItem.journeys.icon)
+                }
                 NavigationLink { RecentView() } label: {
                     Label("Recent gespeeld", systemImage: SidebarItem.recent.icon)
                 }
@@ -531,8 +537,8 @@ struct RootView: View {
                 NavigationLink { MusicMapView().navigationTitle("Music Map").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Music Map", systemImage: SidebarItem.musicMap.icon)
                 }
-                NavigationLink { SongPathsView().navigationTitle("Song Paths").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Song Paths", systemImage: SidebarItem.songPaths.icon)
+                NavigationLink { SongPathsView().navigationTitle("The Bridge").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("The Bridge", systemImage: SidebarItem.songPaths.icon)
                 }
                 NavigationLink { SongAlchemyView().navigationTitle("Song Alchemy").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Song Alchemy", systemImage: SidebarItem.alchemy.icon)
@@ -578,6 +584,7 @@ struct RootView: View {
         case .discover:    DiscoverFeedView()
         case .discovery:   DiscoveryView()
         case .radios:      SonicRadioView()
+        case .journeys:    SonicJourneysView()
         case .recent:      RecentView()
         case .taste:       TasteProfileView()
         case .yearInReview: YearInReviewView()

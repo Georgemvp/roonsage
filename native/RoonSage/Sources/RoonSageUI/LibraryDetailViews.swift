@@ -110,6 +110,19 @@ struct AlbumDetailView: View {
                     LocalPlayButton { tracks.map(record) }
                         .buttonStyle(.bordered)
                         .disabled(tracks.isEmpty)
+                    Button {
+                        guard let zone = client.selectedZone else { return }
+                        Haptics.tap()
+                        Task {
+                            await client.startAlbumRadio(albumKey: album.albumKey, title: album.album,
+                                                         artist: album.artist, imageKey: album.imageKey,
+                                                         zoneID: zone.id)
+                        }
+                    } label: { Image(systemName: "dot.radiowaves.left.and.right") }
+                        .buttonStyle(.bordered)
+                        .disabled(client.selectedZone == nil)
+                        .accessibilityLabel("Album-radio")
+                        .help("Album-radio — eindeloze radio rond dit album")
                     FavoriteStarButton(isOn: client.isFavoriteAlbum(album: album.album, artist: album.artist)) {
                         Task { await client.toggleFavoriteAlbum(album: album.album, artist: album.artist) }
                     }

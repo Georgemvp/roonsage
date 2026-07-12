@@ -42,6 +42,8 @@ public struct SonicRadioView: View {
 
             djModesLink.plainCardRow()
 
+            journeysLink.plainCardRow()
+
             adventurousnessTuner.plainCardRow()
 
             categoryPicker.plainCardRow()
@@ -136,6 +138,31 @@ public struct SonicRadioView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("DJ-modi").font(.subheadline.weight(.semibold))
                     Text("Kies een DJ-persona die overneemt vanaf het nummer dat speelt — dichtbij, op avontuur, dezelfde artiest of hetzelfde tijdperk.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .cardStyle()
+    }
+
+    /// Entry point to the Sonic Journeys (Album Radio · Time Machine · The Bridge).
+    private var journeysLink: some View {
+        NavigationLink {
+            SonicJourneysView()
+        } label: {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "map")
+                    .font(.title3)
+                    .foregroundStyle(Color.roonGold)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Sonic Journeys").font(.subheadline.weight(.semibold))
+                    Text("Reizen door je bibliotheek — Album Radio, een tijdreis van oud naar nieuw, of een sonische brug tussen twee nummers.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)

@@ -21,6 +21,13 @@ public struct SongPathsView: View {
     @State private var fromResults: [DatabaseManager.SonicTrack] = []
     @State private var toResults: [DatabaseManager.SonicTrack] = []
     @State private var noResult = false
+    @State private var syncing = false
+    @State private var syncMsg: String?
+
+    /// Qobuz playlist title for the current bridge (shared "RoonSage · " namespace).
+    private var bridgeTitle: String {
+        "The Bridge — \(fromTrack?.title ?? "Start") → \(toTrack?.title ?? "Eind")"
+    }
 
     public var body: some View {
         List {
@@ -78,7 +85,7 @@ public struct SongPathsView: View {
 
             if !path.isEmpty { pathResultSection }
         }
-        .navigationTitle("Song Paths")
+        .navigationTitle("The Bridge")
     }
 
     // MARK: Track picker
@@ -180,6 +187,30 @@ public struct SongPathsView: View {
                 LocalPlayButton { pathRecords }
                     .buttonStyle(.bordered)
                     .frame(maxWidth: .infinity)
+            }
+            if client.qobuzConfigured {
+                Button {
+                    Task {
+                        syncing = true
+                        defer { syncing = false }
+                        let title = bridgeTitle
+                        let ok = await client.syncJourneyToQobuz(
+                            title: title, description: "Een sonische brug, samengesteld in RoonSage.",
+                            tracks: pathRecords)
+                        syncMsg = ok
+                            ? "Op Qobuz gezet als ‘\(RoonClient.qobuzPlaylistName(for: title))’."
+                            : "Sync naar Qobuz mislukt — controleer je Qobuz-instellingen."
+                    }
+                } label: {
+                    Label(syncing ? "Synchroniseren…" : "Sync naar Qobuz",
+                          systemImage: "arrow.triangle.2.circlepath")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(syncing)
+                if let syncMsg {
+                    Text(syncMsg).font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             VStack(alignment: .leading, spacing: 0) {

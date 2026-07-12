@@ -15,10 +15,11 @@
 "nav.liveDJ"       = "Live DJ";
 "nav.djModes"      = "DJ-modi";
 "nav.radios"       = "Radio's";
+"nav.journeys"     = "Sonic Journeys";
 "nav.recent"       = "Recent";
 "nav.fingerprint"  = "Sonic DNA";
 "nav.musicMap"     = "Music Map";
-"nav.songPaths"    = "Song Paths";
+"nav.songPaths"    = "The Bridge";
 "nav.alchemy"      = "Song Alchemy";
 "nav.sonicSearch"  = "Sonisch zoeken";
 "nav.multitag"     = "Multitag";
