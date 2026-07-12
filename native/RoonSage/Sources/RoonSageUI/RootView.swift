@@ -156,6 +156,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case discovery   = "Discovery"     // inward editorial "Listen Now" (library stats)
     case recent       = "Recent"
     case taste        = "Taste Profile"
+    case tasteHub     = "Taste"
     case yearInReview = "Year in Review"
     case settings    = "Settings"
 
@@ -189,6 +190,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .discovery:   LS("nav.discovery")
         case .recent:      LS("nav.recent")
         case .taste:       LS("nav.taste")
+        case .tasteHub:    LS("nav.tasteHub")
         case .yearInReview: LS("nav.yearInReview")
         case .settings:    LS("nav.settings")
         }
@@ -220,6 +222,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .discovery:   "sparkles"
         case .recent:      "clock.arrow.circlepath"
         case .taste:       "chart.radar"
+        case .tasteHub:    "person.crop.circle"
         case .yearInReview: "calendar.badge.clock"
         case .settings:    "gearshape"
         }
@@ -280,7 +283,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .create:   [.ask, .generate, .recommend, .playlists]
         case .stations: [.radios, .djModes, .journeys, .djSet, .liveDJ]
         case .explore:  [.discover, .discovery, .sonicLab, .musicMap, .multitag]
-        case .you:      [.fingerprint, .taste, .recent, .yearInReview]
+        case .you:      [.tasteHub]
         case .settings: [.settings]
         }
     }
@@ -466,7 +469,7 @@ struct RootView: View {
 
     private var iOSTabSelection: Binding<SidebarItem> {
         let createItems: Set<SidebarItem> = [.generate, .ask, .recommend, .queue, .playlists, .bookmarks]
-        let exploreItems: Set<SidebarItem> = [.discover, .discovery, .radios, .djModes, .journeys, .djSet, .liveDJ, .recent, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .sonicLab, .multitag, .taste, .yearInReview]
+        let exploreItems: Set<SidebarItem> = [.discover, .discovery, .radios, .djModes, .journeys, .djSet, .liveDJ, .recent, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .sonicLab, .multitag, .taste, .tasteHub, .yearInReview]
         return Binding(
             get: {
                 if createItems.contains(selection) { return .generate }
@@ -550,17 +553,8 @@ struct RootView: View {
                 }
             }
             Section("Jouw smaak") {
-                NavigationLink { SonicFingerprintView().navigationTitle("Sonic DNA").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Sonic DNA", systemImage: SidebarItem.fingerprint.icon)
-                }
-                NavigationLink { TasteProfileView().navigationTitle("Smaakprofiel").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Smaakprofiel", systemImage: SidebarItem.taste.icon)
-                }
-                NavigationLink { RecentView() } label: {
-                    Label("Recent gespeeld", systemImage: SidebarItem.recent.icon)
-                }
-                NavigationLink { YearInReviewView().navigationTitle("Jaaroverzicht").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Jaaroverzicht", systemImage: SidebarItem.yearInReview.icon)
+                NavigationLink { TasteHubView().navigationTitle("Smaak").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Smaak (DNA · profiel · historie · jaar)", systemImage: SidebarItem.tasteHub.icon)
                 }
             }
         }
@@ -598,6 +592,7 @@ struct RootView: View {
         case .journeys:    SonicJourneysView()
         case .recent:      RecentView()
         case .taste:       TasteProfileView()
+        case .tasteHub:    TasteHubView()
         case .yearInReview: YearInReviewView()
         case .settings:    SettingsView()
         }

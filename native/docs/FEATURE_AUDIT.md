@@ -77,7 +77,11 @@ De vier substraten:
   (engines ongewijzigd). Sidebar-item `.sonicLab` vervangt de 3 losse items in Explore; iOS "Sonic-tools"
   idem. The Bridge blijft los bereikbaar vanuit Sonic Journeys. 577 tests groen.
   *Vervolgverfijning (later): resultatenlijst + seed-picker écht delen i.p.v. per modus; Music Map als 4e (visuele) modus.*
-- **Batch 3 — Taste-hub (4→1).** Sonic DNA + Taste Profile + Recent + Year in Review als tabs.
+- **Batch 3 — Taste-hub (4→1) — ✅ GESHIPT.** Nieuwe `TasteHubView` = container met segmented
+  modi DNA/Smaak/Historie/Jaar die `SonicFingerprintView` / `TasteProfileView` / `RecentView` /
+  `YearInReviewView` embed. Sidebar-item `.tasteHub` vervangt de 4 losse items in de You-groep;
+  iOS "Jouw smaak" idem. Engines ongewijzigd. 577 tests groen.
+  *Vervolg (later): de listening_history-overlap tussen profiel/historie/jaar écht dedupliceren.*
 - **Batch 4 — Stations-hub.** Radios + DJ Modes + Sonic Journeys onder één hub (delen RadioEngine);
   DJ Set + Live DJ als Set/Live-modi.
 - **Batch 5 — Create-consolidatie.** Ask als Generate-"Snel"-modus; Recommend als Generate-"Albums"-scope.
