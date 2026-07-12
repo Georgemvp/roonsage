@@ -149,6 +149,60 @@ final class QobuzClientTests: XCTestCase {
         XCTAssertTrue(s.albumConfirmed, "album matches → resolveTrackID can recover it")
     }
 
+    // MARK: classical segment matching (real fixtures from the opera radio sync)
+
+    func testComposerPrefixedAriaSegmentMatches() {
+        // Roon: composer prefix, no opera name; Qobuz: opera name, no composer.
+        // Whole-title exact/substring both fail — the shared aria segment must match.
+        let s = score("Lucia di Lammermoor, Act 1: Regnava nel silenzio... Quando rapito in estasi",
+                      "Ruth Ann Swenson", "Lucia di Lammermoor",
+                      want: "Donizetti: Regnava nel silenzio...Quando rapito in estasi (Act I)",
+                      artist: "Ruth Ann Swenson / London Philharmonic Orchestra / Nicola Rescigno")
+        XCTAssertEqual(s.titleScore, 2, "shared aria segment matches despite divergent work prefixes")
+        XCTAssertTrue(s.artistConfirmed, "primary artist (before the slash) confirms")
+    }
+
+    func testDuplicatedWorkPrefixStillMatches() {
+        // Roon duplicates the work prefix ("Work: Composer: Work: movement").
+        // The substring rule catches this one (score 1) — the fix that makes it
+        // RESOLVE is the classical query tier, which finally surfaces this
+        // candidate for such a title (the whole-title query never did).
+        let s = score("Magnificat in D Major, BWV 243: Quia respexit... Omnes generationes",
+                      "Angela Gheorghiu", "Mysterium - Sacred Arias",
+                      want: "Magnificat in D Major, BWV 243: J.S. Bach: Magnificat in D Major, BWV 243: Quia respexit...Omnes generationes",
+                      artist: "Angela Gheorghiu")
+        XCTAssertGreaterThanOrEqual(s.titleScore, 1)
+        XCTAssertTrue(s.artistConfirmed)
+    }
+
+    func testGenericMovementSegmentDoesNotMatch() {
+        // "1. Allegro" is too short/generic to confirm across different works.
+        let s = score("Symphony No. 5 in C Minor: I. Allegro con brio",
+                      "London Philharmonic Orchestra", nil,
+                      want: "Symphony No.4 in F minor: 1. Allegro",
+                      artist: "London Philharmonic Orchestra/Sir Adrian Boult")
+        XCTAssertEqual(s.titleScore, 0, "a generic movement marker must not segment-match")
+    }
+
+    func testWrongAriaOfSameWorkDoesNotMatch() {
+        // Same opera, different aria: the work segment overlaps but neither
+        // side's FINAL segment does — must not match.
+        let s = score("Lucia di Lammermoor, Act 3: Il dolce suono",
+                      "Ruth Ann Swenson", nil,
+                      want: "Lucia di Lammermoor, Act 1: Regnava nel silenzio",
+                      artist: "Ruth Ann Swenson")
+        XCTAssertEqual(s.titleScore, 0, "work-only overlap must not accept the wrong aria")
+    }
+
+    func testTitleSegmentsSplitOnClassicalSeparators() {
+        let segs = QobuzClient.titleSegments(
+            "I Capuleti e i Montecchi, opera: Act 1: Eccomi in lieta vesta...Oh! quante volte")
+        XCTAssertEqual(segs.last, "Oh! quante volte")
+        XCTAssertTrue(segs.contains("Eccomi in lieta vesta"))
+        // Non-classical titles stay whole.
+        XCTAssertEqual(QobuzClient.titleSegments("Bohemian Rhapsody"), ["Bohemian Rhapsody"])
+    }
+
     // MARK: queries
 
     func testCandidateQueriesWidenAndDedupe() {
@@ -163,6 +217,19 @@ final class QobuzClientTests: XCTestCase {
         let qs = QobuzClient.candidateQueries(title: "Clocks", artist: nil)
         XCTAssertFalse(qs.isEmpty)
         XCTAssertTrue(qs.contains("Clocks"))
+    }
+
+    func testCandidateQueriesAddClassicalSegmentTiers() {
+        // Multi-segment classical title → also search the final segment (the
+        // aria incipit), with the primary artist and alone.
+        let qs = QobuzClient.candidateQueries(
+            title: "I Capuleti e i Montecchi, opera: Act 1: Eccomi in lieta vesta...Oh! quante volte",
+            artist: "Kathleen Battle")
+        XCTAssertTrue(qs.contains("Kathleen Battle Oh! quante volte"), "artist + final segment")
+        XCTAssertTrue(qs.contains("Oh! quante volte"), "final segment alone")
+        // Plain titles get NO extra tiers (tier 1 and 2 dedupe to one here).
+        XCTAssertEqual(QobuzClient.candidateQueries(title: "Clocks", artist: "Coldplay"),
+                       ["Coldplay Clocks", "Clocks"])
     }
 
     // MARK: dedup

@@ -36,15 +36,34 @@ public actor QobuzClient {
         guard let session = await login(email: email, password: password) else { return nil }
         guard let playlistID = await createPlaylist(name: name, session: session) else { return nil }
 
+        let ids = await resolveAll(tracks, playlistName: name, session: session)
+        if !ids.isEmpty { await addTracks(playlistID: playlistID, trackIDs: ids, session: session) }
+        return SaveResult(matched: ids.count, total: tracks.count, playlistID: playlistID)
+    }
+
+    /// Resolve every track to a Qobuz catalog id (order preserved, deduped) and
+    /// log the ones that never resolved — a stable 18/30 sync is only diagnosable
+    /// when the log says WHICH tracks miss (classical metadata is the usual
+    /// suspect). The line is capped so a big playlist can't flood the log.
+    private func resolveAll(
+        _ tracks: [(title: String, artist: String?, album: String?)],
+        playlistName: String, session: Session
+    ) async -> [Int] {
         var ids: [Int] = []
+        var misses: [String] = []
         for t in tracks {
             if let id = await resolveTrackID(wantTitle: t.title, wantArtist: t.artist, wantAlbum: t.album, session: session) {
                 ids.append(id)
+            } else {
+                misses.append("'\(t.title)' — \(t.artist ?? "?")")
             }
         }
-        ids = Self.dedupePreservingOrder(ids)
-        if !ids.isEmpty { await addTracks(playlistID: playlistID, trackIDs: ids, session: session) }
-        return SaveResult(matched: ids.count, total: tracks.count, playlistID: playlistID)
+        if !misses.isEmpty {
+            let shown = misses.prefix(20).joined(separator: " · ")
+            Log.info("Qobuz sync '\(playlistName)': \(misses.count)/\(tracks.count) not found on Qobuz: \(shown)\(misses.count > 20 ? " · …" : "")",
+                     category: .network)
+        }
+        return Self.dedupePreservingOrder(ids)
     }
 
     /// Find-or-create a playlist by exact name, replace its contents with
@@ -71,13 +90,7 @@ public actor QobuzClient {
         // 1. Resolve the fresh set FIRST — before touching the existing playlist —
         //    so a transient Qobuz search failure can never gut a good playlist.
         //    Dedup the resolved ids (two of our tracks can map to one catalog id).
-        var ids: [Int] = []
-        for t in tracks {
-            if let id = await resolveTrackID(wantTitle: t.title, wantArtist: t.artist, wantAlbum: t.album, session: session) {
-                ids.append(id)
-            }
-        }
-        ids = Self.dedupePreservingOrder(ids)
+        let ids = await resolveAll(tracks, playlistName: name, session: session)
         guard !ids.isEmpty else {
             // Never clear/create an empty playlist — leave whatever exists intact.
             Log.warning("Qobuz sync '\(name)': 0/\(tracks.count) tracks matched on Qobuz — skipping",
@@ -442,7 +455,31 @@ public actor QobuzClient {
         add([artist, title].compactMap { $0 }.joined(separator: " "))
         add([primary, cleanTitle].filter { !$0.isEmpty }.joined(separator: " "))
         add(cleanTitle)
+        // Classical tiers: a Roon "Work: (Composer:) Scene… Aria" title rarely
+        // matches Qobuz's own segmentation as one string (duplicated work
+        // prefixes, composer prefixes, ellipsis scenes) — also search the final,
+        // most distinctive segment (the aria/movement incipit), with the primary
+        // artist and alone. Acceptance still gates on artist/title confirmation.
+        let segs = titleSegments(cleanTitle)
+        if segs.count >= 2, let last = segs.last, last.count >= 8 {
+            add([primary, last].filter { !$0.isEmpty }.joined(separator: " "))
+            add(last)
+        }
         return qs
+    }
+
+    /// Work/movement segments of a (classical) title: the cleaned title split on
+    /// ':', ellipsis ("…"/"..."), " - " and "~", trimmed, empties dropped. Raw
+    /// text (queries embed it); scoring normalises each side before comparing.
+    nonisolated static func titleSegments(_ title: String) -> [String] {
+        var t = TrackIdentity.cleanTitle(title)
+        t = t.replacingOccurrences(of: "…", with: ":")
+        t = t.replacingOccurrences(of: "...", with: ":")
+        t = t.replacingOccurrences(of: " - ", with: ":")
+        t = t.replacingOccurrences(of: "~", with: ":")
+        return t.components(separatedBy: ":")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 
     /// Lowercase + width-fold + collapse whitespace, but PRESERVE letters of every
@@ -494,6 +531,10 @@ public actor QobuzClient {
     /// match "Simon Says"); short names must match exactly.
     private nonisolated static let minSubstringArtist = 6
     private nonisolated static let minSubstringText = 3
+    /// A title SEGMENT (see `titleSegments`) must be this long (normalised) to
+    /// count as a match on its own — keeps generic movement markers ("Act 1",
+    /// "I. Allegro") from confirming the wrong track.
+    private nonisolated static let minSegmentChars = 12
 
     /// Score a Qobuz candidate against the track we want. Returns the total (album
     /// bonus & version penalties applied), the raw `titleScore` (4 = exact, 1 =
@@ -513,6 +554,27 @@ public actor QobuzClient {
                   min(want.clean.count, cand.clean.count) >= minSubstringText,
                   cand.clean.contains(want.clean) || want.clean.contains(cand.clean) {
             titleScore = 1
+        } else {
+            // Classical fallback: Roon's "Work: (Composer:) Scene… Aria" almost
+            // never equals Qobuz's segmentation as one string (duplicated work
+            // prefixes, composer prefixes, ellipsis scenes). Match on a shared
+            // SEGMENT instead, but only when the pair involves one side's FINAL
+            // segment (the movement/aria — a work-only overlap would accept the
+            // wrong movement) and is substantial (≥ minSegmentChars, so "Act 1"
+            // or "I. Allegro" can't false-confirm). The caller still requires
+            // artist confirmation on top, exactly like the substring rule.
+            let wantSegs = titleSegments(wantTitle).map { TrackIdentity.normalise($0) }.filter { !$0.isEmpty }
+            let candSegs = titleSegments(qobuzTitle).map { TrackIdentity.normalise($0) }.filter { !$0.isEmpty }
+            if let wLast = wantSegs.last, let cLast = candSegs.last {
+                func matches(_ a: String, _ b: String) -> Bool {
+                    min(a.count, b.count) >= minSegmentChars
+                        && (a == b || a.contains(b) || b.contains(a))
+                }
+                if candSegs.contains(where: { matches(wLast, $0) })
+                    || wantSegs.contains(where: { matches($0, cLast) }) {
+                    titleScore = 2
+                }
+            }
         }
 
         var artistScore = 0
