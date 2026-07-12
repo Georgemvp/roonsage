@@ -150,6 +150,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case songPaths   = "Song Paths"
     case alchemy     = "Song Alchemy"
     case sonicSearch = "Sonic Search"
+    case sonicLab    = "Sonic Lab"
     case multitag    = "Multitag"
     case discover    = "Discoveries"   // outward-facing recommendation engine ("Ontdekkingen")
     case discovery   = "Discovery"     // inward editorial "Listen Now" (library stats)
@@ -182,6 +183,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .songPaths:   LS("nav.songPaths")
         case .alchemy:     LS("nav.alchemy")
         case .sonicSearch: LS("nav.sonicSearch")
+        case .sonicLab:    LS("nav.sonicLab")
         case .multitag:    LS("nav.multitag")
         case .discover:    LS("nav.discover")   // outward: music you don't own yet
         case .discovery:   LS("nav.discovery")
@@ -212,6 +214,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .songPaths:   "point.topleft.down.curvedto.point.bottomright.up"
         case .alchemy:     "wand.and.sparkles"
         case .sonicSearch: "sparkle.magnifyingglass"
+        case .sonicLab:    "atom"
         case .multitag:    "tag"
         case .discover:    "wand.and.stars.inverse"
         case .discovery:   "sparkles"
@@ -276,7 +279,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .playback: [.nowPlaying, .queue, .library, .bookmarks]
         case .create:   [.ask, .generate, .recommend, .playlists]
         case .stations: [.radios, .djModes, .journeys, .djSet, .liveDJ]
-        case .explore:  [.discover, .discovery, .sonicSearch, .alchemy, .songPaths, .musicMap, .multitag]
+        case .explore:  [.discover, .discovery, .sonicLab, .musicMap, .multitag]
         case .you:      [.fingerprint, .taste, .recent, .yearInReview]
         case .settings: [.settings]
         }
@@ -463,7 +466,7 @@ struct RootView: View {
 
     private var iOSTabSelection: Binding<SidebarItem> {
         let createItems: Set<SidebarItem> = [.generate, .ask, .recommend, .queue, .playlists, .bookmarks]
-        let exploreItems: Set<SidebarItem> = [.discover, .discovery, .radios, .djModes, .journeys, .djSet, .liveDJ, .recent, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .multitag, .taste, .yearInReview]
+        let exploreItems: Set<SidebarItem> = [.discover, .discovery, .radios, .djModes, .journeys, .djSet, .liveDJ, .recent, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .sonicLab, .multitag, .taste, .yearInReview]
         return Binding(
             get: {
                 if createItems.contains(selection) { return .generate }
@@ -536,14 +539,8 @@ struct RootView: View {
                 }
             }
             Section("Sonic-tools") {
-                NavigationLink { SonicSearchView().navigationTitle("Sonisch zoeken").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Sonisch zoeken", systemImage: SidebarItem.sonicSearch.icon)
-                }
-                NavigationLink { SongAlchemyView().navigationTitle("Song Alchemy").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Song Alchemy", systemImage: SidebarItem.alchemy.icon)
-                }
-                NavigationLink { SongPathsView().navigationTitle("The Bridge").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("The Bridge", systemImage: SidebarItem.songPaths.icon)
+                NavigationLink { SonicLabView().navigationTitle("Sonic Lab").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Sonic Lab", systemImage: SidebarItem.sonicLab.icon)
                 }
                 NavigationLink { MusicMapView().navigationTitle("Music Map").navigationBarTitleDisplayMode(.large) } label: {
                     Label("Music Map", systemImage: SidebarItem.musicMap.icon)
@@ -593,6 +590,7 @@ struct RootView: View {
         case .songPaths:   SongPathsView()
         case .alchemy:     SongAlchemyView()
         case .sonicSearch: SonicSearchView()
+        case .sonicLab:    SonicLabView()
         case .multitag:    MultitagView()
         case .discover:    DiscoverFeedView()
         case .discovery:   DiscoveryView()
