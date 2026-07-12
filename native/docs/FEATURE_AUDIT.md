@@ -92,4 +92,12 @@ De vier substraten:
   "AI-curatie" idem. Engines ongewijzigd. 577 tests groen.
   *Resultaat IA-consolidatie (Batch 1–5): sidebar ~23 → 15 items, intentie-gegroepeerd, geen wezen,
   geen naamcollisie. Vervolg (later): de hubs écht 1 pipeline laten delen i.p.v. losse views embedden.*
-- **Batch 6 — Slimmer.** Feedback-bus, smaak-gestuurde Herontdek, Music Map-generator (engine-werk).
+- **Batch 6 — Slimmer (engine-werk).**
+  - **#1 smaak-gestuurde Herontdek — ✅ GESHIPT.** `undiscoveredAlbums` rangschikt nu een random
+    kandidatenpool op cosine(album-embeddingcentroid, taste-centroid) i.p.v. `ORDER BY RANDOM()`.
+    Nieuwe DB-query `undiscoveredAlbumCandidates` (album + match_keys); ranking + veilige fallback
+    naar random in `RoonClient.undiscoveredAlbums` (signatuur ongewijzigd → geen callers geraakt).
+    Client-side (lokale db + /play-stats), geen mini-deploy. 577 tests groen; live-ranking alleen
+    in-app met embeddings observeerbaar.
+  - #2 feedback-bus (Ask/Generate/Sonic Lab → track_feedback) — server-of-record, deploy-implicatie.
+  - #3 Ask→Generate-doorgeef · #4 Music Map-generator · #5 auto-persona — nog te doen.

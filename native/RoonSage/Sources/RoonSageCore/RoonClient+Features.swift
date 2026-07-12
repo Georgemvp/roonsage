@@ -411,6 +411,30 @@ extension RoonClient {
 
     public func undiscoveredAlbums(limit: Int = 16) async -> [DatabaseManager.AlbumResult] {
         guard let db = database else { return [] }
+        // Taste-ranked "Herontdek": rank a random candidate pool by how close each
+        // album's embedding centroid sits to the personal taste vector, so neglected
+        // albums that match your *current* sound surface first — instead of a blind
+        // shuffle. Falls back to the DB's random ordering whenever embeddings or the
+        // taste vector aren't available (fresh library / old server / no plays yet).
+        if let index = await activeIndex(db),
+           let taste = await personalTasteVector(lib: [], index: index),
+           let pool = try? await db.undiscoveredAlbumCandidates(limit: max(limit * 5, 80)),
+           !pool.isEmpty {
+            var idByKey = [String: String](minimumCapacity: index.tracks.count)
+            for t in index.tracks where !t.matchKey.isEmpty { idByKey[t.matchKey] = t.id }
+            let ranked = pool.compactMap { cand -> (album: DatabaseManager.AlbumResult, score: Float)? in
+                let ids = cand.matchKeys.compactMap { idByKey[$0] }
+                guard let centroid = index.centroid(ofIds: ids) else { return nil }
+                // Both centroid and taste are L2-normalized → cosine == dot product.
+                var dot: Float = 0
+                for i in 0..<min(centroid.count, taste.count) { dot += centroid[i] * taste[i] }
+                return (cand.album, dot)
+            }
+            .sorted { $0.score > $1.score }
+            .prefix(limit)
+            .map(\.album)
+            if !ranked.isEmpty { return Array(ranked) }
+        }
         return (try? await db.undiscoveredAlbums(limit: limit)) ?? []
     }
 

@@ -32,6 +32,42 @@ extension DatabaseManager {
         }
     }
 
+    /// Undiscovered albums (never in listening history) plus each album's analyzed
+    /// `match_key`s, so the caller can rank them by how close their embedding centroid
+    /// sits to the personal taste vector. A larger, randomly-sampled candidate pool than
+    /// the final shelf — the caller re-ranks by taste and trims. The random sample keeps
+    /// the pool varied run-to-run so "Herontdek" doesn't ossify into the same albums.
+    public func undiscoveredAlbumCandidates(limit: Int = 80) async throws -> [(album: AlbumResult, matchKeys: [String])] {
+        try await pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT album_key, album, artist, year, COUNT(*) AS track_count,
+                       MAX(image_key) AS image_key, GROUP_CONCAT(match_key, '|') AS match_keys
+                FROM tracks
+                WHERE album IS NOT NULL AND album <> ''
+                  AND LOWER(album) NOT IN (
+                      SELECT LOWER(album) FROM listening_history WHERE album IS NOT NULL
+                  )
+                GROUP BY album_key
+                HAVING track_count >= 3
+                ORDER BY RANDOM()
+                LIMIT ?
+            """, arguments: [limit])
+            return rows.map { row in
+                let mkRaw = (row["match_keys"] as String?) ?? ""
+                let mks = mkRaw.split(separator: "|").map(String.init).filter { !$0.isEmpty }
+                let album = AlbumResult(
+                    albumKey:   row["album_key"]   as String? ?? "",
+                    album:      row["album"]        as String? ?? "",
+                    artist:     row["artist"],
+                    year:       row["year"],
+                    trackCount: row["track_count"]  as Int? ?? 0,
+                    imageKey:   row["image_key"]
+                )
+                return (album: album, matchKeys: mks)
+            }
+        }
+    }
+
     /// Tracks you used to play but haven't in the last `days` days, max 2 per
     /// artist, most-played first. Resolved to current library item_keys.
     public func forgottenFavorites(days: Int = 60, limit: Int = 20) async throws ->[TrackRecord] {
