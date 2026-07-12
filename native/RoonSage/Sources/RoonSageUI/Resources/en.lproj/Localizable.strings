@@ -14,6 +14,8 @@
 "nav.djSet"        = "DJ Set";
 "nav.liveDJ"       = "Live DJ";
 "nav.djModes"      = "DJ Modes";
+"nav.dj"           = "DJ";
+"nav.stationsHub"  = "Stations";
 "nav.radios"       = "Radios";
 "nav.journeys"     = "Sonic Journeys";
 "nav.recent"       = "Recent";

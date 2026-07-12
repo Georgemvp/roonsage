@@ -82,7 +82,9 @@ De vier substraten:
   `YearInReviewView` embed. Sidebar-item `.tasteHub` vervangt de 4 losse items in de You-groep;
   iOS "Jouw smaak" idem. Engines ongewijzigd. 577 tests groen.
   *Vervolg (later): de listening_history-overlap tussen profiel/historie/jaar écht dedupliceren.*
-- **Batch 4 — Stations-hub.** Radios + DJ Modes + Sonic Journeys onder één hub (delen RadioEngine);
-  DJ Set + Live DJ als Set/Live-modi.
+- **Batch 4 — Stations-hub — ✅ GESHIPT.** Twee containers: `StationsHubView` (segmented
+  Radio's/DJ-modi/Journeys — delen RadioEngine) embed `SonicRadioView`/`DJModesView`/`SonicJourneysView`;
+  `DJView` (segmented Set/Live — harmonische mixer) embed `DJSetView`/`LiveDJView`. Stations-groep
+  gaat van 5 losse items → 2 (`.stationsHub`, `.dj`); iOS idem. Engines ongewijzigd. 577 tests groen.
 - **Batch 5 — Create-consolidatie.** Ask als Generate-"Snel"-modus; Recommend als Generate-"Albums"-scope.
 - **Batch 6 — Slimmer.** Feedback-bus, smaak-gestuurde Herontdek, Music Map-generator (engine-werk).

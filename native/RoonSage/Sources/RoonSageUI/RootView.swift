@@ -143,6 +143,8 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case djSet       = "DJ Set"
     case liveDJ      = "Live DJ"
     case djModes     = "DJ Modes"
+    case dj          = "DJ"
+    case stationsHub = "Stations"
     case radios      = "Radios"
     case journeys    = "Sonic Journeys"
     case fingerprint = "Sonic DNA"
@@ -177,6 +179,8 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .djSet:       LS("nav.djSet")
         case .liveDJ:      LS("nav.liveDJ")
         case .djModes:     LS("nav.djModes")
+        case .dj:          LS("nav.dj")
+        case .stationsHub: LS("nav.stationsHub")
         case .radios:      LS("nav.radios")
         case .journeys:    LS("nav.journeys")
         case .fingerprint: LS("nav.fingerprint")
@@ -209,6 +213,8 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .djSet:       "slider.horizontal.3"
         case .liveDJ:      "slider.horizontal.2.gobackward"
         case .djModes:     "person.wave.2"
+        case .dj:          "headphones"
+        case .stationsHub: "antenna.radiowaves.left.and.right"
         case .radios:      "dot.radiowaves.left.and.right"
         case .journeys:    "map"
         case .fingerprint: "waveform.path.ecg"
@@ -281,7 +287,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         //   You       — your taste, history and yearly recap
         case .playback: [.nowPlaying, .queue, .library, .bookmarks]
         case .create:   [.ask, .generate, .recommend, .playlists]
-        case .stations: [.radios, .djModes, .journeys, .djSet, .liveDJ]
+        case .stations: [.stationsHub, .dj]
         case .explore:  [.discover, .discovery, .sonicLab, .musicMap, .multitag]
         case .you:      [.tasteHub]
         case .settings: [.settings]
@@ -469,7 +475,7 @@ struct RootView: View {
 
     private var iOSTabSelection: Binding<SidebarItem> {
         let createItems: Set<SidebarItem> = [.generate, .ask, .recommend, .queue, .playlists, .bookmarks]
-        let exploreItems: Set<SidebarItem> = [.discover, .discovery, .radios, .djModes, .journeys, .djSet, .liveDJ, .recent, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .sonicLab, .multitag, .taste, .tasteHub, .yearInReview]
+        let exploreItems: Set<SidebarItem> = [.discover, .discovery, .radios, .stationsHub, .dj, .djModes, .journeys, .djSet, .liveDJ, .recent, .fingerprint, .musicMap, .songPaths, .alchemy, .sonicSearch, .sonicLab, .multitag, .taste, .tasteHub, .yearInReview]
         return Binding(
             get: {
                 if createItems.contains(selection) { return .generate }
@@ -525,20 +531,11 @@ struct RootView: View {
                 }
             }
             Section("Stations") {
-                NavigationLink { SonicRadioView().navigationTitle("Radio's").navigationBarTitleDisplayMode(.large) } label: {
-                    Label("Radio's", systemImage: SidebarItem.radios.icon)
+                NavigationLink { StationsHubView().navigationTitle("Stations").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("Stations (radio's · DJ-modi · journeys)", systemImage: SidebarItem.stationsHub.icon)
                 }
-                NavigationLink { DJModesView() } label: {
-                    Label("DJ-modi", systemImage: SidebarItem.djModes.icon)
-                }
-                NavigationLink { SonicJourneysView() } label: {
-                    Label("Sonic Journeys", systemImage: SidebarItem.journeys.icon)
-                }
-                NavigationLink { DJSetView().navigationTitle("DJ Set").navigationBarTitleDisplayMode(.inline) } label: {
-                    Label("DJ Set", systemImage: SidebarItem.djSet.icon)
-                }
-                NavigationLink { LiveDJView().navigationTitle("Live DJ").navigationBarTitleDisplayMode(.inline) } label: {
-                    Label("Live DJ", systemImage: SidebarItem.liveDJ.icon)
+                NavigationLink { DJView().navigationTitle("DJ").navigationBarTitleDisplayMode(.large) } label: {
+                    Label("DJ (set · live)", systemImage: SidebarItem.dj.icon)
                 }
             }
             Section("Sonic-tools") {
@@ -579,6 +576,8 @@ struct RootView: View {
         case .djSet:       DJSetView()
         case .liveDJ:      LiveDJView()
         case .djModes:     DJModesView()
+        case .dj:          DJView()
+        case .stationsHub: StationsHubView()
         case .fingerprint: SonicFingerprintView()
         case .musicMap:    MusicMapView()
         case .songPaths:   SongPathsView()
