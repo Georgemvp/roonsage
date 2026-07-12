@@ -99,7 +99,12 @@ De vier substraten:
     naar random in `RoonClient.undiscoveredAlbums` (signatuur ongewijzigd → geen callers geraakt).
     Client-side (lokale db + /play-stats), geen mini-deploy. 577 tests groen; live-ranking alleen
     in-app met embeddings observeerbaar.
-  - #2 feedback-bus (Ask/Generate/Sonic Lab → track_feedback) — server-of-record, deploy-implicatie.
+  - **#2 feedback-bus — ✅ GESHIPT (client-side, geen deploy).** Bleek geen serverwijziging nodig:
+    de bestaande `setFeedback`/`feedbackFor`-API schrijft al naar de server-of-record `track_feedback`.
+    Nieuw herbruikbaar `TrackFeedbackButtons`-component (like/dislike-thumbs) toegevoegd aan de
+    Genereer- en Vraag het-resultaatrijen (+ `ensureFeedbackLoaded`), zodat die surfaces nu óók de
+    smaakvector voeden i.p.v. alleen Now Playing. 579 tests groen.
+    *(Sonic Lab-rijen = SonicEngine.Scored, andere rijvorm → latere toevoeging.)*
   - **#3 Ask→Generate-doorgeef — ✅ GESHIPT.** In de Create-hub geeft Snel (Ask) nu een
     "Verfijn tot playlist →"-knop die de query doorgeeft aan Genereer (`GenerateView(initialPrompt:)`
     seedt de prompt als die leeg is). Client-side UI-wiring, geen engine-wijziging. 577 tests groen.

@@ -218,6 +218,7 @@ public struct GenerateView: View {
         .navigationTitle("Playlist genereren")
         .task {
             if model.prompt.isEmpty, let seed = initialPrompt, !seed.isEmpty { model.prompt = seed }
+            await client.ensureFeedbackLoaded()
             await model.loadFacetOptions(client: client)
         }
         #if os(iOS)
@@ -495,10 +496,13 @@ public struct GenerateView: View {
         Section("Tracks (\(model.tracks.count))") {
             ForEach(Array(model.tracks.enumerated()), id: \.element.id) { i, t in
                 AIResultRow(index: i + 1, title: t.title, subtitle: subtitle(t), imageKey: t.imageKey) {
-                    Button { model.playOne(t, client: client) } label: { Image(systemName: "play.fill") }
-                        .buttonStyle(.borderless)
-                        .disabled(client.selectedZone == nil)
-                        .accessibilityLabel("Speel \(t.title)")
+                    HStack(spacing: Spacing.sm) {
+                        TrackFeedbackButtons(title: t.title, artist: t.artist, album: t.album)
+                        Button { model.playOne(t, client: client) } label: { Image(systemName: "play.fill") }
+                            .buttonStyle(.borderless)
+                            .disabled(client.selectedZone == nil)
+                            .accessibilityLabel("Speel \(t.title)")
+                    }
                 }
                 .contextMenu {
                     Button { model.playOne(t, client: client) } label: { Label("Speel nu", systemImage: "play.fill") }

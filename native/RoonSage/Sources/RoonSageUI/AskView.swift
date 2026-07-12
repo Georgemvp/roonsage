@@ -51,6 +51,7 @@ public struct AskView: View {
                     ForEach(results, id: \.id) { track in
                         AIResultRow(title: track.title, subtitle: subtitle(track), imageKey: track.imageKey) {
                             HStack(spacing: Spacing.sm) {
+                                TrackFeedbackButtons(title: track.title, artist: track.artist, album: track.album)
                                 Button { queue([track], next: true) } label: {
                                     Image(systemName: "text.line.first.and.arrowtriangle.forward")
                                         .tappable44()
@@ -71,6 +72,7 @@ public struct AskView: View {
                 }
             }
         }
+        .task { await client.ensureFeedbackLoaded() }
         .searchable(text: $prompt, prompt: "Beschrijf een sfeer… bijv. “donker en hypnotisch rond 122 BPM”")
         .onSubmit(of: .search) { if canSearch { Task { await search() } } }
         .onChange(of: prompt) { _, newValue in
