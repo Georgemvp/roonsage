@@ -100,4 +100,7 @@ De vier substraten:
     Client-side (lokale db + /play-stats), geen mini-deploy. 577 tests groen; live-ranking alleen
     in-app met embeddings observeerbaar.
   - #2 feedback-bus (Ask/Generate/Sonic Lab → track_feedback) — server-of-record, deploy-implicatie.
-  - #3 Ask→Generate-doorgeef · #4 Music Map-generator · #5 auto-persona — nog te doen.
+  - **#3 Ask→Generate-doorgeef — ✅ GESHIPT.** In de Create-hub geeft Snel (Ask) nu een
+    "Verfijn tot playlist →"-knop die de query doorgeeft aan Genereer (`GenerateView(initialPrompt:)`
+    seedt de prompt als die leeg is). Client-side UI-wiring, geen engine-wijziging. 577 tests groen.
+  - #4 Music Map-generator · #5 auto-persona — nog te doen (client-side).

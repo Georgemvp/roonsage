@@ -26,6 +26,8 @@ public struct CreateHubView: View {
     }
 
     @State private var mode: Mode = .generate
+    /// Query carried over when the user taps "Verfijn tot playlist →" in Snel (Ask).
+    @State private var handoffPrompt: String?
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -37,8 +39,11 @@ public struct CreateHubView: View {
             .padding(.vertical, 8)
 
             switch mode {
-            case .generate: GenerateView()
-            case .ask:      AskView()
+            case .generate: GenerateView(initialPrompt: handoffPrompt)
+            case .ask:      AskView(onRefine: { prompt in
+                handoffPrompt = prompt
+                mode = .generate
+            })
             case .albums:   RecommendView()
             }
         }

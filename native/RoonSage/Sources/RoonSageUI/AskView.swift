@@ -13,7 +13,11 @@ import SwiftUI
 /// NavigationStack layout bug custom ScrollView content was vulnerable to.
 @MainActor
 public struct AskView: View {
-    public init() {}
+    /// Optional handoff: when set (inside the Create-hub), the results gain a
+    /// "Verfijn tot playlist →" action that carries the query into Generate —
+    /// Ask is Generate's stage 1, so this avoids re-typing the same idea.
+    private let onRefine: ((String) -> Void)?
+    public init(onRefine: ((String) -> Void)? = nil) { self.onRefine = onRefine }
     @Environment(RoonClient.self) private var client
 
     @State private var prompt = ""
@@ -111,6 +115,14 @@ public struct AskView: View {
                 }
                 .buttonStyle(.bordered)
                 .help("Bewaar deze tracks als playlist")
+            }
+            if let onRefine {
+                Button { onRefine(prompt) } label: {
+                    Label("Verfijn tot playlist →", systemImage: "wand.and.stars")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .help("Neem deze vraag mee naar Genereer voor een gecureerde, flow-geordende playlist")
             }
         }
     }

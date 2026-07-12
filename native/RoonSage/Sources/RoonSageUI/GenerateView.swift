@@ -180,7 +180,10 @@ final class GenerateModel {
 /// NavigationStack layout bug that custom ScrollView content was vulnerable to.
 @MainActor
 public struct GenerateView: View {
-    public init() {}
+    /// Optional seed carried in from Ask ("Verfijn tot playlist →") so the same
+    /// idea doesn't have to be retyped; only used when the prompt is still empty.
+    private let initialPrompt: String?
+    public init(initialPrompt: String? = nil) { self.initialPrompt = initialPrompt }
     @Environment(RoonClient.self) private var client
     @State private var model = GenerateModel()
     @State private var showTemplates = false
@@ -213,7 +216,10 @@ public struct GenerateView: View {
         .animation(Motion.standard, value: model.result?.title)
         .animation(Motion.quick, value: model.errorMessage)
         .navigationTitle("Playlist genereren")
-        .task { await model.loadFacetOptions(client: client) }
+        .task {
+            if model.prompt.isEmpty, let seed = initialPrompt, !seed.isEmpty { model.prompt = seed }
+            await model.loadFacetOptions(client: client)
+        }
         #if os(iOS)
         .scrollDismissesKeyboard(.interactively)
         #endif
