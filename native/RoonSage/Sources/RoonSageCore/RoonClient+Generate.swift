@@ -19,6 +19,11 @@ extension RoonClient {
         public var description: String?
         public var droppedNote: String?        // genre intent couldn't be honoured
         public var aiCurated: Bool             // false = top-up only (LLM under-delivered)
+        /// Set when the sonic ranking wasn't available and the candidate pool was
+        /// shuffled instead — shown by the UI so a random-ish pick is never
+        /// presented as a sonic one. Optional + defaulted: wire-compatible with
+        /// older servers that don't send it.
+        public var fallbackNote: String? = nil
         /// Per-track "waarom deze track" (RadioEngine.Reason, NL), keyed by
         /// TrackRecord.id. Empty when the engine path wasn't available.
         public var reasonByTrackID: [String: String] = [:]
@@ -258,6 +263,8 @@ extension RoonClient {
             tracks: ordered, filters: survived, poolSize: candidates.count,
             title: meta.title, description: meta.description,
             droppedNote: droppedNote, aiCurated: curated.aiCurated,
+            fallbackNote: built.sonicRanked ? nil
+                : "Sonische rangschikking niet beschikbaar — de selectie is minder klank-gericht dan normaal.",
             reasonByTrackID: built.reasons, trace: rendered
         )
     }
@@ -422,7 +429,8 @@ extension RoonClient {
         seeds: [DatabaseManager.SonicTrack] = [],
         relatedArtists: [String: Double] = [:],
         trace: GenerationTrace? = nil
-    ) async -> (pool: [TrackRecord], survived: RequestFilters, reasons: [String: String]) {
+    ) async -> (pool: [TrackRecord], survived: RequestFilters, reasons: [String: String],
+                sonicRanked: Bool) {
         let minPool = max(target * 3, 40)
         trace?.section("3 · Kandidatenpool")
         var opts = DatabaseManager.FilterOptions()
@@ -501,14 +509,14 @@ extension RoonClient {
         // embedding (multi-anchor relevance, taste steering, MMR near-dup drop,
         // adventurousness), THEN cap. Falls back to a shuffle when embeddings or
         // the analyzer text model aren't available.
-        if let sel = await sonicRank(request: request, pool: pool,
+        if let sel = await sonicRank(request: request, pool: pool, target: target,
                                      adventurousness: adventurousness, byKey: sonicByKey,
                                      seeds: seeds, relatedArtists: relatedArtists, trace: trace) {
-            return (sel.tracks, survived, sel.reasons)
+            return (sel.tracks, survived, sel.reasons, true)
         }
         trace?.kv("sonische rangschikking", "NIET beschikbaar → willekeurige volgorde (geen embeddings/analyzer)")
         pool.shuffle()
-        return (Array(pool.prefix(400)), survived, [:])
+        return (Array(pool.prefix(400)), survived, [:], false)
     }
 
     /// Engine ranking of the FILTERED pool around the request's text embedding:
@@ -518,7 +526,7 @@ extension RoonClient {
     /// the machinery every radio already uses (GENERATE_AUDIT M1/QW3). Returns
     /// nil when reranking isn't possible so the caller falls back to a shuffle.
     private func sonicRank(
-        request: String, pool: [TrackRecord], adventurousness: Double,
+        request: String, pool: [TrackRecord], target: Int, adventurousness: Double,
         byKey: [String: DatabaseManager.SonicTrack],
         seeds: [DatabaseManager.SonicTrack] = [],
         relatedArtists: [String: Double] = [:],
@@ -568,25 +576,41 @@ extension RoonClient {
         let floorValue = nnStats.map { RadioEngine.Options.floor(stats: $0, adventurousness: adv) }
         trace?.kv("engine-invoer", "\(poolSonic.count) geanalyseerd · \(seeds.count) seeds · taste-vector \(taste != nil ? "ja" : "nee") · related \(relatedArtists.count)")
         trace?.kvIf("σ-vloer", floorValue.map { String(format: "%.3f", $0) } ?? "")
-        let outcome: (results: [RadioEngine.Result], rankedCount: Int) = await Task.detached {
-            guard let subIndex = VectorIndex(tracks: indexTracks) else { return ([], 0) }
-            let opts = RadioEngine.Options(
-                adventurousness: adv, poolLimit: 400, candidateK: indexTracks.count,
-                hardBanDisliked: false, sequence: false, similarityFloor: floorValue)
-            let ranked = RadioEngine.rank(seeds: seeds, library: indexTracks, index: subIndex,
-                                          options: opts, disliked: dislikedKeys, likedKeys: liked,
-                                          knownArtists: known, tasteVector: taste,
-                                          relatedArtists: relatedArtists,
-                                          salt: "", queryAnchor: queryVec)
-            // QW2 — guarantee near-duplicate removal (same recording on album +
-            // compilation, different matchKeys) even on pools ≤ poolLimit, where
-            // RadioEngine's internal MMR — and thus its near-dup drop — is
-            // bypassed. Order-preserving; keeps the whole list (limit = count).
-            let hits = ranked.map { VectorIndex.Hit(track: $0.track, score: Float($0.score)) }
-            let keptIDs = Set(SonicSelection.dropNearDuplicates(hits, index: subIndex, limit: hits.count)
-                .map(\.track.id))
-            return (ranked.filter { keptIDs.contains($0.track.id) }, ranked.count)
-        }.value
+        func run(floor: Double?) async -> (results: [RadioEngine.Result], rankedCount: Int) {
+            await Task.detached {
+                guard let subIndex = VectorIndex(tracks: indexTracks) else { return ([], 0) }
+                let opts = RadioEngine.Options(
+                    adventurousness: adv, poolLimit: 400, candidateK: indexTracks.count,
+                    hardBanDisliked: false, sequence: false, similarityFloor: floor)
+                let ranked = RadioEngine.rank(seeds: seeds, library: indexTracks, index: subIndex,
+                                              options: opts, disliked: dislikedKeys, likedKeys: liked,
+                                              knownArtists: known, tasteVector: taste,
+                                              relatedArtists: relatedArtists,
+                                              salt: "", queryAnchor: queryVec)
+                // QW2 — guarantee near-duplicate removal (same recording on album +
+                // compilation, different matchKeys) even on pools ≤ poolLimit, where
+                // RadioEngine's internal MMR — and thus its near-dup drop — is
+                // bypassed. Order-preserving; keeps the whole list (limit = count).
+                let hits = ranked.map { VectorIndex.Hit(track: $0.track, score: Float($0.score)) }
+                let keptIDs = Set(SonicSelection.dropNearDuplicates(hits, index: subIndex, limit: hits.count)
+                    .map(\.track.id))
+                return (ranked.filter { keptIDs.contains($0.track.id) }, ranked.count)
+            }.value
+        }
+        var outcome = await run(floor: floorValue)
+        // Seed/prompt-conflict guard: the σ-floor is calibrated on seed-NN
+        // distances and assumes the pool sits roughly in-distribution around the
+        // seeds. When the prompt's filters build a pool sonically far from the
+        // seeds (a rock seed + an ambient-jazz prompt), the floor can starve the
+        // engine and the caller would fall back to a shuffle. Relax it like the
+        // genre/mood gates: an unfloored sonic ranking beats a random pool.
+        let need = min(target, poolSonic.count)
+        if let floor = floorValue, outcome.results.count < need {
+            trace?.kv("σ-vloer verzacht",
+                      "slechts \(outcome.results.count) gerangschikt (< \(need)) met vloer "
+                      + String(format: "%.3f", floor) + " → opnieuw zonder vloer")
+            outcome = await run(floor: nil)
+        }
         let ranked = outcome.results
         trace?.kv("engine-uitvoer", "\(outcome.rankedCount) gerangschikt → \(ranked.count) na near-dup-drop (\(outcome.rankedCount - ranked.count) verwijderd)")
         guard !ranked.isEmpty else { return nil }

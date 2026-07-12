@@ -200,7 +200,9 @@ final class AIGenerationHelpersTests: XCTestCase {
             tracks: [TrackRecord(id: "r1", title: "T1", artist: "A", matchKey: "k1")],
             filters: RoonClient.RequestFilters(genres: ["Jazz"], moods: ["relaxed"]),
             poolSize: 172, title: "Regen op het raam", description: "Rustige jazz.",
-            droppedNote: nil, aiCurated: true, reasonByTrackID: ["r1": "Sluit aan bij je verzoek"],
+            droppedNote: nil, aiCurated: true,
+            fallbackNote: "Sonische rangschikking niet beschikbaar.",
+            reasonByTrackID: ["r1": "Sluit aan bij je verzoek"],
             trace: "╭── AI-playlist generatie ──")
         let back = try JSONDecoder().decode(RoonClient.GenerationResult.self,
                                             from: JSONEncoder().encode(result))
@@ -210,8 +212,27 @@ final class AIGenerationHelpersTests: XCTestCase {
         XCTAssertEqual(back.poolSize, 172)
         XCTAssertEqual(back.title, "Regen op het raam")
         XCTAssertTrue(back.aiCurated)
+        XCTAssertEqual(back.fallbackNote, "Sonische rangschikking niet beschikbaar.")
         XCTAssertEqual(back.reasonByTrackID["r1"], "Sluit aan bij je verzoek")
         XCTAssertEqual(back.trace, "╭── AI-playlist generatie ──")
+    }
+
+    func testGenerationResultDecodesLegacyPayloadWithoutFallbackNote() throws {
+        // A payload from an older server (predating fallbackNote) must still
+        // decode on a newer client — the field is optional on the wire.
+        let result = RoonClient.GenerationResult(
+            tracks: [TrackRecord(id: "r1", title: "T1", artist: "A", matchKey: "k1")],
+            filters: RoonClient.RequestFilters(genres: ["Jazz"]),
+            poolSize: 10, title: "T", description: nil,
+            droppedNote: nil, aiCurated: true)
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(result)) as? [String: Any])
+        obj.removeValue(forKey: "fallbackNote")
+        let back = try JSONDecoder().decode(
+            RoonClient.GenerationResult.self,
+            from: JSONSerialization.data(withJSONObject: obj))
+        XCTAssertNil(back.fallbackNote)
+        XCTAssertEqual(back.tracks.map(\.id), ["r1"])
     }
 
     // MARK: Generate — diagnostic trace

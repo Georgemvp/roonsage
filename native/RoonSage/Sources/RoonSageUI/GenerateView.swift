@@ -550,6 +550,12 @@ public struct GenerateView: View {
                         .foregroundStyle(Color.roonWarning)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let note = r.fallbackNote {
+                    Label(note, systemImage: "waveform.slash")
+                        .font(.caption)
+                        .foregroundStyle(Color.roonWarning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer()
         }
