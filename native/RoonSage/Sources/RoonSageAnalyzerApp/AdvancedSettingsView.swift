@@ -9,7 +9,7 @@ struct AdvancedSettingsView: View {
     @Environment(AnalyzerModel.self) private var model
 
     private let excerptOptions: [(String, Double)] =
-        [("30 s (snel)", 30), ("60 s", 60), ("120 s (standaard)", 120), ("Volledige track", 0)]
+        [("30 s (snel)", 30), ("60 s", 60), ("120 s", 120), ("Volledige track (standaard)", 0)]
     private let sampleRateOptions: [(String, Double)] =
         [("22,05 kHz (standaard)", 22050), ("44,1 kHz (preciezer, trager)", 44100)]
     private let contextOptions: [(String, Int)] =

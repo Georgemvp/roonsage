@@ -122,7 +122,14 @@ final class AnalyzerModel {
         autoPreview = UserDefaults.standard.object(forKey: "auto_preview") as? Bool ?? true
         autoDeezerGenre = UserDefaults.standard.object(forKey: "auto_deezer_genre") as? Bool ?? true
         walkerConcurrency = UserDefaults.standard.object(forKey: "walker_concurrency") as? Int ?? 3
-        excerptSeconds = UserDefaults.standard.object(forKey: "excerpt_seconds") as? Double ?? 120
+        // One-shot migratie (2026-07, AudioMuse-pariteit): analyse dekt voortaan
+        // standaard de VOLLEDIGE track. Flipt een bestaand opgeslagen 120 s-default
+        // één keer; wie daarna bewust een fragment kiest, behoudt die keuze.
+        if !UserDefaults.standard.bool(forKey: "full_track_analysis_migrated") {
+            UserDefaults.standard.set(0.0, forKey: "excerpt_seconds")
+            UserDefaults.standard.set(true, forKey: "full_track_analysis_migrated")
+        }
+        excerptSeconds = UserDefaults.standard.object(forKey: "excerpt_seconds") as? Double ?? 0
         analysisSampleRate = UserDefaults.standard.object(forKey: "analysis_sample_rate") as? Double ?? 22050
         bpmMin = UserDefaults.standard.object(forKey: "bpm_min") as? Double ?? 60
         bpmMax = UserDefaults.standard.object(forKey: "bpm_max") as? Double ?? 200
@@ -192,6 +199,15 @@ final class AnalyzerModel {
     }
 
     func cancelAnalyze() { walker?.cancel() }
+
+    /// Volledige heranalyse (AudioMuse-pariteit): markeer alle rows en start de
+    /// walker — scalars én embedding worden opnieuw uit de volledige track
+    /// berekend; tags/MB-genres/populariteit blijven staan (upsert raakt ze niet).
+    func reanalyzeAll() {
+        guard let store, !musicPath.isEmpty, !isAnalyzing else { return }
+        _ = try? store.markAllForReanalysis()
+        startAnalyze()
+    }
 
     func startTag() {
         guard let store, !isTagging, trackCount > 0 else { return }

@@ -60,4 +60,28 @@ final class FeatureStoreEmbeddingTests: XCTestCase {
         let none = store.rowState(path: "/m/missing.flac", mtime: 1)
         XCTAssertFalse(none.exists)
     }
+
+    /// "Heranalyseer alles": the sentinel mtime makes every row look new
+    /// (mode .full on the next walk), while the re-analysis upsert keeps
+    /// enrichment — the ON CONFLICT clause never touches tags.
+    func testMarkAllForReanalysis() throws {
+        let (store, path) = try makeStore()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        var row = baseRow(path: "/m/c.flac", mtime: 3000, embedding: [1, 2], model: "clap-v2", moods: nil)
+        row.tags = #"["rock"]"#
+        try store.upsert(row)
+        XCTAssertTrue(store.rowState(path: "/m/c.flac", mtime: 3000).exists)
+
+        let marked = try store.markAllForReanalysis()
+        XCTAssertEqual(marked, 1)
+        XCTAssertFalse(store.rowState(path: "/m/c.flac", mtime: 3000).exists,
+                       "sentinel mtime must force mode .full on the next walk")
+
+        // The re-analysis upsert (tags: nil) must NOT wipe existing tags.
+        try store.upsert(baseRow(path: "/m/c.flac", mtime: 3000, embedding: [3, 4], model: "clap-v3", moods: nil))
+        let r = try XCTUnwrap(store.featureRow(path: "/m/c.flac", mtime: 3000))
+        XCTAssertEqual(r.tags, #"["rock"]"#, "enrichment survives full re-analysis")
+        XCTAssertEqual(r.embedding, [3, 4])
+    }
 }

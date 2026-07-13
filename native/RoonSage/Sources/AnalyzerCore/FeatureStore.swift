@@ -418,6 +418,20 @@ public final class FeatureStore {
         }
     }
 
+    /// Mark EVERY row for full re-analysis on the next library walk: the
+    /// walker's exists-check matches on (file_path, file_mtime), so a sentinel
+    /// mtime makes each file look new → mode .full (scalars + embedding both
+    /// recomputed — from the full track since the AudioMuse-parity defaults).
+    /// Enrichment survives: the upsert's ON CONFLICT clause never touches
+    /// tags/mb_genres/popularity. Returns the number of rows marked.
+    @discardableResult
+    public func markAllForReanalysis() throws -> Int {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE track_features SET file_mtime = -1")
+            return db.changesCount
+        }
+    }
+
     /// Cheap signature of the feature corpus for HTTP response caching + the
     /// server feature-sync's change gate: any add (count), embed, tag, enrichment
     /// or attribute-backfill changes one of the COUNTs, so a stale cache is never

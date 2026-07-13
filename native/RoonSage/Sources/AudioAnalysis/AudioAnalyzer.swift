@@ -50,16 +50,16 @@ public struct AudioFeatures: Sendable, Codable {
 /// Top-level analyzer: decode → BPM + key/Camelot + energy.
 public struct AudioAnalyzer {
 
-    /// `excerptSeconds > 0` analyzes only a representative window (default 120s
-    /// from 15% in) — much less I/O on slow drives, with BPM/key/energy that
-    /// stay representative. Pass 0 to analyze the whole track.
+    /// Default analyzes the WHOLE track (AudioMuse-parity). Pass
+    /// `excerptSeconds > 0` to analyze only a bounded window from the start —
+    /// much less I/O on slow drives, at the cost of coverage.
     /// Pass a loaded `clap` model to additionally compute the 512-dim sonic
-    /// embedding + mood scores. CLAP decodes its own 48 kHz 10 s window, so the
-    /// BPM/key path is unchanged; a CLAP failure degrades to scalar-only.
+    /// embedding + mood scores. CLAP decodes its own 48 kHz full-track windows,
+    /// so the BPM/key path is unchanged; a CLAP failure degrades to scalar-only.
     public static func analyze(
         url: URL,
         sampleRate: Double = 22050,
-        excerptSeconds: Double = 120,
+        excerptSeconds: Double = 0,
         excerptStart: Double = 0,  // read from the start — FLAC seek via AVFoundation is very slow
         minBpm: Double = 60,
         maxBpm: Double = 200,

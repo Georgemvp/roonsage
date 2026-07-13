@@ -102,6 +102,26 @@ final class CLAPEmbeddingTests: XCTestCase {
         XCTAssertLessThan(diff, same - 0.05, "a different signal must score clearly lower")
     }
 
+    /// Full-track windowing (v3): the mean direction of a long signal's 10 s
+    /// windows is unit-norm and, for a homogeneous (seamlessly repeated)
+    /// signal, ≈ the single-window embedding. Every golden sine completes an
+    /// integer number of cycles in 10 s, so repetition is phase-continuous.
+    func testWindowedEmbeddingMatchesSingleForHomogeneousSignal() throws {
+        _ = try requireDir()
+        guard let model = CLAPModel.load() else { throw XCTSkip("CLAP model not loadable") }
+        let base = goldenWaveform()                       // exactly 10 s
+        var long = [Float]()
+        for _ in 0..<3 { long.append(contentsOf: base) }  // 30 s -> windows at 0/5/10/15/20 s
+        let windowed = try model.embedWindowed(samples: long)
+        let single = try model.embed(samples: base)
+
+        var norm: Float = 0
+        for v in windowed { norm += v * v }
+        XCTAssertEqual(norm, 1.0, accuracy: 1e-3, "windowed embedding must be unit-norm")
+        let cos = zip(windowed, single).reduce(0) { $0 + $1.0 * $1.1 }
+        XCTAssertGreaterThan(cos, 0.95, "homogeneous signal: windowed must ≈ single-window")
+    }
+
     /// Moods return a finite cosine score for every label.
     func testMoodsProduceScores() throws {
         _ = try requireDir()

@@ -62,9 +62,10 @@ public final class CLAPModel: @unchecked Sendable {
 
     init(dir: URL) throws {
         let cfg = try MelConfig(dir: dir)
-        // -v2: multi-window embedding (see `embed(url:)`). Bumping the suffix makes
-        // the LibraryWalker re-embed every `-v1` row (embedding-only — scalars kept).
-        self.modelVersion = "clap-\(cfg.model.split(separator: "/").last ?? "")-v2"
+        // -v3: full-track windowed embedding (see `embed(url:)`), AudioMuse-parity.
+        // Bumping the suffix makes the LibraryWalker re-embed every older row
+        // (embedding-only — scalars kept).
+        self.modelVersion = "clap-\(cfg.model.split(separator: "/").last ?? "")-v3"
 
         let filters = try Self.loadF32(dir.appendingPathComponent("clap_mel_filters.f32"))
         self.mel = CLAPMel(melFilters: filters)
@@ -104,20 +105,61 @@ public final class CLAPModel: @unchecked Sendable {
         return Self.l2(Self.toFloats(emb))
     }
 
-    /// Windows (as track fractions) averaged into one embedding. Sampling the
-    /// body of the track — not just the intro — keeps a long build-up, a spoken
-    /// intro or a quiet opening from misrepresenting the whole song.
-    static let embedWindowFractions: [Double] = [0.25, 0.5, 0.75]
+    /// Full-track windowing (AudioMuse-parity): 10 s segments every 5 s (2×
+    /// overlap) across the WHOLE track, plus a flush-to-end tail segment. Each
+    /// window is L2-normalized and averaged into one centroid (re-normalized),
+    /// so intros/outros/bridges all contribute — a long build-up or a quiet
+    /// opening no longer misrepresents the song.
+    static let windowSamples = CLAPMel.clipSamples          // 10 s @ 48 kHz
+    static let windowHopSamples = CLAPMel.clipSamples / 2   // 5 s hop
+    /// Decode cap: covers virtually every real track in full while bounding
+    /// memory (30 min @ 48 kHz mono f32 ≈ 345 MB × walker concurrency).
+    static let maxEmbedSeconds: Double = 1800
 
-    /// Decode several representative 48 kHz mono windows across the track and
-    /// embed their mean direction (each window's vector is L2-normalized, so the
-    /// average is a centroid; re-normalized to a unit vector). Falls back to a
-    /// single window from the start if every windowed decode/embed fails.
+    /// Decode the whole track once (chunked decoder, bounded memory) and embed
+    /// the mean direction of all windows. Falls back to three seeked 10 s
+    /// windows (25/50/75%), then to a single window from the start — a failed
+    /// full decode never blocks the embed entirely.
     public func embed(url: URL) throws -> [Float] {
+        if let audio = try? AudioDecoder.decode(
+            url: url, targetSampleRate: Double(CLAPMel.sampleRate),
+            maxSeconds: Self.maxEmbedSeconds),
+            !audio.samples.isEmpty,
+            let e = try? embedWindowed(samples: audio.samples) {
+            return e
+        }
+        return try embedSampledWindows(url: url)
+    }
+
+    /// Mean-direction embedding of 10 s windows (5 s hop + tail) over `samples`.
+    /// n=25 s: starts 0/5/10/15 s, tail 15 s == last -> 4 windows;
+    /// n=26 s: starts 0/5/10/15 s + tail 16 s -> 5; n<=10 s: single (padded) window.
+    func embedWindowed(samples: [Float]) throws -> [Float] {
+        let w = Self.windowSamples, hop = Self.windowHopSamples
+        guard samples.count > w else { return try embed(samples: samples) }
+        var starts = Array(stride(from: 0, through: samples.count - w, by: hop))
+        let tail = samples.count - w
+        if starts.last != tail { starts.append(tail) }   // flush-to-end segment
+        var sum = [Float](repeating: 0, count: Self.embeddingDim)
+        var n = 0
+        for s in starts {
+            guard let e = try? embed(samples: Array(samples[s..<s + w])),
+                  e.count == Self.embeddingDim else { continue }
+            vDSP_vadd(sum, 1, e, 1, &sum, 1, vDSP_Length(Self.embeddingDim))
+            n += 1
+        }
+        guard n > 0 else { throw CLAPError.missingOutput }
+        return Self.l2(sum)   // mean direction of the windows, unit-normalized
+    }
+
+    /// Legacy fallback (pre-v3 behavior): three seeked 10 s windows at
+    /// 25/50/75% of the track, mean direction; a single window from the start
+    /// when every windowed decode/embed fails.
+    private func embedSampledWindows(url: URL) throws -> [Float] {
         let secs = Double(CLAPMel.clipSamples) / Double(CLAPMel.sampleRate)
         var sum = [Float](repeating: 0, count: Self.embeddingDim)
         var n = 0
-        for f in Self.embedWindowFractions {
+        for f in [0.25, 0.5, 0.75] {
             guard let audio = try? AudioDecoder.decode(
                 url: url, targetSampleRate: Double(CLAPMel.sampleRate),
                 maxSeconds: secs, startFraction: f),
@@ -132,7 +174,7 @@ public final class CLAPModel: @unchecked Sendable {
                 maxSeconds: secs, startFraction: 0)
             return try embed(samples: audio.samples)
         }
-        return Self.l2(sum)   // mean direction of the windows, unit-normalized
+        return Self.l2(sum)
     }
 
     // MARK: - Moods

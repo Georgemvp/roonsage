@@ -52,35 +52,57 @@ public struct AudioDecoder {
             throw AudioDecodeError.converterFailed
         }
 
-        guard let inBuf = AVAudioPCMBuffer(pcmFormat: inFormat, frameCapacity: framesToRead) else {
-            throw AudioDecodeError.formatFailed
-        }
+        // Chunked read+convert: a whole hi-res track no longer needs one giant
+        // input buffer (a 20-min 192 kHz stereo file would be ~1.8 GB one-shot).
+        // The converter keeps its resample state across chunks, so the output
+        // matches the previous single-shot path.
+        let chunkFrames: AVAudioFrameCount = 1 << 18   // input frames per read (~1.4-6 s; a few MB)
+        var remaining = framesToRead
         if startFrame > 0 { file.framePosition = startFrame }
-        try file.read(into: inBuf, frameCount: framesToRead)
-        let frameCount = framesToRead
 
         let ratio = targetSampleRate / inFormat.sampleRate
-        let outCapacity = AVAudioFrameCount(Double(frameCount) * ratio) + 8192
-        guard let outBuf = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: outCapacity) else {
-            throw AudioDecodeError.formatFailed
-        }
+        var samples = [Float]()
+        samples.reserveCapacity(Int(Double(framesToRead) * ratio) + 8192)
+        let outCapacity = AVAudioFrameCount(Double(chunkFrames) * ratio) + 8192
+        var readError: Error?
 
-        var fed = false
-        var convErr: NSError?
-        _ = converter.convert(to: outBuf, error: &convErr) { _, outStatus in
-            if fed { outStatus.pointee = .noDataNow; return nil }
-            fed = true
-            outStatus.pointee = .haveData
-            return inBuf
+        // chunkFrames=4: framesToRead=0 -> 0 reads; 3 -> read 3, EOS; 9 -> 4+4+1, EOS.
+        conversion: while true {
+            guard let outBuf = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: outCapacity) else {
+                throw AudioDecodeError.formatFailed
+            }
+            var convErr: NSError?
+            let status = converter.convert(to: outBuf, error: &convErr) { _, outStatus in
+                guard remaining > 0, readError == nil else { outStatus.pointee = .endOfStream; return nil }
+                let toRead = min(chunkFrames, remaining)
+                guard let inBuf = AVAudioPCMBuffer(pcmFormat: inFormat, frameCapacity: toRead) else {
+                    readError = AudioDecodeError.formatFailed
+                    outStatus.pointee = .endOfStream
+                    return nil
+                }
+                do { try file.read(into: inBuf, frameCount: toRead) } catch {
+                    readError = error
+                    outStatus.pointee = .endOfStream
+                    return nil
+                }
+                guard inBuf.frameLength > 0 else { remaining = 0; outStatus.pointee = .endOfStream; return nil }
+                remaining -= min(remaining, inBuf.frameLength)   // min() guards UInt32 underflow
+                outStatus.pointee = .haveData
+                return inBuf
+            }
+            if let convErr { throw convErr }
+            if let readError { throw readError }
+            let produced = Int(outBuf.frameLength)
+            if produced > 0, let ch = outBuf.floatChannelData?[0] {
+                samples.append(contentsOf: UnsafeBufferPointer(start: ch, count: produced))
+            }
+            switch status {
+            case .endOfStream, .error: break conversion
+            default: if produced == 0 { break conversion }   // defensive: no progress
+            }
         }
-        if let convErr { throw convErr }
 
         let fullDuration = Double(totalFrames) / inFormat.sampleRate
-        let n = Int(outBuf.frameLength)
-        guard n > 0, let ch = outBuf.floatChannelData?[0] else {
-            return DecodedAudio(samples: [], sampleRate: targetSampleRate, fullDurationSec: fullDuration)
-        }
-        return DecodedAudio(samples: Array(UnsafeBufferPointer(start: ch, count: n)),
-                            sampleRate: targetSampleRate, fullDurationSec: fullDuration)
+        return DecodedAudio(samples: samples, sampleRate: targetSampleRate, fullDurationSec: fullDuration)
     }
 }

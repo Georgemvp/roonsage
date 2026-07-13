@@ -7,6 +7,7 @@ struct AnalyzerView: View {
     @Environment(AnalyzerModel.self) private var model
     @Environment(AnalyzerUpdater.self) private var updater
     @State private var showPicker = false
+    @State private var confirmReanalyze = false
 
     var body: some View {
         @Bindable var model = model
@@ -45,8 +46,18 @@ struct AnalyzerView: View {
                             .disabled(model.musicPath.isEmpty || model.isAnalyzing)
                             if model.isAnalyzing {
                                 Button("Pauzeer") { model.cancelAnalyze() }
+                            } else if model.trackCount > 0 {
+                                Button("Heranalyseer alles…") { confirmReanalyze = true }
+                                    .disabled(model.musicPath.isEmpty)
                             }
                             Spacer()
+                        }
+                        .confirmationDialog("Alles opnieuw analyseren?", isPresented: $confirmReanalyze) {
+                            Button("Heranalyseer \(model.trackCount) tracks", role: .destructive) {
+                                model.reanalyzeAll()
+                            }
+                        } message: {
+                            Text("BPM, toonsoort, energie, loudness én embedding worden opnieuw uit de volledige track berekend. Tags en verrijking blijven bewaard. Dit kan dagen duren op een grote bibliotheek.")
                         }
                         if let p = model.analyze, model.isAnalyzing {
                             ProgressView(value: p.total > 0 ? Double(p.done + p.failed) / Double(p.total) : 0)
