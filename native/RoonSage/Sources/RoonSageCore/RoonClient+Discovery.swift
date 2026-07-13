@@ -35,7 +35,8 @@ extension RoonClient {
     /// without hand-duplicating them.
     public static var discoveryProducers: [DiscoveryProducer] {
         [SimilarArtistWebProducer(), ChartsProducer(), ReleaseRadarProducer(),
-         GapFillProducer(), ArtistRelationshipsProducer(), ListenBrainzRadioProducer(), AIPicksProducer(),
+         GapFillProducer(), ArtistRelationshipsProducer(), ListenBrainzRadioProducer(),
+         ListenBrainzExplorationProducer(), AIPicksProducer(),
          DiscogsLabelsProducer(), QobuzCatalogProducer(), DatasetProducer()]
     }
 
@@ -339,7 +340,8 @@ extension RoonClient {
         let sidecarPath = datasetSidecarPath
         let context = ProducerContext(
             lastfm: lastfm, listenBrainz: listenBrainz, musicBrainz: MusicBrainzDiscoveryClient.shared,
-            llmConfig: llmConfig, perProducerLimit: 40, mood: mood, discogsToken: discogsToken,
+            llmConfig: llmConfig, perProducerLimit: 40, adventurousness: discoveryAdventurousness,
+            mood: mood, discogsToken: discogsToken,
             qobuz: qobuz.map { QobuzCredentials(email: $0.email, password: $0.password) },
             datasetSidecarPath: sidecarPath.isEmpty ? nil : sidecarPath)
 

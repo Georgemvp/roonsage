@@ -173,6 +173,51 @@ public actor ListenBrainzClient {
         }
     }
 
+    /// A new/upcoming release from an artist the user listens to.
+    public struct FreshRelease: Sendable {
+        public let artist: String
+        public let album: String
+        public let releaseGroupMbid: String?
+        public let artistMbid: String?
+        public let releaseDate: String?   // "YYYY-MM-DD" (may be in the future)
+        public let primaryType: String?   // "Album", "Single", "EP", …
+        public let confidence: Int        // LB's listen-derived relevance score
+    }
+
+    /// `GET /1/user/{user}/fresh_releases?days=N` — LB's personalized new-release
+    /// feed: releases from artists the user actually listens to (broader than the
+    /// watchlist-only Release-Radar, which only covers followed artists). Response
+    /// nests the list under `payload.releases`; sorted most-confident first here,
+    /// capped at `maxCount`. Only the `days` query param is used (the one verified
+    /// against the live endpoint) — everything else is filtered caller-side.
+    public func freshReleases(username: String, token: String, days: Int = 60, maxCount: Int = 80) async -> [FreshRelease] {
+        let user = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? username
+        guard let data = await get("/1/user/\(user)/fresh_releases?days=\(days)", token: token) else { return [] }
+        struct R: Decodable {
+            let artist_credit_name: String?
+            let artist_mbids: [String]?
+            let release_name: String?
+            let release_group_mbid: String?
+            let release_group_primary_type: String?
+            let release_date: String?
+            let confidence: Int?
+        }
+        struct Payload: Decodable { let releases: [R]? }
+        struct Response: Decodable { let payload: Payload? }
+        guard let r = try? JSONDecoder().decode(Response.self, from: data) else { return [] }
+        let out: [FreshRelease] = (r.payload?.releases ?? []).compactMap { rel in
+            guard let artist = rel.artist_credit_name, !artist.isEmpty,
+                  let album = rel.release_name, !album.isEmpty else { return nil }
+            return FreshRelease(artist: artist, album: album,
+                                releaseGroupMbid: rel.release_group_mbid,
+                                artistMbid: rel.artist_mbids?.first,
+                                releaseDate: rel.release_date,
+                                primaryType: rel.release_group_primary_type,
+                                confidence: rel.confidence ?? 0)
+        }
+        return Array(out.sorted { $0.confidence > $1.confidence }.prefix(maxCount))
+    }
+
     // MARK: - Loved tracks (feedback score 1) — for the loves → likes import
 
     public struct LovedTrack: Sendable {

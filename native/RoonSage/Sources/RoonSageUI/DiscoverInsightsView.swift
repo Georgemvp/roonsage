@@ -192,6 +192,7 @@ public enum DiscoveryProducerLabel {
         case "gap-fill":             "Aanvulling"
         case "artist-relationships": "Samenwerking"
         case "listenbrainz-radio":   "ListenBrainz"
+        case "listenbrainz-exploration": "LB Ontdekking"
         case "ai-picks":             "AI"
         case "discogs-labels":       "Discogs"
         case "qobuz-catalog":        "Qobuz"

@@ -86,6 +86,11 @@ public struct ProducerContext: Sendable {
     /// Max candidates a single producer should emit per run (keeps MB resolve
     /// within its rate budget).
     public var perProducerLimit: Int
+    /// F11 dial (0 = veilig … 1 = avontuurlijk). Producers that expose a
+    /// popularity/similarity-depth mode (currently `ListenBrainzRadioProducer`'s
+    /// easy/medium/hard) map this onto that mode; others ignore it. The Score
+    /// stage reads the same value via `ScoringWeights.tuned(adventurousness:)`.
+    public var adventurousness: Double
     /// F12a mood-seeded run: the raw CLAP mood key (e.g. "sad", "aggressive") the
     /// user asked for, so a producer that can reason about vibe (currently just
     /// `AIPicksProducer`) can lean into it. Most producers ignore this — the mood
@@ -102,10 +107,12 @@ public struct ProducerContext: Sendable {
 
     public init(lastfm: LastfmCredentials? = nil, listenBrainz: ListenBrainzCredentials? = nil,
                 musicBrainz: MusicBrainzDiscoveryClient, llmConfig: LLMConfig = LLMConfig(),
-                perProducerLimit: Int = 40, mood: String? = nil, discogsToken: String? = nil,
+                perProducerLimit: Int = 40, adventurousness: Double = 0.35, mood: String? = nil,
+                discogsToken: String? = nil,
                 qobuz: QobuzCredentials? = nil, datasetSidecarPath: String? = nil) {
         self.lastfm = lastfm; self.listenBrainz = listenBrainz; self.musicBrainz = musicBrainz
         self.llmConfig = llmConfig; self.perProducerLimit = perProducerLimit
+        self.adventurousness = adventurousness
         self.mood = mood; self.discogsToken = discogsToken; self.qobuz = qobuz
         self.datasetSidecarPath = datasetSidecarPath
     }

@@ -23,9 +23,21 @@ public struct ListenBrainzRadioProducer: DiscoveryProducer {
 
     public func isEnabled(_ context: ProducerContext) -> Bool { context.listenBrainz != nil }
 
+    /// Map the F11 dial onto LB Radio's three-way mode: veilig → easy (closest,
+    /// most popular similar artists), avontuurlijk → hard (deeper into the
+    /// similarity graph, obscurer). Was hardcoded `.medium` before F-follow-up.
+    static func radioMode(_ adventurousness: Double) -> ListenBrainzClient.RadioMode {
+        switch adventurousness {
+        case ..<0.34: return .easy
+        case ..<0.67: return .medium
+        default:      return .hard
+        }
+    }
+
     public func discover(seeds: DiscoverySeeds, context: ProducerContext) async -> [Candidate] {
         guard let creds = context.listenBrainz else { return [] }
         let disliked = Set(seeds.dislikedArtists.map { $0.lowercased() })
+        let mode = Self.radioMode(context.adventurousness)
         var byMbid: [String: Candidate] = [:]
 
         // Artist Radio: seed on liked-first, then top-played artists.
@@ -39,7 +51,7 @@ public struct ListenBrainzRadioProducer: DiscoveryProducer {
         }
         for seed in seedList {
             guard let match = await context.musicBrainz.resolveArtist(name: seed) else { continue }
-            let radio = await ListenBrainzClient.shared.artistRadio(mbid: match.mbid, mode: .medium, token: creds.token ?? "")
+            let radio = await ListenBrainzClient.shared.artistRadio(mbid: match.mbid, mode: mode, token: creds.token ?? "")
             for r in radio {
                 let key = r.name.lowercased().trimmingCharacters(in: .whitespaces)
                 guard !key.isEmpty, !seeds.libraryArtists.contains(key), !disliked.contains(key) else { continue }
