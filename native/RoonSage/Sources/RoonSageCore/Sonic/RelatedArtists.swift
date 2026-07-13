@@ -46,6 +46,32 @@ public actor RelatedArtistsClient {
         return data.compactMap { $0["name"] as? String }
     }
 
+    /// The 30-second MP3 preview URL of `artist`'s most popular track on Deezer —
+    /// a sonic probe for an artist we don't own (so we can CLAP-embed it and score
+    /// it against the taste centroid). Name-confirmed like `relatedArtists` (the
+    /// hit's primary artist must normalise-equal the want), so a common prefix
+    /// can't hand back an unrelated star's track. Highest Deezer `rank` (popularity)
+    /// among confirmed hits wins. nil on any lookup failure or no confirmed hit.
+    public func topTrackPreview(forArtist artist: String) async -> URL? {
+        let want = TrackIdentity.normalise(TrackIdentity.primaryArtist(artist))
+        guard !want.isEmpty else { return nil }
+        guard let searchURL = url("/search/track", query: ["q": "artist:\"\(artist)\"", "limit": "10"]),
+              let json = await getJSON(searchURL),
+              let data = json["data"] as? [[String: Any]], !data.isEmpty else { return nil }
+
+        var best: (rank: Int, url: URL)?
+        for item in data {
+            let got = TrackIdentity.normalise(
+                TrackIdentity.primaryArtist((item["artist"] as? [String: Any])?["name"] as? String))
+            guard got == want,
+                  let preview = item["preview"] as? String, !preview.isEmpty,
+                  let previewURL = URL(string: preview) else { continue }
+            let rank = item["rank"] as? Int ?? 0
+            if best == nil || rank > best!.rank { best = (rank, previewURL) }
+        }
+        return best?.url
+    }
+
     // MARK: HTTP (mirrors DeezerClient's reservation gate)
 
     private func getJSON(_ url: URL) async -> [String: Any]? {

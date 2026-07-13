@@ -27,6 +27,9 @@ extension RoonClient {
     /// Hourly digest tries per ISO week before giving up (watermark → 0), so a
     /// persistently failing Qobuz save doesn't retry — and log — every hour forever.
     nonisolated static let discoveryDigestMaxAttempts = 3
+    /// How many top items of a batch get the CLAP sonic-fit re-rank (fase 1) — each
+    /// costs a Deezer preview fetch + a CLAP embed, so bounded to the batch head.
+    nonisolated static let sonicFitTopK = 15
 
     /// The producers that run each pipeline pass. Ships every Last.fm/MusicBrainz/
     /// ListenBrainz/AI producer; the gated Deezer/Spotify/Discogs producers (each
@@ -82,6 +85,15 @@ extension RoonClient {
     public var discoveryRejectionCooldownDays: Int {
         get { (UserDefaults.standard.object(forKey: "discovery_cooldown_days") as? Int) ?? 60 }
         set { UserDefaults.standard.set(max(0, newValue), forKey: "discovery_cooldown_days") }
+    }
+
+    /// CLAP long-tail (fase 1): re-rank the top of each batch by sonic fit — a
+    /// Deezer preview per top candidate, CLAP-embedded and cosined against the
+    /// taste centroid. Default on; degrades to a no-op without CLAP models, a taste
+    /// centroid, or a resolvable preview. Server-side, like the other knobs.
+    public var discoverySonicFit: Bool {
+        get { (UserDefaults.standard.object(forKey: "discovery_sonic_fit") as? Bool) ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "discovery_sonic_fit") }
     }
 
     /// The producers to actually run: every shipped producer minus the disabled
@@ -368,11 +380,16 @@ extension RoonClient {
 
         let pipeline = DiscoveryPipeline(producers: activeDiscoveryProducers,
                                          weights: .tuned(adventurousness: discoveryAdventurousness))
-        let stored = await pipeline.run(
+        let ranked = await pipeline.run(
             seeds: seeds, context: context, qobuzCreds: qobuz,
             libraryGenres: libraryGenres, genreVocabulary: genreVocabulary, feedbackGenreRates: rates,
             producerReliability: producerReliability, adventurousness: discoveryAdventurousness,
             filterContext: filterCtx, maxItems: Self.discoveryMaxItems, now: Date())
+
+        // CLAP long-tail (fase 1): sonic-fit re-rank of the batch head — score the
+        // top candidates by how their Deezer-preview CLAP embedding cosines with
+        // the taste centroid, so the strongest sonic matches surface first.
+        let stored = await applySonicFitRerank(ranked, centroid: tasteVector)
 
         // Advance each watchlist artist's "newest release seen" watermark, so
         // Release-Radar doesn't keep re-surfacing the same release attempt forever
@@ -398,6 +415,49 @@ extension RoonClient {
         Log.info("Ontdekkingen (\(effectiveTrigger)): \(stored.count) aanbevelingen opgeslagen (batch \(batchID.map(String.init) ?? "?"))", category: .roon)
         if batchID != nil { await generateExplanations(db: db, llmConfig: llmConfig, count: stored.count) }
         return batchID
+    }
+
+    /// CLAP long-tail (fase 1): re-rank the top `sonicFitTopK` of a batch by sonic
+    /// fit. For each, resolve a Deezer preview of the artist's most popular track,
+    /// CLAP-embed it, cosine against the taste centroid, and apply a bounded nudge;
+    /// then re-sort that head. Best-effort throughout — no CLAP model, no centroid,
+    /// or no resolvable/embeddable preview leaves an item's score untouched, so the
+    /// batch simply degrades to its pre-sonic ranking. Per-run memo keyed on the
+    /// (lowercased) artist so a repeated artist costs one preview lookup, not many.
+    private func applySonicFitRerank(_ stored: [DatabaseManager.StoredRecommendation],
+                                     centroid: [Float]?) async -> [DatabaseManager.StoredRecommendation] {
+        guard discoverySonicFit, let centroid, !centroid.isEmpty,
+              let clap = await SonicFitClap.shared.model() else { return stored }
+        let k = min(Self.sonicFitTopK, stored.count)
+        guard k > 0 else { return stored }
+
+        var head = Array(stored.prefix(k))
+        let tail = Array(stored.dropFirst(k))
+        var memo: [String: Double] = [:]
+        var applied = 0
+        for i in head.indices {
+            let key = head[i].artist.lowercased().trimmingCharacters(in: .whitespaces)
+            guard !key.isEmpty else { continue }
+            let cosine: Double?
+            if let cached = memo[key] {
+                cosine = cached
+            } else if let url = await RelatedArtistsClient.shared.topTrackPreview(forArtist: head[i].artist),
+                      let c = await DiscoverySonicFit.cosineToTaste(previewURL: url, centroid: centroid, clap: clap) {
+                memo[key] = c
+                cosine = c
+            } else {
+                cosine = nil
+            }
+            if let cosine {
+                head[i].score = min(max(head[i].score + DiscoverySonicFit.nudge(cosine: cosine), 0), 1)
+                applied += 1
+            }
+        }
+        head.sort { $0.score > $1.score }
+        if applied > 0 {
+            Log.info("Ontdekkingen: sonische-fit re-rank toegepast op \(applied)/\(k) topkandidaten", category: .roon)
+        }
+        return head + tail
     }
 
     /// Fill in the "waarom past dit"-card for every item of the just-stored batch:
