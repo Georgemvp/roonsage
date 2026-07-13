@@ -263,7 +263,15 @@ struct DiscoveryPipeline {
         }
         scored.sort { $0.score > $1.score }
 
-        return scored.prefix(maxItems).map { entry in
+        // Anti-filter-bubble: MMR over the scored list instead of a plain top-N, so
+        // one artist's albums or one genre neighbourhood can't dominate the batch
+        // (the recurring "every Ontdek surface shows near-identical picks" issue).
+        // Relevance stays dominant (λ high); this only breaks up clusters.
+        let selected = DiscoveryRerank.mmr(
+            scored, limit: maxItems,
+            relevance: { $0.score }, artist: { $0.item.artist }, genres: { $0.item.genres })
+
+        return selected.map { entry in
             DatabaseManager.StoredRecommendation(
                 kind: entry.item.kind, artist: entry.item.artist, artistMbid: entry.item.artistMbid,
                 album: entry.item.album, releaseGroupMbid: entry.item.releaseGroupMbid, year: entry.item.year,
