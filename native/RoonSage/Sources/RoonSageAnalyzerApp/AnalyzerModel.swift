@@ -173,12 +173,19 @@ final class AnalyzerModel {
         isAnalyzing = true
         analyze = nil
         status = "Scanning…"
-        let w = LibraryWalker(store: store, concurrency: walkerConcurrency,
-                              excerptSeconds: excerptSeconds, sampleRate: analysisSampleRate,
-                              minBpm: bpmMin, maxBpm: bpmMax, priorBpm: bpmPrior)
-        walker = w
         let path = musicPath
         Task {
+            // Embeddings horen bij de hoofd-walk: wacht op het CLAP-model vóór
+            // de walker start. Een .full-pass met clap=nil zou bestaande
+            // embeddings wissen (upsert schrijft embedding=NULL) én alles
+            // scalar-only analyseren — de race die de eerste heranalyse-run
+            // op 2026-07-13 166 embeddings kostte.
+            let clap = await awaitCLAP()
+            if clap == nil { Log.info("Analyse start zonder CLAP-model (niet geïnstalleerd?) — scalar-only.", category: .audio) }
+            let w = LibraryWalker(store: store, concurrency: walkerConcurrency, clap: clap,
+                                  excerptSeconds: excerptSeconds, sampleRate: analysisSampleRate,
+                                  minBpm: bpmMin, maxBpm: bpmMax, priorBpm: bpmPrior)
+            walker = w
             let (ok, failed) = await w.run(musicDir: path) { p in
                 Task { @MainActor in self.analyze = p }
             }
@@ -529,6 +536,17 @@ final class AnalyzerModel {
     var clapReady: Bool {
         if case .ready = clapLoadState { return true }
         return false
+    }
+
+    /// Wacht tot de CLAP-load afgerond is (start hem zo nodig) en geef het
+    /// model terug — nil wanneer laden faalde (model niet geïnstalleerd); de
+    /// aanroeper degradeert dan expliciet naar scalar-only.
+    private func awaitCLAP() async -> CLAPModel? {
+        loadCLAPIfNeeded()
+        while case .loading = clapLoadState {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return clap
     }
 
     /// Load the CLAP model if not already loaded or loading.
