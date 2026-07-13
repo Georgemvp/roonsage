@@ -697,6 +697,14 @@ public final class LibraryShareServer: @unchecked Sendable {
         if path.hasPrefix("/discovery/digest-status") {
             return ("200 OK", await RoonClient.shared.discoveryDigestStatusData(), "application/json")
         }
+        // Songtekst-zoek (gap C) — MOET vóór de algemene "/lyrics"-prefix-check
+        // staan, anders slokt die deze route op.
+        if path.hasPrefix("/lyrics/search") {
+            let q = Self.queryValue("q", in: target) ?? ""
+            let limit = min(200, max(1, Int(Self.queryValue("limit", in: target) ?? "") ?? 60))
+            let data = await RoonClient.shared.lyricsSearchData(query: q, limit: limit)
+            return ("200 OK", data, "application/json")
+        }
         // Lyrics for the now-playing track. The server checks its DB, fetches from
         // LRCLIB on a miss, stores the result, and returns it — so a played track is
         // populated on demand while the background backfill fills the rest.

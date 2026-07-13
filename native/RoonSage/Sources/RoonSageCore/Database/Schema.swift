@@ -622,6 +622,43 @@ enum Schema {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_deezer_genres_genre ON track_deezer_genres(genre)")
         }
 
+        // Gap C (AudioMuse-audit): full-text-zoeken door songteksten. External-
+        // content FTS5 over track_lyrics.plain, zelfde patroon als v12 tracks_fts.
+        // track_lyrics wordt uitsluitend gemuteerd via INSERT … ON CONFLICT DO
+        // UPDATE en DELETE (geen INSERT OR REPLACE), dus de trigger-trio dekt
+        // elk schrijfpad.
+        migrator.registerMigration("v41_lyrics_fts") { db in
+            try db.execute(sql: """
+                CREATE VIRTUAL TABLE IF NOT EXISTS lyrics_fts USING fts5(
+                    plain,
+                    content='track_lyrics', content_rowid='rowid',
+                    tokenize="unicode61 remove_diacritics 2"
+                )
+            """)
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS lyrics_fts_ai AFTER INSERT ON track_lyrics BEGIN
+                    INSERT INTO lyrics_fts(rowid, plain) VALUES (new.rowid, new.plain);
+                END
+            """)
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS lyrics_fts_ad AFTER DELETE ON track_lyrics BEGIN
+                    INSERT INTO lyrics_fts(lyrics_fts, rowid, plain)
+                    VALUES ('delete', old.rowid, old.plain);
+                END
+            """)
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS lyrics_fts_au AFTER UPDATE ON track_lyrics BEGIN
+                    INSERT INTO lyrics_fts(lyrics_fts, rowid, plain)
+                    VALUES ('delete', old.rowid, old.plain);
+                    INSERT INTO lyrics_fts(rowid, plain) VALUES (new.rowid, new.plain);
+                END
+            """)
+            try db.execute(sql: """
+                INSERT INTO lyrics_fts(rowid, plain)
+                SELECT rowid, plain FROM track_lyrics
+            """)
+        }
+
         try migrator.migrate(db)
     }
 }

@@ -75,6 +75,48 @@ extension DatabaseManager {
         }) ?? []
     }
 
+    /// Eén songtekst-zoektreffer: de bibliotheektrack plus het tekstfragment
+    /// (FTS5-snippet) waarin de zoekterm voorkomt. Codable zodat het `/lyrics/
+    /// search`-endpoint hem 1-op-1 kan serialiseren naar thin clients.
+    public struct LyricsSearchHit: Sendable, Codable, Identifiable {
+        public let track: TrackRecord
+        public let snippet: String
+        public var id: String { track.id }
+        public init(track: TrackRecord, snippet: String) {
+            self.track = track; self.snippet = snippet
+        }
+    }
+
+    /// Gap C (AudioMuse-audit): zoek bibliotheektracks op woorden/zinnen in de
+    /// songtekst. Prefix-FTS via dezelfde `ftsQuery`-sanitizer als de track-
+    /// zoek; resultaten op FTS-rang, gededupliceerd per match_key (meerdere
+    /// pressings van dezelfde song geven anders identieke regels).
+    public func searchLyrics(query: String, limit: Int = 60) async throws -> [LyricsSearchHit] {
+        guard let match = Self.ftsQuery(query) else { return [] }
+        return try await pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT t.*, snippet(lyrics_fts, 0, '', '', ' … ', 12) AS snip,
+                       l.match_key AS lyr_key
+                FROM lyrics_fts
+                JOIN track_lyrics l ON l.rowid = lyrics_fts.rowid
+                JOIN tracks t ON t.match_key = l.match_key
+                WHERE lyrics_fts MATCH ? AND l.found = 1
+                ORDER BY rank
+                LIMIT ?
+                """, arguments: [match, limit * 3])
+            var seen = Set<String>()
+            var out: [LyricsSearchHit] = []
+            for r in rows {
+                let key: String = r["lyr_key"] ?? ""
+                guard !key.isEmpty, !seen.contains(key) else { continue }
+                seen.insert(key)
+                out.append(LyricsSearchHit(track: try TrackRecord(row: r), snippet: r["snip"] ?? ""))
+                if out.count >= limit { break }
+            }
+            return out
+        }
+    }
+
     /// (tracks with matched lyrics, total distinct library tracks) — for the
     /// analyzer's coverage readout.
     public func lyricsCounts() -> (withLyrics: Int, total: Int) {

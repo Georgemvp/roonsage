@@ -28,6 +28,36 @@ extension RoonClient {
         return await resolveLyrics(title: title, artist: artist, album: album, durationSec: durationSec)
     }
 
+    /// Gap C: zoek bibliotheektracks op songtekst. Thin clients vragen de
+    /// server (waar de lyrics-DB compleet is via de backfill); de server-build
+    /// zoekt direct lokaal.
+    public func searchLyrics(_ query: String, limit: Int = 60) async -> [DatabaseManager.LyricsSearchHit] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return [] }
+        if isRemote {
+            guard let base = remoteBaseURL else { return [] }
+            var comp = URLComponents(string: "\(base)/lyrics/search")
+            comp?.queryItems = [URLQueryItem(name: "q", value: q),
+                                URLQueryItem(name: "limit", value: "\(limit)")]
+            guard let url = comp?.url else { return [] }
+            var req = URLRequest(url: url, timeoutInterval: 14)
+            authorizeShareRequest(&req)
+            guard let (data, resp) = try? await URLSession.shared.data(for: req),
+                  (resp as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+            return (try? JSONDecoder().decode([DatabaseManager.LyricsSearchHit].self, from: data)) ?? []
+        }
+        guard let db = database else { return [] }
+        return (try? await db.searchLyrics(query: q, limit: limit)) ?? []
+    }
+
+    /// `/lyrics/search` endpoint body: JSON-array van hits (leeg bij niets).
+    public func lyricsSearchData(query: String, limit: Int) async -> Data {
+        guard let db = database,
+              let hits = try? await db.searchLyrics(query: query, limit: limit),
+              let data = try? JSONEncoder().encode(hits) else { return Data("[]".utf8) }
+        return data
+    }
+
     // MARK: - Server-side coordinator (check DB → fetch → store)
 
     /// Resolve lyrics on the server-of-record: serve the cached row if present

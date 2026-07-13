@@ -15,6 +15,7 @@ public struct SonicSearchView: View {
 
     @State private var query = ""
     @State private var results: [SonicEngine.Scored] = []
+    @State private var lyricsHits: [DatabaseManager.LyricsSearchHit] = []   // gap C
     @State private var loading = false
     @State private var searched = false
 
@@ -38,7 +39,7 @@ public struct SonicSearchView: View {
                 Section { exampleChips }
             } else if loading {
                 Section { ProgressView().frame(maxWidth: .infinity) }
-            } else if results.isEmpty {
+            } else if results.isEmpty && lyricsHits.isEmpty {
                 Section {
                     ContentUnavailableView(
                         "Geen resultaten",
@@ -48,7 +49,8 @@ public struct SonicSearchView: View {
                 }
                 .listRowSeparator(.hidden)
             } else {
-                resultsSection
+                if !results.isEmpty { resultsSection }
+                if !lyricsHits.isEmpty { lyricsSection }
             }
         }
         .navigationTitle("Sonisch zoeken")
@@ -61,7 +63,7 @@ public struct SonicSearchView: View {
                 .textFieldStyle(.plain)
                 .onSubmit { runSearch() }
             if !query.isEmpty {
-                Button { query = ""; results = []; searched = false } label: {
+                Button { query = ""; results = []; lyricsHits = []; searched = false } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }.buttonStyle(.borderless)
             }
@@ -131,6 +133,27 @@ public struct SonicSearchView: View {
         }
     }
 
+    /// Gap C: tracks waarvan de sóngtekst de zoekterm bevat — naast het
+    /// sonische resultaat, want "over welk onderwerp gaat het" en "hoe klinkt
+    /// het" zijn verschillende vragen op hetzelfde zoekveld.
+    private var lyricsSection: some View {
+        Section("In songteksten (\(lyricsHits.count))") {
+            ForEach(lyricsHits.prefix(20)) { hit in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(hit.track.title).font(.callout).lineLimit(1)
+                    if let a = hit.track.artist {
+                        Text(a).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    if !hit.snippet.isEmpty {
+                        Text("“\(hit.snippet)”")
+                            .font(.caption).italic().foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+                .padding(.vertical, Spacing.xs)
+            }
+        }
+    }
+
     private func runSearch() {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty, !loading else { return }
@@ -138,8 +161,10 @@ public struct SonicSearchView: View {
         loading = true
         searched = true
         Task {
-            let r = await client.sonicTextSearch(q, limit: 40)
-            await MainActor.run { results = r; loading = false }
+            async let sonic = client.sonicTextSearch(q, limit: 40)
+            async let lyric = client.searchLyrics(q, limit: 20)
+            let (r, l) = await (sonic, lyric)
+            await MainActor.run { results = r; lyricsHits = l; loading = false }
         }
     }
 }
