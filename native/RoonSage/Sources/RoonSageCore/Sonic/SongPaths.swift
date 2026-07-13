@@ -1,10 +1,16 @@
 import Foundation
 
-/// Greedy nearest-neighbour bridge between two tracks.
-/// At each hop, picks the unvisited library track that minimises:
+/// Bridge between two tracks.
+///
+/// Embedding mode (gap B, AudioMuse-schema): interpoleer `bridgeSteps`
+/// waypoint-vectoren op de lijn from→to (per waypoint gerenormaliseerd) en kies
+/// per waypoint de dichtstbijzijnde ongebruikte kandidaat — een gelijkmatige
+/// sonische gradiënt. De vroegere greedy walk kon in de eerste helft afdrijven
+/// (α-gewogen doelafstand trok stappen te vroeg naar het doel).
+///
+/// Scalar-fallback (geen embeddings): de oorspronkelijke greedy hop die
 ///   α × distance(current, candidate) + (1-α) × distance(candidate, target)
-/// where α grows from 0.3 → 0.7 as progress approaches midpoint (first half
-/// biased toward target, second half toward current vicinity).
+/// minimaliseert, met α 0.3 → 0.7 over de brug.
 public enum SongPaths {
 
     public struct Step: Sendable, Identifiable {
@@ -58,36 +64,57 @@ public enum SongPaths {
             return Double(1 - max(-1, min(1, dot)))
         }
 
-        for step in 0..<bridgeSteps {
-            guard !remaining.isEmpty else { break }
-            let progress = bridgeSteps > 1 ? Double(step) / Double(bridgeSteps - 1) : 0.5
-            let alpha = 0.3 + 0.4 * min(1, progress * 2)   // 0.3…0.7
-
-            var bestScore = Double.infinity
-            var bestIdx = 0
-            for (i, c) in remaining.enumerated() {
-                let dCurrent: Double
-                let dTarget: Double
-                if useEmb {
-                    let secondary = secondaryWeight * SonicSimilarity.distance(currentPrep, c.prep, weights: weights)
-                    dCurrent = cosDist(currentVec, c.vec) + secondary
-                    dTarget = cosDist(c.vec, toVec)
-                } else {
-                    dCurrent = SonicSimilarity.distance(currentPrep, c.prep, weights: weights)
-                    dTarget = SonicSimilarity.distance(c.prep, toPrep, weights: weights)
+        if useEmb, let fromVec = currentVec, let targetVec = toVec {
+            // Waypoint-interpolatie: bridgeSteps=2 → t = 1/3, 2/3; =1 → t = 1/2;
+            // =0 → geen waypoints (alleen endpoints).
+            for step in 0..<bridgeSteps {
+                guard !remaining.isEmpty else { break }
+                let t = Double(step + 1) / Double(bridgeSteps + 1)
+                var way = [Float](repeating: 0, count: fromVec.count)
+                for d in 0..<min(fromVec.count, targetVec.count) {
+                    way[d] = Float(1 - t) * fromVec[d] + Float(t) * targetVec[d]
                 }
-                let score = alpha * dCurrent + (1 - alpha) * dTarget
-                if score < bestScore { bestScore = score; bestIdx = i }
-            }
+                way = VectorIndex.normalized(way)
 
-            let chosen = remaining[bestIdx]
-            let sim = useEmb ? max(0, 1 - cosDist(currentVec, chosen.vec))
-                             : SonicSimilarity.similarity(currentPrep, chosen.prep, weights: weights)
-            path.append(Step(track: chosen.track, similarity: sim))
-            currentPrep = chosen.prep
-            currentVec = chosen.vec
-            used.insert(chosen.track.id)
-            remaining.remove(at: bestIdx)
+                var bestScore = Double.infinity
+                var bestIdx = 0
+                for (i, c) in remaining.enumerated() {
+                    // Scalar-afstand blijft een lichte tie-break, zodat Camelot/
+                    // BPM-botsingen tussen bijna-gelijke kandidaten beslissen.
+                    let secondary = secondaryWeight * SonicSimilarity.distance(currentPrep, c.prep, weights: weights)
+                    let score = cosDist(way, c.vec) + secondary
+                    if score < bestScore { bestScore = score; bestIdx = i }
+                }
+
+                let chosen = remaining[bestIdx]
+                path.append(Step(track: chosen.track, similarity: max(0, 1 - cosDist(currentVec, chosen.vec))))
+                currentPrep = chosen.prep
+                currentVec = chosen.vec
+                used.insert(chosen.track.id)
+                remaining.remove(at: bestIdx)
+            }
+        } else {
+            for step in 0..<bridgeSteps {
+                guard !remaining.isEmpty else { break }
+                let progress = bridgeSteps > 1 ? Double(step) / Double(bridgeSteps - 1) : 0.5
+                let alpha = 0.3 + 0.4 * min(1, progress * 2)   // 0.3…0.7
+
+                var bestScore = Double.infinity
+                var bestIdx = 0
+                for (i, c) in remaining.enumerated() {
+                    let dCurrent = SonicSimilarity.distance(currentPrep, c.prep, weights: weights)
+                    let dTarget = SonicSimilarity.distance(c.prep, toPrep, weights: weights)
+                    let score = alpha * dCurrent + (1 - alpha) * dTarget
+                    if score < bestScore { bestScore = score; bestIdx = i }
+                }
+
+                let chosen = remaining[bestIdx]
+                path.append(Step(track: chosen.track,
+                                 similarity: SonicSimilarity.similarity(currentPrep, chosen.prep, weights: weights)))
+                currentPrep = chosen.prep
+                used.insert(chosen.track.id)
+                remaining.remove(at: bestIdx)
+            }
         }
 
         let toSim = useEmb ? max(0, 1 - cosDist(currentVec, toVec))

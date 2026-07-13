@@ -155,25 +155,47 @@ public enum SonicEngine {
     /// Vector mixing: find tracks matching mean(add) − 0.5 × mean(subtract).
     /// Centroid is a weighted average of the feature components; Jaccard tags
     /// are merged proportionally.
+    ///
+    /// Gap D (AudioMuse): (1) SUBTRACT-gate — een kandidaat die dichter bij de
+    /// subtract-centroid ligt dan bij de add-centroid hoort bij wat je wegmengt
+    /// en wordt gedropt (parametervrij relatief criterium i.p.v. AudioMuse's
+    /// absolute afstandsdrempel, die aan hún embeddingruimte gekalibreerd is).
+    /// (2) `temperature` > 0 mengt variatie in via Gumbel-top-k gewogen
+    /// sampling — deterministisch per `variationSeed` én per-track gesalt,
+    /// dus pool-volgorde-onafhankelijk. 0 = exact top-N (het oude gedrag).
     public static func alchemy(
         add: [DatabaseManager.SonicTrack],
         subtract: [DatabaseManager.SonicTrack],
         in library: [DatabaseManager.SonicTrack],
         limit: Int = 30,
         weights: SonicSimilarity.Weights = .default,
-        index: VectorIndex? = nil
+        index: VectorIndex? = nil,
+        temperature: Double = 0,
+        variationSeed: UInt64 = 0
     ) -> [Scored] {
         guard !add.isEmpty else { return [] }
 
         // Embedding path: combined = mean(add) − 0.5·mean(subtract) in vector space.
         if let index, add.contains(where: { index.embedding(forId: $0.id) != nil }),
            let addC = index.centroid(ofIds: add.map(\.id)) {
+            let subC = subtract.isEmpty ? nil : index.centroid(ofIds: subtract.map(\.id))
             var combined = addC
-            if !subtract.isEmpty, let subC = index.centroid(ofIds: subtract.map(\.id)) {
+            if let subC {
                 for i in 0..<min(combined.count, subC.count) { combined[i] -= 0.5 * subC[i] }
             }
             let exclude = Set(add.map(\.id) + subtract.map(\.id))
-            let hits = index.nearest(to: combined, k: limit * 3, excludingIds: exclude)
+            // k = 4×limit (AudioMuse): ruime pool zodat gate + near-dup-drop
+            // niet onder het gevraagde aantal zakken.
+            var hits = index.nearest(to: combined, k: limit * 4, excludingIds: exclude)
+            if let subC {
+                hits = hits.filter { hit in
+                    guard let v = index.embedding(forId: hit.track.id) else { return true }
+                    return dot(v, addC) >= dot(v, subC)
+                }
+            }
+            if temperature > 0 {
+                hits = gumbelTopK(hits, temperature: temperature, seed: variationSeed)
+            }
             return SonicSelection.dropNearDuplicates(hits, index: index, limit: limit)
                 .map { Scored(track: $0.track, similarity: Double(max(0, $0.score))) }
         }
@@ -222,5 +244,43 @@ public enum SonicEngine {
             scored.append(Scored(track: t, similarity: SonicSimilarity.similarity(mixPrep, prep, weights: weights)))
         }
         return scored.sorted { $0.similarity > $1.similarity }.prefix(limit).map { $0 }
+    }
+
+    // MARK: - Gap D helpers
+
+    private static func dot(_ a: [Float], _ b: [Float]) -> Float {
+        var d: Float = 0
+        for i in 0..<min(a.count, b.count) { d += a[i] * b[i] }
+        return d
+    }
+
+    /// Gumbel-top-k: gewogen sampling zonder teruglegging in één sorteerslag —
+    /// key = score/T + Gumbel-ruis; hogere T vlakt de verdeling af (meer
+    /// variatie), lagere T scherpt hem aan (dichter bij top-N). De ruis komt
+    /// uit SplitMix64 op (seed ⊕ FNV-1a(track-id)): identieke seed → identieke
+    /// selectie, onafhankelijk van de volgorde van de pool.
+    static func gumbelTopK(_ hits: [VectorIndex.Hit], temperature: Double, seed: UInt64) -> [VectorIndex.Hit] {
+        guard temperature > 0, hits.count > 1 else { return hits }
+        func fnv1a(_ s: String) -> UInt64 {
+            var h: UInt64 = 0xcbf29ce484222325
+            for b in s.utf8 { h = (h ^ UInt64(b)) &* 0x100000001b3 }
+            return h
+        }
+        func splitmix(_ x: UInt64) -> UInt64 {
+            var z = x &+ 0x9E3779B97F4A7C15
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            return z ^ (z >> 31)
+        }
+        return hits
+            .map { hit -> (VectorIndex.Hit, Double) in
+                let bits = splitmix(seed ^ fnv1a(hit.track.id))
+                // u ∈ (0,1): 53 hoge bits → [0,1), vloer weg van 0 voor de log.
+                let u = max(Double(bits >> 11) * (1.0 / 9_007_199_254_740_992.0), 1e-12)
+                let gumbel = -Foundation.log(-Foundation.log(u))
+                return (hit, Double(hit.score) / temperature + gumbel)
+            }
+            .sorted { $0.1 > $1.1 }
+            .map { $0.0 }
     }
 }

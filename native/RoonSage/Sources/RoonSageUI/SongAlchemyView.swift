@@ -20,6 +20,9 @@ public struct SongAlchemyView: View {
     @State private var addingTo: Bucket = .add
     @State private var loading = false
     @State private var noResult = false
+    /// Gap D: 0 = strak top-N; elke Remix rolt een nieuwe seed voor de
+    /// Gumbel-top-k-sampling (deterministisch per seed, dus herhaalbaar).
+    @State private var remixSeed: UInt64 = 0
 
     enum Bucket { case add, subtract }
 
@@ -50,6 +53,7 @@ public struct SongAlchemyView: View {
                 } else {
                     Button {
                         Haptics.tap()
+                        remixSeed = 0
                         Task { await compute() }
                     } label: {
                         Label(loading ? "Mixen…" : "Mix", systemImage: "wand.and.sparkles")
@@ -60,6 +64,19 @@ public struct SongAlchemyView: View {
                     .tint(Color.roonGold)
                     .disabled(loading)
                     .listRowBackground(Color.clear)
+                    if !results.isEmpty {
+                        Button {
+                            Haptics.tap()
+                            remixSeed &+= 1   // volgende deterministische variatie
+                            Task { await compute() }
+                        } label: {
+                            Label("Remix — zelfde smaak, andere tracks", systemImage: "shuffle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(loading)
+                        .listRowBackground(Color.clear)
+                    }
                 }
             }
 
@@ -250,10 +267,12 @@ public struct SongAlchemyView: View {
         defer { loading = false }
         let adds = addTracks
         let subtracts = subtractTracks
+        let seed = remixSeed
         let lib = await client.sonicLibrary()
         let index = await client.sonicVectorIndex()
         let r = await Task.detached {
-            SonicEngine.alchemy(add: adds, subtract: subtracts, in: lib, limit: 30, index: index)
+            SonicEngine.alchemy(add: adds, subtract: subtracts, in: lib, limit: 30, index: index,
+                                temperature: seed == 0 ? 0 : 0.35, variationSeed: seed)
         }.value
         withAnimation(Motion.standard) { results = r }
         noResult = r.isEmpty
