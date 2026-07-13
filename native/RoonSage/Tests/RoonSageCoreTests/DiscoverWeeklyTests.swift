@@ -33,6 +33,45 @@ final class DiscoverWeeklyTests: XCTestCase {
         XCTAssertEqual(DiscoverWeekly.selectSeeds(playStats: stats, byMatchKey: byMK, limit: 3).count, 3)
     }
 
+    /// A big, skewed library (counts 200…1, incl. 1000+-play "monopolists") must NOT
+    /// hand back the same 40 anchors every week: a different ISO-week salt rotates a
+    /// different loved set in, and the same salt stays deterministic.
+    func testSelectSeedsRotatesWeeklyWithSalt() {
+        let lib = (0..<200).map { track("t\($0)", [Float($0), 1, 0, 0], artist: "A\($0)", matchKey: "m\($0)") }
+        let byMK = Dictionary(lib.map { ($0.matchKey, $0) }, uniquingKeysWith: { a, _ in a })
+        // m0 is a 1000+-play monopolist; the rest fall off steeply.
+        let stats = (0..<200).map { (matchKey: "m\($0)", count: $0 == 0 ? 1500 : 200 - $0, lastPlayed: "") }
+
+        let w27 = DiscoverWeekly.selectSeeds(playStats: stats, byMatchKey: byMK, limit: 40, salt: "2026-W27")
+        let w28 = DiscoverWeekly.selectSeeds(playStats: stats, byMatchKey: byMK, limit: 40, salt: "2026-W28")
+        XCTAssertEqual(w27.count, 40)
+        XCTAssertEqual(w28.count, 40)
+        XCTAssertNotEqual(Set(w27.map(\.id)), Set(w28.map(\.id)), "different weeks anchor a different loved set")
+
+        // Deterministic within a week (same salt → same seeds).
+        let w27again = DiscoverWeekly.selectSeeds(playStats: stats, byMatchKey: byMK, limit: 40, salt: "2026-W27")
+        XCTAssertEqual(w27.map(\.id), w27again.map(\.id), "same ISO week reproduces the same seeds")
+
+        // Rotation pulls tracks beyond the raw top-40-by-count into the anchors.
+        let rawTop40 = Set((0..<40).map { "m\($0)" })
+        XCTAssertFalse(Set(w27.map(\.id)).isSubset(of: rawTop40), "seeds aren't just the all-time top 40")
+    }
+
+    /// Log-dampening: with no salt the order follows log(1+count)·recency, so a
+    /// 1000-play track leads a 30-play one but not by the raw ~33× ratio — the pool
+    /// of realistic seeds is wide, not dominated by one monopolist.
+    func testSelectSeedsLogDampensPlayCounts() {
+        let lib = [track("t1", [1, 0, 0, 0], artist: "A", matchKey: "m1"),
+                   track("t2", [0, 1, 0, 0], artist: "B", matchKey: "m2")]
+        let byMK = Dictionary(lib.map { ($0.matchKey, $0) }, uniquingKeysWith: { a, _ in a })
+        let stats: [(matchKey: String, count: Int, lastPlayed: String)] = [("m1", 1000, ""), ("m2", 30, "")]
+        // Heaviest-first order preserved (no salt), but via the dampened weight.
+        let seeds = DiscoverWeekly.selectSeeds(playStats: stats, byMatchKey: byMK, limit: 2)
+        XCTAssertEqual(seeds.map(\.matchKey), ["m1", "m2"])
+        let ratio = SonicDNA.playWeight(count: 1000, lastPlayed: "") / SonicDNA.playWeight(count: 30, lastPlayed: "")
+        XCTAssertLessThan(ratio, 3.0, "log-dampened weight ratio « the raw 33× count ratio")
+    }
+
     // MARK: recentlyPlayedKeys
 
     func testRecentlyPlayedKeysWindow() {
@@ -115,6 +154,21 @@ final class DiscoverWeeklyTests: XCTestCase {
         XCTAssertTrue(DiscoverWeekly.plan(
             seeds: [], library: lib, index: index, recentlyPlayedKeys: [], disliked: [],
             likedKeys: [], knownArtists: [], tasteVector: nil, options: opts, salt: "x").isEmpty)
+    }
+
+    // MARK: cross-feature de-dup keys
+
+    func testSurfacedKeysExposeAlbumsAndTracksForDedup() {
+        let pl = DiscoverWeeklyPlaylist(
+            weekKey: "2026-W27", generatedAt: "", title: "t", description: "d",
+            imageKey: nil, seedMatchKeys: [],
+            tracks: [
+                DiscoverWeeklyTrack(id: "1", title: "Song A", artist: "Artist X", album: "Album One", notInLibrary: false),
+                DiscoverWeeklyTrack(id: "2", title: "Song B", artist: nil, album: nil, notInLibrary: true),
+            ])
+        XCTAssertEqual(pl.albumKeysSurfaced, ["album one"], "album names are lower-cased; nil album ignored")
+        XCTAssertTrue(pl.trackKeysSurfaced.contains("song a|artist x"))
+        XCTAssertTrue(pl.trackKeysSurfaced.contains("song b|"), "nil artist → empty artist half")
     }
 
     // MARK: due logic

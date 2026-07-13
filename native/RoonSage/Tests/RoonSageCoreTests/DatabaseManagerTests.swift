@@ -222,6 +222,46 @@ final class DatabaseManagerTests: XCTestCase {
             }
         }
     }
+
+    private func logAlbumListens(_ album: String, _ artist: String, times: Int, at playedAt: String) throws {
+        try db.pool.write { db in
+            for i in 0..<times {
+                try db.execute(
+                    sql: "INSERT INTO listening_history (title, artist, album, played_at) VALUES (?, ?, ?, ?)",
+                    arguments: ["\(album) \(i)", artist, album, playedAt])
+            }
+        }
+    }
+
+    /// Dormant albums = owned albums once played but long-neglected, ranked by past
+    /// play depth (not taste), max one per artist. Never-played and recently-played
+    /// albums are excluded; a per-artist cap keeps the shelf varied.
+    func testDormantAlbumsRanksByPlayDepthAndCapsPerArtist() async throws {
+        try await db.upsertTracks([
+            track("l1", "Loved 0", "A", album: "Loved"), track("l2", "Loved 1", "A", album: "Loved"),
+            track("l3", "Loved 2", "A", album: "Loved"),
+            track("r1", "Recent 0", "B", album: "Recent"), track("r2", "Recent 1", "B", album: "Recent"),
+            track("r3", "Recent 2", "B", album: "Recent"),
+            track("n1", "Never 0", "C", album: "Never"), track("n2", "Never 1", "C", album: "Never"),
+            track("n3", "Never 2", "C", album: "Never"),
+            track("e1a", "E1 0", "E", album: "E1"), track("e1b", "E1 1", "E", album: "E1"), track("e1c", "E1 2", "E", album: "E1"),
+            track("e2a", "E2 0", "E", album: "E2"), track("e2b", "E2 1", "E", album: "E2"), track("e2c", "E2 2", "E", album: "E2"),
+        ])
+        let now = ISO8601DateFormatter().string(from: Date())
+        try logAlbumListens("Loved", "A", times: 6, at: "2000-01-01T00:00:00Z")   // dormant, deep
+        try logAlbumListens("Recent", "B", times: 8, at: now)                      // played recently → excluded
+        try logAlbumListens("E1", "E", times: 5, at: "2001-01-01T00:00:00Z")       // dormant
+        try logAlbumListens("E2", "E", times: 4, at: "2001-01-01T00:00:00Z")       // dormant, same artist → capped out
+        // "Never" has tracks but zero listens → excluded.
+
+        let dormant = try await db.dormantAlbums(days: 30, limit: 16)
+        let albums = dormant.map { $0.album }
+        XCTAssertTrue(albums.contains("Loved"), "long-neglected owned album resurfaces")
+        XCTAssertFalse(albums.contains("Recent"), "recently played is not dormant")
+        XCTAssertFalse(albums.contains("Never"), "never-played is not rediscovery")
+        // Only one album per artist: E1 (deeper) wins over E2.
+        XCTAssertEqual(albums.filter { $0 == "E1" || $0 == "E2" }, ["E1"], "one album per artist, deepest play wins")
+    }
 }
 
 extension DatabaseManagerTests {

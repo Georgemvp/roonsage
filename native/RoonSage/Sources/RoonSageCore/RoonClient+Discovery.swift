@@ -253,8 +253,15 @@ extension RoonClient {
             if let tv = tasteVector, !lib.isEmpty {
                 let playByArtist = Dictionary(playCounts.map { ($0.artist.lowercased(), $0.count) },
                                               uniquingKeysWith: { a, _ in a })
-                let ranked = TasteSeeds.rankArtists(
-                    library: lib, tasteVector: tv, playCountByArtist: playByArtist, limit: 60)
+                // Diversify the seed set: ~20% comes from the taste PERIPHERY (rotating
+                // per day) rather than the core, so the outward producers don't all
+                // expand from the same central neighbourhood — the root cause of every
+                // Ontdek surface showing near-identical picks. A mood-seeded run keeps
+                // the full core (the mood is already the diversifier there).
+                let rotationSalt = mood == nil ? String(ISO8601DateFormatter().string(from: Date()).prefix(10)) : ""
+                let ranked = TasteSeeds.diversifiedSeeds(
+                    library: lib, tasteVector: tv, playCountByArtist: playByArtist,
+                    limit: 60, exploreCount: mood == nil ? 12 : 0, salt: rotationSalt)
                 if !ranked.isEmpty {
                     var merged = ranked
                     let seen = Set(ranked.map { $0.lowercased() })

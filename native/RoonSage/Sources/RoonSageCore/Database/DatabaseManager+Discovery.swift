@@ -101,6 +101,52 @@ extension DatabaseManager {
         }
     }
 
+    /// Owned albums you *used to* play but haven't in the last `days` days — the
+    /// "rediscover old music" signal. Ranked by how much you played them (depth),
+    /// **not** by taste-vector similarity, so this shelf doesn't converge on the
+    /// same sonic centroid as the other Ontdek surfaces (that convergence is what
+    /// made every discovery feature feel like the same list). Distinct from
+    /// `undiscoveredAlbums` (never played at all): these are albums you loved and
+    /// then forgot. Max 1 per artist so the shelf spans your history, not one artist.
+    public func dormantAlbums(days: Int = 120, minPlays: Int = 3, limit: Int = 16) async throws -> [AlbumResult] {
+        try await pool.read { db in
+            let cutoff = Self.isoFormatter.string(from: Date().addingTimeInterval(-Double(days) * 86_400))
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT t.album_key, t.album, t.artist, t.year,
+                       COUNT(DISTINCT t.id) AS track_count, MAX(t.image_key) AS image_key, h.plays AS plays
+                FROM tracks t
+                JOIN (
+                    SELECT LOWER(album) AS alb, COUNT(*) AS plays, MAX(played_at) AS last_play
+                    FROM listening_history
+                    WHERE album IS NOT NULL AND album <> ''
+                    GROUP BY LOWER(album)
+                    HAVING last_play < ? AND plays >= ?
+                ) h ON LOWER(t.album) = h.alb
+                WHERE t.album IS NOT NULL AND t.album <> ''
+                GROUP BY t.album_key
+                HAVING track_count >= 3
+                ORDER BY h.plays DESC
+                LIMIT ?
+            """, arguments: [cutoff, minPlays, limit * 4])
+            var perArtist: [String: Int] = [:]
+            var result: [AlbumResult] = []
+            for row in rows {
+                let aKey = ((row["artist"] as String?) ?? "").lowercased()
+                if perArtist[aKey, default: 0] >= 1 { continue }
+                perArtist[aKey, default: 0] += 1
+                result.append(AlbumResult(
+                    albumKey:   row["album_key"]  as String? ?? "",
+                    album:      row["album"]      as String? ?? "",
+                    artist:     row["artist"],
+                    year:       row["year"],
+                    trackCount: row["track_count"] as Int? ?? 0,
+                    imageKey:   row["image_key"]))
+                if result.count >= limit { break }
+            }
+            return result
+        }
+    }
+
     /// Your most-played tracks (from listening history), resolved to current
     /// library item_keys.
     public func topTracks(limit: Int = 25) async throws ->[TrackRecord] {

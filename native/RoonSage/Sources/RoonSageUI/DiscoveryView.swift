@@ -17,8 +17,13 @@ public struct DiscoveryView: View {
     @Environment(RoonClient.self) private var client
     @State private var stats: DatabaseManager.LibraryStats?
     @State private var undiscovered: [DatabaseManager.AlbumResult] = []
+    @State private var dormant: [DatabaseManager.AlbumResult] = []
     @State private var forgotten: [TrackRecord] = []
     @State private var topTracks: [TrackRecord] = []
+    // Cross-feature de-dup: what the weekly already surfaces, so these owned-music
+    // shelves don't echo it (the "every Ontdek feature shows the same list" problem).
+    @State private var weeklyAlbums: Set<String> = []
+    @State private var weeklyTracks: Set<String> = []
     @State private var isLoaded = false
 
     public var body: some View {
@@ -32,11 +37,29 @@ public struct DiscoveryView: View {
                     shelf("Onontdekte albums", "sparkles",
                           covers: undiscovered.map(albumCover),
                           zoneAvailable: client.selectedZone != nil) {
-                        Button { Task { undiscovered = await client.undiscoveredAlbums() } } label: {
+                        Button { Task {
+                            undiscovered = await client.undiscoveredAlbums()
+                                .filter { !weeklyAlbums.contains($0.album.lowercased()) }
+                        } } label: {
                             Image(systemName: "shuffle")
                         }
                         .buttonStyle(.borderless)
                         .accessibilityLabel("Toon een andere selectie")
+                    }
+                    .plainCardRow()
+                }
+                if !dormant.isEmpty {
+                    shelf("Weer opzetten", "clock.arrow.circlepath",
+                          covers: dormant.map(albumCover),
+                          zoneAvailable: client.selectedZone != nil) {
+                        Button { Task {
+                            dormant = await client.dormantAlbums()
+                                .filter { !weeklyAlbums.contains($0.album.lowercased()) }
+                        } } label: {
+                            Image(systemName: "shuffle")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Toon andere vergeten albums")
                     }
                     .plainCardRow()
                 }
@@ -121,7 +144,7 @@ public struct DiscoveryView: View {
                 Haptics.tap(); Task { await client.playLocally([t]) }
             }
         }
-        if let a = undiscovered.first {
+        if let a = dormant.first ?? undiscovered.first {
             return HeroItem(title: a.album, subtitle: a.artist, imageKey: a.imageKey) {
                 play { await client.playAlbum(albumKey: a.albumKey, zoneID: $0) }
             } playLocal: {
@@ -323,11 +346,26 @@ public struct DiscoveryView: View {
 
     private func load() async {
         stats = await client.libraryStats()
+        async let weekly = client.discoverWeekly()
         async let u = client.undiscoveredAlbums()
+        async let d = client.dormantAlbums()
         async let f = client.forgottenFavorites()
         async let t = client.topTracks()
-        (undiscovered, forgotten, topTracks) = await (u, f, t)
+        let (uv, dv, fv, tv) = await (u, d, f, t)
+        if let w = await weekly {
+            weeklyAlbums = w.albumKeysSurfaced
+            weeklyTracks = w.trackKeysSurfaced
+        }
+        undiscovered = uv.filter { !weeklyAlbums.contains($0.album.lowercased()) }
+        dormant = dv.filter { !weeklyAlbums.contains($0.album.lowercased()) }
+        forgotten = fv.filter { !weeklyTracks.contains(Self.trackKey($0)) }
+        topTracks = tv
         isLoaded = true
+    }
+
+    /// Match `DiscoverWeeklyPlaylist.trackKeysSurfaced`'s "title|artist" identity.
+    private static func trackKey(_ t: TrackRecord) -> String {
+        "\(t.title.lowercased())|\((t.artist ?? "").lowercased())"
     }
 }
 

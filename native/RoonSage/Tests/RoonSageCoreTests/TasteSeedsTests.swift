@@ -53,4 +53,46 @@ final class TasteSeedsTests: XCTestCase {
         let lib = [track("a1", artist: "A", [1, 0, 0])]
         XCTAssertTrue(TasteSeeds.rankArtists(library: lib, tasteVector: [], playCountByArtist: [:], limit: 5).isEmpty)
     }
+
+    // MARK: diversifiedSeeds — mixing taste core with a rotating periphery
+
+    /// The core (most-central artists) is kept, in order, first; the explore slice
+    /// comes strictly from beyond the core and is deterministic per salt.
+    func testDiversifiedSeedsKeepsCoreAndAddsPeriphery() {
+        let lib = (0..<20).map { track("t\($0)", artist: String(format: "A%02d", $0), [Float(20 - $0), 1, 0]) }
+        let taste: [Float] = [1, 0, 0]
+        let core = TasteSeeds.rankArtists(library: lib, tasteVector: taste, playCountByArtist: [:], limit: 4)
+        let seeds = TasteSeeds.diversifiedSeeds(
+            library: lib, tasteVector: taste, playCountByArtist: [:],
+            limit: 6, exploreCount: 2, salt: "2026-W27")
+        XCTAssertEqual(seeds.count, 6)
+        XCTAssertEqual(Array(seeds.prefix(4)), core, "the taste core is kept, in order, first")
+        XCTAssertTrue(Set(seeds.suffix(2)).isDisjoint(with: Set(core)), "explore slice comes from beyond the core")
+        let again = TasteSeeds.diversifiedSeeds(
+            library: lib, tasteVector: taste, playCountByArtist: [:],
+            limit: 6, exploreCount: 2, salt: "2026-W27")
+        XCTAssertEqual(seeds, again, "same salt → same seeds")
+    }
+
+    /// A different salt rotates a different periphery slice in, while the core stays put.
+    func testDiversifiedSeedsRotatePeripheryWithSalt() {
+        let lib = (0..<40).map { track("t\($0)", artist: String(format: "A%02d", $0), [Float(40 - $0), 1, 0]) }
+        let taste: [Float] = [1, 0, 0]
+        let w27 = TasteSeeds.diversifiedSeeds(library: lib, tasteVector: taste, playCountByArtist: [:],
+                                              limit: 10, exploreCount: 5, salt: "2026-W27")
+        let w28 = TasteSeeds.diversifiedSeeds(library: lib, tasteVector: taste, playCountByArtist: [:],
+                                              limit: 10, exploreCount: 5, salt: "2026-W28")
+        XCTAssertEqual(Array(w27.prefix(5)), Array(w28.prefix(5)), "the taste core is stable week-to-week")
+        XCTAssertNotEqual(Set(w27.suffix(5)), Set(w28.suffix(5)), "the periphery slice rotates by salt")
+    }
+
+    /// Too few artists to have a periphery → plain core ranking (no crash, no dupes).
+    func testDiversifiedSeedsFallsBackToCoreWhenPoolSmall() {
+        let lib = (0..<3).map { track("t\($0)", artist: "A\($0)", [Float(3 - $0), 1, 0]) }
+        let taste: [Float] = [1, 0, 0]
+        let seeds = TasteSeeds.diversifiedSeeds(library: lib, tasteVector: taste, playCountByArtist: [:],
+                                                limit: 6, exploreCount: 3, salt: "x")
+        let core = TasteSeeds.rankArtists(library: lib, tasteVector: taste, playCountByArtist: [:], limit: 6)
+        XCTAssertEqual(seeds, core, "too few artists to diversify → plain core ranking")
+    }
 }

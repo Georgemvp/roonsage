@@ -443,6 +443,14 @@ extension RoonClient {
         return (try? await db.forgottenFavorites(days: days, limit: limit)) ?? []
     }
 
+    /// Owned albums you once played a lot but have long neglected — ranked by past
+    /// play depth (not taste similarity), so "Herontdek" genuinely resurfaces old
+    /// music instead of echoing the taste-vector picks the other Ontdek surfaces show.
+    public func dormantAlbums(days: Int = 120, limit: Int = 16) async -> [DatabaseManager.AlbumResult] {
+        guard let db = database else { return [] }
+        return (try? await db.dormantAlbums(days: days, limit: limit)) ?? []
+    }
+
     public func topTracks(limit: Int = 25) async -> [TrackRecord] {
         guard let db = database else { return [] }
         return (try? await db.topTracks(limit: limit)) ?? []

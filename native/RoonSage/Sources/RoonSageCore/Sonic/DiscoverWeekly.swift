@@ -40,18 +40,50 @@ public enum DiscoverWeekly {
 
     // MARK: Seeds & exclusion (the testable primitives)
 
-    /// Seeds = the tracks you play most that are present (and analyzed) in the
-    /// library, ordered by play count and capped to `limit`. These anchor the CLAP
-    /// similarity search — the weekly's "sounds like what you love".
+    /// Seeds = tracks you play a lot that are present (and analyzed) in the library.
+    /// These anchor the CLAP similarity search — the weekly's "sounds like what you
+    /// love". Two things keep it from freezing on the same anchors every week:
+    ///   • plays are **log-dampened + recency-weighted** (`SonicDNA.playWeight`), so a
+    ///     handful of 1000+-play tracks no longer outweigh everything else ~20×; and
+    ///   • given a `salt` (the ISO week), the seeds are **weighted-sampled** from your
+    ///     top tracks per week, so a different loved set anchors each week's search.
+    /// With no `salt` (or too small a library to rotate) it stays deterministic:
+    /// heaviest-weighted first, capped to `limit`.
     public static func selectSeeds(
         playStats: [(matchKey: String, count: Int, lastPlayed: String)],
         byMatchKey: [String: DatabaseManager.SonicTrack],
-        limit: Int
+        limit: Int,
+        salt: String = "",
+        now: Date = Date()
     ) -> [DatabaseManager.SonicTrack] {
-        Array(playStats
-            .sorted { $0.count > $1.count }
-            .compactMap { byMatchKey[$0.matchKey] }
-            .prefix(max(1, limit)))
+        let limit = max(1, limit)
+        // Resolve to analyzed, in-library tracks, each carrying a recency-dampened
+        // play weight — log(1+count)·recency, the curve SonicDNA/TasteVector use. The
+        // log() is what stops a few 1000+-play tracks from monopolising the seeds.
+        let ranked = playStats
+            .compactMap { s -> (track: DatabaseManager.SonicTrack, weight: Double)? in
+                guard !s.matchKey.isEmpty, let t = byMatchKey[s.matchKey] else { return nil }
+                return (t, SonicDNA.playWeight(count: s.count, lastPlayed: s.lastPlayed, now: now))
+            }
+            .sorted { $0.weight == $1.weight ? $0.track.id < $1.track.id : $0.weight > $1.weight }
+
+        // No week salt (deterministic callers/tests) or too small a pool to rotate →
+        // keep the old behaviour: heaviest-first, capped.
+        guard !salt.isEmpty, ranked.count > limit else {
+            return Array(ranked.prefix(limit).map(\.track))
+        }
+
+        // Rotate WITHIN your top tracks: restrict to a widened pool (so seeds stay
+        // genuinely well-loved), then weighted-sample `limit` of them WITHOUT
+        // replacement (Efraimidis-Spirakis: key = u^(1/w), keep the largest keys),
+        // with `u` deterministic per ISO week per track.
+        let pool = ranked.prefix(min(ranked.count, max(limit * 4, 120)))
+        let keyed = pool.map { item -> (track: DatabaseManager.SonicTrack, key: Double) in
+            let u = (Double(RoonClient.seed64("\(salt)\u{1f}\(item.track.id)") % 1_000_000) + 0.5) / 1_000_000
+            let w = max(item.weight, 1e-6)
+            return (item.track, pow(u, 1.0 / w))
+        }
+        return Array(keyed.sorted { $0.key > $1.key }.prefix(limit).map(\.track))
     }
 
     /// Content keys played within `days` before `now` — excluded from the weekly so

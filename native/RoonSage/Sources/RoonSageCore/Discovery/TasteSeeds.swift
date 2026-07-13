@@ -25,6 +25,61 @@ public enum TasteSeeds {
         playCountByArtist: [String: Int],
         limit: Int
     ) -> [String] {
+        scoredArtists(library: library, tasteVector: tasteVector, playCountByArtist: playCountByArtist)
+            .prefix(max(1, limit)).map(\.display)
+    }
+
+    /// Seed selection that deliberately mixes taste-**core** artists with a rotating
+    /// sample from the taste **periphery** (artists you own and that are embedded, but
+    /// that sit further from your centroid). The outward producers all expand from the
+    /// seeds, so seeding only the core makes every discovery feature converge on the
+    /// same neighbourhood — the exact overlap this addresses. The periphery sample
+    /// steers a slice of the producers toward genuinely different regions, while the
+    /// core keeps the bulk on-taste. `salt` (e.g. the day/week) rotates *which*
+    /// periphery artists come in run-to-run; empty salt → deterministic (tests).
+    /// Falls back to the plain core ranking when there's too little to diversify.
+    public static func diversifiedSeeds(
+        library: [DatabaseManager.SonicTrack],
+        tasteVector: [Float],
+        playCountByArtist: [String: Int],
+        limit: Int,
+        exploreCount: Int,
+        salt: String
+    ) -> [String] {
+        let limit = max(1, limit)
+        let scored = scoredArtists(library: library, tasteVector: tasteVector, playCountByArtist: playCountByArtist)
+        let explore = max(0, min(exploreCount, limit - 1))
+        let coreN = limit - explore
+        // Too small a pool to have a meaningful periphery → just the core ranking.
+        guard explore > 0, scored.count > coreN else { return scored.prefix(limit).map(\.display) }
+
+        let core = Array(scored.prefix(coreN))
+        // Near-periphery window: the artists right beyond the core (still recognisably
+        // yours, not the noisy anti-taste tail), capped so the sample stays relevant.
+        let window = Array(scored.dropFirst(coreN).prefix(max(explore * 6, 40)))
+        // Weighted sampling without replacement (Efraimidis-Spirakis: key = u^(1/w)),
+        // weight = the artist's own score so the more-you end of the periphery is
+        // likelier; `u` deterministic per salt per artist so it rotates but reproduces.
+        let keyed = window.map { item -> (display: String, key: Double) in
+            let u = salt.isEmpty ? 0.5
+                : (Double(RoonClient.seed64("\(salt)\u{1f}\(item.display.lowercased())") % 1_000_000) + 0.5) / 1_000_000
+            return (item.display, pow(u, 1.0 / max(item.score, 1e-6)))
+        }
+        let sampled = keyed.sorted { $0.key > $1.key }.prefix(explore).map(\.display)
+        // Core first (stable), then the rotating periphery; de-dup defensively.
+        var seen = Set<String>()
+        return (core.map(\.display) + sampled).filter { seen.insert($0.lowercased()).inserted }
+    }
+
+    // MARK: scoring
+
+    /// Every embedded library artist scored by cosine(taste, artist-centroid) mapped
+    /// to 0…1 and gently play-boosted, best first (name-tiebroken → deterministic).
+    private static func scoredArtists(
+        library: [DatabaseManager.SonicTrack],
+        tasteVector: [Float],
+        playCountByArtist: [String: Int]
+    ) -> [(display: String, score: Double)] {
         guard !tasteVector.isEmpty else { return [] }
         let taste = normalized(tasteVector)
 
@@ -55,7 +110,7 @@ public enum TasteSeeds {
         }
         // Deterministic: sort by score desc, then by name so ties are stable.
         scored.sort { $0.score != $1.score ? $0.score > $1.score : $0.display.lowercased() < $1.display.lowercased() }
-        return scored.prefix(max(1, limit)).map(\.display)
+        return scored
     }
 
     // MARK: helpers

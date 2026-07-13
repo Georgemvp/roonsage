@@ -54,6 +54,16 @@ public struct DiscoverWeeklyPlaylist: Codable, Sendable, Identifiable {
     public var libraryCount: Int { tracks.filter { !$0.notInLibrary }.count }
     public var discoveryCount: Int { tracks.filter { $0.notInLibrary }.count }
 
+    /// Lower-cased album names this weekly already surfaces — so the "Herontdek"
+    /// shelves can avoid re-showing the same owned albums (cross-feature de-dup).
+    public var albumKeysSurfaced: Set<String> {
+        Set(tracks.compactMap { $0.album?.lowercased() }.filter { !$0.isEmpty })
+    }
+    /// Lower-cased "title|artist" identities this weekly already surfaces.
+    public var trackKeysSurfaced: Set<String> {
+        Set(tracks.map { "\($0.title.lowercased())|\(($0.artist ?? "").lowercased())" })
+    }
+
     public init(weekKey: String, generatedAt: String, title: String, description: String,
                 imageKey: String?, seedMatchKeys: [String], tracks: [DiscoverWeeklyTrack]) {
         self.weekKey = weekKey; self.generatedAt = generatedAt; self.title = title
@@ -138,6 +148,7 @@ extension RoonClient {
             }
             var req = URLRequest(url: url); req.httpMethod = "POST"
             req.timeoutInterval = 180   // building runs the LLM + Qobuz lookups
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")  // server CSRF guard rejects non-JSON POSTs
             authorizeShareRequest(&req)
             let data: Data, resp: URLResponse
             do { (data, resp) = try await URLSession.shared.data(for: req) }
@@ -244,8 +255,12 @@ extension RoonClient {
             exclusionDays: discoverWeeklyExclusionDays,
             maxPerArtist: 2)
 
+        // The ISO week both salts the seed rotation (so a different loved set anchors
+        // each week) and salts the ranking jitter below.
+        let weekKey = DigestSelection.weekKey(for: Date())
         let seeds = DiscoverWeekly.selectSeeds(
-            playStats: playStats, byMatchKey: byMatchKey, limit: Self.discoverWeeklySeedLimit)
+            playStats: playStats, byMatchKey: byMatchKey,
+            limit: Self.discoverWeeklySeedLimit, salt: weekKey)
         guard !seeds.isEmpty else {
             Log.warning("Ontdek Wekelijks: geen seeds gevonden onder de geanalyseerde tracks.", category: .roon)
             return nil
@@ -257,7 +272,6 @@ extension RoonClient {
         let liked = likedMatchKeys
         let known = await knownArtistKeys(lib: lib)
         let taste = await personalTasteVector(lib: lib, index: index)
-        let weekKey = DigestSelection.weekKey(for: Date())
 
         // The heavy ranking runs off the main actor.
         let ordered = await Task.detached {
@@ -278,8 +292,16 @@ extension RoonClient {
         // ListenBrainz enrichment (library/Qobuz-existing only, labelled).
         if discoverWeeklyListenBrainzEnrich {
             let existing = Set(tracks.map { Self.dwDedupKey($0.title, $0.artist) })
+            // Cross-feature de-dup: the "Nieuw voor jou" pipeline already surfaces new
+            // artists from the *same* ListenBrainz account. Exclude its latest picks so
+            // the weekly's new tail doesn't echo the feed (the overlap the whole audit
+            // was about). Owned rediscovery is unaffected — this only gates new tracks.
+            let feedArtists = Set(
+                ((try? await db.latestRecommendationItems(limit: 200)) ?? [])
+                    .map { $0.artist.lowercased() }
+                    .filter { !$0.isEmpty })
             let enrich = await listenBrainzEnrichment(
-                excludeDedup: existing, recentKeys: recentKeys,
+                excludeDedup: existing, excludeNewArtists: feedArtists, recentKeys: recentKeys,
                 limit: max(1, discoverWeeklyTrackCount / 5))
             if !enrich.isEmpty {
                 tracks.append(contentsOf: enrich)
@@ -309,7 +331,8 @@ extension RoonClient {
     /// or resolve on Qobuz — anything else is skipped (library-first). Owned tracks
     /// recently played are dropped too (still discovery). Returns at most `limit`.
     private func listenBrainzEnrichment(
-        excludeDedup: Set<String>, recentKeys: Set<String>, limit: Int
+        excludeDedup: Set<String>, excludeNewArtists: Set<String> = [],
+        recentKeys: Set<String>, limit: Int
     ) async -> [DiscoverWeeklyTrack] {
         guard let token = KeychainStore.load(key: "listenbrainz_token"), !token.isEmpty else { return [] }
         guard let user = await ListenBrainzClient.shared.resolveUsername(token: token), !user.isEmpty else { return [] }
@@ -356,6 +379,9 @@ extension RoonClient {
             //    Library-first: accept only a hit whose normalised identity matches
             //    the candidate. Taking `.first` blindly could attach an UNRELATED
             //    song's id to the candidate's title/artist → the wrong track plays.
+            //    Cross-feature de-dup: skip new tracks whose artist the "Nieuw voor
+            //    jou" feed already surfaces, so the two features don't overlap.
+            if let a = cand.artist, excludeNewArtists.contains(a.lowercased()) { continue }
             guard qobuzAttempts < maxQobuzAttempts else { continue }
             qobuzAttempts += 1
             let query = [cand.artist, cand.title].compactMap { $0 }.joined(separator: " ")
@@ -431,6 +457,7 @@ extension RoonClient {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.timeoutInterval = 180   // building runs the LLM + Qobuz lookups
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")  // server CSRF guard rejects non-JSON POSTs
         authorizeShareRequest(&req)
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
