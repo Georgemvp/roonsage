@@ -30,6 +30,10 @@ extension RoonClient {
     /// How many top items of a batch get the CLAP sonic-fit re-rank (fase 1) — each
     /// costs a Deezer preview fetch + a CLAP embed, so bounded to the batch head.
     nonisolated static let sonicFitTopK = 15
+    /// Stronger nudge weight for a text-vibe run (fase 2): the query IS the intent,
+    /// so let sonic fit swing the ranking harder (and over the whole batch) than the
+    /// gentle ±`sonicFitWeight` used to break ties on a normal run.
+    nonisolated static let sonicFitTextWeight = 0.30
 
     /// The producers that run each pipeline pass. Ships every Last.fm/MusicBrainz/
     /// ListenBrainz/AI producer; the gated Deezer/Spotify/Discogs producers (each
@@ -146,12 +150,14 @@ extension RoonClient {
         }
     }
 
-    /// POST body for `/discovery/run` (F12a: optional mood seed).
+    /// POST body for `/discovery/run` (F12a: optional mood seed; fase 2: optional
+    /// free-text vibe query).
     public struct DiscoveryRunRequest: Codable, Sendable {
         public var trigger: String
         public var mood: String?
-        public init(trigger: String = "manual", mood: String? = nil) {
-            self.trigger = trigger; self.mood = mood
+        public var textQuery: String?
+        public init(trigger: String = "manual", mood: String? = nil, textQuery: String? = nil) {
+            self.trigger = trigger; self.mood = mood; self.textQuery = textQuery
         }
     }
 
@@ -227,9 +233,9 @@ extension RoonClient {
     // MARK: - Server: pipeline run
 
     /// Fire-and-forget manual run (server build). Guarded against overlap.
-    public func runDiscoveryNow(mood: String? = nil) {
+    public func runDiscoveryNow(mood: String? = nil, textQuery: String? = nil) {
         guard controlMode == .direct else { return }
-        Task { [weak self] in _ = await self?.runDiscoveryPipeline(trigger: "manual", mood: mood) }
+        Task { [weak self] in _ = await self?.runDiscoveryPipeline(trigger: "manual", mood: mood, textQuery: textQuery) }
     }
 
     /// Assemble the pipeline inputs from the DB + Keychain + feedback, run it, and
@@ -237,7 +243,7 @@ extension RoonClient {
     /// (F12a) biases the seed toward artists whose owned tracks best fit that vibe;
     /// nil runs exactly as before F12a.
     @discardableResult
-    func runDiscoveryPipeline(trigger: String, mood: String? = nil) async -> Int64? {
+    func runDiscoveryPipeline(trigger: String, mood: String? = nil, textQuery: String? = nil) async -> Int64? {
         guard controlMode == .direct, !discoveryRunning, let db = database else { return nil }
         discoveryRunning = true
         defer { discoveryRunning = false }
@@ -260,7 +266,8 @@ extension RoonClient {
         // carries the taste vector into `DiscoverySeeds` for producers that can use it.
         // Requires embeddings; falls back to the play-count order when absent.
         var tasteVector: [Float]?
-        if let index = await activeIndex(db) {
+        let index = await activeIndex(db)
+        if let index {
             let lib = await radioLibrary()
             tasteVector = await personalTasteVector(lib: lib, index: index)
             if let tv = tasteVector, !lib.isEmpty {
@@ -296,6 +303,24 @@ extension RoonClient {
             if !moodArtists.isEmpty { topArtists = moodArtists }
         }
 
+        // Fase 2 (CLAP long-tail): a free-text vibe seeds the run — CLAP text-embed
+        // it and kNN against the OWNED library in the shared CLAP space; the artists
+        // behind the nearest owned tracks REPLACE the top-played seed, so every
+        // producer expands from vibe-matching neighbourhoods (free-text generalisation
+        // of F12a's fixed mood buckets). That same text vector also becomes the
+        // sonic-fit re-rank target below, so the batch head is ordered by how each
+        // candidate's actual preview audio matches the vibe. Best-effort: no CLAP
+        // text tokenizer, no index, or an empty match falls back to the normal seed.
+        var sonicTarget = tasteVector
+        if let textQuery, !textQuery.isEmpty, let index,
+           let clap = await SonicFitClap.shared.model(), clap.canEmbedText,
+           let textVec = try? clap.textEmbedding(textQuery) {
+            let hits = index.nearest(to: textVec, k: 400).map { (artist: $0.track.artist, score: $0.score) }
+            let vibeArtists = DiscoveryTextSeeding.topArtists(hits, limit: 25)
+            if !vibeArtists.isEmpty { topArtists = vibeArtists }
+            sonicTarget = textVec   // re-rank the head toward the requested vibe
+        }
+
         let seeds = DiscoverySeeds(
             topArtists: topArtists, likedArtists: hints.liked, dislikedArtists: hints.disliked,
             libraryArtists: libraryArtists, libraryGenres: libraryGenres, libraryAlbumKeys: libraryAlbumKeys,
@@ -317,7 +342,7 @@ extension RoonClient {
         let tasteSig = DiscoveryPipeline.tasteSignature(
             topArtists: topArtists, liked: hints.liked, disliked: hints.disliked,
             watchlist: watchlist.map(\.artist))
-        if mood == nil, let last = try? await db.latestBatchInfo(),
+        if mood == nil, textQuery == nil, let last = try? await db.latestBatchInfo(),
            DiscoveryPipeline.shouldSkipRun(trigger: trigger, tasteSig: tasteSig,
                                           lastBatchSig: last.tasteSig, lastBatchCreatedAt: last.createdAt, now: Date()) {
             Log.info("Ontdekkingen (\(trigger)): smaak ongewijzigd sinds recente batch — overgeslagen", category: .roon)
@@ -389,7 +414,16 @@ extension RoonClient {
         // CLAP long-tail (fase 1): sonic-fit re-rank of the batch head — score the
         // top candidates by how their Deezer-preview CLAP embedding cosines with
         // the taste centroid, so the strongest sonic matches surface first.
-        let stored = await applySonicFitRerank(ranked, centroid: tasteVector)
+        // A text-vibe run re-ranks the WHOLE batch with a stronger weight so the
+        // requested vibe visibly drives the ordering (not just the top-15 tie-break
+        // of a normal run); a normal run keeps the gentle bounded head re-rank.
+        let stored: [DatabaseManager.StoredRecommendation]
+        if textQuery != nil {
+            stored = await applySonicFitRerank(ranked, centroid: sonicTarget,
+                                               topK: ranked.count, weight: Self.sonicFitTextWeight)
+        } else {
+            stored = await applySonicFitRerank(ranked, centroid: sonicTarget)
+        }
 
         // Advance each watchlist artist's "newest release seen" watermark, so
         // Release-Radar doesn't keep re-surfacing the same release attempt forever
@@ -401,7 +435,7 @@ extension RoonClient {
 
         // Encode the mood into the stored trigger (existing TEXT column, no schema
         // change) so a mood batch is identifiable in the DB/logs — "mood:sad" etc.
-        let effectiveTrigger = mood.map { "mood:\($0)" } ?? trigger
+        let effectiveTrigger = mood.map { "mood:\($0)" } ?? textQuery.map { "text:\($0.prefix(40))" } ?? trigger
 
         guard !stored.isEmpty else {
             Log.info("Ontdekkingen (\(effectiveTrigger)): 0 aanbevelingen na resolve/score/filter", category: .roon)
@@ -425,10 +459,12 @@ extension RoonClient {
     /// batch simply degrades to its pre-sonic ranking. Per-run memo keyed on the
     /// (lowercased) artist so a repeated artist costs one preview lookup, not many.
     private func applySonicFitRerank(_ stored: [DatabaseManager.StoredRecommendation],
-                                     centroid: [Float]?) async -> [DatabaseManager.StoredRecommendation] {
+                                     centroid: [Float]?, topK: Int = sonicFitTopK,
+                                     weight: Double = DiscoverySonicFit.sonicFitWeight)
+        async -> [DatabaseManager.StoredRecommendation] {
         guard discoverySonicFit, let centroid, !centroid.isEmpty,
               let clap = await SonicFitClap.shared.model() else { return stored }
-        let k = min(Self.sonicFitTopK, stored.count)
+        let k = min(topK, stored.count)
         guard k > 0 else { return stored }
 
         var head = Array(stored.prefix(k))
@@ -449,7 +485,7 @@ extension RoonClient {
                 cosine = nil
             }
             if let cosine {
-                head[i].score = min(max(head[i].score + DiscoverySonicFit.nudge(cosine: cosine), 0), 1)
+                head[i].score = min(max(head[i].score + DiscoverySonicFit.nudge(cosine: cosine, weight: weight), 0), 1)
                 applied += 1
             }
         }
