@@ -252,4 +252,64 @@ final class SonicClustersTests: XCTestCase {
         XCTAssertLessThanOrEqual(clusters.count, 3, "clusters never exceed the distinct directions")
         XCTAssertFalse(clusters.isEmpty, "still produces neighborhoods without crashing")
     }
+
+    // MARK: Gap A (AudioMuse-audit) — k-sweep + composietscore
+
+    /// De composietscore moet een schone partitie (geometrie + moods coherent)
+    /// verkiezen boven een gemengde partitie van dezelfde punten.
+    func testScorePrefersCleanPartition() {
+        let dim = 8
+        var vecs: [[Float]] = []
+        for g in 0..<2 {
+            for i in 0..<6 {
+                var v = [Float](repeating: 0, count: dim)
+                v[g] = 1
+                v[2 + ((g * 6 + i) % (dim - 2))] = 0.1   // deterministische jitter
+                vecs.append(VectorIndex.normalized(v))
+            }
+        }
+        let moods: [String?] = (0..<12).map { $0 < 6 ? "happy" : "sad" }
+        let correct = (0..<12).map { $0 < 6 ? 0 : 1 }
+        let mixed = (0..<12).map { $0 % 2 }
+
+        func centroid(_ rows: [Int]) -> [Float] {
+            var s = [Float](repeating: 0, count: dim)
+            for r in rows { for d in 0..<dim { s[d] += vecs[r][d] } }
+            return VectorIndex.normalized(s)
+        }
+        let cCorrect = [centroid(Array(0..<6)), centroid(Array(6..<12))]
+        let cMixed = [centroid((0..<12).filter { $0 % 2 == 0 }),
+                      centroid((0..<12).filter { $0 % 2 == 1 })]
+
+        let sCorrect = SonicClusters.clusteringScore(
+            vecs: vecs, dominantMoods: moods, assign: correct, centroids: cCorrect)
+        let sMixed = SonicClusters.clusteringScore(
+            vecs: vecs, dominantMoods: moods, assign: mixed, centroids: cMixed)
+        XCTAssertGreaterThan(sCorrect, sMixed, "schone partitie moet hoger scoren")
+    }
+
+    /// Sweep-gedrag op drie orthogonale mood-coherente groepen: over-splitsen
+    /// mag (kandidaten starten op k=6), maar een buurt mengt nooit twee
+    /// richtingen en elk punt blijft toegewezen.
+    func testSweepNeverMixesDirections() {
+        let moods = ["happy", "sad", "relaxed"]
+        var lib: [DatabaseManager.SonicTrack] = []
+        for g in 0..<3 {
+            for i in 0..<12 {
+                var v = [Float](repeating: 0, count: 16)
+                v[g] = 1
+                v[3 + ((g * 12 + i) % 13)] = 0.15   // deterministische jitter
+                var track = t("g\(g)-\(i)", v)
+                track.moods = [moods[g]: 0.8]
+                lib.append(track)
+            }
+        }
+        let clusters = SonicClusters.compute(tracks: lib, index: VectorIndex(tracks: lib)!, genresById: [:])
+        XCTAssertGreaterThanOrEqual(clusters.count, 2)
+        for c in clusters {
+            let groups = Set(c.memberIds.map { $0.prefix(2) })
+            XCTAssertEqual(groups.count, 1, "buurt mengt richtingen: \(c.memberIds)")
+        }
+        XCTAssertEqual(clusters.reduce(0) { $0 + $1.size }, lib.count, "elk punt toegewezen")
+    }
 }

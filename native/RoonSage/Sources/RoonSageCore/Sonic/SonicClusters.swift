@@ -36,41 +36,110 @@ public enum SonicClusters {
         let n = pts.count
         guard n >= 16 else { return [] }
         let dim = pts[0].vec.count
-        // ~√(n/2) neighborhoods, clamped to a UI-sensible 6…20.
-        let k = max(6, min(20, Int((Double(n) / 2).squareRoot())))
-        guard k >= 2, n > k else { return [] }
 
         // Flat point matrix (n×dim), row-major — rows are already unit vectors.
         var M = [Float](repeating: 0, count: n * dim)
         for (i, p) in pts.enumerated() { M.replaceSubrange(i * dim..<(i + 1) * dim, with: p.vec) }
 
-        // Farthest-first init: spread the initial centroids so k-means doesn't
-        // collapse. Start at point 0, then repeatedly add the point with the
-        // largest cosine distance to the nearest chosen centroid.
-        var seedRows = [0]
+        // AudioMuse-stijl kwaliteitszoektocht (gap A): probeer een k-BEREIK en
+        // houd de clustering met de beste composietscore (geometrie + moods) —
+        // i.p.v. één vaste k≈√(n/2). Deterministisch: vaste kandidaten, prefix-
+        // stabiele farthest-first seeds; bij gelijke score wint de laagste k
+        // (strikte >-vergelijking), dus de stabielste indeling.
+        // n=17 -> kandidaten [6,8,10,12,14,16]; n>=21 -> [6,8,…,20].
+        let vecs = pts.map(\.vec)
+        let seedRows = farthestFirstSeeds(vecs: vecs, maxK: min(20, n - 1))
+        var candidates = Array(stride(from: 6, through: 20, by: 2))
+            .filter { n > $0 && $0 <= seedRows.count }
+        if candidates.isEmpty, seedRows.count >= 2 {
+            // Homogene/kleine library: minder onderscheiden sonische richtingen
+            // dan de kleinste kandidaat — cluster met de seeds die er wél zijn
+            // (het pre-sweep gedrag; nooit voorbij seedRows indexeren).
+            candidates = [seedRows.count]
+        }
+        guard !candidates.isEmpty else { return [] }
+
+        // Dominante mood per punt (zelfde 0.3-drempel als de labeling) voedt de
+        // purity/diversity-termen van de score.
+        let dominantMoods: [String?] = pts.map { p in
+            guard let top = p.track.moods.max(by: { $0.value < $1.value }), top.value >= 0.3
+            else { return nil }
+            return top.key.lowercased()
+        }
+
+        var bestRun: (score: Double, assign: [Int], centroids: [[Float]])?
+        for k in candidates {
+            let run = runKMeans(M: M, vecs: vecs, seeds: Array(seedRows.prefix(k)),
+                                dim: dim, maxIters: maxIters)
+            guard run.centroids.count >= 2 else { continue }
+            let s = clusteringScore(vecs: vecs, dominantMoods: dominantMoods,
+                                    assign: run.assign, centroids: run.centroids)
+            if bestRun == nil || s > bestRun!.score { bestRun = (s, run.assign, run.centroids) }
+        }
+        guard let best = bestRun else { return [] }
+        let centroids = best.centroids
+        let kActual = centroids.count
+        let assign = best.assign
+
+        var membersByC = [[Int]](repeating: [], count: kActual)
+        for i in 0..<n where assign[i] >= 0 { membersByC[assign[i]].append(i) }
+
+        var out: [Cluster] = []
+        for c in 0..<kActual where !membersByC[c].isEmpty {
+            let memberRows = membersByC[c]
+            let members = memberRows.map { pts[$0].track }
+            // Stable id from the cluster medoid (the member nearest the centroid).
+            // The raw k-means index shifts as the library grows — keying the bucket
+            // (and its persisted Qobuz selection) on that would silently break; the
+            // medoid track is a far steadier anchor for "this neighborhood".
+            let cen = centroids[c]
+            let medoidRow = memberRows.max { dot(pts[$0].vec, cen) < dot(pts[$1].vec, cen) } ?? memberRows[0]
+            let mt = pts[medoidRow].track
+            let anchor = mt.matchKey.isEmpty ? mt.id : mt.matchKey
+            out.append(Cluster(id: String(fnv1a(anchor) % 1_000_000),
+                               label: label(for: members, genresById: genresById, index: c),
+                               memberIds: members.map(\.id)))
+        }
+        return out.sorted { $0.size > $1.size }
+    }
+
+    // MARK: - k-means-kern + kwaliteitsscore (gap A)
+
+    /// Farthest-first seeding — deterministisch én prefix-stabiel: de reeks
+    /// voor k=20 begint met die voor k=6, dus één berekening volstaat voor de
+    /// hele k-sweep. Kan minder dan `maxK` seeds teruggeven wanneer de library
+    /// minder onderscheiden sonische richtingen heeft (homogeen, of exacte
+    /// duplicaat-embeddings van remasters die de dedup overleven).
+    private static func farthestFirstSeeds(vecs: [[Float]], maxK: Int) -> [Int] {
+        let n = vecs.count
+        var seeds = [0]
         var minDistToChosen = [Float](repeating: Float.greatestFiniteMagnitude, count: n)
-        while seedRows.count < k {
-            let last = pts[seedRows.last!].vec
+        while seeds.count < maxK {
+            let last = vecs[seeds.last!]
             for i in 0..<n {
-                let d = 1 - dot(pts[i].vec, last)
+                let d = 1 - dot(vecs[i], last)
                 if d < minDistToChosen[i] { minDistToChosen[i] = d }
             }
             // Pick the farthest (max min-distance); lowest index breaks ties.
             var best = 0; var bestD: Float = -1
             for i in 0..<n where minDistToChosen[i] > bestD { bestD = minDistToChosen[i]; best = i }
-            if seedRows.contains(best) { break }
-            seedRows.append(best)
+            if seeds.contains(best) { break }
+            seeds.append(best)
         }
-        var centroids: [[Float]] = seedRows.map { pts[$0].vec }
-        // Farthest-first can return FEWER than k seeds when the library has fewer
-        // distinct sonic directions than k (a small/homogeneous library, or exact-
-        // duplicate embeddings from remasters/reissues that survive the title+artist
-        // dedup). Cluster into the seeds we actually found — never index past
-        // centroids.count, which previously trapped on these libraries.
-        let kActual = centroids.count
-        guard kActual >= 2 else { return [] }
+        return seeds
+    }
 
+    /// Eén deterministische k-means-run: argmax-assignment via één `vDSP_mmul`
+    /// per iteratie, L2-genormaliseerde centroid-updates, lege clusters houden
+    /// hun oude centroid. (De kern die vóór gap A inline in `compute` stond.)
+    private static func runKMeans(M: [Float], vecs: [[Float]], seeds: [Int],
+                                  dim: Int, maxIters: Int)
+        -> (assign: [Int], centroids: [[Float]]) {
+        let n = vecs.count
+        var centroids: [[Float]] = seeds.map { vecs[$0] }
+        let kActual = centroids.count
         var assign = [Int](repeating: -1, count: n)
+        guard kActual >= 1 else { return (assign, centroids) }
         for _ in 0..<maxIters {
             // B (dim×kActual): B[d*kActual + c] = centroids[c][d]; scores = M·B (n×kActual).
             var B = [Float](repeating: 0, count: dim * kActual)
@@ -101,34 +170,70 @@ public enum SonicClusters {
             for i in 0..<n {
                 let c = assign[i]; counts[c] += 1
                 sums[c].withUnsafeMutableBufferPointer { sp in
-                    pts[i].vec.withUnsafeBufferPointer { vp in
+                    vecs[i].withUnsafeBufferPointer { vp in
                         vDSP_vadd(sp.baseAddress!, 1, vp.baseAddress!, 1, sp.baseAddress!, 1, vDSP_Length(dim))
                     }
                 }
             }
             for c in 0..<kActual where counts[c] > 0 { centroids[c] = VectorIndex.normalized(sums[c]) }
         }
+        return (assign, centroids)
+    }
 
-        var membersByC = [[Int]](repeating: [], count: kActual)
-        for i in 0..<n where assign[i] >= 0 { membersByC[assign[i]].append(i) }
-
-        var out: [Cluster] = []
-        for c in 0..<kActual where !membersByC[c].isEmpty {
-            let memberRows = membersByC[c]
-            let members = memberRows.map { pts[$0].track }
-            // Stable id from the cluster medoid (the member nearest the centroid).
-            // The raw k-means index shifts as the library grows — keying the bucket
-            // (and its persisted Qobuz selection) on that would silently break; the
-            // medoid track is a far steadier anchor for "this neighborhood".
-            let cen = centroids[c]
-            let medoidRow = memberRows.max { dot(pts[$0].vec, cen) < dot(pts[$1].vec, cen) } ?? memberRows[0]
-            let mt = pts[medoidRow].track
-            let anchor = mt.matchKey.isEmpty ? mt.id : mt.matchKey
-            out.append(Cluster(id: String(fnv1a(anchor) % 1_000_000),
-                               label: label(for: members, genresById: genresById, index: c),
-                               memberIds: members.map(\.id)))
+    /// Composietscore ≈ AudioMuse's clustering-fitness, deterministisch, O(n·k):
+    /// - centroid-silhouette: cosinus met de eigen centroid minus de beste
+    ///   andere (schaalbare benadering van de klassieke silhouette);
+    /// - mood-purity: aandeel ge-mood-e leden dat de cluster-dominante mood
+    ///   deelt (AudioMuse's purity);
+    /// - mood-diversiteit: unieke cluster-dominante moods (AudioMuse's
+    ///   diversity), genormaliseerd op het 6-mood-vocabulaire;
+    /// - kleine-cluster-penalty: fractie clusters onder max(4, n/1000) leden.
+    /// Gewichten heuristisch (0.5/0.3/0.2/−0.1): geometrie leidt, moods sturen
+    /// bij. Zonder moods (geen CLAP) beslist de silhouette alleen.
+    static func clusteringScore(vecs: [[Float]], dominantMoods: [String?],
+                                assign: [Int], centroids: [[Float]]) -> Double {
+        let n = vecs.count
+        let k = centroids.count
+        guard n > 0, k >= 2, assign.count == n, dominantMoods.count == n else {
+            return -Double.infinity
         }
-        return out.sorted { $0.size > $1.size }
+
+        var sil = 0.0
+        for i in 0..<n {
+            let own = dot(vecs[i], centroids[assign[i]])
+            var other = -Float.greatestFiniteMagnitude
+            for c in 0..<k where c != assign[i] {
+                let s = dot(vecs[i], centroids[c])
+                if s > other { other = s }
+            }
+            sil += Double(own - other)
+        }
+        sil /= Double(n)
+
+        var moodCounts = [[String: Int]](repeating: [:], count: k)
+        var sizes = [Int](repeating: 0, count: k)
+        for i in 0..<n {
+            sizes[assign[i]] += 1
+            if let m = dominantMoods[i] { moodCounts[assign[i]][m, default: 0] += 1 }
+        }
+        var pureHits = 0, mooded = 0
+        var clusterMoods = Set<String>()
+        for c in 0..<k {
+            let total = moodCounts[c].values.reduce(0, +)
+            mooded += total
+            if let top = moodCounts[c].max(by: { $0.value < $1.value }) {
+                pureHits += top.value
+                clusterMoods.insert(top.key)
+            }
+        }
+        let purity = mooded > 0 ? Double(pureHits) / Double(mooded) : 0
+        let diversity = Double(clusterMoods.count) / Double(min(k, 6))
+
+        let minSize = max(4, n / 1000)
+        let small = sizes.filter { $0 > 0 && $0 < minSize }.count
+        let smallFrac = Double(small) / Double(k)
+
+        return 0.5 * sil + 0.3 * purity + 0.2 * diversity - 0.1 * smallFrac
     }
 
     // MARK: - Labeling
