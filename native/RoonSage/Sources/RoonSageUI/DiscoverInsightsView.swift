@@ -195,6 +195,7 @@ public enum DiscoveryProducerLabel {
         case "listenbrainz-exploration": "LB Ontdekking"
         case "ai-picks":             "AI"
         case "discogs-labels":       "Discogs"
+        case "deezer-related":       "Deezer"
         case "qobuz-catalog":        "Qobuz"
         default:                     id
         }

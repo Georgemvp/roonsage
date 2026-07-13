@@ -37,7 +37,7 @@ extension RoonClient {
         [SimilarArtistWebProducer(), ChartsProducer(), ReleaseRadarProducer(),
          GapFillProducer(), ArtistRelationshipsProducer(), ListenBrainzRadioProducer(),
          ListenBrainzExplorationProducer(), AIPicksProducer(),
-         DiscogsLabelsProducer(), QobuzCatalogProducer(), DatasetProducer()]
+         DiscogsLabelsProducer(), DeezerRelatedProducer(), QobuzCatalogProducer(), DatasetProducer()]
     }
 
     /// Whether a Discogs personal access token is configured (Settings → Externe
