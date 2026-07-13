@@ -40,17 +40,19 @@ final class RadioCategoryTests: XCTestCase {
 
     func testMoodBucketsByDominantMood() {
         var lib: [DatabaseManager.SonicTrack] = []
-        // Each track lands in its strongest mood (argmax), even though scores stay
-        // well under an absolute 0.5 — mirroring the analyzer's real distribution.
+        // Gekalibreerde toewijzing (gap G): elk cluster landt op het label waar
+        // het — t.o.v. de bibliotheekverdeling — bovengemiddeld op scoort, ook
+        // onder een absolute 0.5. De derde groep (sad 0.2 op een sad-basislijn
+        // van ~0.14) is de relatief sadste muziek van deze bibliotheek en
+        // krijgt dus een station; de oude absolute 0.3-floor sloot hem uit.
         lib += (0..<10).map { st($0, moods: ["happy": 0.42, "sad": 0.1]) }
         lib += (100..<109).map { st($0, moods: ["party": 0.38, "relaxed": 0.2]) }
-        // No mood clears the 0.3 floor → excluded entirely.
         lib += (200..<208).map { st($0, moods: ["sad": 0.2, "happy": 0.15]) }
 
         let buckets = RoonClient.buildBuckets(
             category: .mood, lib: lib, genres: [:], years: [:], disliked: [], daySeed: "test")
 
-        XCTAssertEqual(Set(buckets.map(\.label)), ["Vrolijk", "Feestelijk"])
+        XCTAssertEqual(Set(buckets.map(\.label)), ["Melancholisch", "Vrolijk", "Feestelijk"])
     }
 
     // MARK: Activity

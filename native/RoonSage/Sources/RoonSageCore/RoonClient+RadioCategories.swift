@@ -204,15 +204,17 @@ extension RoonClient {
     private nonisolated static func moodBuckets(
         lib: [DatabaseManager.SonicTrack], disliked: Set<String>, daySeed: String
     ) -> [RadioBucket] {
-        // Assign each track to its DOMINANT mood (argmax). The analyzer's mood
-        // scores rarely cross an absolute 0.5, so a fixed threshold left the buckets
-        // nearly empty; argmax gives clean, non-overlapping stations. A small floor
-        // skips tracks with no mood that stands out.
-        let floor: Float = 0.3
+        // Assign each track to its DOMINANT mood — gekalibreerd (gap G):
+        // z-score per label t.o.v. de bibliotheekverdeling i.p.v. rauwe argmax,
+        // zodat CLAP's tekst-prior ("danceable" scoort overal hoger) de
+        // stations niet scheeftrekt. Vlakke profielen (nergens bovengemiddeld)
+        // krijgen geen station; kleine bibliotheken vallen terug op rauwe
+        // argmax + 0.3-floor binnen MoodCalibration zelf.
+        let calibration = MoodCalibration(tracks: lib)
         var byMood: [String: [DatabaseManager.SonicTrack]] = [:]
         for t in lib {
-            guard let top = t.moods.max(by: { $0.value < $1.value }), top.value >= floor else { continue }
-            byMood[top.key.lowercased(), default: []].append(t)
+            guard let key = calibration.dominantMood(t.moods) else { continue }
+            byMood[key, default: []].append(t)
         }
         let buckets = byMood.compactMap { (key, tracks) -> RadioBucket? in
             makeBucket(id: "mood:\(key)", label: moodLabel(key),
