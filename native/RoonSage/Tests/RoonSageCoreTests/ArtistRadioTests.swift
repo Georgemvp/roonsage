@@ -182,6 +182,39 @@ final class ArtistRadioTests: XCTestCase {
                        "Zomerse hits")
     }
 
+    // MARK: trimDangling — repairs titles the length cap can't reach
+
+    /// The four names that actually shipped to Qobuz. All are UNDER the 45-char
+    /// cap, so clampTitle is a no-op on them — trimDangling has to stand alone.
+    func testTrimDanglingRepairsAlreadyShortCachedTitles() {
+        let cases = [
+            ("Klassiek Instrumentaal: Melancholisch en", "Klassiek Instrumentaal: Melancholisch"),
+            ("Elektronische Party: Dansbare beats en", "Elektronische Party: Dansbare beats"),
+            ("Film & Theater: Akoestisch en", "Film & Theater: Akoestisch"),
+            ("R&B Sfeer: Vrolijke zangnummers met", "R&B Sfeer: Vrolijke zangnummers")
+        ]
+        for (broken, want) in cases {
+            XCTAssertLessThan(broken.count, 45, "precondition: clampTitle would not touch this")
+            XCTAssertEqual(RoonClient.clampTitle(broken, max: 45), broken,
+                           "clampTitle alone leaves it broken — that's why trimDangling exists")
+            XCTAssertEqual(RoonClient.trimDangling(broken), want)
+        }
+    }
+
+    func testTrimDanglingLeavesGoodTitleUntouched() {
+        XCTAssertEqual(RoonClient.trimDangling("Elektrische Hartslag"), "Elektrische Hartslag")
+        XCTAssertEqual(RoonClient.trimDangling("De Stilte tussen Akkoorden"), "De Stilte tussen Akkoorden")
+    }
+
+    /// The peel needs a preceding space, so it never eats the last word — a title
+    /// is never reduced to nothing by peeling alone. Only pure punctuation can
+    /// trim away entirely, which is the case resolveTitle guards against.
+    func testTrimDanglingNeverEatsTheLastWord() {
+        XCTAssertEqual(RoonClient.trimDangling("en"), "en", "single word has no preceding space")
+        XCTAssertEqual(RoonClient.trimDangling("van en"), "van", "peels one, keeps the last")
+        XCTAssertEqual(RoonClient.trimDangling("&"), "", "pure punctuation does trim to empty")
+    }
+
     func testClampTitleLeavesShortTitleUntouched() {
         XCTAssertEqual(RoonClient.clampTitle("Epische Arena-Rock", max: 45), "Epische Arena-Rock")
     }

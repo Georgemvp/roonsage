@@ -682,8 +682,17 @@ extension RoonClient {
         }
         // Generation failed/omitted — reuse whatever we have, else the fallback.
         // Don't cache the fallback; leave signatures so the next build retries.
-        let hasReal = (plan.cachedTitle?.isEmpty == false) && plan.cachedTitle != plan.fallback.title
-        return (hasReal ? (plan.cachedTitle ?? plan.fallback.title) : plan.fallback.title,
+        //
+        // The cached title is repaired on the way out: it may predate the connector
+        // peel and read "Film & Theater: Akoestisch en". Without this, a station
+        // whose generation keeps failing would serve that broken name to Qobuz
+        // forever — the titlesig bump alone can't reach it, because this path is
+        // exactly the one taken when regeneration doesn't happen.
+        // Trim first, THEN judge usability: a cached title that peels away to
+        // nothing is not a title, and must not be served as an empty name.
+        let cached = plan.cachedTitle.map(Self.trimDangling).flatMap { $0.isEmpty ? nil : $0 }
+        let usable = cached.map { $0 != plan.fallback.title } ?? false
+        return (usable ? cached! : plan.fallback.title,
                 (plan.cachedDesc?.isEmpty == false) ? plan.cachedDesc! : plan.fallback.description)
     }
 
@@ -1067,6 +1076,25 @@ extension RoonClient {
         "tot", "als", "om", "te", "der", "den", "de", "het", "een"
     ]
 
+    /// Strip trailing punctuation and dangling Dutch connectors from a title.
+    ///
+    /// Deliberately independent of any length cap: the titles this exists for are
+    /// ALREADY short — "Film & Theater: Akoestisch en" is 29 characters — because
+    /// they were cut by an earlier `clampTitle` and cached that way. Running the
+    /// length-capping path over them is a no-op, so the peel has to stand alone to
+    /// be able to repair a cached name.
+    nonisolated static func trimDangling(_ title: String) -> String {
+        let punctuation = CharacterSet(charactersIn: " &:-–—,·")
+        var out = title.trimmingCharacters(in: punctuation)
+        // Peel trailing connectors repeatedly — "beats en of" is two of them, and
+        // each peel can expose fresh punctuation underneath ("hits, en").
+        while let space = out.lastIndex(of: " "),
+              danglingWords.contains(out[out.index(after: space)...].lowercased()) {
+            out = String(out[..<space]).trimmingCharacters(in: punctuation)
+        }
+        return out
+    }
+
     /// Hard length cap on a title, cut at a word boundary so an over-long LLM
     /// reply never dangles a half word, a trailing connector ("&", ":", "-") or
     /// a trailing conjunction ("… beats en").
@@ -1075,15 +1103,7 @@ extension RoonClient {
         let head = String(title.prefix(max))
         // Prefer the last space so we don't slice mid-word.
         let cut = head.lastIndex(of: " ").map { String(head[..<$0]) } ?? head
-        let punctuation = CharacterSet(charactersIn: " &:-–—,·")
-        var out = cut.trimmingCharacters(in: punctuation)
-        // Peel trailing connectors repeatedly — "beats en of" is two of them, and
-        // each peel can expose fresh punctuation underneath ("hits, en").
-        while let space = out.lastIndex(of: " "),
-              danglingWords.contains(out[out.index(after: space)...].lowercased()) {
-            out = String(out[..<space]).trimmingCharacters(in: punctuation)
-        }
-        return out
+        return trimDangling(cut)
     }
 
     // MARK: Qobuz sync
