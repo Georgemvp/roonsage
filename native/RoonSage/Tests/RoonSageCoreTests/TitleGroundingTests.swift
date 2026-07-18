@@ -39,6 +39,39 @@ final class TitleGroundingTests: XCTestCase {
         XCTAssertTrue(TitleGrounding.violations(title: "Rustige zondagochtend", stats: cold).isEmpty)
     }
 
+    /// The grey zone that shipped "akoestisch" playlists: 0.45–0.55 was too weak
+    /// to ASSERT the descriptor but too weak to REJECT it either, so the LLM had
+    /// free rein over the middle of the library. A claim must now clear the same
+    /// bar that would have asserted it.
+    func testAcousticClaimInGreyZoneIsViolation() {
+        for avg: Float in [0.46, 0.50, 0.54] {
+            let stats = TitleGrounding.SelectionStats(attributeAvg: ["acousticness": avg], energyAvg: nil)
+            XCTAssertFalse(TitleGrounding.violations(title: "Akoestische parels", stats: stats).isEmpty,
+                           "acousticness \(avg) is neutral — must not sustain an akoestisch claim")
+            XCTAssertNil(TitleGrounding.band(axis: "acousticness", selectionAvg: avg, calibration: nil),
+                         "band and violations must agree that \(avg) is neutral")
+        }
+    }
+
+    /// The claim the user actually hit: the bogus "akoestisch" lived in the
+    /// DESCRIPTION, which used to reach Qobuz completely unvalidated.
+    func testDescriptionClaimsAreValidatedToo() {
+        let stats = TitleGrounding.SelectionStats(attributeAvg: ["acousticness": 0.2], energyAvg: nil)
+        XCTAssertTrue(TitleGrounding.violations(title: "Warme jaren 90 party", stats: stats).isEmpty,
+                      "title alone makes no claim")
+        let both = TitleGrounding.violations(title: "Warme jaren 90 party",
+                                             description: "Dansbare, akoestische poprockklassieken.",
+                                             stats: stats)
+        XCTAssertFalse(both.isEmpty, "an ungrounded claim in the description must be caught")
+    }
+
+    func testTitleAndDescriptionClaimReportedOnce() {
+        let stats = TitleGrounding.SelectionStats(attributeAvg: ["acousticness": 0.2], energyAvg: nil)
+        let v = TitleGrounding.violations(title: "Akoestische avond",
+                                          description: "Puur akoestisch genieten.", stats: stats)
+        XCTAssertEqual(v.count, 1, "the same claim in both fields is one thing to fix")
+    }
+
     func testNeutralTitleNeverViolates() {
         let stats = TitleGrounding.SelectionStats(attributeAvg: ["acousticness": 0.1, "valence": 0.1],
                                                   energyAvg: 0.9)

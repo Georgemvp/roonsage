@@ -235,11 +235,13 @@ extension RoonClient {
 
         guard let meta = await attempt(user) else { return nil }
         guard let stats else { return meta }
-        let bad = TitleGrounding.violations(title: meta.title, stats: stats, calibration: calibration)
+        let bad = TitleGrounding.violations(title: meta.title, description: meta.description,
+                                            stats: stats, calibration: calibration)
         guard !bad.isEmpty else { return meta }
-        let corrective = user + "\n\nLET OP — je eerdere titel \"\(meta.title)\" bevatte claims die de metingen tegenspreken: \(bad.joined(separator: "; ")). Maak een nieuwe titel ZONDER deze woorden, trouw aan het gemeten profiel."
+        let corrective = user + "\n\nLET OP — je eerdere titel/beschrijving bevatte claims die de metingen tegenspreken: \(bad.joined(separator: "; ")). Maak een nieuwe titel EN beschrijving ZONDER deze woorden, trouw aan het gemeten profiel."
         guard let retry = await attempt(corrective),
-              TitleGrounding.violations(title: retry.title, stats: stats, calibration: calibration).isEmpty else {
+              TitleGrounding.violations(title: retry.title, description: retry.description,
+                                        stats: stats, calibration: calibration).isEmpty else {
             return nil
         }
         return retry

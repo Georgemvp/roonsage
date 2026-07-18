@@ -864,19 +864,22 @@ extension RoonClient {
         guard let meta = await attempt(user) else { return nil }
         guard let stats else { return meta }
 
-        // Grounding gate: reject a title whose style claims the measurements
+        // Grounding gate: reject copy whose style claims the measurements
         // contradict; give the model one corrective retry naming the offenders.
-        let bad = TitleGrounding.violations(title: meta.title, stats: stats, calibration: calibration)
+        // Title AND description — the description ships to Qobuz too.
+        let bad = TitleGrounding.violations(title: meta.title, description: meta.description,
+                                            stats: stats, calibration: calibration)
         guard !bad.isEmpty else { return meta }
-        Log.info("AI radio-titel '\(meta.title)' voor '\(label)' spreekt de metingen tegen (\(bad.joined(separator: "; "))) — corrigerende poging", category: .network)
+        Log.info("AI radio-tekst '\(meta.title)' voor '\(label)' spreekt de metingen tegen (\(bad.joined(separator: "; "))) — corrigerende poging", category: .network)
         let corrective = user + """
 
 
-        LET OP — je eerdere titel "\(meta.title)" bevatte claims die de metingen tegenspreken: \(bad.joined(separator: "; ")). \
-        Maak een nieuwe titel ZONDER deze woorden, trouw aan het gemeten profiel.
+        LET OP — je eerdere titel/beschrijving bevatte claims die de metingen tegenspreken: \(bad.joined(separator: "; ")). \
+        Maak een nieuwe titel EN beschrijving ZONDER deze woorden, trouw aan het gemeten profiel.
         """
         guard let retry = await attempt(corrective),
-              TitleGrounding.violations(title: retry.title, stats: stats, calibration: calibration).isEmpty else {
+              TitleGrounding.violations(title: retry.title, description: retry.description,
+                                        stats: stats, calibration: calibration).isEmpty else {
             Log.warning("AI radio-titel voor '\(label)' blijft de metingen tegenspreken — tijdelijke standaardtitel, wordt later opnieuw geprobeerd", category: .network)
             return nil
         }
@@ -989,7 +992,8 @@ extension RoonClient {
         // Validate each result against its station's measurements.
         func validate(_ i: Int, _ r: TitleRequest, _ meta: (title: String, description: String)) -> Bool {
             guard let stats = r.stats else { return true }
-            return TitleGrounding.violations(title: meta.title, stats: stats, calibration: calibration).isEmpty
+            return TitleGrounding.violations(title: meta.title, description: meta.description,
+                                             stats: stats, calibration: calibration).isEmpty
         }
         var result: [String: (title: String, description: String)] = [:]
         var violators: [(index: Int, req: TitleRequest)] = []
@@ -1049,14 +1053,31 @@ extension RoonClient {
         return (title, desc)
     }
 
+    /// Dutch connector words a title must never end on. Punctuation trimming
+    /// alone left names like "Film & Theater: Akoestisch en" on Qobuz — the word
+    /// is a valid word, it's the dangling *position* that reads broken.
+    private static let danglingWords: Set<String> = [
+        "en", "of", "met", "van", "voor", "in", "op", "bij", "uit", "naar",
+        "tot", "als", "om", "te", "der", "den", "de", "het", "een"
+    ]
+
     /// Hard length cap on a title, cut at a word boundary so an over-long LLM
-    /// reply never dangles a half word or a trailing connector ("&", ":", "-").
+    /// reply never dangles a half word, a trailing connector ("&", ":", "-") or
+    /// a trailing conjunction ("… beats en").
     nonisolated static func clampTitle(_ title: String, max: Int) -> String {
         guard title.count > max else { return title }
         let head = String(title.prefix(max))
         // Prefer the last space so we don't slice mid-word.
         let cut = head.lastIndex(of: " ").map { String(head[..<$0]) } ?? head
-        return cut.trimmingCharacters(in: CharacterSet(charactersIn: " &:-–—,·"))
+        let punctuation = CharacterSet(charactersIn: " &:-–—,·")
+        var out = cut.trimmingCharacters(in: punctuation)
+        // Peel trailing connectors repeatedly — "beats en of" is two of them, and
+        // each peel can expose fresh punctuation underneath ("hits, en").
+        while let space = out.lastIndex(of: " "),
+              danglingWords.contains(out[out.index(after: space)...].lowercased()) {
+            out = String(out[..<space]).trimmingCharacters(in: punctuation)
+        }
+        return out
     }
 
     // MARK: Qobuz sync

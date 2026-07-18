@@ -161,6 +161,27 @@ final class ArtistRadioTests: XCTestCase {
         XCTAssertFalse(clamped.hasSuffix(" "))
     }
 
+    /// These four shipped to Qobuz verbatim, dangling conjunction and all.
+    func testClampTitleTrimsTrailingDutchConjunction() {
+        let cases = [
+            "Klassiek Instrumentaal: Melancholisch en tijdloos mooi",
+            "Elektronische Party: Dansbare beats en stevige drops",
+            "R&B Sfeer: Vrolijke zangnummers met warme groove"
+        ]
+        for c in cases {
+            let clamped = RoonClient.clampTitle(c, max: 40)
+            let last = clamped.split(separator: " ").last.map(String.init)?.lowercased() ?? ""
+            XCTAssertFalse(["en", "met", "of", "van", "voor"].contains(last),
+                           "'\(clamped)' ends on a dangling connector")
+        }
+    }
+
+    func testClampTitlePeelsStackedConnectors() {
+        // Two connectors in a row, with punctuation exposed underneath.
+        XCTAssertEqual(RoonClient.clampTitle("Zomerse hits, en van de jaren tachtig", max: 22),
+                       "Zomerse hits")
+    }
+
     func testClampTitleLeavesShortTitleUntouched() {
         XCTAssertEqual(RoonClient.clampTitle("Epische Arena-Rock", max: 45), "Epische Arena-Rock")
     }

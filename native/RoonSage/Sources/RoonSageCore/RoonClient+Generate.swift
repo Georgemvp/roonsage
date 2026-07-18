@@ -885,12 +885,14 @@ extension RoonClient {
             return (Self.fallbackTitle(request), nil)
         }
         guard let stats else { trace?.kv("titel", "“\(first.title)” (geen meting om te toetsen)"); return first }
-        let bad = TitleGrounding.violations(title: first.title, stats: stats, calibration: calibration)
+        let bad = TitleGrounding.violations(title: first.title, description: first.description ?? "",
+                                            stats: stats, calibration: calibration)
         guard !bad.isEmpty else { trace?.kv("titel", "“\(first.title)” (gegrond ✓)"); return first }
         trace?.kv("titel afgekeurd", "“\(first.title)” — spreekt meting tegen: \(bad.joined(separator: "; "))")
-        let corrective = user + "\n\nLET OP — je eerdere titel “\(first.title)” bevatte claims die de metingen tegenspreken: \(bad.joined(separator: "; ")). Maak een nieuwe titel ZONDER deze woorden, trouw aan het gemeten profiel."
+        let corrective = user + "\n\nLET OP — je eerdere titel/beschrijving bevatte claims die de metingen tegenspreken: \(bad.joined(separator: "; ")). Maak een nieuwe titel EN beschrijving ZONDER deze woorden, trouw aan het gemeten profiel."
         if let retry = await attempt(corrective),
-           TitleGrounding.violations(title: retry.title, stats: stats, calibration: calibration).isEmpty {
+           TitleGrounding.violations(title: retry.title, description: retry.description ?? "",
+                                     stats: stats, calibration: calibration).isEmpty {
             trace?.kv("titel na retry", "“\(retry.title)” (gegrond ✓)")
             return retry
         }

@@ -103,19 +103,41 @@ public enum TitleGrounding {
     public static func band(
         axis: String, selectionAvg: Float, calibration: Calibration?
     ) -> String? {
-        let words: (high: String, low: String)
+        guard let words = bandWords(axis: axis),
+              let high = bandDirection(axis: axis, selectionAvg: selectionAvg,
+                                       calibration: calibration) else { return nil }
+        return high ? words.high : words.low
+    }
+
+    /// The Dutch high/low descriptor pair for an attribute axis, or nil for an
+    /// axis we don't describe (energy included — it has its own percentile path).
+    static func bandWords(axis: String) -> (high: String, low: String)? {
         switch axis {
-        case "valence":          words = ("vrolijk", "melancholisch")
-        case "danceability":     words = ("dansbaar", "ingetogen ritme")
-        case "acousticness":     words = ("akoestisch", "elektronisch")
-        case "instrumentalness": words = ("instrumentaal", "met zang")
+        case "valence":          return ("vrolijk", "melancholisch")
+        case "danceability":     return ("dansbaar", "ingetogen ritme")
+        case "acousticness":     return ("akoestisch", "elektronisch")
+        case "instrumentalness": return ("instrumentaal", "met zang")
         default: return nil
         }
+    }
+
+    /// Which way an axis clearly leans for this selection: true = high, false =
+    /// low, nil = neutral (don't claim anything).
+    ///
+    /// This is the SINGLE rule for attribute character. `band` uses it to assert
+    /// a descriptor and `violations` uses it to reject one, so a title can only
+    /// ever claim what the system would have said itself. Splitting those two
+    /// into separate constants is what opened the 0.45–0.55 grey zone where the
+    /// LLM could call a synth-pop station "akoestisch" unchallenged.
+    static func bandDirection(
+        axis: String, selectionAvg: Float, calibration: Calibration?
+    ) -> Bool? {
+        guard bandWords(axis: axis) != nil else { return nil }
         let pct = calibration?.percentile(of: selectionAvg, axis: axis)
         // High: clearly above the neutral midpoint AND in the library's upper
         // reaches (when we can calibrate). Low: mirrored.
-        if selectionAvg >= 0.55, pct.map({ $0 >= 0.60 }) ?? true { return words.high }
-        if selectionAvg <= 0.45, pct.map({ $0 <= 0.40 }) ?? true { return words.low }
+        if selectionAvg >= 0.55, pct.map({ $0 >= 0.60 }) ?? true { return true }
+        if selectionAvg <= 0.45, pct.map({ $0 <= 0.40 }) ?? true { return false }
         return nil
     }
 
@@ -126,7 +148,10 @@ public enum TitleGrounding {
         let words: [String]         // lowercased title substrings that assert it
         let axis: String?           // attribute axis, nil = energy
         let wantsHigh: Bool         // claims a HIGH value on the axis
-        let contradiction: Float    // measured value beyond this (on the wrong side) = violation
+        /// ENERGY claims only (`axis == nil`), and only when uncalibrated: measured
+        /// value beyond this on the wrong side = violation. Attribute claims ignore
+        /// this and go through `bandDirection`, which owns their thresholds.
+        let contradiction: Float
         let label: String           // human-readable, for the corrective retry prompt
     }
 
@@ -192,11 +217,29 @@ public enum TitleGrounding {
                 }
                 continue
             }
+            // Attribute claim. A claim is allowed exactly when the selection
+            // leans that way by `bandDirection` — the same rule that would have
+            // asserted the descriptor. Neutral (nil) contradicts every claim:
+            // if we wouldn't say it, the LLM doesn't get to either.
             guard let axis = c.axis, let m = stats.attributeAvg[axis] else { continue }
-            let violated = c.wantsHigh ? (m < c.contradiction) : (m > c.contradiction)
-            if violated { out.append(c.label) }
+            let leansHigh = bandDirection(axis: axis, selectionAvg: m, calibration: calibration)
+            if leansHigh != c.wantsHigh { out.append(c.label) }
         }
         return out
+    }
+
+    /// Style claims anywhere in a station's user-visible copy. The description is
+    /// checked with the same lexicon as the title — it reaches the user (and the
+    /// Qobuz playlist) too, and used to be the one place an ungrounded
+    /// "akoestisch" could survive unchecked.
+    public static func violations(title: String, description: String,
+                                  stats: SelectionStats,
+                                  calibration: Calibration? = nil) -> [String] {
+        let both = violations(title: title, stats: stats, calibration: calibration)
+            + violations(title: description, stats: stats, calibration: calibration)
+        // Same claim in title AND description is still one thing to fix.
+        var seen = Set<String>()
+        return both.filter { seen.insert($0).inserted }
     }
 
     // MARK: - Profile signature (title-regeneration trigger)
