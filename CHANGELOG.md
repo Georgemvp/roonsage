@@ -8,15 +8,76 @@ RoonSage is now a native Swift/SwiftUI product. Per-release notes are published
 on **[GitHub Releases](https://github.com/Georgemvp/roonsage/releases)** (the
 in-app updater consumes the same feed), across three independent tag tracks:
 
-- **macOS** — `vX.Y.Z` (current: `v1.10.14`)
-- **iOS** — `ios-vX.Y.Z` (current: `ios-v1.6.60`)
-- **Analyzer** — `analyzer-vX.Y.Z` (current: `analyzer-v1.1.17`)
+- **macOS** — `vX.Y.Z` (current: `v1.10.183`)
+- **iOS** — `ios-vX.Y.Z` (current: `ios-v1.7.148`)
+- **Analyzer** — `analyzer-vX.Y.Z` (current: `analyzer-v1.1.159`)
 
 The per-tag notes on GitHub are authoritative; the themed highlights below
 summarise the major native milestones. (The `legacy-docker/` entries further
 down document the **deprecated** Docker/Python web app, kept for reference only.)
 
 ### Native highlights
+
+**Full-track analysis (AudioMuse parity).** CLAP now covers the *whole* track —
+10s windows at a 5s hop, mean-pooled and L2-normalised — instead of three sampled
+excerpts, and the scalar pass (BPM, key, loudness) no longer stops at the first
+120 seconds. The decoder reads in chunks, so hi-res files no longer need a
+gigabyte-sized input buffer. The embedding model version moved to `-v3`, which
+re-embeds the library automatically, and a "Re-analyse everything" action forces
+a full recompute while leaving enrichment (tags, MusicBrainz genres, popularity)
+intact. Deliberately *not* adopted from AudioMuse: a supervised mood head (CLAP
+zero-shot suffices) and Whisper lyrics (LRCLIB lookup is cheaper and better).
+
+**Re-analysis correctness.** Two bugs kept a full re-analysis from ever
+finishing. The walk decided skip-or-analyse on `(file_path, file_mtime)` while
+storage conflicts on `match_key`: files that normalise to one key (24bit/16bit
+versions, live vs studio, album + compilation — 13,100 files over 5,743 keys)
+each missed the other's row and overwrote it in turn, so progress stalled at zero
+while the analyser churned. Separately, sub-second file mtimes don't round-trip
+bit-stable through `Date.timeIntervalSince1970`, re-analysing 27% of rows every
+pass. The walk now decides on `match_key`, with path+mtime kept as a cheap fast
+path. An earlier full pass that ran *without* the CLAP model — wiping embeddings
+to `NULL` — was fixed by making the walk await model load and log an explicit
+degradation when it can't.
+
+**Sonic engine (AudioMuse gaps).** Clustering picks its own *k* through a
+deterministic sweep scored on silhouette, mood purity and diversity, instead of a
+fixed formula. Song Paths interpolates waypoints along the line from A to B for
+an even gradient rather than greedily hopping to the nearest neighbour. Song
+Alchemy gained a subtract gate (candidates closer to what you removed than to
+what you added are dropped) and a seeded Remix control. Lyrics are searchable
+through an FTS5 index over stored lyrics, surfaced alongside sonic matches. Mood
+stations are calibrated against your own library's distribution, cancelling
+CLAP's built-in label bias.
+
+**Discovery engine.** Outward discovery stopped converging on the same picks:
+surfaces now de-duplicate against each other, ~20% of seeds come from the
+periphery of your taste rather than its core, and a "dormant albums" shelf ranks
+on play depth instead of taste proximity. ListenBrainz is fully used (personal
+Weekly Exploration + fresh releases as real discovery sources; the adventurousness
+dial finally reaches LB Radio), Deezer's related-artist graph joins Last.fm and
+ListenBrainz as a third collaborative signal, and final selection balances
+relevance against similarity to what's already chosen, so one artist or genre no
+longer dominates a batch. Candidates you don't own — and therefore have never
+been analysed — are re-ranked on *actual sound* via a CLAP embedding of a preview
+clip, and a free-text vibe query can steer a batch. Known limit: re-ranking can
+only reorder what the producers propose, so vibes far from your collection stay
+noisy.
+
+**Information architecture.** The sidebar went from ~23 items to 15, grouped by
+intent (Play, Create, Stations, Explore, You, System). Related screens merged into
+hubs with a mode picker — Sonic Lab, Taste, Stations, Create — leaving the engines
+underneath untouched. Two screens that were unreachable (DJ Modes, Sonic Journeys)
+became visible, and the inverted naming was corrected: "New for you" is what you
+*don't* own, "Rediscover" what you do.
+
+**DJ modes and Sonic Journeys.** Six personas (The Purist, The Wanderer, The Vibe,
+The Superfan, The Timekeeper, The Daredevil) sit as a thin preset over the radio
+engine, each setting adventurousness, arc and seed gate differently, with optional
+autoplay when the queue runs low. Three station types joined them: Album Radio
+(endless, seeded on an album), Time Machine (a finite chronological journey, old →
+new) and The Bridge (the renamed Song Paths); the ones with a fixed tracklist
+mirror to Qobuz.
 
 **Sonic embeddings (CLAP).** The whole sonic suite — Sonic Fingerprint, Music
 Map, Similar, Song Paths, Song Alchemy, and Sonic Radio — was rewired onto
