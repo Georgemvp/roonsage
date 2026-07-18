@@ -27,9 +27,12 @@ case "${1:-}" in
     --apply)       APPLY=1 ;;
     --apply-moves) APPLY=1; MOVES_ONLY=1 ;;
 esac
-# De byte-vergelijking is er alleen om verwijderen te mogen verantwoorden. Wordt
-# er niets verwijderd, dan is hij overbodig — en hij kost ~45 min aan schijf-I/O.
-NEED_CMP=1; [ "$MOVES_ONLY" -eq 1 ] && NEED_CMP=0
+# Classificeren doet GEEN byte-vergelijking: die kostte ~45 minuten stilte over
+# 86 GB, en de verwijderlus vergelijkt tóch nog eens vlak vóór elke rm. Díe
+# tweede is de echte garantie — tussen scan en wissen kan er van alles wijzigen,
+# dus zekerheid vooraf is hoe dan ook geen zekerheid. CMP_SCAN=1 zet de oude,
+# tragere vergelijking-vooraf terug (alleen zinvol om een rapport te maken).
+NEED_CMP=${CMP_SCAN:-0}
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -74,8 +77,13 @@ echo
 echo "── plan"
 if [ "$NEED_CMP" -eq 1 ]; then
     printf '   DUP   verwijderen : %6d bestanden  %5d GB (byte-identiek geverifieerd)\n' "$n_dup" "$((dup_bytes/1024/1024/1024))"
+elif [ "$MOVES_ONLY" -eq 1 ]; then
+    printf '   DUP   blijft staan : %6d bestanden  %5d GB (tegenhanger aanwezig)\n' "$n_dup" "$((dup_bytes/1024/1024/1024))"
 else
-    printf '   DUP   blijft staan : %6d bestanden  %5d GB (tegenhanger aanwezig, NIET vergeleken)\n' "$n_dup" "$((dup_bytes/1024/1024/1024))"
+    # Zonder scan-vergelijking zitten hier ook de bestanden die AFWIJKEN van hun
+    # tegenhanger; die vallen vanzelf af op de cmp vlak vóór de rm en worden als
+    # 'overgeslagen' geteld. Nooit meer beloven dan er gemeten is.
+    printf '   DUP   kandidaat    : %6d bestanden  %5d GB (elk pas wissen ná byte-vergelijking)\n' "$n_dup" "$((dup_bytes/1024/1024/1024))"
 fi
 printf '   UNIEK verplaatsen : %6d bestanden  %5d MB (bestaat nergens anders)\n' "$n_uniek" "$((uniek_bytes/1024/1024))"
 printf '   CONFL met rust    : %6d bestanden  %5d MB (verschilt van het origineel)\n' "$n_confl" "$((confl_bytes/1024/1024))"
@@ -114,12 +122,17 @@ verwijderd=0; verplaatst=0; overgeslagen=0
 if [ "$MOVES_ONLY" -eq 1 ]; then
     echo "   duplicaten worden NIET verwijderd (--apply-moves)"
 else
+    gedaan=0
     while IFS= read -r -d '' f && IFS= read -r -d '' o; do
         if cmp -s "$f" "$o"; then                # hercontrole vlak voor het wissen
             rm -f "$f" && verwijderd=$((verwijderd+1)) && repoint "$f" "$o"
         else
             overgeslagen=$((overgeslagen+1))     # veranderd sinds de scan
         fi
+        gedaan=$((gedaan+1))
+        # Zichtbare voortgang: een stille dood halverwege moet af te lezen zijn,
+        # niet te raden (twee eerdere runs stierven onopgemerkt in de scanfase).
+        [ $((gedaan % 100)) -eq 0 ] && printf '   … %d/%d bekeken, %d verwijderd\n' "$gedaan" "$n_dup" "$verwijderd"
     done < "$WORK/dup"
 fi
 
