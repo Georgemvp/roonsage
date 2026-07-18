@@ -269,9 +269,18 @@ public final class FeatureStore {
         d.withUnsafeBytes { raw in Array(raw.bindMemory(to: Float.self)) }
     }
 
+    /// Sub-second file mtimes don't round-trip bit-stable through Swift's
+    /// `Date.timeIntervalSince1970`, so a fresh disk read drifts a few ULPs from
+    /// the stored value. EXACT float equality on `file_mtime` then misses and the
+    /// walker re-analyses the file every pass (v3 stagnation, 2026-07-17). Match
+    /// within a tolerance far below any real file edit (which moves mtime by
+    /// seconds); the sentinel -1 (markAllForReanalysis) stays far outside it.
+    /// Interpolated into SQL as a compile-time constant — no user input.
+    private static let mtimeMatchSQL = "abs(file_mtime - ?) < 0.5"
+
     public func isAnalyzed(path: String, mtime: Double) -> Bool {
         (try? dbQueue.read { db in
-            try Bool.fetchOne(db, sql: "SELECT 1 FROM track_features WHERE file_path = ? AND file_mtime = ?",
+            try Bool.fetchOne(db, sql: "SELECT 1 FROM track_features WHERE file_path = ? AND \(Self.mtimeMatchSQL)",
                               arguments: [path, mtime]) ?? false
         }) ?? false
     }
@@ -281,11 +290,47 @@ public final class FeatureStore {
     /// `exists && model == currentVersion` ⇒ fully done; otherwise process.
     public func rowState(path: String, mtime: Double) -> (exists: Bool, model: String?) {
         let r = try? dbQueue.read { db in
-            try Row.fetchOne(db, sql: "SELECT embedding_model FROM track_features WHERE file_path = ? AND file_mtime = ?",
+            try Row.fetchOne(db, sql: "SELECT embedding_model FROM track_features WHERE file_path = ? AND \(Self.mtimeMatchSQL)",
                              arguments: [path, mtime])
         }
         guard let row = r ?? nil else { return (false, nil) }
         return (true, row["embedding_model"] as String?)
+    }
+
+    /// Row identity as the walker sees it, looked up by the STORAGE key
+    /// (`match_key`, the primary key) instead of by (file_path, file_mtime).
+    ///
+    /// The skip-check MUST use the same key the upsert conflicts on. `matchKey`
+    /// is `primaryArtist␟cleanTitle` — album- and duration-agnostic by design —
+    /// so two different files can normalise to one key (24bit/16bit versions,
+    /// live vs studio, a track on both album and compilation: 13.100 files over
+    /// 5.743 keys in this library). Keyed on the path, each of those files misses
+    /// the other's row, re-analyses, and overwrites it in turn: the walk
+    /// ping-pongs and makes zero net progress (2026-07-17 stagnation).
+    ///
+    /// Returns nil when no row carries this key.
+    public func rowState(matchKey: String) -> (model: String?, filePath: String?, fileMtime: Double)? {
+        let r = try? dbQueue.read { db in
+            try Row.fetchOne(db, sql: """
+                SELECT embedding_model, file_path, file_mtime FROM track_features WHERE match_key = ?
+                """, arguments: [matchKey])
+        }
+        guard let row = r ?? nil else { return nil }
+        return (row["embedding_model"] as String?, row["file_path"] as String?, row["file_mtime"] as Double? ?? 0)
+    }
+
+    /// Embedding-only update keyed on `match_key` — the counterpart of
+    /// `rowState(matchKey:)` for the walker's `.embeddingOnly` mode, so the write
+    /// lands on the row the skip-check actually consulted.
+    public func setEmbedding(matchKey: String,
+                             embedding: [Float]?, model: String, moods: String?,
+                             attributes: String? = nil) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE track_features SET embedding = ?, embedding_model = ?, moods = ?, attributes = ?
+                WHERE match_key = ?
+                """, arguments: [embedding.map(Self.blob), model, moods, attributes, matchKey])
+        }
     }
 
     /// Update only the embedding columns for an existing row — used when scalars
@@ -296,7 +341,7 @@ public final class FeatureStore {
         try dbQueue.write { db in
             try db.execute(sql: """
                 UPDATE track_features SET embedding = ?, embedding_model = ?, moods = ?, attributes = ?
-                WHERE file_path = ? AND file_mtime = ?
+                WHERE file_path = ? AND \(Self.mtimeMatchSQL)
                 """, arguments: [embedding.map(Self.blob), model, moods, attributes, path, mtime])
         }
     }
@@ -418,10 +463,14 @@ public final class FeatureStore {
         }
     }
 
-    /// Mark EVERY row for full re-analysis on the next library walk: the
-    /// walker's exists-check matches on (file_path, file_mtime), so a sentinel
-    /// mtime makes each file look new → mode .full (scalars + embedding both
+    /// Mark EVERY row for full re-analysis on the next library walk. The walker
+    /// looks the row up by `match_key` and treats a NEGATIVE stored `file_mtime`
+    /// as an explicit re-analysis request → mode .full (scalars + embedding both
     /// recomputed — from the full track since the AudioMuse-parity defaults).
+    /// The first full pass writes the file's real mtime back, so the sentinel
+    /// clears itself and progress is monotone (it is not a "looks new" trick:
+    /// keying the skip-check on the path made colliding files overwrite each
+    /// other forever — see `rowState(matchKey:)`).
     /// Enrichment survives: the upsert's ON CONFLICT clause never touches
     /// tags/mb_genres/popularity. Returns the number of rows marked.
     @discardableResult

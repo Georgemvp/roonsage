@@ -44,10 +44,37 @@ public final class LibraryWalker {
         self.priorBpm = priorBpm
     }
 
-    private enum Mode: Sendable { case full, embeddingOnly }
+    enum Mode: Sendable, Equatable { case full, embeddingOnly }
+
+    /// What the walk should do with one file. `skip` is the hot case — most of a
+    /// 55k library is already analysed on any given pass.
+    enum Decision: Sendable, Equatable { case skip, analyze(Mode) }
+
+    /// The walk's per-file decision, given the row that currently holds this
+    /// file's `match_key` (nil = no such row). Pure, so every branch is testable
+    /// without audio fixtures — this is where the 2026-07-17 stagnation lived.
+    ///
+    /// The row is looked up by match_key, NOT by path: two files can share one
+    /// key (quality variants, live vs studio, album + compilation), and they
+    /// share the single row that key owns. Deciding per path made each file miss
+    /// the other's row, re-analyse, and overwrite it — forever, at zero net
+    /// progress. Consequence by design: of two such twins only one is analysed;
+    /// the app joins on match_key anyway and can only ever use one feature set.
+    static func decide(row: (model: String?, filePath: String?, fileMtime: Double)?,
+                       path: String, mtime: Double, currentModel: String?) -> Decision {
+        guard let row else { return .analyze(.full) }        // never seen this track
+        // markAllForReanalysis parks a negative mtime as an explicit "redo in full".
+        if row.fileMtime < 0 { return .analyze(.full) }
+        // Only the OWNING file's edits matter; a twin's differing mtime is not a change.
+        if row.filePath == path && abs(row.fileMtime - mtime) >= 0.5 { return .analyze(.full) }
+        // No CLAP loaded ⇒ scalars are all we could add, and they are already there.
+        guard let currentModel else { return .skip }
+        return row.model == currentModel ? .skip : .analyze(.embeddingOnly)
+    }
+
     private enum WalkResult: Sendable {
         case full(TrackFeatureRow)
-        case embeddingOnly(path: String, mtime: Double, embedding: [Float]?, model: String, moods: String?, attributes: String?)
+        case embeddingOnly(matchKey: String, embedding: [Float]?, model: String, moods: String?, attributes: String?)
         case failed
     }
 
@@ -90,8 +117,8 @@ public final class LibraryWalker {
                 case .full(let row):
                     pendingFull.append(row); done += 1
                     if pendingFull.count >= 64 { flush() }
-                case .embeddingOnly(let p, let m, let e, let mv, let mo, let at):
-                    try? store.setEmbedding(path: p, mtime: m, embedding: e, model: mv, moods: mo, attributes: at); done += 1
+                case .embeddingOnly(let key, let e, let mv, let mo, let at):
+                    try? store.setEmbedding(matchKey: key, embedding: e, model: mv, moods: mo, attributes: at); done += 1
                 case .failed: failed += 1
                 }
                 let processed = done + failed
@@ -107,18 +134,28 @@ public final class LibraryWalker {
                 guard Self.audioExtensions.contains(url.pathExtension.lowercased()) else { continue }
                 guard let mtime = Self.mtime(url) else { continue }
 
-                let mode: Mode
+                // Fast path: this exact file, unchanged, already carries the current
+                // model — skip without paying a tag read. A miss here says nothing
+                // (a colliding twin holds the row); the match_key check below decides.
                 if let currentModel {
-                    let st = store.rowState(path: url.path, mtime: mtime)
-                    if st.exists && st.model == currentModel { continue }   // fully analyzed
-                    mode = st.exists ? .embeddingOnly : .full               // keep scalars if present
-                } else {
-                    if store.isAnalyzed(path: url.path, mtime: mtime) { continue }
-                    mode = .full
+                    let byPath = store.rowState(path: url.path, mtime: mtime)
+                    if byPath.exists && byPath.model == currentModel { continue }
+                } else if store.isAnalyzed(path: url.path, mtime: mtime) {
+                    continue
                 }
+
+                // Decide on the STORAGE key, so the skip-check and the upsert agree
+                // (see FeatureStore.rowState(matchKey:)): reading tags costs a few ms,
+                // re-analysing a whole track costs seconds.
+                let meta = MetadataReader.read(url: url)
+                let key = TrackIdentity.matchKey(artist: meta.artist, album: meta.album, title: meta.title)
+                guard case .analyze(let mode) = Self.decide(row: store.rowState(matchKey: key),
+                                                            path: url.path, mtime: mtime,
+                                                            currentModel: currentModel) else { continue }
                 discovered += 1
                 let clap = self.clap
-                group.addTask { Self.process(url, mtime: mtime, mode: mode, clap: clap, excerptSeconds: excerpt, sampleRate: sr,
+                group.addTask { Self.process(url, mtime: mtime, mode: mode, meta: meta, matchKey: key,
+                                             clap: clap, excerptSeconds: excerpt, sampleRate: sr,
                                              minBpm: bpmLo, maxBpm: bpmHi, priorBpm: bpmPrior, isoFormatter: iso) }
                 inFlight += 1
                 while inFlight >= concurrency { await drainOne() }
@@ -131,6 +168,7 @@ public final class LibraryWalker {
     }
 
     private static func process(_ url: URL, mtime: Double, mode: Mode,
+                                meta: TrackMetadata, matchKey: String,
                                 clap: CLAPModel?, excerptSeconds: Double, sampleRate: Double,
                                 minBpm: Double, maxBpm: Double, priorBpm: Double,
                                 isoFormatter: ISO8601DateFormatter) -> WalkResult {
@@ -141,23 +179,21 @@ public final class LibraryWalker {
             // permanently-unembeddable file isn't retried every run.
             guard let clap else { return .failed }
             if let emb = try? clap.embed(url: url) {
-                return .embeddingOnly(path: url.path, mtime: mtime, embedding: emb,
+                return .embeddingOnly(matchKey: matchKey, embedding: emb,
                                       model: clap.modelVersion,
                                       moods: encodeFloatMap(clap.moods(forEmbedding: emb)),
                                       attributes: encodeFloatMap(clap.attributes(forEmbedding: emb)))
             }
-            return .embeddingOnly(path: url.path, mtime: mtime, embedding: nil,
+            return .embeddingOnly(matchKey: matchKey, embedding: nil,
                                   model: clap.modelVersion, moods: nil, attributes: nil)
         case .full:
-            let meta = MetadataReader.read(url: url)
+            guard !matchKey.replacingOccurrences(of: "\u{1f}", with: "").isEmpty else { return .failed }
             guard let f = try? AudioAnalyzer.analyze(url: url, sampleRate: sampleRate,
                                                      excerptSeconds: excerptSeconds,
                                                      minBpm: minBpm, maxBpm: maxBpm, priorBpm: priorBpm,
                                                      clap: clap) else { return .failed }
-            let key = TrackIdentity.matchKey(artist: meta.artist, album: meta.album, title: meta.title)
-            guard !key.replacingOccurrences(of: "\u{1f}", with: "").isEmpty else { return .failed }
             return .full(TrackFeatureRow(
-                matchKey: key, artist: meta.artist, title: meta.title, album: meta.album, year: meta.year,
+                matchKey: matchKey, artist: meta.artist, title: meta.title, album: meta.album, year: meta.year,
                 filePath: url.path, fileMtime: mtime,
                 bpm: f.bpm, bpmConfidence: f.bpmConfidence, keyRoot: f.keyRoot, keyMode: f.keyMode,
                 camelot: f.camelot, energy: f.energy, duration: f.durationSec,
