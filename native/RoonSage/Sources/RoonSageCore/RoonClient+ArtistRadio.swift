@@ -596,7 +596,13 @@ extension RoonClient {
     /// station's measured character drifts past this band-fingerprint, the title
     /// is regenerated (and the Qobuz playlist renamed IN PLACE via its stored id)
     /// — the fix for names frozen on a long-gone first-build selection.
-    private static func titleSigKey(_ id: String) -> String { "artistradio.titlesig.v1.\(id)" }
+    ///
+    /// `v2`: titles cached under `v1` were generated when a style claim only had
+    /// to clear 0.45 to survive validation, and before `clampTitle` peeled Dutch
+    /// connectors — so the cache still holds ungrounded claims and names cut to
+    /// "Film & Theater: Akoestisch en". Bumping the key makes every lookup miss,
+    /// which marks all titles stale and regenerates them under the current rules.
+    private static func titleSigKey(_ id: String) -> String { "artistradio.titlesig.v2.\(id)" }
     static func qobuzIDKey(_ id: String) -> String        { "artistradio.qobuzid.\(id)" }
 
     /// The cached AI title for a radio id, or nil when none has been generated yet
