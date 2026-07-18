@@ -28,10 +28,14 @@ thin clients. GUI automation on the mini is blocked — drive everything from th
    The script strips the `analyzer-v` prefix and copies the `*.bundle` resources into the
    `.app` (a missing bundle caused the v1.10.117 launch-crash). Notarization is skipped
    locally — fine for the mini.
-2. **Stop the running server by PID** (never by image name):
+2. **Stop the running server.** If the LaunchAgent (`native/scripts/nl.roonsage.analyzer.plist`)
+   is installed, bootout FIRST — its `KeepAlive` relaunches the OLD binary the instant you
+   kill the PID, and you end up "deploying" a version that never runs:
    ```
-   pgrep -f "RoonSage Analyzer.app/Contents/MacOS"     # get the PID
-   kill -TERM <PID>                                     # wait for exit; kill -9 only if it hangs
+   launchctl print gui/$UID/nl.roonsage.analyzer >/dev/null 2>&1 \
+     && launchctl bootout gui/$UID/nl.roonsage.analyzer
+   pgrep -f "RoonSage Analyzer.app/Contents/MacOS"     # empty ⇒ already down
+   kill -TERM <PID>                                     # only if still running; kill -9 if it hangs
    ```
 3. **Install** — replace the app in /Applications:
    ```

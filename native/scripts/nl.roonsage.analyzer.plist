@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Keeps the analyzer server (server of record) running on the Mac mini.
+
+  Install:
+    cp native/scripts/nl.roonsage.analyzer.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$UID ~/Library/LaunchAgents/nl.roonsage.analyzer.plist
+  Remove:
+    launchctl bootout gui/$UID/nl.roonsage.analyzer && rm ~/Library/LaunchAgents/nl.roonsage.analyzer.plist
+
+  FileVault is ON on the mini and there is no auto-login, so NOTHING can start
+  before someone unlocks the machine — a LaunchAgent fires at login, not at boot.
+  A LaunchDaemon would not help: this is a SwiftUI app and needs an Aqua session.
+  What this does fix is the long tail: on 2026-07-17 the mini rebooted at 20:53,
+  was unlocked at 21:49, and the analyzer still stayed down for ~15 more hours
+  because nothing was configured to start it.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>nl.roonsage.analyzer</string>
+    <!-- The .app binary directly, not `open -a`: `open` exits immediately, so
+         KeepAlive would read every launch as a crash and relaunch in a loop. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/RoonSage Analyzer.app/Contents/MacOS/RoonSageAnalyzerApp</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- Bring it back after a crash or a reboot. NOTE for deploys: bootout the
+         agent BEFORE replacing the .app, or launchd relaunches the old binary
+         the moment you kill it. See docs in .claude/skills/deploy-mini. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/roonsage-analyzer-launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/roonsage-analyzer-launchd.log</string>
+</dict>
+</plist>
