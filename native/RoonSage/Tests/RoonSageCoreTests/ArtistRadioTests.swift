@@ -295,10 +295,40 @@ final class ArtistRadioTests: XCTestCase {
         XCTAssertTrue(RoonClient.sonicProfileSummary(major).contains("overwegend majeur"))
     }
 
-    func testProfileReportsPeriodFromYears() {
-        let sel = (0..<6).map { sonic("\($0)", year: 1980 + $0) }
+    /// A selection spanning decades reports a written-out range. The low end is
+    /// p10-trimmed (1975 drops out); the high end sits at the top of the sorted
+    /// years, so a lone recent track still widens the range.
+    func testProfileReportsPeriodSpanningDecades() {
+        let years = [1975, 1978, 1982, 1988, 1994, 2001, 2007, 2013, 2019, 2024]
+        let sel = years.enumerated().map { sonic("\($0.offset)", year: $0.element) }
         let p = RoonClient.sonicProfileSummary(sel)
-        XCTAssertTrue(p.contains("periode: 1980–1985"), p)
+        XCTAssertTrue(p.contains("periode: van 1978 tot 2024"), p)
+    }
+
+    // MARK: period phrasing (LLM-proof)
+
+    func testPeriodPhraseCollapsesToDecade() {
+        XCTAssertEqual(RoonClient.periodPhrase(from: 1980, to: 1989), "de jaren 80")
+        XCTAssertEqual(RoonClient.periodPhrase(from: 1991, to: 1997), "de jaren 90")
+    }
+
+    func testPeriodPhraseSpellsOutModernDecades() {
+        // "jaren 0" / "jaren 10" read as nonsense — hence the explicit forms.
+        XCTAssertEqual(RoonClient.periodPhrase(from: 2001, to: 2008), "begin jaren 2000")
+        XCTAssertEqual(RoonClient.periodPhrase(from: 2011, to: 2019), "de jaren 2010")
+        XCTAssertEqual(RoonClient.periodPhrase(from: 2020, to: 2024), "de jaren 2020")
+    }
+
+    func testPeriodPhraseSpansAreWritten() {
+        // The shape that produced "jaren 15-24" and "jaren '76".
+        XCTAssertEqual(RoonClient.periodPhrase(from: 2015, to: 2024), "van 2015 tot 2024")
+        XCTAssertEqual(RoonClient.periodPhrase(from: 1976, to: 2019), "van 1976 tot 2019")
+        XCTAssertEqual(RoonClient.periodPhrase(from: 1999, to: 1999), "1999")
+    }
+
+    func testProfileUsesPeriodPhrase() {
+        let sel = (0..<6).map { sonic("\($0)", year: 1980 + $0) }
+        XCTAssertTrue(RoonClient.sonicProfileSummary(sel).contains("periode: de jaren 80"))
     }
 
     func testProfileSkipsPeriodOnSparseYears() {

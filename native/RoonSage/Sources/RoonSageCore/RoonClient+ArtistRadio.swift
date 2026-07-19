@@ -838,14 +838,37 @@ extension RoonClient {
         }
 
         // Period: p10–p90 of the (sanity-clamped) release years, when enough
-        // tracks carry one. Lets a title say "jaren 80" or "1968–1994" honestly.
+        // tracks carry one. Phrased as READY-TO-USE Dutch rather than a raw
+        // range: "1976–2019" came back from the model as "jaren '76" and
+        // "2015–2024" as "jaren 15-24". Hand it the phrase it should copy.
         let years = tracks.compactMap(\.year).sorted()
         if years.count >= max(3, tracks.count / 3) {
             let lo = years[years.count / 10]
             let hi = years[(years.count * 9) / 10]
-            parts.append(lo == hi ? "periode: \(lo)" : "periode: \(lo)–\(hi)")
+            parts.append("periode: \(Self.periodPhrase(from: lo, to: hi))")
         }
         return parts.joined(separator: "; ")
+    }
+
+    /// A Dutch period phrase the model can lift verbatim into a title.
+    ///
+    /// A bare range invites mangling: the model turned "1976–2019" into
+    /// "jaren '76" and "2015–2024" into "jaren 15-24". So collapse to a decade
+    /// when the span sits inside one ("jaren 80"), and otherwise spell the
+    /// range out in words ("van 1976 tot 2019") — no digits it can re-cut.
+    nonisolated static func periodPhrase(from lo: Int, to hi: Int) -> String {
+        guard hi > lo else { return "\(lo)" }
+        let loDecade = (lo / 10) * 10
+        if (hi / 10) * 10 == loDecade {
+            // 2000s/2010s read badly as "jaren 0"/"jaren 10" — spell those out.
+            switch loDecade {
+            case 2000: return "begin jaren 2000"
+            case 2010: return "de jaren 2010"
+            case 2020: return "de jaren 2020"
+            default:   return "de jaren \(loDecade % 100)"
+            }
+        }
+        return "van \(lo) tot \(hi)"
     }
 
     /// The tidy default title/description used when the LLM can't produce one,
@@ -970,11 +993,15 @@ extension RoonClient {
                                             stats: stats, calibration: calibration)
         guard !bad.isEmpty else { return meta }
         Log.info("AI radio-tekst '\(meta.title)' voor '\(label)' spreekt de metingen tegen (\(bad.joined(separator: "; "))) — corrigerende poging", category: .network)
+        let banned = TitleGrounding.violationWords(title: meta.title, description: meta.description,
+                                                   stats: stats, calibration: calibration)
         let corrective = user + """
 
 
-        LET OP — je eerdere titel/beschrijving bevatte claims die de metingen tegenspreken: \(bad.joined(separator: "; ")). \
-        Maak een nieuwe titel EN beschrijving ZONDER deze woorden, trouw aan het gemeten profiel.
+        LET OP — je vorige titel/beschrijving beweerde iets dat de metingen tegenspreken: \(bad.joined(separator: "; ")).
+        VERBODEN WOORDEN (ook geen verbuigingen of synoniemen ervan): \(banned.joined(separator: ", ")).
+        Schrijf een compleet NIEUWE titel EN beschrijving waarin geen van die woorden voorkomt. \
+        Beschrijf in plaats daarvan het genre, de periode of de artiesten uit het gemeten profiel.
         """
         guard let retry = await attempt(corrective),
               TitleGrounding.violations(title: retry.title, description: retry.description,
@@ -1063,10 +1090,10 @@ extension RoonClient {
             """
         }
 
-        func attempt(_ reqs: [TitleRequest]) async -> [Int: (title: String, description: String)] {
+        func attempt(_ reqs: [TitleRequest], note: String = "") async -> [Int: (title: String, description: String)] {
             let raw: String
             do {
-                raw = try await LLMClient.shared.complete(system: system, user: buildUser(reqs), config: config,
+                raw = try await LLMClient.shared.complete(system: system, user: buildUser(reqs, note: note), config: config,
                                                           jsonMode: true, temperature: 0.4, maxTokens: 2048)
             } catch {
                 Log.warning("Batch-titels mislukt: \(error.localizedDescription)", category: .network)
@@ -1097,16 +1124,38 @@ extension RoonClient {
                                              stats: stats, calibration: calibration).isEmpty
         }
         var result: [String: (title: String, description: String)] = [:]
-        var violators: [(index: Int, req: TitleRequest)] = []
+        var violators: [(index: Int, req: TitleRequest, banned: [String])] = []
         for (i, r) in requests.enumerated() {
-            guard let meta = byIndex[i] else { violators.append((i, r)); continue }
-            if validate(i, r, meta) { result[r.id] = meta } else { violators.append((i, r)) }
+            guard let meta = byIndex[i] else { violators.append((i, r, [])); continue }
+            if validate(i, r, meta) {
+                result[r.id] = meta
+            } else {
+                let banned = r.stats.map {
+                    TitleGrounding.violationWords(title: meta.title, description: meta.description,
+                                                  stats: $0, calibration: calibration)
+                } ?? []
+                violators.append((i, r, banned))
+            }
         }
 
-        // One corrective batch retry for the violators only.
+        // One corrective batch retry for the violators only. It MUST carry the
+        // per-station ban list: re-sending the identical prompt (what this did
+        // before) just re-rolled the same claim, so the batch path could never
+        // recover and every violator fell through to the uncached fallback.
         if !violators.isEmpty {
             let retryReqs = violators.map(\.req)
-            let retry = await attempt(retryReqs)
+            let bans = violators.enumerated()
+                .filter { !$0.element.banned.isEmpty }
+                .map { "Station \($0.offset): vermijd \($0.element.banned.joined(separator: ", "))" }
+            let note = bans.isEmpty ? "" : """
+
+
+                LET OP — je vorige poging beweerde voor deze stations iets dat de metingen tegenspreken.
+                \(bans.joined(separator: "\n"))
+                Gebruik die woorden NIET (ook geen verbuigingen of synoniemen). Beschrijf in plaats \
+                daarvan het genre, de periode of de artiesten uit het gemeten profiel van dat station.
+                """
+            let retry = await attempt(retryReqs, note: note)
             for (j, v) in violators.enumerated() {
                 if let meta = retry[j], validate(v.index, v.req, meta) {
                     result[v.req.id] = meta

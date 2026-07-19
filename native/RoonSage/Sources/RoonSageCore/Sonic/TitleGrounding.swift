@@ -247,6 +247,32 @@ public enum TitleGrounding {
         return both.filter { seen.insert($0).inserted }
     }
 
+    /// The exact words a corrective retry must avoid — every trigger spelling of
+    /// each violated claim, not the human-readable label.
+    ///
+    /// The labels read "melancholisch (gemeten: eerder vrolijk)", so telling the
+    /// model to write "ZONDER deze woorden" also forbids *vrolijk* — the very
+    /// word the measurements support. Two stations (Mark Knopfler, Emmanuel
+    /// Lagumbay) kept re-emitting the banned word through both attempts because
+    /// of it. This returns just the forbidden spellings, deduped and sorted.
+    public static func violationWords(title: String, description: String,
+                                      stats: SelectionStats,
+                                      calibration: Calibration? = nil) -> [String] {
+        let bad = Set(violations(title: title, description: description,
+                                 stats: stats, calibration: calibration))
+        guard !bad.isEmpty else { return [] }
+        var out: Set<String> = []
+        for c in claims where bad.contains(c.label) {
+            for w in c.words {
+                let trimmed = w.trimmingCharacters(in: .whitespaces)
+                // Skip fragment matchers ("dance-", " dance") — they aren't words
+                // a human-readable ban list can meaningfully name.
+                if trimmed.count > 2, !trimmed.hasSuffix("-") { out.insert(trimmed) }
+            }
+        }
+        return out.sorted()
+    }
+
     // MARK: - Profile signature (title-regeneration trigger)
 
     /// A coarse, banded fingerprint of a selection's sonic character. Deliberately

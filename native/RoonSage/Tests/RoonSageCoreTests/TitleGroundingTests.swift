@@ -10,6 +10,37 @@ final class TitleGroundingTests: XCTestCase {
                                    tags: tags, embedding: nil, moods: moods, attributes: attrs)
     }
 
+    // MARK: violationWords (the corrective-retry ban list)
+
+    /// The live failure: the LABEL reads "melancholisch (gemeten: eerder vrolijk)",
+    /// so a prompt saying "zonder deze woorden" also banned *vrolijk* — the word
+    /// the measurements actually support. The ban list must name only the
+    /// forbidden spellings.
+    func testViolationWordsExcludeTheSupportedOpposite() {
+        let stats = TitleGrounding.SelectionStats(attributeAvg: ["valence": 0.75], energyAvg: nil)
+        let words = TitleGrounding.violationWords(
+            title: "Melancholische ballades", description: "Weemoedige liedjes.", stats: stats)
+        XCTAssertTrue(words.contains("melancholisch"), "the violated claim's words are banned")
+        XCTAssertTrue(words.contains("weemoedig"))
+        XCTAssertFalse(words.contains("vrolijk"), "must not ban the word the measurements support")
+        XCTAssertFalse(words.contains("zonnig"))
+    }
+
+    func testViolationWordsEmptyWhenGrounded() {
+        let stats = TitleGrounding.SelectionStats(attributeAvg: ["acousticness": 0.8], energyAvg: nil)
+        XCTAssertTrue(TitleGrounding.violationWords(
+            title: "Akoestische parels", description: "Mooi.", stats: stats).isEmpty)
+    }
+
+    func testViolationWordsSkipFragmentMatchers() {
+        let stats = TitleGrounding.SelectionStats(attributeAvg: ["danceability": 0.1], energyAvg: nil)
+        let words = TitleGrounding.violationWords(
+            title: "Dansbare hits", description: "", stats: stats)
+        XCTAssertTrue(words.contains("dansbaar"))
+        XCTAssertFalse(words.contains(where: { $0.hasSuffix("-") }), "no fragment matchers in a human ban list")
+        XCTAssertEqual(words, words.sorted(), "deterministic order")
+    }
+
     // MARK: Claim validation
 
     func testAcousticClaimOnElectronicSelectionIsViolation() {
