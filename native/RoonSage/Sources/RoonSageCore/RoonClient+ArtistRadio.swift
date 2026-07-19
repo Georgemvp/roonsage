@@ -542,11 +542,15 @@ extension RoonClient {
         }
 
         // Feature fusion: keep the pool true to the bucket's defining measured
-        // constraint (activity energy/tempo, mood, genre, decade). Relaxes when
-        // the matching pool alone can't fill a playlist.
+        // constraint (activity energy/tempo, mood, genre, decade). Relaxes ONLY
+        // when the matching pool can't fill a *minimum* playlist — the earlier
+        // `maxTracks * 2` target admitted dozens of non-matching tracks even
+        // when enough matching ones existed, and the round-robin artist spread
+        // in `capForPlaylist` then pulled them into the playlist (a "relaxed"
+        // mood station is a diluted one).
         if let gate {
             neighbours = gatedWithRelaxation(neighbours, gate: gate,
-                                             minKeep: artistRadioMaxTracks * 2)
+                                             minKeep: artistRadioMinTracks)
         }
 
         var seedGenres = Set<String>()
@@ -586,23 +590,25 @@ extension RoonClient {
 
     // MARK: AI title + description
 
-    // `v2`: the prompt now steers titles toward the sonic profile (genre / mood
-    // / energy) instead of abstract wordplay. Bumping the key regenerates the
-    // earlier vague titles on next build.
-    private static func titleKey(_ id: String) -> String  { "artistradio.title.v2.\(id)" }
-    private static func descKey(_ id: String) -> String   { "artistradio.desc.v2.\(id)" }
-    private static func descSigKey(_ id: String) -> String { "artistradio.descsig.v2.\(id)" }
+    // `v3`: titles cached under `v2` were generated from a profile whose tags
+    // (LLM-guessed "driving/peak-time" on 40-60% of the library) and raw-cosine
+    // moods ("danceable" on opera) were near-identical for every station — the
+    // measured cause of "Classieke Party"-grade names. The profile now leads
+    // with real genres, calibrated moods, confidence-gated tempo, key mode and
+    // period; bumping the keys regenerates every cached title/desc under it.
+    // (`v2` bump history: prompt steered toward the sonic profile.)
+    private static func titleKey(_ id: String) -> String  { "artistradio.title.v3.\(id)" }
+    private static func descKey(_ id: String) -> String   { "artistradio.desc.v3.\(id)" }
+    private static func descSigKey(_ id: String) -> String { "artistradio.descsig.v3.\(id)" }
     /// The sonic-profile signature the cached TITLE was generated for. When the
     /// station's measured character drifts past this band-fingerprint, the title
     /// is regenerated (and the Qobuz playlist renamed IN PLACE via its stored id)
     /// — the fix for names frozen on a long-gone first-build selection.
     ///
-    /// `v2`: titles cached under `v1` were generated when a style claim only had
-    /// to clear 0.45 to survive validation, and before `clampTitle` peeled Dutch
-    /// connectors — so the cache still holds ungrounded claims and names cut to
-    /// "Film & Theater: Akoestisch en". Bumping the key makes every lookup miss,
-    /// which marks all titles stale and regenerates them under the current rules.
-    private static func titleSigKey(_ id: String) -> String { "artistradio.titlesig.v2.\(id)" }
+    /// `v3`: bumped together with the title/desc keys above (profile-input
+    /// overhaul). Earlier bump (`v2`): claims only had to clear 0.45 and
+    /// `clampTitle` didn't peel Dutch connectors yet.
+    private static func titleSigKey(_ id: String) -> String { "artistradio.titlesig.v3.\(id)" }
     static func qobuzIDKey(_ id: String) -> String        { "artistradio.qobuzid.\(id)" }
 
     /// The cached AI title for a radio id, or nil when none has been generated yet
@@ -729,17 +735,52 @@ extension RoonClient {
             if !attrParts.isEmpty { parts.append("kenmerken: \(attrParts.joined(separator: ", "))") }
         }
 
-        // Dominant tags / genres.
-        var tagCounts: [String: Int] = [:]
-        for t in tracks { for tag in t.tags { tagCounts[tag.lowercased(), default: 0] += 1 } }
-        let topTags = tagCounts.sorted { $0.value > $1.value }.prefix(4).map(\.key)
-        if !topTags.isEmpty { parts.append("genres/tags: \(topTags.joined(separator: ", "))") }
+        // Genres: prefer REAL genres (MusicBrainz/Deezer) over the LLM-guessed
+        // `tags` — the tag vocabulary collapsed onto a handful of DJ-set words
+        // ("driving" sat on 62% of the library), which made every station's
+        // profile read the same and every title equally vague. Tags remain only
+        // as a fallback for libraries without genre enrichment.
+        var genreCounts: [String: Int] = [:]
+        for t in tracks { for g in t.genres { genreCounts[g, default: 0] += 1 } }
+        let genreFloor = max(2, Int((Double(tracks.count) * 0.15).rounded()))
+        let topGenres = genreCounts
+            .filter { $0.value >= genreFloor }
+            .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+            .prefix(3).map(\.key)
+        if !topGenres.isEmpty {
+            parts.append("genres: \(topGenres.joined(separator: ", "))")
+        } else {
+            var tagCounts: [String: Int] = [:]
+            for t in tracks { for tag in t.tags { tagCounts[tag.lowercased(), default: 0] += 1 } }
+            let topTags = tagCounts
+                .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+                .prefix(4).map(\.key)
+            if !topTags.isEmpty { parts.append("genres/tags: \(topTags.joined(separator: ", "))") }
+        }
 
-        // Top moods (averaged cosine across the selection).
-        var moodSum: [String: Float] = [:]
-        for t in tracks { for (m, v) in t.moods { moodSum[m, default: 0] += v } }
-        let topMoods = moodSum.sorted { $0.value > $1.value }.prefix(2).map(\.key)
-        if !topMoods.isEmpty { parts.append("sfeer: \(topMoods.joined(separator: ", "))") }
+        // Moods, judged against the LIBRARY BASELINE when calibrated: tally each
+        // track's dominant z-scored mood and report the shares that carry the
+        // selection. Raw cosine averages made "danceable" the top mood of nearly
+        // every station (CLAP text prior) — opera radios read "danceable, relaxed".
+        if let moodCal = calibration?.moods {
+            var tally: [String: Int] = [:]
+            for t in tracks {
+                if let m = moodCal.dominantMood(t.moods) { tally[m, default: 0] += 1 }
+            }
+            let floor = max(2, Int((Double(tracks.count) * 0.2).rounded()))
+            let top = tally
+                .filter { $0.value >= floor }
+                .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+                .prefix(2).map { moodLabel($0.key).lowercased() }
+            if !top.isEmpty { parts.append("sfeer: \(top.joined(separator: ", "))") }
+        } else {
+            // Uncalibrated fallback (small/remote library): old averaged cosines.
+            var moodSum: [String: Float] = [:]
+            for t in tracks { for (m, v) in t.moods { moodSum[m, default: 0] += v } }
+            let topMoods = moodSum.sorted { $0.value > $1.value }.prefix(2)
+                .map { moodLabel($0.key).lowercased() }
+            if !topMoods.isEmpty { parts.append("sfeer: \(topMoods.joined(separator: ", "))") }
+        }
 
         // Energy band on the perceptual energy signal (arousal-or-RMS), judged
         // LIBRARY-RELATIVE when calibrated — so a compressed RMS axis still yields
@@ -757,11 +798,52 @@ extension RoonClient {
             parts.append("energie: \(band)")
         }
 
-        // Tempo.
-        let bpms = tracks.compactMap(\.bpm).filter { $0 > 0 }
-        if !bpms.isEmpty {
-            let avg = Int((bpms.reduce(0, +) / Double(bpms.count)).rounded())
-            parts.append("±\(avg) BPM")
+        // Tempo — only when the detector is actually confident. Native BPM is
+        // right within 3 BPM for only ~63% of tracks (vs the Deezer reference),
+        // so an unconditional "±120 BPM" was noise dressed as measurement.
+        // Median (robust) instead of mean; a wide spread is reported as such.
+        let bpmPairs = tracks.compactMap { t -> (bpm: Double, conf: Double)? in
+            guard let b = t.bpm, b > 0 else { return nil }
+            return (b, t.bpmConfidence ?? 0.5)
+        }
+        if !bpmPairs.isEmpty {
+            let confs = bpmPairs.map(\.conf).sorted()
+            let medianConf = confs[confs.count / 2]
+            if medianConf >= 0.45 {
+                let sortedBpm = bpmPairs.map(\.bpm).sorted()
+                let median = Int(sortedBpm[sortedBpm.count / 2].rounded())
+                let p25 = sortedBpm[sortedBpm.count / 4]
+                let p75 = sortedBpm[(sortedBpm.count * 3) / 4]
+                if p75 - p25 <= 16 {
+                    parts.append("±\(median) BPM")
+                } else {
+                    parts.append("tempo wisselt (±\(Int(p25.rounded()))–\(Int(p75.rounded())) BPM)")
+                }
+            }
+        }
+
+        // Key mode: Camelot letter (A = minor, B = major). Only claimed when the
+        // selection clearly leans one way.
+        let modes = tracks.compactMap { t -> Bool? in
+            switch t.camelot.last {
+            case "A", "a": return true   // minor
+            case "B", "b": return false  // major
+            default: return nil
+            }
+        }
+        if modes.count >= 4 {
+            let minorShare = Double(modes.filter { $0 }.count) / Double(modes.count)
+            if minorShare >= 0.65 { parts.append("overwegend mineur") }
+            else if minorShare <= 0.35 { parts.append("overwegend majeur") }
+        }
+
+        // Period: p10–p90 of the (sanity-clamped) release years, when enough
+        // tracks carry one. Lets a title say "jaren 80" or "1968–1994" honestly.
+        let years = tracks.compactMap(\.year).sorted()
+        if years.count >= max(3, tracks.count / 3) {
+            let lo = years[years.count / 10]
+            let hi = years[(years.count * 9) / 10]
+            parts.append(lo == hi ? "periode: \(lo)" : "periode: \(lo)–\(hi)")
         }
         return parts.joined(separator: "; ")
     }
@@ -843,8 +925,10 @@ extension RoonClient {
 
         Eisen voor "title":
         - Maak METEEN duidelijk wat voor muziek/sfeer het is: noem het genre/stijl en/of de sfeer of energie (bv. "Melodieuze indie-rock", "Dromerige akoestische avond", "Energieke house").
+        - Noem het meest ONDERSCHEIDENDE kenmerk van deze selectie: een specifiek genre, de periode, of een kenmerkende artiest — liever "Post-punk uit de jaren 80" dan "Energieke rock".
         - Baseer stijl- en sfeerwoorden UITSLUITEND op het gemeten sonische profiel hierboven. Beweer GEEN kenmerken (akoestisch, dansbaar, rustig, …) die er niet in staan.
         - Sluit aan op het thema \(subject). Vermijd vage woordgrappen die het genre niet verraden.
+        - Vermijd DJ-jargon (warm-up, peak-time, driving) en holle vulwoorden (mix, hits, vibes, party, beats).
         - Gebruik UITSLUITEND bestaande, correct gespelde Nederlandse woorden (Engelse genrenamen mogen). Verzin GEEN woorden.
         - Kort en krachtig: MAX 45 tekens, het liefst korter.
 
@@ -952,7 +1036,7 @@ extension RoonClient {
             }
         }
         func block(_ i: Int, _ r: TitleRequest) -> String {
-            let examples = r.sample.prefix(5).map { "  • \($0.title) — \($0.artist ?? "onbekend")" }.joined(separator: "\n")
+            let examples = r.sample.prefix(8).map { "  • \($0.title) — \($0.artist ?? "onbekend")" }.joined(separator: "\n")
             return """
             Station \(i) — \(subject(r)):
               gemeten profiel: \(r.profile.isEmpty ? "onbekend" : r.profile)
@@ -969,8 +1053,10 @@ extension RoonClient {
 
             Eisen voor elke "title":
             - Maak METEEN duidelijk wat voor muziek/sfeer het is (genre/stijl + sfeer/energie).
+            - Noem per station het meest ONDERSCHEIDENDE kenmerk: een specifiek genre, de periode, of een kenmerkende artiest — liever "Post-punk uit de jaren 80" dan "Energieke rock".
             - Baseer stijl- en sfeerwoorden UITSLUITEND op het gemeten profiel van DAT station. Verzin geen kenmerken.
             - De titels moeten ONDERLING DUIDELIJK VERSCHILLEN: begin niet meerdere titels met hetzelfde woord (bv. niet steeds "Elektronische …").
+            - Vermijd DJ-jargon (warm-up, peak-time, driving) en holle vulwoorden (mix, hits, vibes, party, beats).
             - Uitsluitend bestaande, correct gespelde Nederlandse woorden (Engelse genrenamen mogen). MAX 45 tekens.
             Eisen voor elke "description": 1 à 2 vlotte, correcte Nederlandse zinnen; noem stijl/sfeer + kenmerkende artiesten of genre.
             "i" is het stationnummer. Geef precies \(reqs.count) objecten.\(note)

@@ -224,4 +224,86 @@ final class ArtistRadioTests: XCTestCase {
     func testQobuzPlaylistNameIsStablePrefix() {
         XCTAssertEqual(RoonClient.qobuzPlaylistName(for: "Gouden Uren"), "RoonSage · Gouden Uren")
     }
+
+    // MARK: sonicProfileSummary (the measured profile that feeds the AI titles)
+
+    private func sonic(
+        _ id: String, bpm: Double? = nil, conf: Double? = nil, camelot: String = "",
+        tags: [String] = [], moods: [String: Float] = [:],
+        genres: [String] = [], year: Int? = nil
+    ) -> DatabaseManager.SonicTrack {
+        DatabaseManager.SonicTrack(
+            id: id, title: "T-\(id)", artist: "A", album: nil, imageKey: nil,
+            matchKey: "mk-\(id)", bpm: bpm, camelot: camelot, energy: nil,
+            tags: tags, moods: moods, bpmConfidence: conf, genres: genres, year: year)
+    }
+
+    func testProfilePrefersRealGenresOverLLMTags() {
+        let sel = (0..<5).map {
+            sonic("\($0)", tags: ["driving", "peak-time"], genres: ["indie rock"])
+        }
+        let p = RoonClient.sonicProfileSummary(sel)
+        XCTAssertTrue(p.contains("genres: indie rock"), p)
+        XCTAssertFalse(p.contains("driving"), "LLM tags must not reach the profile when real genres exist: \(p)")
+    }
+
+    func testProfileFallsBackToTagsWithoutGenres() {
+        let sel = (0..<5).map { sonic("\($0)", tags: ["ambient"]) }
+        let p = RoonClient.sonicProfileSummary(sel)
+        XCTAssertTrue(p.contains("genres/tags: ambient"), p)
+    }
+
+    func testProfileOmitsTempoWhenDetectorUnconfident() {
+        let sel = (0..<5).map { sonic("\($0)", bpm: 123, conf: 0.3) }
+        XCTAssertFalse(RoonClient.sonicProfileSummary(sel).contains("BPM"),
+                       "low-confidence BPM is noise, not measurement")
+    }
+
+    func testProfileReportsMedianTempoWhenConfident() {
+        let sel = (0..<5).map { sonic("\($0)", bpm: 120 + Double($0), conf: 0.9) }
+        XCTAssertTrue(RoonClient.sonicProfileSummary(sel).contains("±122 BPM"))
+    }
+
+    func testProfileReportsWideTempoAsSpread() {
+        let bpms: [Double] = [70, 95, 120, 150, 180]
+        let sel = bpms.enumerated().map { sonic("\($0.offset)", bpm: $0.element, conf: 0.9) }
+        let p = RoonClient.sonicProfileSummary(sel)
+        XCTAssertTrue(p.contains("tempo wisselt"), p)
+    }
+
+    func testProfileCalibratedMoodOverridesTextPrior() {
+        // Library-wide, "danceable" scores structurally higher than "sad" (CLAP
+        // text prior). The selection is *unusually* sad for this library — the
+        // calibrated profile must say melancholisch, not dansbaar.
+        let library = (0..<20).map {
+            sonic("lib\($0)", moods: ["danceable": 0.38 + Float($0) * 0.004,
+                                      "sad": 0.05 + Float($0) * 0.004])
+        }
+        let cal = TitleGrounding.Calibration.compute(library: library)
+        let sel = (0..<5).map {
+            sonic("sel\($0)", moods: ["danceable": 0.40, "sad": 0.30 + Float($0) * 0.001])
+        }
+        let p = RoonClient.sonicProfileSummary(sel, calibration: cal)
+        XCTAssertTrue(p.contains("sfeer: melancholisch"), p)
+        XCTAssertFalse(p.contains("dansbaar"), p)
+    }
+
+    func testProfileReportsDominantKeyMode() {
+        let sel = (0..<5).map { sonic("\($0)", camelot: $0 < 4 ? "8A" : "8B") }
+        XCTAssertTrue(RoonClient.sonicProfileSummary(sel).contains("overwegend mineur"))
+        let major = (0..<5).map { sonic("\($0)", camelot: "8B") }
+        XCTAssertTrue(RoonClient.sonicProfileSummary(major).contains("overwegend majeur"))
+    }
+
+    func testProfileReportsPeriodFromYears() {
+        let sel = (0..<6).map { sonic("\($0)", year: 1980 + $0) }
+        let p = RoonClient.sonicProfileSummary(sel)
+        XCTAssertTrue(p.contains("periode: 1980–1985"), p)
+    }
+
+    func testProfileSkipsPeriodOnSparseYears() {
+        let sel = (0..<6).map { sonic("\($0)", year: $0 == 0 ? 1980 : nil) }
+        XCTAssertFalse(RoonClient.sonicProfileSummary(sel).contains("periode"),
+                       "one year out of six is not a measured period")
+    }
 }

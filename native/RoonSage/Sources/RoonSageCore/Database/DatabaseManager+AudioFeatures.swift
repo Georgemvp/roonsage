@@ -465,17 +465,22 @@ extension DatabaseManager {
         public var mapX: Double?             // PCA-2D projection (Music Map)
         public var mapY: Double?
         public var popularity: Int?          // Deezer global rank (~0…1_000_000)
+        public var genres: [String]          // REAL genres (MusicBrainz ∪ Deezer), lowercased —
+                                             // unlike `tags`, these are not LLM-guessed
+        public var year: Int?                // release year from the tracks row (sanity-clamped)
 
         public init(id: String, title: String, artist: String?, album: String?, imageKey: String?,
                     matchKey: String, bpm: Double?, camelot: String, energy: Double?, tags: [String],
                     embedding: [Float]? = nil, moods: [String: Float] = [:],
                     mapX: Double? = nil, mapY: Double? = nil, bpmConfidence: Double? = nil,
-                    attributes: [String: Float] = [:], popularity: Int? = nil) {
+                    attributes: [String: Float] = [:], popularity: Int? = nil,
+                    genres: [String] = [], year: Int? = nil) {
             self.id = id; self.title = title; self.artist = artist; self.album = album
             self.imageKey = imageKey; self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot
             self.energy = energy; self.tags = tags; self.embedding = embedding; self.moods = moods
             self.mapX = mapX; self.mapY = mapY; self.bpmConfidence = bpmConfidence
             self.attributes = attributes; self.popularity = popularity
+            self.genres = genres; self.year = year
         }
     }
 
@@ -484,8 +489,12 @@ extension DatabaseManager {
     public func sonicTracks(excludeLive: Bool = true) async throws -> [SonicTrack] {
         try await pool.read { db in
             var sql = """
-                SELECT t.id, t.title, t.artist, t.album, t.image_key, t.match_key,
-                       f.bpm, f.bpm_confidence, f.camelot, f.energy, f.tags, f.embedding, f.moods, f.attributes, f.map_x, f.map_y, f.popularity
+                SELECT t.id, t.title, t.artist, t.album, t.image_key, t.match_key, t.year,
+                       f.bpm, f.bpm_confidence, f.camelot, f.energy, f.tags, f.embedding, f.moods, f.attributes, f.map_x, f.map_y, f.popularity,
+                       (SELECT GROUP_CONCAT(genre, CHAR(31)) FROM track_mb_genres g
+                         WHERE g.match_key = f.match_key) AS mb_genres,
+                       (SELECT GROUP_CONCAT(genre, CHAR(31)) FROM track_deezer_genres g
+                         WHERE g.match_key = f.match_key) AS deezer_genres
                 FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
                 WHERE f.match_key IS NOT NULL
             """
@@ -514,12 +523,26 @@ extension DatabaseManager {
                 if let a = r["attributes"] as String?, let d = a.data(using: .utf8) {
                     attributes = (try? JSONDecoder().decode([String: Float].self, from: d)) ?? [:]
                 }
+                // Real genres: MusicBrainz ∪ Deezer, lowercased + deduped (order kept).
+                var genres: [String] = []
+                var seenGenre = Set<String>()
+                for col in ["mb_genres", "deezer_genres"] {
+                    guard let joined = r[col] as String? else { continue }
+                    for g in joined.split(separator: "\u{1f}") {
+                        let key = g.lowercased()
+                        if !key.isEmpty, seenGenre.insert(key).inserted { genres.append(key) }
+                    }
+                }
+                // Sanity-clamp the file-tag year: broken tags produce values like
+                // 4018, which once minted a ghost "decade:4010" radio.
+                let year = (r["year"] as Int?).flatMap { (1900...2035).contains($0) ? $0 : nil }
                 out.append(SonicTrack(
                     id: r["id"] ?? "", title: title, artist: artist, album: r["album"],
                     imageKey: r["image_key"], matchKey: r["match_key"] ?? "",
                     bpm: r["bpm"], camelot: r["camelot"] ?? "", energy: r["energy"], tags: tags,
                     embedding: embedding, moods: moods, mapX: r["map_x"], mapY: r["map_y"],
-                    bpmConfidence: r["bpm_confidence"], attributes: attributes, popularity: r["popularity"]
+                    bpmConfidence: r["bpm_confidence"], attributes: attributes, popularity: r["popularity"],
+                    genres: genres, year: year
                 ))
             }
             return out

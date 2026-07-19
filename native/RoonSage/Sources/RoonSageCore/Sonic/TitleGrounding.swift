@@ -40,6 +40,10 @@ public enum TitleGrounding {
     /// reaches.
     public struct Calibration: Sendable {
         let sorted: [String: [Float]]
+        /// Per-mood z-score statistics over the same library, so profile/title
+        /// code can judge moods against the library baseline (CLAP's text prior
+        /// makes "danceable" outscore "sad" everywhere; raw averages are biased).
+        public let moods: MoodCalibration?
 
         public static func compute(library: [DatabaseManager.SonicTrack]) -> Calibration {
             var byAxis: [String: [Float]] = [:]
@@ -48,7 +52,8 @@ public enum TitleGrounding {
                 if let e = energySignal(t) { byAxis[energyAxis, default: []].append(Float(e)) }
             }
             for k in byAxis.keys { byAxis[k]?.sort() }
-            return Calibration(sorted: byAxis)
+            return Calibration(sorted: byAxis,
+                               moods: library.isEmpty ? nil : MoodCalibration(tracks: library))
         }
 
         /// Fraction of the library scoring BELOW `value` on `axis` (0…1), or nil
@@ -272,6 +277,15 @@ public enum TitleGrounding {
         for t in tracks { for tag in t.tags { tagCount[tag.lowercased(), default: 0] += 1 } }
         let topTags = tagCount.sorted { $0.value > $1.value }.prefix(3).map(\.key).sorted()
         if !topTags.isEmpty { parts.append("t:\(topTags.joined(separator: ","))") }
+
+        // Top-2 REAL genres (MusicBrainz/Deezer) — the profile leads with these,
+        // so a genre shift must shift the signature (and regenerate the title).
+        var genreCount: [String: Int] = [:]
+        for t in tracks { for g in t.genres { genreCount[g, default: 0] += 1 } }
+        let topGenres = genreCount
+            .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+            .prefix(2).map(\.key).sorted()
+        if !topGenres.isEmpty { parts.append("g:\(topGenres.joined(separator: ","))") }
 
         // Attribute bands (h/l/n per axis, fixed axis order).
         let stats = SelectionStats.compute(tracks)
