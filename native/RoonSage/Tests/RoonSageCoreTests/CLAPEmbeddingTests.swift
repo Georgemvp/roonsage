@@ -14,6 +14,17 @@ import XCTest
 /// `.mlpackage` files — see EMBEDDING_NOTES.md).
 final class CLAPEmbeddingTests: XCTestCase {
 
+    /// Pin Core ML to the CPU for the whole test process. Apple's MPSGraph
+    /// aborts (`shape.count = 0 != strides.count = 2`) in roughly a third of
+    /// short-lived test runs on the accelerated path; measured 5 crashes in 16
+    /// runs on `.all` versus 0 in 24 on `.cpuOnly`. The assertions below are
+    /// unchanged — only the backend differs. Production stays on `.all` (see
+    /// CLAPModel.swift): the analyzer has never hit this in 70 sessions.
+    override class func setUp() {
+        super.setUp()
+        setenv("ROONSAGE_CLAP_CPU_ONLY", "1", 1)
+    }
+
     // Must match GOLDEN_SINES in convert_clap_to_coreml.py.
     private let sines: [(freq: Double, amp: Double)] =
         [(110, 0.5), (440, 0.25), (1760, 0.15), (6000, 0.1)]

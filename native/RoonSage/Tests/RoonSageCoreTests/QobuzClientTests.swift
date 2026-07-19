@@ -239,4 +239,37 @@ final class QobuzClientTests: XCTestCase {
         XCTAssertEqual(QobuzClient.dedupePreservingOrder([]), [])
         XCTAssertEqual(QobuzClient.dedupePreservingOrder([9, 9, 9]), [9])
     }
+
+    // MARK: retry schedule
+    //
+    // A 503 on playlist/get makes playlistTrackCount return nil, which trips the
+    // catastrophic-shrink guard and skips the whole radio sync. The guard is
+    // correct; the read giving up too early was not.
+
+    func testRetryDelayDoublesAndCaps() {
+        XCTAssertEqual(QobuzClient.retryDelay(attempt: 0, retryAfter: nil), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(QobuzClient.retryDelay(attempt: 1, retryAfter: nil), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(QobuzClient.retryDelay(attempt: 2, retryAfter: nil), 2.0, accuracy: 1e-9)
+        XCTAssertEqual(QobuzClient.retryDelay(attempt: 3, retryAfter: nil), 4.0, accuracy: 1e-9)
+        XCTAssertEqual(QobuzClient.retryDelay(attempt: 9, retryAfter: nil), 8.0, accuracy: 1e-9,
+                       "capped so a long outage can't stall the sync indefinitely")
+    }
+
+    func testRetryDelayHonoursRetryAfterClamped() {
+        XCTAssertEqual(QobuzClient.retryDelay(attempt: 0, retryAfter: 3), 3.0, accuracy: 1e-9,
+                       "a server-sent Retry-After wins over our own curve")
+        XCTAssertEqual(QobuzClient.retryDelay(attempt: 0, retryAfter: 900), 10.0, accuracy: 1e-9,
+                       "clamped: never park the sync for a quarter of an hour")
+        XCTAssertEqual(QobuzClient.retryDelay(attempt: 0, retryAfter: -5), 0.0, accuracy: 1e-9,
+                       "a nonsense negative header must not become a negative sleep")
+    }
+
+    /// The regression this guards: the old inline curve (0.4s then 0.8s) gave up
+    /// after 1.2 s across 3 attempts — far too impatient for a burst rate-limit
+    /// when ~24 radios sync back to back.
+    func testRetryBudgetIsLongerThanTheOldOnePointTwoSeconds() {
+        let waits = (0..<4).map { QobuzClient.retryDelay(attempt: $0, retryAfter: nil) }
+        XCTAssertEqual(waits.reduce(0, +), 7.5, accuracy: 1e-9)
+        XCTAssertGreaterThan(waits.reduce(0, +), 1.2)
+    }
 }

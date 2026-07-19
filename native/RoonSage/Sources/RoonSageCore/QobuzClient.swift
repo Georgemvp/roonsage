@@ -674,18 +674,40 @@ public actor QobuzClient {
     /// can tell "the read failed" (nil → fail closed) from "legitimately empty"
     /// (non-nil). Retrying transient rate-limits/outages stops a hiccup from being
     /// misread as "no data" — the root cause of the recurring silent Qobuz breakage.
-    private func getJSON(_ request: URLRequest, attempts: Int = 3) async -> [String: Any]? {
+    /// Seconds to wait before retry `attempt` (0-based), honouring a server-sent
+    /// `Retry-After` when present. Mirrors `LLMClient.backoff` — same clamp, same
+    /// curve — so the two outbound clients behave alike under rate limiting.
+    ///
+    /// Pure and `static` so the schedule is unit-testable; the previous inline
+    /// 0.4s→0.8s curve gave up after 1.2 s total, which is far too impatient for a
+    /// 503. The AI-radio sync fires ~24 radios back to back, each doing several
+    /// GETs, so a burst-induced rate limit is the likely shape of the failure.
+    static func retryDelay(attempt: Int, retryAfter: Double?) -> Double {
+        if let ra = retryAfter { return min(max(ra, 0), 10) }
+        return min(0.5 * pow(2, Double(max(0, attempt))), 8)
+    }
+
+    private func getJSON(_ request: URLRequest, attempts: Int = 5) async -> [String: Any]? {
         let path = request.url?.path ?? "?"
-        var delay: UInt64 = 400_000_000 // 0.4s, doubled per retry
         for attempt in 0..<max(1, attempts) {
             do {
                 let (data, response) = try await URLSession.shared.data(for: request)
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                let http = response as? HTTPURLResponse
+                let status = http?.statusCode ?? 0
                 if status == 429 || (500...599).contains(status) {
                     if attempt < attempts - 1 {
-                        try? await Task.sleep(nanoseconds: delay); delay *= 2; continue
+                        let retryAfter = http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init)
+                        try? await Task.sleep(
+                            nanoseconds: UInt64(Self.retryDelay(attempt: attempt, retryAfter: retryAfter) * 1_000_000_000))
+                        continue
                     }
-                    Log.warning("Qobuz GET \(path): HTTP \(status) after \(attempt + 1) attempts", category: .network)
+                    // Log a slice of the body: a Qobuz-authored error ("rate limit
+                    // exceeded") means something entirely different from a bare
+                    // gateway 503, and without it the next diagnosis starts blind.
+                    let body = String(decoding: data.prefix(200), as: UTF8.self)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    Log.warning("Qobuz GET \(path): HTTP \(status) after \(attempt + 1) attempts\(body.isEmpty ? "" : " — body: \(body)")",
+                                 category: .network)
                     return nil
                 }
                 guard (200...299).contains(status) else {
@@ -695,7 +717,9 @@ public actor QobuzClient {
                 return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             } catch {
                 if attempt < attempts - 1 {
-                    try? await Task.sleep(nanoseconds: delay); delay *= 2; continue
+                    try? await Task.sleep(
+                        nanoseconds: UInt64(Self.retryDelay(attempt: attempt, retryAfter: nil) * 1_000_000_000))
+                    continue
                 }
                 Log.warning("Qobuz GET \(path): transport error — \(error.localizedDescription)", category: .network)
                 return nil

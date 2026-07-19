@@ -73,6 +73,23 @@ public final class CLAPModel: @unchecked Sendable {
         let audioURL = dir.appendingPathComponent("CLAPAudio.mlpackage")
         let textURL = dir.appendingPathComponent("CLAPText.mlpackage")
         let cfgML = MLModelConfiguration()
+        // Opt-out of the ANE/GPU path, off by default.
+        //
+        // Production leaves this unset and stays on `.all`: the analyzer has run
+        // CLAP over 41.699 tracks across 70 sessions without a single crash, and
+        // `.all` is measurably faster there. The SAME code in a short-lived test
+        // process trips an assertion inside Apple's MPSGraph
+        // (`shape.count = 0 != strides.count = 2` → SIGABRT) in 5 of 16 runs;
+        // on `.cpuOnly` it was 0 of 24. The assertion is in framework code we
+        // cannot fix, so the tests avoid the trigger instead.
+        //
+        // TRADE-OFF, deliberate: CI therefore no longer exercises the ANE/GPU
+        // backend. The embedding maths is backend-independent (the golden-vector
+        // assertions are unchanged and still pass), but a regression specific to
+        // the accelerated path would not be caught here.
+        if ProcessInfo.processInfo.environment["ROONSAGE_CLAP_CPU_ONLY"] == "1" {
+            cfgML.computeUnits = .cpuOnly
+        }
         self.audioModel = try MLModel(contentsOf: MLModel.compileModel(at: audioURL), configuration: cfgML)
         self.textModel = try MLModel(contentsOf: MLModel.compileModel(at: textURL), configuration: cfgML)
 

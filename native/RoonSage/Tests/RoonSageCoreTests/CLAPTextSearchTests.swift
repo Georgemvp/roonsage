@@ -6,6 +6,14 @@ import XCTest
 /// exactly, and the text encoder yields a usable embedding. Skips when the
 /// model/tokenizer fixtures are absent.
 final class CLAPTextSearchTests: XCTestCase {
+
+    /// Same MPSGraph opt-out as CLAPEmbeddingTests — this class loads a
+    /// CLAPModel too, and XCTest may run it first.
+    override class func setUp() {
+        super.setUp()
+        setenv("ROONSAGE_CLAP_CPU_ONLY", "1", 1)
+    }
+
     private func requireDir() throws -> URL {
         guard let dir = CLAPModel.resourceDir(),
               FileManager.default.fileExists(atPath: dir.appendingPathComponent("vocab.json").path),
