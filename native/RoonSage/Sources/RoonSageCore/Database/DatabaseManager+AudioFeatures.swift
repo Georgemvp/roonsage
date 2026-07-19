@@ -552,11 +552,12 @@ extension DatabaseManager {
     /// Release year keyed by match_key, for decade-bucketed radios. Roon's Browse
     /// API doesn't expose the year (it's backfilled from analyzer file tags via
     /// `applyTrackYears`), so this only returns rows that actually have one.
+    /// Sanity-bounded: a broken 4018 tag once minted a ghost "decade:4010" radio.
     public func yearByMatchKey() async throws -> [String: Int] {
         try await pool.read { db in
             var map: [String: Int] = [:]
             for row in try Row.fetchAll(
-                db, sql: "SELECT match_key, year FROM tracks WHERE year IS NOT NULL AND year > 0"
+                db, sql: "SELECT match_key, year FROM tracks WHERE year BETWEEN 1900 AND 2035"
             ) {
                 guard let k = row["match_key"] as String?, let y = row["year"] as Int? else { continue }
                 // Keep the earliest year seen for a match_key (original release).

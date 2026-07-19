@@ -74,7 +74,7 @@ final class AnalyzerModel {
     private(set) var taggedCount = 0
     private(set) var analyze: AnalyzeProgress?
     private(set) var isAnalyzing = false
-    private(set) var tag: TagProgress?
+    private(set) var tag: ClapTagProgress?
     private(set) var isTagging = false
     private(set) var enrich: EnrichProgress?
     private(set) var isEnriching = false
@@ -96,7 +96,7 @@ final class AnalyzerModel {
 
     private let store: FeatureStore?
     private var walker: LibraryWalker?
-    private var tagger: Tagger?
+    private var tagger: ClapTagger?
     private var enricher: GenreEnricher?
     private var popularityEnricher: PopularityEnricher?
     private var loudnessBackfill: LoudnessBackfill?
@@ -202,6 +202,8 @@ final class AnalyzerModel {
             autoPreviewIfEnabled()
             // Deezer genre backfill — second signal alongside MB enrichment.
             autoDeezerGenreIfEnabled()
+            // Zero-shot CLAP tags for new/legacy rows (local, no network).
+            autoTagIfNeeded()
         }
     }
 
@@ -216,23 +218,41 @@ final class AnalyzerModel {
         startAnalyze()
     }
 
+    /// Zero-shot CLAP tagging: scores every embedded track against the fixed
+    /// vocabulary (audio-grounded). Replaces the Ollama tagger, which guessed
+    /// tags from metadata it never heard and collapsed the vocabulary onto its
+    /// own prompt examples ("driving" on 62% of the library).
     func startTag() {
         guard let store, !isTagging, trackCount > 0 else { return }
         isTagging = true
         tag = nil
-        status = "Tagging via Ollama…"
-        let t = Tagger(store: store, ollamaURL: ollamaURL, model: model, concurrency: tagConcurrency,
-                       contextTokens: tagContextTokens, temperature: tagTemperature, batchSize: tagBatchSize)
-        tagger = t
+        status = "Tags scoren op audio (CLAP)…"
         Task {
+            guard let clap = await awaitCLAP() else {
+                isTagging = false
+                status = "Taggen vereist het CLAP-model (niet geladen)."
+                return
+            }
+            let t = ClapTagger(store: store, clap: clap)
+            tagger = t
             await t.run { p in Task { @MainActor in self.tag = p } }
             isTagging = false
             refresh()
-            status = "Tagged \(taggedCount)/\(trackCount)."
+            status = "Tags: \(store.clapTaggedCount(version: ClapTagVocabulary.version))/\(trackCount) audio-gegrond."
         }
     }
 
     func cancelTag() { tagger?.cancel() }
+
+    /// Retag automatically after an analysis pass: new tracks have no tags yet,
+    /// and legacy (Ollama) rows lag the current vocabulary version. Exits
+    /// instantly when everything is stamped, so it's cheap to call every time.
+    func autoTagIfNeeded() {
+        guard let store, !isTagging,
+              !store.rowsNeedingClapTags(version: ClapTagVocabulary.version, limit: 1).isEmpty
+        else { return }
+        startTag()
+    }
 
     // MARK: - MusicBrainz genre enrichment
 

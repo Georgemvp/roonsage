@@ -31,14 +31,17 @@ case "analyze":
     print("Done. \(ok) analyzed, \(failed) failed. Store holds \(store.count()) tracks.")
 
 case "tag":
+    // Zero-shot CLAP tagging against the fixed vocabulary (audio-grounded).
+    // Replaces the Ollama metadata-guessing tagger. Resumable via tags_model.
     let store = try FeatureStore(path: option("--db") ?? FeatureStore.defaultPath())
-    let ollama = option("--ollama") ?? "http://127.0.0.1:11434"
-    let model = option("--model") ?? "qwen3.5:4b-mlx"
-    print("Tagging via \(ollama) (\(model))…")
-    await Tagger(store: store, ollamaURL: ollama, model: model).run { p in
-        if (p.tagged + p.failed) % 25 == 0 { print("  \(p.tagged) tagged, \(p.failed) failed (\(p.total) total)") }
+    guard let clap = CLAPModel.load(), clap.canEmbedText else {
+        print("CLAP model (with text tower) required for tagging — not found."); exit(1)
     }
-    print("Tagging done: \(store.taggedCount())/\(store.count()).")
+    print("Tagging \(store.embeddedCount()) embedded tracks against \(ClapTagVocabulary.terms.count) vocabulary terms (\(ClapTagVocabulary.version))…")
+    await ClapTagger(store: store, clap: clap).run { p in
+        if p.tagged % 2000 == 0 { print("  \(p.tagged)/\(p.total)") }
+    }
+    print("Tagging done: \(store.clapTaggedCount(version: ClapTagVocabulary.version))/\(store.count()).")
 
 case "enrich":
     // Album-level MusicBrainz genre enrichment + genre hierarchy. Rate-limited
@@ -126,7 +129,7 @@ case "":
     print("""
     usage: roonsage-analyzer <command>
       analyze <musicdir> [--db path] [--workers N] [--no-clap]   walk + analyze + store
-      tag [--db path] [--ollama url] [--model name]    LLM-tag stored tracks
+      tag [--db path]                                  zero-shot CLAP-tag stored tracks
       enrich [--db path] [--user-agent ua]             MusicBrainz genre enrichment + hierarchy
       import-dataset --sidecar <metadata.db> [--db path]  offline ISRC/MBID/Deezer-metrics import
       serve [--db path] [--port 5766]                  serve features over HTTP

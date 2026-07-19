@@ -180,6 +180,11 @@ public final class FeatureStore {
             // "no match") so the worker is resumable.
             try addColumn("deezer_genres", "TEXT")
             try addColumn("deezer_genre_checked_at", "TEXT")
+            // Zero-shot CLAP tagging (ClapTagger): which vocabulary version wrote
+            // this row's `tags`. NULL = legacy Ollama tags (or untagged); the
+            // tagger re-stamps every row whose version lags, so bumping
+            // `ClapTagVocabulary.version` retags the library resumable-y.
+            try addColumn("tags_model", "TEXT")
 
             // Genre hierarchy (parent ← subgenre), built from MusicBrainz. `parent`
             // is NULL for a root genre (or when MB exposes no relation for it).
@@ -490,15 +495,19 @@ public final class FeatureStore {
             let r = try Row.fetchOne(db, sql: """
                 SELECT COUNT(*) AS c, COUNT(embedding) AS e, COUNT(tags) AS t, COUNT(attributes) AS a,
                        COUNT(mb_genres) AS g, COUNT(popularity) AS p,
-                       SUM(CASE WHEN attributes LIKE '%"arousal"%' THEN 1 ELSE 0 END) AS ar
+                       SUM(CASE WHEN attributes LIKE '%"arousal"%' THEN 1 ELSE 0 END) AS ar,
+                       SUM(CASE WHEN tags_model = ? THEN 1 ELSE 0 END) AS tm
                 FROM track_features
-            """)
+            """, arguments: [ClapTagVocabulary.version])
             // `g`/`p` fold in MB + popularity progress. `ar` (arousal coverage)
             // is folded in because adding a NEW attribute AXIS to already-populated
             // `attributes` JSON leaves COUNT(attributes) unchanged — without this
             // term a re-derived axis would never propagate to clients / library.db.
-            return "\(r?["c"] as Int? ?? 0)/\(r?["e"] as Int? ?? 0)/\(r?["t"] as Int? ?? 0)/\(r?["a"] as Int? ?? 0)/\(r?["g"] as Int? ?? 0)/\(r?["p"] as Int? ?? 0)/\(r?["ar"] as Int? ?? 0)"
-        }) ?? "0/0/0/0/0/0/0"
+            // `tm` is the same trap for the CLAP retag: it REPLACES tags in place,
+            // so COUNT(tags) never moves — without this term retagged rows would
+            // never reach clients.
+            return "\(r?["c"] as Int? ?? 0)/\(r?["e"] as Int? ?? 0)/\(r?["t"] as Int? ?? 0)/\(r?["a"] as Int? ?? 0)/\(r?["g"] as Int? ?? 0)/\(r?["p"] as Int? ?? 0)/\(r?["ar"] as Int? ?? 0)/\(r?["tm"] as Int? ?? 0)"
+        }) ?? "0/0/0/0/0/0/0/0"
     }
 
     /// Resolve a streamable on-disk file for a track's match key — backs the
@@ -596,6 +605,59 @@ public final class FeatureStore {
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE track_features SET tags = ? WHERE match_key = ?", arguments: [tags, matchKey])
         }
+    }
+
+    // MARK: - Zero-shot CLAP tagging (ClapTagger)
+
+    /// Rows still lacking tags from `version`: legacy Ollama tags, an older
+    /// vocabulary, or no tags at all. Only embedded rows qualify — the tagger
+    /// scores audio, not metadata.
+    public func rowsNeedingClapTags(version: String, limit: Int) -> [(matchKey: String, embedding: [Float])] {
+        (try? dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT match_key, embedding FROM track_features
+                WHERE embedding IS NOT NULL AND (tags_model IS NULL OR tags_model <> ?)
+                LIMIT ?
+                """, arguments: [version, limit]).compactMap { r in
+                guard let mk = r["match_key"] as String?, let d = r["embedding"] as Data? else { return nil }
+                return (mk, Self.floats(d))
+            }
+        }) ?? []
+    }
+
+    /// An evenly-spread sample of embeddings for per-term calibration —
+    /// deterministic (rowid stride), no ORDER BY RANDOM() churn.
+    public func embeddingSample(limit: Int) -> [[Float]] {
+        (try? dbQueue.read { db in
+            let n = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_features WHERE embedding IS NOT NULL") ?? 0
+            guard n > 0 else { return [] }
+            let step = max(1, n / max(1, limit))
+            return try Row.fetchAll(db, sql: """
+                SELECT embedding FROM track_features
+                WHERE embedding IS NOT NULL AND (rowid % ?) = 0
+                LIMIT ?
+                """, arguments: [step, limit]).compactMap { r in
+                (r["embedding"] as Data?).map(Self.floats)
+            }
+        }) ?? []
+    }
+
+    /// Batch-write one tagging pass: tags + version stamp in a single write.
+    public func setClapTags(_ updates: [(matchKey: String, tags: String)], model: String) throws {
+        try dbQueue.write { db in
+            for u in updates {
+                try db.execute(sql: "UPDATE track_features SET tags = ?, tags_model = ? WHERE match_key = ?",
+                               arguments: [u.tags, model, u.matchKey])
+            }
+        }
+    }
+
+    /// Rows already stamped with `version` — the tagger's resumability meter.
+    public func clapTaggedCount(version: String) -> Int {
+        (try? dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_features WHERE tags_model = ?",
+                             arguments: [version]) ?? 0
+        }) ?? 0
     }
 
     // MARK: - MusicBrainz genre enrichment

@@ -70,7 +70,7 @@ struct AnalyzerView: View {
                 }
 
                 // Tag
-                GroupBox("2 · Taggen (LLM via Ollama)") {
+                GroupBox("2 · Taggen (zero-shot op audio, CLAP)") {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Button(model.isTagging ? "Taggen…" : "Genereer tags") { model.startTag() }
@@ -80,7 +80,7 @@ struct AnalyzerView: View {
                         }
                         if let p = model.tag, model.isTagging {
                             ProgressView(value: p.total > 0 ? Double(p.tagged) / Double(p.total) : 0)
-                            Text("\(p.tagged) / \(p.total) getagd · \(p.failed) mislukt")
+                            Text("\(p.tagged) / \(p.total) getagd")
                                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         }
                     }

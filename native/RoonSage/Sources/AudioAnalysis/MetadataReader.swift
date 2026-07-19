@@ -12,6 +12,14 @@ public struct TrackMetadata: Sendable {
 /// Reads embedded tags (Vorbis comments / ID3 / iTunes) via AVFoundation.
 public struct MetadataReader {
 
+    /// Broken tags produce years like 4018 or 0; a bad year is worse than none
+    /// (a 4018 tag once minted a ghost "decade:4010" radio on Qobuz). Accept
+    /// only plausible values.
+    static func saneYear(_ v: String?) -> Int? {
+        guard let v, let y = Int(v.prefix(4)), (1900...2035).contains(y) else { return nil }
+        return y
+    }
+
     public static func read(url: URL) -> TrackMetadata {
         let asset = AVURLAsset(url: url)
         var m = TrackMetadata()
@@ -27,7 +35,7 @@ public struct MetadataReader {
                     case .commonKeyAlbumName:   m.album  = m.album  ?? value
                     case .commonKeyType:        m.genre  = m.genre  ?? value
                     case .commonKeyCreationDate:
-                        if let v = value, let y = Int(v.prefix(4)) { m.year = m.year ?? y }
+                        if let y = saneYear(value) { m.year = m.year ?? y }
                     default: break
                     }
                 }
@@ -38,7 +46,7 @@ public struct MetadataReader {
                     else if raw.contains("TITLE"), m.title == nil { m.title = value }
                     else if raw.contains("GENRE"), m.genre == nil { m.genre = value }
                     else if (raw.contains("DATE") || raw.contains("YEAR")), m.year == nil,
-                            let v = value, let y = Int(v.prefix(4)) { m.year = y }
+                            let y = saneYear(value) { m.year = y }
                 }
             }
         }

@@ -8,6 +8,12 @@ public struct TagProgress: Sendable {
 
 private var taggerErrLogged = false
 
+/// SUPERSEDED by `ClapTagger` (2026-07-19): this tagger guesses tags from
+/// metadata the LLM never *hears* — the guesses anchored on the prompt's
+/// example words ("driving" on 62% of the library, "deep house" on indie
+/// rock) and were the main polluter of every radio profile. Kept only as a
+/// reference implementation; no callers remain.
+///
 /// Generates descriptive LLM tags per track via the local Ollama, from the
 /// track's metadata + analyzed features. Resumable (only untagged rows).
 public final class Tagger {
