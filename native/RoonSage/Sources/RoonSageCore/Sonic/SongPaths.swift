@@ -29,10 +29,8 @@ public enum SongPaths {
         weights: SonicSimilarity.Weights = .default,
         index: VectorIndex? = nil
     ) -> [Step] {
-        let fromPrep = SonicSimilarity.Prepared(SonicSimilarity.Feature(
-            bpm: from.bpm, camelot: from.camelot, energy: from.energy, tags: from.tags))
-        let toPrep = SonicSimilarity.Prepared(SonicSimilarity.Feature(
-            bpm: to.bpm, camelot: to.camelot, energy: to.energy, tags: to.tags))
+        let fromPrep = SonicSimilarity.Prepared(SonicSimilarity.Feature(from))
+        let toPrep = SonicSimilarity.Prepared(SonicSimilarity.Feature(to))
 
         // Embedding mode when both endpoints carry a vector: cosine drives the
         // walk, with Camelot/BPM/tags distance as a light secondary tie-break.
@@ -52,8 +50,7 @@ public enum SongPaths {
         var remaining: [Cand] = library
             .filter { !used.contains($0.id) }
             .map { Cand(track: $0,
-                        prep: SonicSimilarity.Prepared(SonicSimilarity.Feature(
-                            bpm: $0.bpm, camelot: $0.camelot, energy: $0.energy, tags: $0.tags)),
+                        prep: SonicSimilarity.Prepared(SonicSimilarity.Feature($0)),
                         vec: useEmb ? index?.embedding(forId: $0.id) : nil) }
         if useEmb { remaining = remaining.filter { $0.vec != nil } }
 

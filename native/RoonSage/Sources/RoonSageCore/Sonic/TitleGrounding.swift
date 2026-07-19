@@ -25,8 +25,7 @@ public enum TitleGrounding {
     /// RMS (which put acoustic folk above techno on this library). The `energy`
     /// fallback keeps pre-arousal libraries working.
     public static func energySignal(_ t: DatabaseManager.SonicTrack) -> Double? {
-        if let a = t.attributes["arousal"] { return Double(a) }
-        return t.energy
+        t.energySignal
     }
 
     /// Synthetic calibration key for the energy signal (so it lives in the same

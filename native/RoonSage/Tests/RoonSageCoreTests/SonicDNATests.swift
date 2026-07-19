@@ -11,7 +11,7 @@ final class SonicDNATests: XCTestCase {
     ) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(
             id: id, title: id, artist: artist, album: "Al", imageKey: nil, matchKey: id,
-            bpm: bpm, camelot: "8B", energy: energy, tags: tags, embedding: emb,
+            bpm: bpm, camelot: "8B", rmsEnergy: energy, tags: tags, embedding: emb,
             moods: moods, attributes: attributes, popularity: popularity)
     }
 
@@ -218,7 +218,7 @@ final class SonicDNATests: XCTestCase {
             SonicEngine.Scored(
                 track: DatabaseManager.SonicTrack(
                     id: id, title: id, artist: artist, album: nil, imageKey: nil, matchKey: mk,
-                    bpm: 120, camelot: "8B", energy: 0.5, tags: []),
+                    bpm: 120, camelot: "8B", rmsEnergy: 0.5, tags: []),
                 similarity: 0.9)
         }
         let list = [

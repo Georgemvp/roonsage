@@ -659,6 +659,14 @@ enum Schema {
             """)
         }
 
+        // Tag-HERKOMST. De analyzer verving de Ollama-gok-tagger door CLAP
+        // zero-shot (`clap-zs-v1`) en stempelt dat in `tags_model`, maar die
+        // kolom bleef analyzer-only — clients konden gemeten tags dus niet van
+        // gegokte onderscheiden en scoorden op allebei. NULL = legacy Ollama.
+        migrator.registerMigration("v42_tags_provenance") { db in
+            try db.execute(sql: "ALTER TABLE track_audio_features ADD COLUMN tags_model TEXT")
+        }
+
         try migrator.migrate(db)
     }
 }

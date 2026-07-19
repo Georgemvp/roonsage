@@ -304,7 +304,8 @@ extension RoonClient {
                     albumUpc: o["album_upc"] as? String,
                     label: o["label"] as? String,
                     releaseDate: o["release_date"] as? String,
-                    explicit: o["explicit"] as? Bool
+                    explicit: o["explicit"] as? Bool,
+                    tagsModel: o["tags_model"] as? String
                 ))
                 identities.append(DatabaseManager.FeatureIdentity(
                     matchKey: mk, artist: o["artist"] as? String, title: o["title"] as? String))

@@ -45,10 +45,19 @@ public enum RadioEngine {
         /// similarity falls below this are dropped outright (LMS's adaptive
         /// max-distance constraint). nil = no floor (old behaviour).
         public var similarityFloor: Double?
+        /// How hard the MEASURED scalars (tempo, harmonic key, perceptual
+        /// energy, CLAP tags) may tilt the embedding ranking. The engine used
+        /// to ignore them entirely — scalars only re-entered at sequencing
+        /// time, so two tracks the cosine judged equal were ordered without
+        /// ever consulting their tempo or key. Deliberately small: the
+        /// embedding stays the primary signal and this is a tie-breaker.
+        /// 0 = old behaviour.
+        public var scalarCoherence: Double
 
         public init(adventurousness: Double = 0.35, poolLimit: Int = 250, candidateK: Int = 900,
                     hardBanDisliked: Bool = false, sequence: Bool = true,
-                    arc: RadioSequencer.Arc = .smooth, similarityFloor: Double? = nil) {
+                    arc: RadioSequencer.Arc = .smooth, similarityFloor: Double? = nil,
+                    scalarCoherence: Double = 0.12) {
             self.adventurousness = min(1, max(0, adventurousness))
             self.poolLimit = poolLimit
             self.candidateK = candidateK
@@ -56,6 +65,7 @@ public enum RadioEngine {
             self.sequence = sequence
             self.arc = arc
             self.similarityFloor = similarityFloor
+            self.scalarCoherence = max(0, scalarCoherence)
         }
 
         /// The dial expressed in σ's (LMS-audit §2.2): a cosy station keeps
@@ -192,6 +202,14 @@ public enum RadioEngine {
 
         let adv = options.adventurousness
 
+        // Scalar coherence reference: one feature point standing for the whole
+        // seed set (median tempo, prevailing key, mean perceptual energy, tags
+        // shared by at least half the seeds). An adventurous dial slackens it —
+        // stretching the station is exactly when a tempo/key jump is wanted.
+        let seedFeature = scalarCentroid(of: seeds)
+        let seedPrep = SonicSimilarity.Prepared(seedFeature)
+        let scalarWeight = options.scalarCoherence * (1 - 0.5 * adv)
+
         // Popularity normalisation over the candidate pool. Deezer `rank` is
         // heavy-tailed (a handful of megahits dwarf everything), so normalise on a
         // LOG scale, bounded to the pool's own range — a station's "popular" is
@@ -248,7 +266,16 @@ public enum RadioEngine {
             let jitter = salt.isEmpty ? 0
                 : Double(RoonClient.seed64("\(salt)\u{1f}\(h.track.id)") % 1000) / 1000.0 * 0.04
 
-            let score = relevance + familiarBonus + discoveryBonus + relatedBonus + popularityBonus + jitter
+            // Measured-scalar agreement with the seed set. Centred on 0.5
+            // because that is exactly what SonicSimilarity returns when a
+            // component has no data on either side — an unanalysed candidate
+            // is therefore neither rewarded nor punished, it just abstains.
+            let scalarBonus = scalarWeight == 0 ? 0
+                : scalarWeight * (SonicSimilarity.similarity(
+                    seedPrep, SonicSimilarity.Prepared(SonicSimilarity.Feature(h.track))) - 0.5)
+
+            let score = relevance + familiarBonus + discoveryBonus + relatedBonus
+                + popularityBonus + scalarBonus + jitter
             scored.append(Scored(track: h.track, emb: emb, score: score,
                                   nearestAnchor: bestAnchor, anchorSim: relAnchor))
         }
@@ -282,6 +309,37 @@ public enum RadioEngine {
             return ordered.compactMap { reasonByID[$0.id] }
         }
         return results
+    }
+
+    /// One `SonicSimilarity.Feature` standing for a whole seed set.
+    ///
+    /// Median (not mean) tempo, because a two-seed station spanning 70 and 170
+    /// BPM has a mean of 120 — a tempo neither seed is anywhere near. The key
+    /// is the most common non-empty Camelot code, and a tag must appear on a
+    /// STRICT majority of the seeds so one seed's quirk can't speak for the
+    /// station. (`count / 2` would not do that: integer division makes the
+    /// threshold 1 for both two and three seeds, i.e. any tag at all.)
+    /// Deterministic: ties break on the sorted key/tag so equal input always
+    /// yields the same centroid.
+    static func scalarCentroid(of seeds: [DatabaseManager.SonicTrack]) -> SonicSimilarity.Feature {
+        guard !seeds.isEmpty else {
+            return SonicSimilarity.Feature(bpm: nil, camelot: "", energy: nil, tags: [])
+        }
+        let bpms = seeds.compactMap { $0.bpm }.filter { $0 > 0 }.sorted()
+        let bpm = bpms.isEmpty ? nil : bpms[bpms.count / 2]
+
+        var keyCount: [String: Int] = [:]
+        for s in seeds where !s.camelot.isEmpty { keyCount[s.camelot, default: 0] += 1 }
+        let camelot = keyCount.sorted { ($0.value, $1.key) > ($1.value, $0.key) }.first?.key ?? ""
+
+        let energies = seeds.compactMap { $0.energySignal }
+        let energy = energies.isEmpty ? nil : energies.reduce(0, +) / Double(energies.count)
+
+        var tagCount: [String: Int] = [:]
+        for s in seeds { for t in s.scorableTags { tagCount[t, default: 0] += 1 } }
+        let tags = tagCount.filter { $0.value > seeds.count / 2 }.keys.sorted()
+
+        return SonicSimilarity.Feature(bpm: bpm, camelot: camelot, energy: energy, tags: tags)
     }
 
     // MARK: - Reason inference

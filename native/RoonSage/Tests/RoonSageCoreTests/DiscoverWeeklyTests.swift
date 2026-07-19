@@ -10,7 +10,7 @@ final class DiscoverWeeklyTests: XCTestCase {
     private func track(_ id: String, _ emb: [Float], artist: String, matchKey: String) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(
             id: id, title: id, artist: artist, album: "Al", imageKey: nil, matchKey: matchKey,
-            bpm: 120, camelot: "8B", energy: 0.5, tags: [], embedding: emb)
+            bpm: 120, camelot: "8B", rmsEnergy: 0.5, tags: [], embedding: emb)
     }
 
     // MARK: selectSeeds

@@ -9,7 +9,7 @@ final class TasteSeedsTests: XCTestCase {
     private func track(_ id: String, artist: String, _ emb: [Float]) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(
             id: id, title: id, artist: artist, album: "Al", imageKey: nil, matchKey: id,
-            bpm: 120, camelot: "8B", energy: 0.5, tags: [], embedding: emb)
+            bpm: 120, camelot: "8B", rmsEnergy: 0.5, tags: [], embedding: emb)
     }
 
     func testTasteAlignedArtistRanksAboveOrthogonal() {
@@ -35,7 +35,7 @@ final class TasteSeedsTests: XCTestCase {
         let lib = [track("a1", artist: "Has", [1, 0, 0]),
                    DatabaseManager.SonicTrack(id: "n1", title: "n", artist: "None", album: nil,
                                               imageKey: nil, matchKey: "n1", bpm: 120, camelot: "8B",
-                                              energy: 0.5, tags: [])]   // no embedding
+                                              rmsEnergy: 0.5, tags: [])]   // no embedding
         let ranked = TasteSeeds.rankArtists(
             library: lib, tasteVector: [1, 0, 0], playCountByArtist: [:], limit: 10)
         XCTAssertEqual(ranked, ["Has"], "an artist with no embedded track has no CLAP signal to rank on")

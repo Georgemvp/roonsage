@@ -6,7 +6,7 @@ final class TitleGroundingTests: XCTestCase {
     private func st(_ id: String, energy: Double? = nil, attrs: [String: Float] = [:],
                     moods: [String: Float] = [:], tags: [String] = [], bpm: Double? = nil) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: "T\(id)", artist: "A", album: nil, imageKey: nil,
-                                   matchKey: "mk\(id)", bpm: bpm, camelot: "8A", energy: energy,
+                                   matchKey: "mk\(id)", bpm: bpm, camelot: "8A", rmsEnergy: energy,
                                    tags: tags, embedding: nil, moods: moods, attributes: attrs)
     }
 
@@ -200,7 +200,7 @@ final class SonicClusterLabelTests: XCTestCase {
     private func st(_ id: String, tags: [String] = [], moods: [String: Float] = [:],
                     attrs: [String: Float] = [:]) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: "T\(id)", artist: "A", album: nil, imageKey: nil,
-                                   matchKey: "mk\(id)", bpm: nil, camelot: "8A", energy: nil,
+                                   matchKey: "mk\(id)", bpm: nil, camelot: "8A", rmsEnergy: nil,
                                    tags: tags, embedding: nil, moods: moods, attributes: attrs)
     }
 

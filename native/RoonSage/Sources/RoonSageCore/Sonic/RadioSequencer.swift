@@ -64,8 +64,7 @@ public enum RadioSequencer {
         }
         let nodes = tracks.map { t -> Node in
             Node(track: t,
-                 prep: SonicSimilarity.Prepared(SonicSimilarity.Feature(
-                    bpm: t.bpm, camelot: t.camelot, energy: t.energy, tags: t.tags)),
+                 prep: SonicSimilarity.Prepared(SonicSimilarity.Feature(t)),
                  emb: (t.embedding?.isEmpty == false) ? VectorIndex.normalized(t.embedding!) : nil,
                  // Perceptual energy (arousal) when present — the energy ARC needs a
                  // signal that orders intensity correctly, which linear RMS doesn't.

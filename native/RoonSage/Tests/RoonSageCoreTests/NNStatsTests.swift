@@ -4,7 +4,7 @@ import XCTest
 final class NNStatsTests: XCTestCase {
     private func track(_ id: String, emb: [Float]) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: id, artist: "a", album: nil, imageKey: nil,
-                                   matchKey: id, bpm: 120, camelot: "8B", energy: 0.5, tags: [],
+                                   matchKey: id, bpm: 120, camelot: "8B", rmsEnergy: 0.5, tags: [],
                                    embedding: emb)
     }
 

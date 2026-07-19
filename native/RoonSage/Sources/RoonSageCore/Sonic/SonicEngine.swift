@@ -18,7 +18,7 @@ public enum SonicEngine {
     }
 
     static func feature(_ t: DatabaseManager.SonicTrack) -> SonicSimilarity.Feature {
-        SonicSimilarity.Feature(bpm: t.bpm, camelot: t.camelot, energy: t.energy, tags: t.tags)
+        SonicSimilarity.Feature(t)
     }
 
     private static func sameTrack(_ a: DatabaseManager.SonicTrack, _ b: DatabaseManager.SonicTrack) -> Bool {
@@ -115,7 +115,7 @@ public enum SonicEngine {
 
     public static func profile(of tracks: [DatabaseManager.SonicTrack]) -> Profile {
         let bpms = tracks.compactMap { $0.bpm }.filter { $0 > 0 }
-        let energies = tracks.compactMap { $0.energy }
+        let energies = tracks.compactMap { $0.energySignal }
         let avgBPM = bpms.isEmpty ? 0 : bpms.reduce(0, +) / Double(bpms.count)
         let avgEnergy = energies.isEmpty ? 0 : energies.reduce(0, +) / Double(energies.count)
 
@@ -207,17 +207,17 @@ public enum SonicEngine {
 
         // Add centroid
         let addBPM    = avg(add.map { $0.bpm })
-        let addEnergy = avg(add.map { $0.energy })
+        let addEnergy = avg(add.map { $0.energySignal })
         let addCamelot = add.first(where: { !$0.camelot.isEmpty })?.camelot ?? ""
         var addTagCounts: [String: Int] = [:]
-        for t in add { for tag in t.tags { addTagCounts[tag, default: 0] += 1 } }
+        for t in add { for tag in t.scorableTags { addTagCounts[tag, default: 0] += 1 } }
         let addTags = addTagCounts.filter { $0.value >= max(1, add.count / 2) }.map { $0.key }
 
         // Subtract influence (dampen BPM/energy; for tags: remove overlapping ones)
         let subBPM    = avg(subtract.map { $0.bpm })
-        let subEnergy = avg(subtract.map { $0.energy })
+        let subEnergy = avg(subtract.map { $0.energySignal })
         var subTagSet = Set<String>()
-        for t in subtract { for tag in t.tags { subTagSet.insert(tag) } }
+        for t in subtract { for tag in t.scorableTags { subTagSet.insert(tag) } }
 
         let mixBPM: Double?
         if let a = addBPM, let s = subBPM {
@@ -239,8 +239,7 @@ public enum SonicEngine {
         var scored: [Scored] = []
         for t in library {
             if excludeIDs.contains(t.id) { continue }
-            let prep = SonicSimilarity.Prepared(SonicSimilarity.Feature(
-                bpm: t.bpm, camelot: t.camelot, energy: t.energy, tags: t.tags))
+            let prep = SonicSimilarity.Prepared(feature(t))
             scored.append(Scored(track: t, similarity: SonicSimilarity.similarity(mixPrep, prep, weights: weights)))
         }
         return scored.sorted { $0.similarity > $1.similarity }.prefix(limit).map { $0 }

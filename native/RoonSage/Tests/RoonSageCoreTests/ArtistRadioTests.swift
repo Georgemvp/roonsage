@@ -234,7 +234,7 @@ final class ArtistRadioTests: XCTestCase {
     ) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(
             id: id, title: "T-\(id)", artist: "A", album: nil, imageKey: nil,
-            matchKey: "mk-\(id)", bpm: bpm, camelot: camelot, energy: nil,
+            matchKey: "mk-\(id)", bpm: bpm, camelot: camelot, rmsEnergy: nil,
             tags: tags, moods: moods, bpmConfidence: conf, genres: genres, year: year)
     }
 

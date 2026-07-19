@@ -7,7 +7,7 @@ final class DJModeTests: XCTestCase {
         moods: [String: Float] = [:]
     ) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: id, artist: artist, album: nil, imageKey: nil,
-                                   matchKey: matchKey ?? id, bpm: 120, camelot: "8B", energy: 0.5,
+                                   matchKey: matchKey ?? id, bpm: 120, camelot: "8B", rmsEnergy: 0.5,
                                    tags: [], moods: moods)
     }
 

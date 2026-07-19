@@ -113,10 +113,8 @@ extension RoonClient {
                 if !g.contains(where: { genreKeys.contains($0.lowercased()) }) { return false }
             }
             if !moodKeys.isEmpty {
-                let dominant = t.moods.max(by: { $0.value < $1.value })?.key.lowercased()
-                let ok = moodKeys.contains { mk in
-                    if dominant == mk { return true }
-                    return t.moods.first { $0.key.lowercased() == mk }.map { $0.value >= 0.3 } ?? false
+                let ok = moodKeys.contains {
+                    MoodCalibration.matches($0, in: t.moods, calibration: calibration?.moods)
                 }
                 if !ok { return false }
             }

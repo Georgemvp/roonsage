@@ -7,7 +7,7 @@ final class SonicRadioTests: XCTestCase {
     private func track(_ id: String, artist: String, bpm: Double, camelot: String,
                        energy: Double, tags: [String], matchKey: String? = nil) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: id, artist: artist, album: nil, imageKey: nil,
-                                   matchKey: matchKey ?? id, bpm: bpm, camelot: camelot, energy: energy, tags: tags)
+                                   matchKey: matchKey ?? id, bpm: bpm, camelot: camelot, rmsEnergy: energy, tags: tags)
     }
 
     // MARK: Deterministic hashing

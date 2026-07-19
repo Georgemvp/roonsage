@@ -169,7 +169,7 @@ public enum SonicDNA {
             return w > 0 ? sum / w : nil
         }
 
-        let energy = weightedMean { $0.energy } ?? 0.5
+        let energy = weightedMean { $0.energySignal } ?? 0.5
         let dance = weightedMean { $0.attributes["danceability"].map(Double.init) } ?? 0.5
         let valence = weightedMean { $0.attributes["valence"].map(Double.init) } ?? 0.5
         let acoustic = weightedMean { $0.attributes["acousticness"].map(Double.init) } ?? 0.5

@@ -1130,7 +1130,7 @@ public final class FeatureStore {
             try Row.fetchAll(db, sql: """
                 SELECT match_key, artist, title, album, year, bpm, bpm_confidence, camelot, key_root, key_mode, energy, duration,
                        tags, moods, attributes, mb_genres, popularity, loudness, isrc, recording_mbid, deezer_bpm,
-                       album_upc, label, release_date, explicit, deezer_genres, embedding_model\(includeEmbedding ? ", embedding" : "")
+                       album_upc, label, release_date, explicit, deezer_genres, embedding_model, tags_model\(includeEmbedding ? ", embedding" : "")
                 FROM track_features WHERE bpm IS NOT NULL
             """)
         }) ?? []
@@ -1161,6 +1161,9 @@ public final class FeatureStore {
             if let bc = r["bpm_confidence"] as Double? { obj["bpm_confidence"] = bc }
             if let loudness = r["loudness"] as Double? { obj["loudness"] = loudness }
             if let tags = r["tags"] as String? { obj["tags"] = tags }
+            // Tag provenance travels WITH the tags — a client that can't tell
+            // CLAP zero-shot tags from the old Ollama guesses scores on both.
+            if let tm = r["tags_model"] as String?, !tm.isEmpty { obj["tags_model"] = tm }
             // MusicBrainz genres as an actual array (the app parses it directly).
             if let mbg = r["mb_genres"] as String?, let d = mbg.data(using: .utf8),
                let arr = try? JSONSerialization.jsonObject(with: d) as? [String], !arr.isEmpty {

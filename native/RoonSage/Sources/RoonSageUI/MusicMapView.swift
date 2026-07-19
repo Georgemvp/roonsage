@@ -189,7 +189,7 @@ public struct MusicMapView: View {
                 if let lo = ys.min(), let hi = ys.max(), hi > lo { yMin = lo; yMax = hi }
             }
             let bpms = tracks.compactMap { $0.bpm }.filter { $0 > 0 }
-            let es = tracks.compactMap { $0.energy }
+            let es = tracks.compactMap { $0.energySignal }
             if let lo = bpms.min(), let hi = bpms.max(), hi > lo { bpmMin = lo; bpmMax = hi }
             if let lo = es.min(), let hi = es.max(), hi > lo { eMin = lo; eMax = hi }
         }
@@ -205,7 +205,7 @@ public struct MusicMapView: View {
             ey = (my - bounds.yMin) / max(0.001, bounds.yMax - bounds.yMin)
         } else {
             bx = ((t.bpm ?? bounds.bpmMin) - bounds.bpmMin) / max(0.001, bounds.bpmMax - bounds.bpmMin)
-            ey = ((t.energy ?? bounds.eMin) - bounds.eMin) / max(0.001, bounds.eMax - bounds.eMin)
+            ey = ((t.energySignal ?? bounds.eMin) - bounds.eMin) / max(0.001, bounds.eMax - bounds.eMin)
         }
         return CGPoint(x: min(1, max(0, bx)), y: min(1, max(0, ey)))
     }

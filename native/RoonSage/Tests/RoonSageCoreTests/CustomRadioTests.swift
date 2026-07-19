@@ -11,7 +11,7 @@ final class CustomRadioTests: XCTestCase {
         -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: id, artist: artist, album: nil, imageKey: nil,
                                    matchKey: matchKey ?? id, bpm: 120, camelot: "8A",
-                                   energy: energy, tags: [], moods: moods)
+                                   rmsEnergy: energy, tags: [], moods: moods)
     }
 
     private func config(genres: [String] = [], moods: [String] = [], activities: [String] = [],

@@ -106,18 +106,21 @@ public enum DJMode: String, CaseIterable, Sendable, Codable {
     /// producing an empty station.
     public func gate(
         seed: DatabaseManager.SonicTrack,
-        years: [String: Int] = [:]
+        years: [String: Int] = [:],
+        moodCalibration: MoodCalibration? = nil
     ) -> (@Sendable (DatabaseManager.SonicTrack) -> Bool)? {
         switch self {
         case .purist, .wanderer, .daredevil:
             return nil
 
         case .vibe:
-            guard let topMood = seed.moods.max(by: { $0.value < $1.value })?.key.lowercased(),
+            // The SEED's mood decides the station, so it must be calibrated too
+            // — raw argmax picks whatever label CLAP's text prior inflates.
+            guard let topMood = moodCalibration?.dominantMood(seed.moods)
+                    ?? seed.moods.max(by: { $0.value < $1.value })?.key.lowercased(),
                   !topMood.isEmpty else { return nil }
             return { t in
-                if let top = t.moods.max(by: { $0.value < $1.value }), top.key.lowercased() == topMood { return true }
-                return t.moods.first { $0.key.lowercased() == topMood }.map { $0.value >= 0.3 } ?? false
+                MoodCalibration.matches(topMood, in: t.moods, calibration: moodCalibration)
             }
 
         case .superfan:

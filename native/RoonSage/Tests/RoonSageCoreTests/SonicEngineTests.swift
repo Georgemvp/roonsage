@@ -28,10 +28,44 @@ final class SonicSimilarityTests: XCTestCase {
         XCTAssertEqual(SonicSimilarity.tagDistance(["a", "b"], ["b", "c"]), 1 - 1.0/3.0, accuracy: 0.001)
     }
 
+    /// The whole point of `Feature.init(_ track:)`: every scoring path gets the
+    /// PERCEPTUAL energy axis, never the raw RMS that ordered acoustic folk
+    /// above techno. Regression for the audit finding that 8 consumers read
+    /// `energy` directly while only the title generator read arousal.
+    func testFeatureFromTrackPrefersArousalOverRMS() {
+        let t = DatabaseManager.SonicTrack(
+            id: "1", title: "t", artist: "a", album: nil, imageKey: nil,
+            matchKey: "1", bpm: 120, camelot: "8A", rmsEnergy: 0.2, tags: [],
+            attributes: ["arousal": 0.9])
+        XCTAssertEqual(SonicSimilarity.Feature(t).energy ?? 0, 0.9, accuracy: 0.001)
+
+        // No arousal measured → the RMS fallback still applies.
+        let legacy = DatabaseManager.SonicTrack(
+            id: "2", title: "t", artist: "a", album: nil, imageKey: nil,
+            matchKey: "2", bpm: 120, camelot: "8A", rmsEnergy: 0.2, tags: [])
+        XCTAssertEqual(SonicSimilarity.Feature(legacy).energy ?? 0, 0.2, accuracy: 0.001)
+    }
+
+    /// Tags from the superseded Ollama guesser must not reach scoring — it
+    /// guessed from metadata it never listened to ("driving" on 62% of the
+    /// library), which is what made radios claim "acoustic" wrongly.
+    func testOllamaTagsAreNotScorable() {
+        func track(clap: Bool) -> DatabaseManager.SonicTrack {
+            DatabaseManager.SonicTrack(
+                id: "1", title: "t", artist: "a", album: nil, imageKey: nil,
+                matchKey: "1", bpm: 120, camelot: "8A", rmsEnergy: 0.5,
+                tags: ["acoustic", "driving"], tagsAreCLAP: clap)
+        }
+        XCTAssertEqual(SonicSimilarity.Feature(track(clap: true)).tags, ["acoustic", "driving"])
+        XCTAssertTrue(SonicSimilarity.Feature(track(clap: false)).tags.isEmpty)
+        // The raw tags survive for display — only SCORING is gated.
+        XCTAssertEqual(track(clap: false).tags, ["acoustic", "driving"])
+    }
+
     func testSimilarRankingAndSelfExclusion() {
         func t(_ id: String, bpm: Double, camelot: String, energy: Double, tags: [String]) -> DatabaseManager.SonicTrack {
             DatabaseManager.SonicTrack(id: id, title: id, artist: "A-\(id)", album: nil, imageKey: nil,
-                                       matchKey: id, bpm: bpm, camelot: camelot, energy: energy, tags: tags)
+                                       matchKey: id, bpm: bpm, camelot: camelot, rmsEnergy: energy, tags: tags)
         }
         let seed = t("seed", bpm: 120, camelot: "8A", energy: 0.5, tags: ["warm"])
         let near = t("near", bpm: 122, camelot: "8A", energy: 0.52, tags: ["warm"])
@@ -47,7 +81,7 @@ final class SonicSimilarityTests: XCTestCase {
     func testProfileBasics() {
         func t(_ bpm: Double, _ camelot: String, _ energy: Double, _ tags: [String]) -> DatabaseManager.SonicTrack {
             DatabaseManager.SonicTrack(id: UUID().uuidString, title: "x", artist: nil, album: nil, imageKey: nil,
-                                       matchKey: UUID().uuidString, bpm: bpm, camelot: camelot, energy: energy, tags: tags)
+                                       matchKey: UUID().uuidString, bpm: bpm, camelot: camelot, rmsEnergy: energy, tags: tags)
         }
         let p = SonicEngine.profile(of: [t(120, "8B", 0.5, ["a"]), t(120, "8B", 0.5, ["a", "b"])])
         XCTAssertEqual(p.sampleCount, 2)

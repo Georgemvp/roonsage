@@ -71,7 +71,7 @@ final class AIGenerationHelpersTests: XCTestCase {
     private func sonic(_ id: String, moods: [String: Float] = [:], bpm: Double? = nil,
                        energy: Double? = nil, attributes: [String: Float] = [:]) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: id, artist: "A", album: nil, imageKey: nil,
-                                   matchKey: id, bpm: bpm, camelot: "8B", energy: energy, tags: [],
+                                   matchKey: id, bpm: bpm, camelot: "8B", rmsEnergy: energy, tags: [],
                                    moods: moods, attributes: attributes)
     }
 

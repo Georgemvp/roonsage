@@ -6,7 +6,7 @@ final class VectorIndexTests: XCTestCase {
     private func track(_ id: String, _ emb: [Float]) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(
             id: id, title: id, artist: "A", album: "Al", imageKey: nil, matchKey: id,
-            bpm: 120, camelot: "8B", energy: 0.5, tags: [], embedding: emb)
+            bpm: 120, camelot: "8B", rmsEnergy: 0.5, tags: [], embedding: emb)
     }
 
     func testNearestRanksByCosine() throws {

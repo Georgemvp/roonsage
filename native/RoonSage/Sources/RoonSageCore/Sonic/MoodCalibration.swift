@@ -58,4 +58,38 @@ public struct MoodCalibration: Sendable {
         guard let top = moods.max(by: { $0.value < $1.value }), top.value >= 0.3 else { return nil }
         return top.key.lowercased()
     }
+
+    /// Hoort deze track in het station van `mood`? De gekalibreerde tegenhanger
+    /// van de losse `value >= 0.3`-test die op vijf plekken gedupliceerd stond.
+    ///
+    /// Waarom die 0.3 fout was: het is een ABSOLUTE drempel op een as met een
+    /// per-label tekst-prior. "danceable" haalt 'm bibliotheekbreed, "sad"
+    /// bijna nooit — dus vulden de dansstations zich met alles en bleven de
+    /// droevige leeg. De z-score meet in plaats daarvan "ongewoon hoog vóór
+    /// déze bibliotheek", wat per label hetzelfde betekent.
+    ///
+    /// De dominante mood telt altijd mee: een track die nergens anders hoger
+    /// op scoort hoort in dat station, ook als de z-score net onder de vloer
+    /// blijft. Zonder bruikbare statistiek valt hij terug op de oude 0.3.
+    /// `matches` voor call-sites die alleen een OPTIONELE kalibratie hebben
+    /// (kleine of nog niet geladen bibliotheek). Zonder kalibratie exact het
+    /// oude gedrag — dominante mood, of een score ≥ 0.3 — zodat het wegvallen
+    /// van de statistiek nooit een station leegtrekt.
+    public static func matches(_ mood: String, in moods: [String: Float],
+                               calibration: MoodCalibration?, zFloor: Float = 0.5) -> Bool {
+        if let c = calibration { return c.matches(mood, in: moods, zFloor: zFloor) }
+        let key = mood.lowercased()
+        if moods.max(by: { $0.value < $1.value })?.key.lowercased() == key { return true }
+        return moods.first { $0.key.lowercased() == key }.map { $0.value >= 0.3 } ?? false
+    }
+
+    public func matches(_ mood: String, in moods: [String: Float], zFloor: Float = 0.5) -> Bool {
+        let key = mood.lowercased()
+        if dominantMood(moods, zFloor: zFloor) == key { return true }
+        guard let st = stats[key], st.std > 1e-4 else {
+            return moods.first { $0.key.lowercased() == key }.map { $0.value >= 0.3 } ?? false
+        }
+        guard let v = moods.first(where: { $0.key.lowercased() == key })?.value else { return false }
+        return (v - st.mean) / st.std >= zFloor
+    }
 }

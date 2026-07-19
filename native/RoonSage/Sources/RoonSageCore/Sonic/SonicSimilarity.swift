@@ -2,8 +2,8 @@ import AudioAnalysis
 import Foundation
 
 /// Pure, ML-free sonic similarity over the analyzer's per-track features
-/// (tempo, harmonic key, energy, LLM tags). Shared by Sonic Radio, Sonic
-/// Fingerprint and the Music Map so they rank tracks identically.
+/// (tempo, harmonic key, energy, CLAP zero-shot tags). Shared by Sonic Radio,
+/// Sonic Fingerprint and the Music Map so they rank tracks identically.
 public enum SonicSimilarity {
 
     /// A lightweight feature point. Works for a real track or a synthetic
@@ -11,10 +11,20 @@ public enum SonicSimilarity {
     public struct Feature: Sendable {
         public var bpm: Double?
         public var camelot: String
+        /// The PERCEPTUAL energy signal (arousal), not raw RMS — build via
+        /// `init(_ track:)` and you get the right one automatically.
         public var energy: Double?
         public var tags: [String]
         public init(bpm: Double?, camelot: String, energy: Double?, tags: [String]) {
             self.bpm = bpm; self.camelot = camelot; self.energy = energy; self.tags = tags
+        }
+
+        /// Feature point for a library track. The single place that decides
+        /// which energy signal and which tags are trustworthy, so no call site
+        /// can silently fall back to RMS or score on guessed Ollama tags.
+        public init(_ t: DatabaseManager.SonicTrack) {
+            self.init(bpm: t.bpm, camelot: t.camelot,
+                      energy: t.energySignal, tags: t.scorableTags)
         }
     }
 

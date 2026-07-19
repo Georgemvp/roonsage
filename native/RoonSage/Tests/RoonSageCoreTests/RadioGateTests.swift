@@ -7,7 +7,7 @@ final class RadioGateTests: XCTestCase {
                     moods: [String: Float] = [:], matchKey: String? = nil) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: "T\(id)", artist: artist, album: nil, imageKey: nil,
                                    matchKey: matchKey ?? "mk\(id)", bpm: bpm, camelot: "8A",
-                                   energy: energy, tags: [], embedding: nil, moods: moods)
+                                   rmsEnergy: energy, tags: [], embedding: nil, moods: moods)
     }
 
     func testActivityGateMatchesProfile() throws {
@@ -84,7 +84,7 @@ final class RadioGateTests: XCTestCase {
         // seed at [1,0,0,0]; two neighbours — one near an "anchor" direction.
         func t(_ id: String, _ e: [Float]) -> DatabaseManager.SonicTrack {
             DatabaseManager.SonicTrack(id: id, title: id, artist: id, album: nil, imageKey: nil,
-                                       matchKey: id, bpm: 120, camelot: "8A", energy: 0.5, tags: [], embedding: e)
+                                       matchKey: id, bpm: 120, camelot: "8A", rmsEnergy: 0.5, tags: [], embedding: e)
         }
         let seed = t("seed", [1, 0, 0, 0])
         let near = t("near", [0, 1, 0, 0])   // sonically adjacent to the anchor below
@@ -101,7 +101,7 @@ final class RadioGateTests: XCTestCase {
     func testNearestPoolTrackByCosine() {
         func t(_ id: String, _ e: [Float]) -> DatabaseManager.SonicTrack {
             DatabaseManager.SonicTrack(id: id, title: id, artist: id, album: nil, imageKey: nil,
-                                       matchKey: id, bpm: nil, camelot: "8A", energy: nil, tags: [], embedding: e)
+                                       matchKey: id, bpm: nil, camelot: "8A", rmsEnergy: nil, tags: [], embedding: e)
         }
         let lib = [t("a", [1, 0, 0]), t("b", [0, 1, 0]), t("anchor", [0.9, 0.1, 0])]
         let index = VectorIndex(tracks: lib)!
@@ -120,7 +120,7 @@ final class RadioGateTests: XCTestCase {
         lib += (0..<30).map { st("lo\($0)", artist: "L\($0)", energy: 0.1, bpm: 60) }
         let pool = RoonClient.buildRadioCandidates(
             seedIds: [seed.id], lib: lib, index: nil, seed: "",
-            gate: { ($0.energy ?? 0) >= 0.7 })
+            gate: { ($0.energySignal ?? 0) >= 0.7 })
         XCTAssertFalse(pool.isEmpty)
         // Nothing from the low-energy half may appear (the high-energy pool is
         // plenty to satisfy the relaxation minimum).

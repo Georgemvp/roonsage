@@ -26,19 +26,24 @@ extension DatabaseManager {
         public var label: String?         // record label, from the dataset import
         public var releaseDate: String?   // precise release date (YYYY-MM-DD), from the dataset import
         public var explicit: Bool?        // explicit-lyrics flag, from the dataset import
+        /// Tag PROVENANCE: `clap-zs-*` for CLAP zero-shot tags, nil for the
+        /// superseded Ollama metadata-guesser. Without this the two are
+        /// indistinguishable downstream and guessed tags pollute sonic scoring.
+        public var tagsModel: String?
         public init(matchKey: String, bpm: Double?, camelot: String?, keyRoot: String?,
                     keyMode: String?, energy: Double?, duration: Double?, tags: String?,
                     moods: String? = nil, bpmConfidence: Double? = nil, attributes: String? = nil,
                     popularity: Int? = nil, loudness: Double? = nil,
                     isrc: String? = nil, recordingMbid: String? = nil, deezerBpm: Double? = nil,
                     albumUpc: String? = nil, label: String? = nil, releaseDate: String? = nil,
-                    explicit: Bool? = nil) {
+                    explicit: Bool? = nil, tagsModel: String? = nil) {
             self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot; self.keyRoot = keyRoot
             self.keyMode = keyMode; self.energy = energy; self.duration = duration; self.tags = tags
             self.moods = moods; self.bpmConfidence = bpmConfidence; self.attributes = attributes
             self.popularity = popularity; self.loudness = loudness
             self.isrc = isrc; self.recordingMbid = recordingMbid; self.deezerBpm = deezerBpm
             self.albumUpc = albumUpc; self.label = label; self.releaseDate = releaseDate; self.explicit = explicit
+            self.tagsModel = tagsModel
         }
     }
 
@@ -73,7 +78,7 @@ extension DatabaseManager {
         guard !matchKey.isEmpty else { return nil }
         return (try? await pool.read { db -> SonicTrack? in
             guard let r = try Row.fetchOne(db, sql: """
-                SELECT bpm, camelot, energy, tags, embedding, moods
+                SELECT bpm, camelot, energy, tags, tags_model, loudness, embedding, moods, attributes
                 FROM track_audio_features WHERE match_key = ?
                 """, arguments: [matchKey]) else { return nil }
             var tags: [String] = []
@@ -86,10 +91,18 @@ extension DatabaseManager {
             if let m = r["moods"] as String?, let d = m.data(using: .utf8) {
                 moods = (try? JSONDecoder().decode([String: Float].self, from: d)) ?? [:]
             }
+            // Attributes carry `arousal` — without them the seed of every radio
+            // silently degrades to raw RMS energy.
+            var attributes: [String: Float] = [:]
+            if let a = r["attributes"] as String?, let d = a.data(using: .utf8) {
+                attributes = (try? JSONDecoder().decode([String: Float].self, from: d)) ?? [:]
+            }
             return SonicTrack(
                 id: matchKey, title: "", artist: nil, album: nil, imageKey: nil,
                 matchKey: matchKey, bpm: r["bpm"], camelot: r["camelot"] ?? "",
-                energy: r["energy"], tags: tags, embedding: embedding, moods: moods)
+                rmsEnergy: r["energy"], tags: tags, embedding: embedding, moods: moods,
+                attributes: attributes, loudness: r["loudness"],
+                tagsAreCLAP: (r["tags_model"] as String?)?.isEmpty == false)
         }) ?? nil
     }
 
@@ -175,30 +188,34 @@ extension DatabaseManager {
     public func upsertAudioFeatures(_ rows: [AudioFeatureRow]) async throws {
         guard !rows.isEmpty else { return }
         let iso = Self.isoFormatter.string(from: Date())
-        let chunk = Self.rowsPerChunk(columns: 21)
+        let chunk = Self.rowsPerChunk(columns: 22)
         try await pool.write { db in
             var start = 0
             while start < rows.count {
                 let slice = rows[start..<min(start + chunk, rows.count)]
-                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
+                let placeholders = slice.map { _ in "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)" }.joined(separator: ",")
                 var args: [DatabaseValueConvertible?] = []
-                args.reserveCapacity(slice.count * 21)
+                args.reserveCapacity(slice.count * 22)
                 for r in slice {
                     args.append(contentsOf: [r.matchKey, r.bpm, r.camelot, r.keyRoot,
                                              r.keyMode, r.energy, r.duration, r.tags, r.moods,
                                              r.bpmConfidence, r.attributes, r.popularity, r.loudness,
                                              r.isrc, r.recordingMbid, r.deezerBpm,
                                              r.albumUpc, r.label, r.releaseDate, r.explicit.map { $0 ? 1 : 0 },
-                                             iso] as [DatabaseValueConvertible?])
+                                             r.tagsModel, iso] as [DatabaseValueConvertible?])
                 }
                 try db.execute(sql: """
                     INSERT INTO track_audio_features
-                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, attributes, popularity, loudness, isrc, recording_mbid, deezer_bpm, album_upc, label, release_date, explicit, synced_at)
+                      (match_key, bpm, camelot, key_root, key_mode, energy, duration, tags, moods, bpm_confidence, attributes, popularity, loudness, isrc, recording_mbid, deezer_bpm, album_upc, label, release_date, explicit, tags_model, synced_at)
                     VALUES \(placeholders)
                     ON CONFLICT(match_key) DO UPDATE SET
                       bpm=excluded.bpm, camelot=excluded.camelot, key_root=excluded.key_root,
                       key_mode=excluded.key_mode, energy=excluded.energy, duration=excluded.duration,
                       tags=excluded.tags, moods=excluded.moods, bpm_confidence=excluded.bpm_confidence,
+                      -- NOT coalesced: provenance must always describe the tags it
+                      -- ships with, or a stale `clap-zs` stamp would vouch for
+                      -- replaced tags.
+                      tags_model=excluded.tags_model,
                       attributes=excluded.attributes,
                       popularity=COALESCE(excluded.popularity, track_audio_features.popularity),
                       loudness=COALESCE(excluded.loudness, track_audio_features.loudness),
@@ -457,7 +474,10 @@ extension DatabaseManager {
         public var bpm: Double?
         public var bpmConfidence: Double?    // 0…1 from the analyzer's tempo detector
         public var camelot: String
-        public var energy: Double?
+        /// RAW waveform RMS. Almost never what you want — it crushes into
+        /// [0, 0.6] and orders acoustic folk above techno. Read `energySignal`
+        /// instead; this stays exposed only as its fallback.
+        public var rmsEnergy: Double?
         public var tags: [String]
         public var embedding: [Float]?       // 512-dim CLAP vector (Track E5)
         public var moods: [String: Float]    // mood → cosine, for Map colouring
@@ -468,19 +488,39 @@ extension DatabaseManager {
         public var genres: [String]          // REAL genres (MusicBrainz ∪ Deezer), lowercased —
                                              // unlike `tags`, these are not LLM-guessed
         public var year: Int?                // release year from the tracks row (sanity-clamped)
+        public var loudness: Double?         // integrated LUFS (BS.1770), nil when unmeasured
+        /// True when `tags` came from the CLAP zero-shot tagger (`clap-zs-*`)
+        /// rather than the superseded Ollama metadata-guesser. Consumers that
+        /// SCORE on tags must gate on this — the legacy tags were guessed from
+        /// metadata the tagger never listened to.
+        public var tagsAreCLAP: Bool
+
+        /// The per-track energy signal: PERCEPTUAL arousal (CLAP) when present,
+        /// else raw RMS. Arousal is semantic intensity derived from the
+        /// embedding and orders busy-but-quiet vs loud-but-sparse correctly.
+        /// 99.7% of the analyzed library has it; the fallback is for the tail.
+        public var energySignal: Double? {
+            if let a = attributes["arousal"] { return Double(a) }
+            return rmsEnergy
+        }
+
+        /// Tags safe to SCORE on — empty for legacy Ollama-tagged rows.
+        public var scorableTags: [String] { tagsAreCLAP ? tags : [] }
 
         public init(id: String, title: String, artist: String?, album: String?, imageKey: String?,
-                    matchKey: String, bpm: Double?, camelot: String, energy: Double?, tags: [String],
+                    matchKey: String, bpm: Double?, camelot: String, rmsEnergy: Double?, tags: [String],
                     embedding: [Float]? = nil, moods: [String: Float] = [:],
                     mapX: Double? = nil, mapY: Double? = nil, bpmConfidence: Double? = nil,
                     attributes: [String: Float] = [:], popularity: Int? = nil,
-                    genres: [String] = [], year: Int? = nil) {
+                    genres: [String] = [], year: Int? = nil, loudness: Double? = nil,
+                    tagsAreCLAP: Bool = true) {
             self.id = id; self.title = title; self.artist = artist; self.album = album
             self.imageKey = imageKey; self.matchKey = matchKey; self.bpm = bpm; self.camelot = camelot
-            self.energy = energy; self.tags = tags; self.embedding = embedding; self.moods = moods
+            self.rmsEnergy = rmsEnergy; self.tags = tags; self.embedding = embedding; self.moods = moods
             self.mapX = mapX; self.mapY = mapY; self.bpmConfidence = bpmConfidence
             self.attributes = attributes; self.popularity = popularity
-            self.genres = genres; self.year = year
+            self.genres = genres; self.year = year; self.loudness = loudness
+            self.tagsAreCLAP = tagsAreCLAP
         }
     }
 
@@ -490,7 +530,8 @@ extension DatabaseManager {
         try await pool.read { db in
             var sql = """
                 SELECT t.id, t.title, t.artist, t.album, t.image_key, t.match_key, t.year,
-                       f.bpm, f.bpm_confidence, f.camelot, f.energy, f.tags, f.embedding, f.moods, f.attributes, f.map_x, f.map_y, f.popularity,
+                       f.bpm, f.bpm_confidence, f.camelot, f.energy, f.tags, f.tags_model, f.loudness,
+                       f.embedding, f.moods, f.attributes, f.map_x, f.map_y, f.popularity,
                        (SELECT GROUP_CONCAT(genre, CHAR(31)) FROM track_mb_genres g
                          WHERE g.match_key = f.match_key) AS mb_genres,
                        (SELECT GROUP_CONCAT(genre, CHAR(31)) FROM track_deezer_genres g
@@ -539,10 +580,12 @@ extension DatabaseManager {
                 out.append(SonicTrack(
                     id: r["id"] ?? "", title: title, artist: artist, album: r["album"],
                     imageKey: r["image_key"], matchKey: r["match_key"] ?? "",
-                    bpm: r["bpm"], camelot: r["camelot"] ?? "", energy: r["energy"], tags: tags,
+                    bpm: r["bpm"], camelot: r["camelot"] ?? "", rmsEnergy: r["energy"], tags: tags,
                     embedding: embedding, moods: moods, mapX: r["map_x"], mapY: r["map_y"],
                     bpmConfidence: r["bpm_confidence"], attributes: attributes, popularity: r["popularity"],
-                    genres: genres, year: year
+                    genres: genres, year: year, loudness: r["loudness"],
+                    // NULL provenance = the superseded Ollama guesser.
+                    tagsAreCLAP: (r["tags_model"] as String?)?.isEmpty == false
                 ))
             }
             return out

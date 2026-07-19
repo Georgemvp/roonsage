@@ -59,13 +59,12 @@ public enum SonicClusters {
         }
         guard !candidates.isEmpty else { return [] }
 
-        // Dominante mood per punt (zelfde 0.3-drempel als de labeling) voedt de
-        // purity/diversity-termen van de score.
-        let dominantMoods: [String?] = pts.map { p in
-            guard let top = p.track.moods.max(by: { $0.value < $1.value }), top.value >= 0.3
-            else { return nil }
-            return top.key.lowercased()
-        }
+        // Dominante mood per punt (zelfde regel als de labeling) voedt de
+        // purity/diversity-termen van de score. GEKALIBREERD: op de rauwe
+        // argmax werd elke buurt "danceable" omdat CLAP's tekst-prior dat
+        // label bibliotheekbreed optilt — dat maakte de purity-term blind.
+        let moodCal = MoodCalibration(tracks: tracks)
+        let dominantMoods: [String?] = pts.map { moodCal.dominantMood($0.track.moods) }
 
         var bestRun: (score: Double, assign: [Int], centroids: [[Float]])?
         for k in candidates {
@@ -97,7 +96,8 @@ public enum SonicClusters {
             let mt = pts[medoidRow].track
             let anchor = mt.matchKey.isEmpty ? mt.id : mt.matchKey
             out.append(Cluster(id: String(fnv1a(anchor) % 1_000_000),
-                               label: label(for: members, genresById: genresById, index: c),
+                               label: label(for: members, genresById: genresById, index: c,
+                                            moodCalibration: moodCal),
                                memberIds: members.map(\.id)))
         }
         return out.sorted { $0.size > $1.size }
@@ -254,7 +254,8 @@ public enum SonicClusters {
     static func label(
         for members: [DatabaseManager.SonicTrack],
         genresById: [String: Set<String>], index c: Int,
-        fallback: String = "Sonische buurt"
+        fallback: String = "Sonische buurt",
+        moodCalibration: MoodCalibration? = nil
     ) -> String {
         let size = max(1, members.count)
         let threshold = max(2, size * 3 / 10)
@@ -278,9 +279,9 @@ public enum SonicClusters {
         // can compose "Tag · Mood" when both are clear.
         var moodCount: [String: Int] = [:]
         for m in members {
-            if let top = m.moods.max(by: { $0.value < $1.value }), top.value >= 0.3 {
-                moodCount[top.key.lowercased(), default: 0] += 1
-            }
+            let top = moodCalibration?.dominantMood(m.moods)
+                ?? m.moods.max(by: { $0.value < $1.value }).flatMap { $0.value >= 0.3 ? $0.key.lowercased() : nil }
+            if let top { moodCount[top, default: 0] += 1 }
         }
         let topMood = moodCount.max(by: { $0.value < $1.value })
 

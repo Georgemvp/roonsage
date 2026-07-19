@@ -11,7 +11,7 @@ final class RadioCategoryTests: XCTestCase {
     ) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(
             id: "t\(i)", title: "T\(i)", artist: "A\(i)", album: nil, imageKey: nil,
-            matchKey: matchKey ?? "m\(i)", bpm: bpm, camelot: "", energy: energy,
+            matchKey: matchKey ?? "m\(i)", bpm: bpm, camelot: "", rmsEnergy: energy,
             tags: tags, moods: moods)
     }
 

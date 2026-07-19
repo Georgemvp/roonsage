@@ -4,7 +4,7 @@ import XCTest
 final class ArtistSimilarityTests: XCTestCase {
     private func track(_ id: String, artist: String, emb: [Float]) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: id, artist: artist, album: nil, imageKey: nil,
-                                   matchKey: id, bpm: 120, camelot: "8B", energy: 0.5, tags: [],
+                                   matchKey: id, bpm: 120, camelot: "8B", rmsEnergy: 0.5, tags: [],
                                    embedding: emb)
     }
 
@@ -48,7 +48,7 @@ final class ArtistSimilarityTests: XCTestCase {
         XCTAssertTrue(ArtistSimilarity.similarArtists(to: "Nope", tracks: []).isEmpty)
         let noEmb = [DatabaseManager.SonicTrack(id: "t", title: "t", artist: "X", album: nil,
                                                 imageKey: nil, matchKey: "t", bpm: nil, camelot: "",
-                                                energy: nil, tags: [])]
+                                                rmsEnergy: nil, tags: [])]
         XCTAssertTrue(ArtistSimilarity.similarArtists(to: "X", tracks: noEmb).isEmpty)
     }
 }

@@ -342,8 +342,7 @@ extension RoonClient {
             // Same membership rule as the bucket builder: the track's dominant
             // mood — or a clearly-present score on the station's mood.
             return { t in
-                if let top = t.moods.max(by: { $0.value < $1.value }), top.key.lowercased() == key { return true }
-                return t.moods.first { $0.key.lowercased() == key }.map { $0.value >= 0.3 } ?? false
+                MoodCalibration.matches(key, in: t.moods, calibration: calibration?.moods)
             }
         case "genre":
             return { t in genres[t.id]?.contains { $0.lowercased() == key } ?? false }

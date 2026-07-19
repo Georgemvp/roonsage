@@ -4,7 +4,7 @@ import XCTest
 final class JourneysTests: XCTestCase {
     private func track(_ id: String, matchKey: String? = nil) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: id, artist: "A", album: nil, imageKey: nil,
-                                   matchKey: matchKey ?? id, bpm: 120, camelot: "8B", energy: 0.5, tags: [])
+                                   matchKey: matchKey ?? id, bpm: 120, camelot: "8B", rmsEnergy: 0.5, tags: [])
     }
 
     // MARK: Time Machine ordering

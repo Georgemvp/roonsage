@@ -10,7 +10,7 @@ final class RadioEngineTests: XCTestCase {
     ) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(
             id: id, title: id, artist: artist, album: "Al", imageKey: nil, matchKey: id,
-            bpm: bpm, camelot: camelot, energy: energy, tags: [], embedding: emb)
+            bpm: bpm, camelot: camelot, rmsEnergy: energy, tags: [], embedding: emb)
     }
 
     /// seed at [1,0,0,0]; `near` (cos≈.92, known artist), `mid` (cos≈.7, known),
@@ -22,6 +22,47 @@ final class RadioEngineTests: XCTestCase {
         let far  = track("far",  [0.50, 0, 0.866, 0], artist: "Newbie")
         let lib = [seed, near, mid, far]
         return (seed, lib, VectorIndex(tracks: lib)!)
+    }
+
+    /// Median, not mean: a station seeded with a 70 and a 170 BPM track must
+    /// not adopt 120 as its reference tempo — no seed sounds like that.
+    func testScalarCentroidUsesMedianTempoAndMajorityTags() {
+        let a = DatabaseManager.SonicTrack(
+            id: "a", title: "a", artist: "A", album: nil, imageKey: nil, matchKey: "a",
+            bpm: 70, camelot: "8A", rmsEnergy: 0.2, tags: ["warm", "solo"])
+        let b = DatabaseManager.SonicTrack(
+            id: "b", title: "b", artist: "B", album: nil, imageKey: nil, matchKey: "b",
+            bpm: 170, camelot: "8A", rmsEnergy: 0.8, tags: ["warm"])
+        let c = RadioEngine.scalarCentroid(of: [a, b])
+        XCTAssertEqual(c.bpm ?? 0, 170, accuracy: 0.001)   // upper median of 2
+        XCTAssertEqual(c.camelot, "8A")
+        XCTAssertEqual(c.tags, ["warm"])                   // "solo" is one seed's quirk
+        XCTAssertNotEqual(c.bpm ?? 0, 120, "mean tempo would describe neither seed")
+    }
+
+    /// The engine used to ignore every scalar. Two candidates the cosine ranks
+    /// identically must now be separated by measured tempo/key agreement — and
+    /// setting the knob to 0 must restore the old, scalar-blind order.
+    func testScalarCoherenceBreaksCosineTies() {
+        let seed = track("seed", [1, 0, 0, 0], artist: "Seed", camelot: "8B", bpm: 120)
+        // Identical embeddings → identical cosine; only the scalars differ.
+        let onTempo  = track("onTempo",  [0.8, 0.6, 0, 0], artist: "X", camelot: "8B", bpm: 121)
+        let offTempo = track("offTempo", [0.8, 0.6, 0, 0], artist: "Y", camelot: "2A", bpm: 178)
+        let lib = [seed, onTempo, offTempo]
+        guard let index = VectorIndex(tracks: lib) else { return XCTFail("index") }
+
+        func order(scalar: Double) -> [String] {
+            let opts = RadioEngine.Options(adventurousness: 0.35, poolLimit: 3, sequence: false,
+                                           scalarCoherence: scalar)
+            return RadioEngine.rank(seeds: [seed], library: lib, index: index,
+                                    options: opts, salt: "").map { $0.track.id }
+        }
+        XCTAssertEqual(order(scalar: 0.12).first, "onTempo",
+                       "matching tempo+key must win a cosine tie")
+        // Knob at 0 = the pre-change engine: the tie is no longer broken by
+        // scalars, so the two candidates keep their original relative order.
+        let blind = order(scalar: 0)
+        XCTAssertEqual(Set(blind), ["onTempo", "offTempo"])
     }
 
     func testRankExcludesSeedsAndIsDeterministic() {
@@ -141,7 +182,7 @@ final class RadioEngineTests: XCTestCase {
         // before reaching across to the other cluster.
         func t(_ id: String, _ e: [Float]) -> (DatabaseManager.SonicTrack, [Float], Double) {
             (DatabaseManager.SonicTrack(id: id, title: id, artist: id, album: nil, imageKey: nil,
-                                        matchKey: id, bpm: 120, camelot: "8B", energy: 0.5, tags: [],
+                                        matchKey: id, bpm: 120, camelot: "8B", rmsEnergy: 0.5, tags: [],
                                         embedding: e), VectorIndex.normalized(e), 0)
         }
         // relevance descending: a1, a2 (almost identical), then b1.
@@ -163,7 +204,7 @@ final class RadioSequencerTests: XCTestCase {
 
     private func track(_ id: String, _ emb: [Float], energy: Double) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: id, artist: id, album: nil, imageKey: nil,
-                                   matchKey: id, bpm: 120, camelot: "8B", energy: energy, tags: [],
+                                   matchKey: id, bpm: 120, camelot: "8B", rmsEnergy: energy, tags: [],
                                    embedding: emb)
     }
 
@@ -185,7 +226,7 @@ final class RadioSequencerTests: XCTestCase {
         // launches. With lowest-index-wins and an all-tied set that's the input order.
         func t(_ id: String) -> DatabaseManager.SonicTrack {
             DatabaseManager.SonicTrack(id: id, title: id, artist: id, album: nil, imageKey: nil,
-                                       matchKey: id, bpm: 120, camelot: "8A", energy: 0.5, tags: [])
+                                       matchKey: id, bpm: 120, camelot: "8A", rmsEnergy: 0.5, tags: [])
         }
         let lib = (0..<8).map { t("t\($0)") }
         XCTAssertEqual(RadioSequencer.order(lib).map(\.id), lib.map(\.id),
@@ -207,7 +248,7 @@ final class SonicClustersTests: XCTestCase {
 
     private func t(_ id: String, _ e: [Float]) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(id: id, title: id, artist: id, album: nil, imageKey: nil,
-                                   matchKey: id, bpm: 120, camelot: "8A", energy: 0.5, tags: [], embedding: e)
+                                   matchKey: id, bpm: 120, camelot: "8A", rmsEnergy: 0.5, tags: [], embedding: e)
     }
 
     private func twoGroupLib() -> [DatabaseManager.SonicTrack] {

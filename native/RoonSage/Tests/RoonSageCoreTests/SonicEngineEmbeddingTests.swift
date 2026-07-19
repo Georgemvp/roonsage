@@ -7,7 +7,7 @@ final class SonicEngineEmbeddingTests: XCTestCase {
     private func track(_ id: String, _ emb: [Float], camelot: String = "8B", bpm: Double = 120) -> DatabaseManager.SonicTrack {
         DatabaseManager.SonicTrack(
             id: id, title: id, artist: id, album: "Al", imageKey: nil, matchKey: id,
-            bpm: bpm, camelot: camelot, energy: 0.5, tags: [], embedding: emb)
+            bpm: bpm, camelot: camelot, rmsEnergy: 0.5, tags: [], embedding: emb)
     }
 
     private func lib() -> [DatabaseManager.SonicTrack] {

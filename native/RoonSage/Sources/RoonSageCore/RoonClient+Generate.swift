@@ -684,10 +684,8 @@ extension RoonClient {
         if moodKeys.isEmpty, profiles.isEmpty { return nil }
         return { t in
             if !moodKeys.isEmpty {
-                let dominant = t.moods.max(by: { $0.value < $1.value })?.key.lowercased()
-                let ok = moodKeys.contains { mk in
-                    if dominant == mk { return true }
-                    return t.moods.first { $0.key.lowercased() == mk }.map { $0.value >= 0.3 } ?? false
+                let ok = moodKeys.contains {
+                    MoodCalibration.matches($0, in: t.moods, calibration: calibration?.moods)
                 }
                 if !ok { return false }
             }
@@ -713,7 +711,7 @@ extension RoonClient {
             return DatabaseManager.SonicTrack(
                 id: t.id, title: t.title, artist: t.artist, album: t.album,
                 imageKey: t.imageKey, matchKey: t.matchKey ?? "",
-                bpm: nil, camelot: "", energy: nil, tags: [])
+                bpm: nil, camelot: "", rmsEnergy: nil, tags: [])
         }
         let byId = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         return RadioSequencer.order(nodes, arc: arc).compactMap { byId[$0.id] }
@@ -765,6 +763,7 @@ extension RoonClient {
         // The model sees the top slice (token budget); the assembler tops up from
         // the full ranked pool, so `picks` index into `llmList`.
         let llmList = Array(candidates.prefix(220))
+        let hintMoodCal = MoodCalibration(tracks: Array(sonic.values))
         let list = llmList.enumerated().map { i, t -> String in
             var s = "\(i + 1). \(t.title)"
             if let a = t.artist { s += " — \(a)" }
@@ -773,9 +772,11 @@ extension RoonClient {
             // SOUNDS, not on name recognition. Compact: [mood, bpm].
             if let st = t.matchKey.flatMap({ sonic[$0] }) {
                 var hints: [String] = []
-                if let top = st.moods.max(by: { $0.value < $1.value }), top.value >= 0.3 {
-                    hints.append(top.key)
-                }
+                // Calibrated against the candidate set (MoodCalibration falls
+                // back to raw argmax below 8 observations per label), so the
+                // hint says "unusually X" instead of naming whatever label
+                // CLAP's text prior inflates on every track.
+                if let top = hintMoodCal.dominantMood(st.moods) { hints.append(top) }
                 if let b = st.bpm, b > 0 { hints.append("\(Int(b.rounded())) bpm") }
                 if !hints.isEmpty { s += " [\(hints.joined(separator: ", "))]" }
             }

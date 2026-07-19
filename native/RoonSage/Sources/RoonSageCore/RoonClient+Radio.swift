@@ -235,7 +235,8 @@ extension RoonClient {
         guard let djMode, let seedId = seedIds.first,
               let seed = lib.first(where: { $0.id == seedId }) else { return nil }
         let years = (djMode == .timekeeper) ? ((try? await db.yearByMatchKey()) ?? [:]) : [:]
-        return djMode.gate(seed: seed, years: years)
+        return djMode.gate(seed: seed, years: years,
+                           moodCalibration: MoodCalibration(tracks: lib))
     }
 
     /// AND two optional candidate gates. A candidate must satisfy both to pass;
