@@ -331,7 +331,7 @@ private struct NowPlayingHero: View {
     private var trackInfo: some View {
         VStack(spacing: Spacing.xs) {
             if let np = zone.nowPlaying {
-                Text(np.title)
+                Text(np.title.displayTitle)
                     .font(.title2.bold())
                     .multilineTextAlignment(.center)
                     .lineLimit(2)

@@ -48,7 +48,7 @@ public struct NowPlayingBar: View {
                   zone.state == .playing || zone.state == .paused {
             bar(
                 imageKey: np.imageKey,
-                title: np.title,
+                title: np.title.displayTitle,
                 subtitle: np.artist ?? zone.displayName,
                 subtitleIcon: "hifi.speaker",
                 isPlaying: zone.state == .playing,

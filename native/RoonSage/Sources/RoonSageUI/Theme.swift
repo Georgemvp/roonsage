@@ -139,6 +139,16 @@ extension View {
     }
 }
 
+public extension String {
+    /// Tidy a track/album title for display: insert the space some source titles
+    /// drop before a parenthesis ("On Every Street(Album Version)" → "… Street
+    /// (Album Version)"). Purely cosmetic — no content is removed, so it stays
+    /// faithful to the underlying metadata.
+    var displayTitle: String {
+        replacingOccurrences(of: #"([^\s(])\("#, with: "$1 (", options: .regularExpression)
+    }
+}
+
 /// Cross-platform haptics — award-quality iOS apps confirm every meaningful
 /// tap. No-op on macOS so call-sites stay clean of #if os(...) noise.
 public enum Haptics {

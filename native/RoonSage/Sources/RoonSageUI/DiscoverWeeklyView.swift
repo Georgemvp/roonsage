@@ -151,7 +151,7 @@ public struct DiscoverWeeklyView: View {
                         .frame(width: 20, alignment: .trailing)
                     AlbumArtView(imageKey: t.imageKey, size: 44)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(t.title).font(.body).lineLimit(1)
+                        Text(t.title.displayTitle).font(.body).lineLimit(2)
                         Text(cleanArtist(t.artist))
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
