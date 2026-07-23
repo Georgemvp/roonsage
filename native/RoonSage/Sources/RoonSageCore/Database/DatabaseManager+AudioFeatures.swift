@@ -663,12 +663,16 @@ extension DatabaseManager {
         }) ?? ""
     }
 
-    /// (features stored, tracks in the library that have a matching feature).
+    /// (total library tracks, distinct library tracks that have an analysis).
+    /// `matched ≤ total` by construction — count each track once via EXISTS, not a
+    /// JOIN (a JOIN double-counts when several duplicate tracks share one
+    /// `match_key`, which pushed "% geanalyseerd" above 100%).
     public func audioFeaturesStats() async throws -> (total: Int, matched: Int) {
         try await pool.read { db in
-            let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM track_audio_features") ?? 0
+            let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM tracks") ?? 0
             let matched = try Int.fetchOne(db, sql: """
-                SELECT COUNT(*) FROM tracks t JOIN track_audio_features f ON t.match_key = f.match_key
+                SELECT COUNT(*) FROM tracks t
+                WHERE EXISTS (SELECT 1 FROM track_audio_features f WHERE f.match_key = t.match_key)
             """) ?? 0
             return (total, matched)
         }

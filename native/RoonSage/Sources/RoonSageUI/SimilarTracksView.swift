@@ -33,6 +33,9 @@ struct SimilarTracksView: View {
 
     @State private var results: [SonicEngine.Scored] = []
     @State private var loaded = false
+    /// Confirmation shown after "Speel deze mix" so the action doesn't read as a
+    /// no-op (mirrors the Time Machine journey's "Tijdreis gestart …" banner).
+    @State private var confirmation: String?
 
     private var topRecords: [TrackRecord] {
         results.prefix(30).map { Self.record($0.track) }
@@ -80,14 +83,23 @@ struct SimilarTracksView: View {
     }
 
     private var playAllRow: some View {
-        HStack(spacing: Spacing.sm) {
+        VStack(spacing: Spacing.xs) {
             Button {
                 Haptics.success()
-                Task { await client.playToActiveOutput(topRecords) }
+                let n = topRecords.count
+                Task {
+                    await client.playToActiveOutput(topRecords)
+                    confirmation = "Mix gestart — \(n) tracks."
+                }
             } label: {
                 Label("Speel deze mix", systemImage: "play.fill").frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent).tint(Color.roonGold)
+            if let confirmation {
+                Text(confirmation)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 

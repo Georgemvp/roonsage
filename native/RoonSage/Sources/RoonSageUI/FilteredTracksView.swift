@@ -107,7 +107,7 @@ public struct FilteredTracksView: View {
                     let all = await client.filterTracks(options: opts)
                     await client.playToActiveOutput(all)
                 }
-            } label: { Label("Speel alles", systemImage: "play.fill") }
+            } label: { Label("Speel alles", systemImage: "play.fill").lineLimit(1) }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(!client.hasActiveOutput || tracks.isEmpty)
@@ -116,7 +116,7 @@ public struct FilteredTracksView: View {
                 guard let zone = client.selectedZone else { return }
                 Haptics.tap()
                 Task { await client.playShuffledMix(options: filter.options, count: 40, zoneID: zone.id) }
-            } label: { Label("Shuffle", systemImage: "shuffle") }
+            } label: { Label("Shuffle", systemImage: "shuffle").lineLimit(1) }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .disabled(client.selectedZone == nil)
