@@ -366,6 +366,11 @@ public final class RoonClient {
     public internal(set) var lastfmPlaylistSyncStatus: String = ""
     #if os(macOS)
     var lastfmPlaylistSyncTask: Task<Void, Never>?
+    // The analyzer server's Roon-connect + Last.fm-scrobble loops. Started from
+    // init() (not a SwiftUI `.task`) so they run even when the headless mini's
+    // Window scene never activates — see startServerConnectLoops().
+    var serverRoonConnectTask: Task<Void, Never>?
+    var serverLastfmScrobbleTask: Task<Void, Never>?
     #endif
 
     public init() {
@@ -394,6 +399,16 @@ public final class RoonClient {
         if lastfmPlaylistSyncEnabled {
             startLastfmPlaylistSync()
         }
+        // The analyzer SERVER must stay connected to Roon and keep pulling Last.fm
+        // scrobbles. These start from init — NOT a SwiftUI `.task` — because the
+        // headless server's Window scene never activates when the mini's display
+        // is asleep, so its `.task` modifiers silently never fire (which left the
+        // server serving a stale library while never pairing with Roon). Gated to
+        // the analyzer via its distinct extension identity so the thin Mac client
+        // (which talks to the share server, not Roon) never triggers it.
+        if RoonClientAuth.extensionIDOverride == "com.roonsage.server" {
+            startServerBackgroundWork()
+        }
         // One-time forced Qobuz resync: set via `defaults write <bundle-id>
         // qobuz_force_resync_once -bool YES` before a restart. Corrects playlists
         // whose Qobuz copy bloated from the (now-fixed) incomplete-clear bug in
@@ -421,6 +436,84 @@ public final class RoonClient {
         }
         #endif
     }
+
+    #if os(macOS)
+    /// Kick off ALL the analyzer server's long-running background work in retained
+    /// Tasks (idempotent). Called from init on the server so it survives regardless
+    /// of the SwiftUI Window scene's lifecycle — a `.task` on the headless server's
+    /// Window never fires when the mini's display is asleep. (The AnalyzerModel-side
+    /// jobs — analysis, CLAP, the :5766 serve — are started from the analyzer app's
+    /// init for the same reason; those need the model, which lives there.)
+    func startServerBackgroundWork() {
+        if serverRoonConnectTask == nil {
+            serverRoonConnectTask = Task { [weak self] in await self?.serverRoonConnectLoop() }
+        }
+        if serverLastfmScrobbleTask == nil {
+            serverLastfmScrobbleTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    await self?.syncRecentLastfmScrobbles()
+                    try? await Task.sleep(nanoseconds: 15 * 60 * 1_000_000_000)
+                }
+            }
+        }
+        // The server's periodic Qobuz / discovery / lyrics / feature schedules
+        // (each guards against double-start internally).
+        startArtistRadioRefresh()
+        startDiscoveryRefresh()
+        startDigestSchedule()
+        startDiscoverWeeklySchedule()
+        startServerFeatureSync()
+        startLyricsBackfill()
+    }
+
+    /// The server must stay connected to Roon. Keep (re)trying from a not-
+    /// connected state: saved host → SOOD discovery → localhost (the server
+    /// usually runs on the Core machine). A handshake that drops before
+    /// authorization leaves us `.disconnected` without auto-reconnect, so we
+    /// drive the retry here.
+    ///
+    /// - `.connecting` is bounded: the transport self-aborts a stalled handshake
+    ///   (~18s), but as a final backstop we force a teardown if it lingers.
+    /// - After repeated saved-host failures we fall through to SOOD discovery, so
+    ///   a Core that moved to a new IP is rediscovered automatically.
+    private func serverRoonConnectLoop() async {
+        var savedHostFailures = 0
+        var connectingSince: Date?
+        while !Task.isCancelled {
+            switch connectionState {
+            case .connected, .awaitingAuthorization, .discovering:
+                savedHostFailures = 0
+                connectingSince = nil
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                continue
+            case .connecting:
+                let now = Date()
+                let since = connectingSince ?? now
+                connectingSince = since
+                if now.timeIntervalSince(since) > 25 {
+                    await disconnect()   // break a stuck handshake
+                    connectingSince = nil
+                } else {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                }
+                continue
+            default:
+                connectingSince = nil   // .disconnected / .failed → (re)try
+            }
+            if let host = savedHost, savedHostFailures < 3 {
+                savedHostFailures += 1
+                await connect(host: host, port: savedPort)
+            } else {
+                await discoverAndConnect()
+                if case .failed = connectionState {
+                    await connect(host: "127.0.0.1", port: 9330)
+                }
+                savedHostFailures = 0
+            }
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+        }
+    }
+    #endif
 
     /// Start/stop the library-share HTTP server (persisted; auto-starts at
     /// launch when enabled). Other devices import via GET /library on port 5767.

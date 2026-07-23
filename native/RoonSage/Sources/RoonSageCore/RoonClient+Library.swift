@@ -399,6 +399,7 @@ extension RoonClient {
             lastActionError = ActionError(message: "Wachtrij mislukt — geen verbinding met Roon.")
             return
         }
+        let tracks = await resolveImportKeys(tracks)
         let action = next ? "add_next" : "queue"
         var failed = 0
         for track in tracks {

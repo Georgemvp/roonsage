@@ -63,6 +63,20 @@ extension DatabaseManager {
         }
     }
 
+    /// The current Roon item_key for a library track identified by its content
+    /// `match_key`. Used to turn a synthetic `import::` key (minted when a client
+    /// imported the library over the wire) back into the real key this server
+    /// owns, so playback uses the fast direct-browse path instead of a fragile
+    /// live Roon search. Returns nil for tracks this library doesn't hold.
+    public func libraryTrackID(matchKey: String) async -> String? {
+        guard !matchKey.isEmpty else { return nil }
+        return try? await pool.read { db in
+            try String.fetchOne(
+                db, sql: "SELECT id FROM tracks WHERE match_key = ? LIMIT 1",
+                arguments: [matchKey])
+        }
+    }
+
     /// Build a prefix-matching FTS5 query from raw user text. Each token is
     /// double-quoted so user input can never inject FTS operators (AND, OR,
     /// NEAR, '-', column filters). Returns nil when the text holds no

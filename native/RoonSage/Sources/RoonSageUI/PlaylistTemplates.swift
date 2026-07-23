@@ -9,6 +9,23 @@ struct PlaylistTemplate: Identifiable, Hashable {
     let category: String
     let trackCount: Int
     let prompt: String
+
+    /// A monochrome SF Symbol per category, for surfaces that follow the app's
+    /// SF-Symbol style (the quick "Snelle sjablonen" chips) rather than the
+    /// colour-emoji `icon` used in the full browse sheet.
+    var categorySymbol: String {
+        switch category {
+        case "Sfeer":        "theatermasks"
+        case "Activiteiten": "figure.run"
+        case "Dagdeel":      "clock"
+        case "Tijdperken":   "calendar"
+        case "Genres":       "guitars"
+        case "Sociaal":      "person.2"
+        case "Seizoenen":    "leaf"
+        case "Ontdekking":   "sparkles"
+        default:             "music.note"
+        }
+    }
 }
 
 enum PlaylistTemplates {

@@ -237,6 +237,7 @@ struct OutputSelector: View {
 private struct NowPlayingHero: View {
     @Environment(RoonClient.self) private var client
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.navigateTo) private var navigateTo
     let zone: Zone
 
     init(zone: Zone) {
@@ -353,6 +354,23 @@ private struct NowPlayingHero: View {
                 Text(zone.displayName)
                     .font(.callout)
                     .foregroundStyle(.tertiary)
+                // A discovery app shouldn't dead-end here — offer a way to start.
+                HStack(spacing: Spacing.sm) {
+                    Button {
+                        Haptics.tap(); navigateTo(.discovery)
+                    } label: {
+                        Label("Ontdek muziek", systemImage: "sparkles")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button {
+                        Haptics.tap(); navigateTo(.generate)
+                    } label: {
+                        Label("Maak een playlist", systemImage: "wand.and.stars")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .font(.callout)
+                .padding(.top, Spacing.md)
             }
         }
         .frame(maxWidth: .infinity)

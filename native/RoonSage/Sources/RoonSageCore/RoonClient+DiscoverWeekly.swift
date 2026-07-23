@@ -29,14 +29,19 @@ public struct DiscoverWeeklyTrack: Codable, Sendable, Identifiable {
     public var artist: String?
     public var album: String?
     public var notInLibrary: Bool
+    // Artwork for the tracklist row. Optional so a weekly playlist cached before
+    // this field existed still decodes (synthesized Codable reads a missing
+    // optional key as nil); such rows just show the placeholder until the next
+    // refresh regenerates the playlist with per-track art.
+    public var imageKey: String?
 
-    public init(id: String, title: String, artist: String?, album: String?, notInLibrary: Bool) {
+    public init(id: String, title: String, artist: String?, album: String?, notInLibrary: Bool, imageKey: String? = nil) {
         self.id = id; self.title = title; self.artist = artist; self.album = album
-        self.notInLibrary = notInLibrary
+        self.notInLibrary = notInLibrary; self.imageKey = imageKey
     }
 
     /// A `TrackRecord` for playback / resolution.
-    public var record: TrackRecord { TrackRecord(id: id, title: title, artist: artist, album: album) }
+    public var record: TrackRecord { TrackRecord(id: id, title: title, artist: artist, album: album, imageKey: imageKey) }
 }
 
 /// A generated weekly discovery playlist (one per ISO week).
@@ -286,7 +291,8 @@ extension RoonClient {
         }
 
         var tracks = ordered.map {
-            DiscoverWeeklyTrack(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album, notInLibrary: false)
+            DiscoverWeeklyTrack(id: $0.id, title: $0.title, artist: $0.artist, album: $0.album,
+                                notInLibrary: false, imageKey: $0.imageKey)
         }
 
         // ListenBrainz enrichment (library/Qobuz-existing only, labelled).
@@ -372,7 +378,7 @@ extension RoonClient {
             if i < matches.count, let m = matches[i] {
                 if let mk = m.matchKey, recentKeys.contains(mk) { continue }  // recently played → not discovery
                 out.append(DiscoverWeeklyTrack(id: m.id, title: m.title, artist: m.artist,
-                                               album: m.album, notInLibrary: false))
+                                               album: m.album, notInLibrary: false, imageKey: m.imageKey))
                 continue
             }
             // 2) Not owned — does it exist on Qobuz UNDER THE SAME title+artist?
@@ -390,7 +396,7 @@ extension RoonClient {
                 TrackIdentity.matchKey(artist: $0.artist, album: $0.album, title: $0.title) == wantKey
             }) {
                 out.append(DiscoverWeeklyTrack(id: q.id, title: cand.title, artist: cand.artist,
-                                               album: cand.album, notInLibrary: true))
+                                               album: cand.album, notInLibrary: true, imageKey: q.imageKey))
             }
             // else: no confident Qobuz match → skip (library-first).
         }

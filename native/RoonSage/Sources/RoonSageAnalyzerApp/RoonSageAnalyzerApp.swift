@@ -6,15 +6,20 @@ import SwiftUI
 @MainActor
 @main
 struct RoonSageAnalyzerApp: App {
-    @State private var model = AnalyzerModel()
-    @State private var updater = AnalyzerUpdater()
+    @State private var model: AnalyzerModel
+    @State private var updater: AnalyzerUpdater
     @State private var client: RoonClient
 
     init() {
         // Register as the distinct "RoonSage Server" Roon extension before the
         // shared client is touched, so we don't clash with the client apps.
         RoonClient.useServerIdentity()
-        _client = State(initialValue: RoonClient.shared)
+        let client = RoonClient.shared
+        let model = AnalyzerModel()
+        let updater = AnalyzerUpdater()
+        _client = State(initialValue: client)
+        _model = State(initialValue: model)
+        _updater = State(initialValue: updater)
 
         // Device-approval rollout: switch on token enforcement once, so from now
         // on only clients approved under "Apparaten" are served (unknown tokens
@@ -25,6 +30,25 @@ struct RoonSageAnalyzerApp: App {
             LibraryShareServer.enforceToken = true
             d.set(true, forKey: "device_approval_migrated")
         }
+
+        // Start ALL server background work here, NOT from a SwiftUI `.task`. This
+        // app is a headless server; when the mini's display is asleep its Window
+        // scene never activates, so Window `.task` modifiers silently never fire —
+        // which used to leave the server unable to connect to Roon, serve :5766,
+        // load CLAP, or run its analysis/enrichment jobs. init() always runs.
+        // (RoonClient's own loops — Roon connect, Last.fm, the Qobuz/discovery/
+        // lyrics schedules — are started from RoonClient.init(); the AnalyzerModel
+        // jobs, which need `model`, are started here.) All are idempotent.
+        Task { await updater.checkOnLaunch() }
+        model.autoStartIfEnabled()
+        model.autoEnrichIfEnabled()          // trickle MusicBrainz genres
+        model.autoPopularityIfEnabled()      // trickle Deezer popularity
+        model.autoLoudnessIfEnabled()        // backfill F3 loudness (disk-gentle)
+        model.autoPreviewIfEnabled()         // embed file-less (Qobuz) tracks
+        model.autoDeezerGenreIfEnabled()     // backfill Deezer genres
+        model.autoArousalRefreshIfNeeded()   // one-time perceptual-energy axis
+        model.loadCLAPIfNeeded()             // start loading CLAP immediately
+        model.startServingIfNeeded()         // the :5766 analyzer/audio server
     }
 
     var body: some Scene {
@@ -37,36 +61,10 @@ struct RoonSageAnalyzerApp: App {
             .environment(updater)
             .environment(client)
             .frame(minWidth: 860, minHeight: 640)
-            .task { await updater.checkOnLaunch() }
-            .task { model.autoStartIfEnabled() }
-            .task { model.autoEnrichIfEnabled() }   // trickle MusicBrainz genres in the background
-            .task { model.autoPopularityIfEnabled() }   // trickle Deezer popularity in the background
-            .task { model.autoLoudnessIfEnabled() }   // backfill F3 loudness on pre-F3 tracks (disk-gentle)
-            .task { model.autoPreviewIfEnabled() }   // embed file-less (Qobuz) tracks from Deezer previews
-            .task { model.autoDeezerGenreIfEnabled() }   // backfill Deezer genres (2nd signal alongside MB)
-            .task { model.autoArousalRefreshIfNeeded() }   // one-time: perceptual-energy axis for older rows
-            .task { model.loadCLAPIfNeeded() }   // start loading CLAP immediately — clapReady gates backfill
-            .task { model.startServingIfNeeded() }
-            // This app IS the server: connect to Roon on launch so the library
-            // sync can run and the share server (5767) serves a populated DB.
-            // The share server auto-starts via RoonClient init.
-            .task { await connectRoon() }
-            .task { await lastfmSyncLoop() }
-            // The server keeps the AI artist radios fresh on Qobuz (every 3h).
-            .task { client.startArtistRadioRefresh() }
-            // The server builds the daily "Ontdekkingen" discovery feed.
-            .task { client.startDiscoveryRefresh() }
-            // …and, on the configured weekday, bundles the week's best pending
-            // recommendations into a dated Qobuz digest playlist.
-            .task { client.startDigestSchedule() }
-            // The library-first weekly discovery playlist ("Ontdek Wekelijks"):
-            // regenerated at most once per interval, hourly due-check.
-            .task { client.startDiscoverWeeklySchedule() }
-            // Pull analyzed features (tags/year/embeddings) into library.db so they
-            // reach the library without the manual Settings "Sync features" button.
-            .task { client.startServerFeatureSync() }
-            // Trickle lyrics (LRCLIB) into library.db for the whole library, gently.
-            .task { client.startLyricsBackfill() }
+            // NB: all server background work (Roon connect, Last.fm, :5766 serve,
+            // CLAP, analysis, the Qobuz/discovery/lyrics schedules) is started from
+            // init() — NOT a `.task` here — because this Window's `.task` modifiers
+            // never fire when the headless mini's display is asleep. See init().
         }
         .windowResizability(.contentSize)
 
@@ -80,63 +78,4 @@ struct RoonSageAnalyzerApp: App {
         .menuBarExtraStyle(.window)
     }
 
-    /// Haalt elke 15 minuten nieuwe Last.fm-scrobbles op (inclusief ARC-plays die
-    /// Roon naar Last.fm heeft doorgestuurd). Start direct bij app-launch.
-    private func lastfmSyncLoop() async {
-        while !Task.isCancelled {
-            await client.syncRecentLastfmScrobbles()
-            try? await Task.sleep(nanoseconds: 15 * 60 * 1_000_000_000)
-        }
-    }
-
-    /// The server must stay connected to Roon. Keep (re)trying from a not-
-    /// connected state: saved host → SOOD discovery → localhost (the server
-    /// usually runs on the Core machine). A handshake that drops before
-    /// authorization leaves RoonClient `.disconnected` without auto-reconnect,
-    /// so we drive the retry here.
-    ///
-    /// Two resilience behaviours beyond the transport-level fixes:
-    /// - `.connecting` is bounded: the transport now self-aborts a stalled
-    ///   handshake (~18s), but as a final backstop we force a teardown if it
-    ///   somehow lingers, so the UI never stays on "Verbinden met …" forever.
-    /// - After repeated saved-host failures we fall through to SOOD discovery,
-    ///   so a Core that moved to a new IP is rediscovered automatically.
-    private func connectRoon() async {
-        var savedHostFailures = 0
-        var connectingSince: Date?
-        while !Task.isCancelled {
-            switch client.connectionState {
-            case .connected, .awaitingAuthorization, .discovering:
-                savedHostFailures = 0
-                connectingSince = nil
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                continue
-            case .connecting:
-                let now = Date()
-                let since = connectingSince ?? now
-                connectingSince = since
-                if now.timeIntervalSince(since) > 25 {
-                    await client.disconnect()   // break a stuck handshake
-                    connectingSince = nil
-                } else {
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                }
-                continue
-            default:
-                connectingSince = nil
-                break   // .disconnected / .failed → (re)try
-            }
-            if let host = client.savedHost, savedHostFailures < 3 {
-                savedHostFailures += 1
-                await client.connect(host: host, port: client.savedPort)
-            } else {
-                await client.discoverAndConnect()
-                if case .failed = client.connectionState {
-                    await client.connect(host: "127.0.0.1", port: 9330)
-                }
-                savedHostFailures = 0
-            }
-            try? await Task.sleep(nanoseconds: 6_000_000_000)
-        }
-    }
 }

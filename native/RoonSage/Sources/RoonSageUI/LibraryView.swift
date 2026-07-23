@@ -729,7 +729,9 @@ public struct LibraryView: View {
                 StatCard(label: "Artiesten", value: stats.totalArtists.formatted())
                 StatCard(label: "Albums", value: stats.totalAlbums.formatted())
             }
-            HStack(spacing: Spacing.md) {
+            // Flow layout so the three chips wrap to a second line on a narrow
+            // phone instead of each truncating ("3.536 uur m…", "79% geanal…").
+            FlowLayout(spacing: Spacing.md, lineSpacing: Spacing.sm) {
                 if let top = stats.topGenres.first {
                     Label(top.genre.capitalized, systemImage: "guitars.fill")
                 }
@@ -739,7 +741,6 @@ public struct LibraryView: View {
                 if analyzedTotal > 0 {
                     Label("\(analyzedMatched * 100 / analyzedTotal)% geanalyseerd", systemImage: "waveform")
                 }
-                Spacer(minLength: 0)
             }
             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
@@ -897,7 +898,8 @@ public struct LibraryView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                // No manual chevron: this NavigationLink lives in a List, which
+                // already draws its own disclosure indicator (double ">  >").
             }
             .padding(Spacing.md)
             .contentShape(Rectangle())

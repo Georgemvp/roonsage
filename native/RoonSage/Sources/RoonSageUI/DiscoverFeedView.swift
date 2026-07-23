@@ -22,6 +22,8 @@ public struct DiscoverFeedView: View {
     @State private var undoItem: RecommendationItemDTO?   // last skipped, shown in the undo bar
     @State private var rejectTask: Task<Void, Never>?     // delayed reject POST — cancelling it IS the undo
     @State private var showInsights = false               // Ontdek-inzichten sheet
+    @State private var playing = Set<Int64>()             // items whose play request is in flight
+    @State private var message: String?                   // transient "Afspelen gestart…" banner
 
     enum KindFilter: String, CaseIterable, Identifiable {
         case all, artist, album
@@ -63,7 +65,7 @@ public struct DiscoverFeedView: View {
     public var body: some View {
         Group {
             if loading {
-                ProgressView("Nieuwe Ontdekkingen laden…")
+                ProgressView("Nieuw voor jou laden…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorText, items.isEmpty {
                 ErrorStateView(errorText) { Task { await load() } }
@@ -113,7 +115,7 @@ public struct DiscoverFeedView: View {
                 .listStyle(.plain)
             }
         }
-        .navigationTitle("Nieuwe Ontdekkingen")
+        .navigationTitle("Nieuw voor jou")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -161,6 +163,7 @@ public struct DiscoverFeedView: View {
         .animation(Motion.standard, value: loading)
         .task { await load() }
         .overlay(alignment: .bottom) { undoBanner }
+        .overlay(alignment: .top) { actionBanner }
         .onDisappear { commitPendingRejectNow() }
         .sheet(isPresented: $showInsights) {
             NavigationStack {
@@ -171,6 +174,26 @@ public struct DiscoverFeedView: View {
                         }
                     }
             }
+        }
+    }
+
+    /// Transient confirmation for a play action — the feed's plays go through a
+    /// server round-trip (resolve → Roon) with no immediate visible result, so
+    /// without this a tap looked like a no-op during the wait.
+    @ViewBuilder private var actionBanner: some View {
+        if let message {
+            HStack(spacing: Spacing.sm) {
+                if !playing.isEmpty {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "play.circle.fill").foregroundStyle(Color.roonGold)
+                }
+                Text(message).font(.caption).lineLimit(2)
+            }
+            .padding(.horizontal, Spacing.md).padding(.vertical, Spacing.sm)
+            .background(.ultraThinMaterial, in: Capsule())
+            .padding(.top, Spacing.sm)
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 
@@ -207,7 +230,7 @@ public struct DiscoverFeedView: View {
         } description: {
             Text(refreshing
                  ? "De server bouwt een nieuwe set — dit kan even duren."
-                 : "Nieuwe Ontdekkingen zoekt artiesten en albums búiten je bibliotheek, op basis van je smaak en meteen speelbaar via Qobuz. (Ontdek Wekelijks put juist uit wat je al hebt.) De server bouwt dagelijks een verse set — veeg om te bewaren of over te slaan.")
+                 : "Nieuw voor jou zoekt artiesten en albums búiten je bibliotheek, op basis van je smaak en meteen speelbaar via Qobuz. (Ontdek Wekelijks put juist uit wat je al hebt.) De server bouwt dagelijks een verse set — veeg om te bewaren of over te slaan.")
         } actions: {
             Button { Task { await refresh() } } label: {
                 Label(refreshing ? "Bezig…" : "Ververs", systemImage: "arrow.clockwise")
@@ -257,8 +280,30 @@ public struct DiscoverFeedView: View {
     }
 
     private func play(_ item: RecommendationItemDTO) {
+        guard !playing.contains(item.id) else { return }
+        let name = item.album ?? item.artist
         Haptics.tap()
-        Task { await client.playRecommendation(item.id, zoneID: client.selectedZone?.id) }
+        _ = playing.insert(item.id)
+        withAnimation(Motion.quick) { message = "Bezig met afspelen — ‘\(name)’ opzoeken…" }
+        Task {
+            let ok = await client.playRecommendation(item.id, zoneID: client.selectedZone?.id)
+            playing.remove(item.id)
+            withAnimation(Motion.quick) {
+                message = ok
+                    ? "Afspelen gestart — ‘\(name)’."
+                    : "Afspelen mislukt — ‘\(name)’ kon niet starten."
+            }
+            clearMessageSoon()
+        }
+    }
+
+    /// Clear the transient action banner after a few seconds (mirrors the global
+    /// error toast's auto-dismiss so a stale "gestart" line doesn't linger).
+    private func clearMessageSoon() {
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            withAnimation(Motion.quick) { message = nil }
+        }
     }
 
     /// Optimistically hide the card, then POST the reject after a short grace

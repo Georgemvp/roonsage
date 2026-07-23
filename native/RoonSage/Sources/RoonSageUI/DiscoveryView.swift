@@ -25,6 +25,7 @@ public struct DiscoveryView: View {
     @State private var weeklyAlbums: Set<String> = []
     @State private var weeklyTracks: Set<String> = []
     @State private var isLoaded = false
+    @State private var actionMessage: String?   // transient "Afspelen gestart…" banner
 
     public var body: some View {
         List {
@@ -95,6 +96,18 @@ public struct DiscoveryView: View {
         }
         .ambientSurface()
         .animation(Motion.standard, value: isLoaded)
+        .overlay(alignment: .top) {
+            if let actionMessage {
+                HStack(spacing: Spacing.sm) {
+                    Image(systemName: "play.circle.fill").foregroundStyle(Color.roonGold)
+                    Text(actionMessage).font(.caption).lineLimit(2)
+                }
+                .padding(.horizontal, Spacing.md).padding(.vertical, Spacing.sm)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(.top, Spacing.sm)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         .task(id: client.trackCount) { await load() }
     }
 
@@ -118,7 +131,8 @@ public struct DiscoveryView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                // No manual chevron: the List-hosted NavigationLink already draws
+                // its own disclosure indicator (a second one read as ">  >").
             }
             .padding(Spacing.md)
             .contentShape(Rectangle())
@@ -172,7 +186,11 @@ public struct DiscoveryView: View {
                     Button {
                         Haptics.tap()
                         item.play()
-                    } label: { Label("Speel nu", systemImage: "play.fill") }
+                    } label: {
+                        Label("Speel nu", systemImage: "play.fill")
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
                         .buttonStyle(.borderedProminent)
                         .disabled(client.selectedZone == nil)
                     Button { item.playLocal() } label: { Image(systemName: "iphone") }
@@ -225,7 +243,21 @@ public struct DiscoveryView: View {
 
     private func play(_ action: @escaping (String) async -> Void) {
         guard let zone = client.selectedZone else { return }
-        Task { await action(zone.id) }
+        Task {
+            await action(zone.id)
+            // A stored-key play is dispatched to the server and loads in the
+            // background, so there's no immediate visible result — confirm the
+            // dispatch (like the Time Machine journey does) instead of looking
+            // like a no-op. A genuine failure still surfaces via the global
+            // error toast (client.lastActionError).
+            if client.lastActionError == nil {
+                withAnimation(Motion.quick) { actionMessage = "Afspelen gestart op ‘\(zone.displayName)’." }
+                Task {
+                    try? await Task.sleep(for: .seconds(4))
+                    withAnimation(Motion.quick) { actionMessage = nil }
+                }
+            }
+        }
     }
 
     // MARK: - Summary cards
@@ -265,6 +297,18 @@ public struct DiscoveryView: View {
                 .lineStyle(StrokeStyle(lineWidth: 2))
             }
             .chartYAxis { AxisMarks(position: .leading) }
+            // Compact decade ticks ("1950s" → "'50s") so labels stop truncating
+            // to "195…" when several decades share the axis width.
+            .chartXAxis {
+                AxisMarks { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let d = value.as(String.self) {
+                            Text(d.count >= 3 ? "’\(d.suffix(3))" : d)
+                        }
+                    }
+                }
+            }
             .frame(height: 160)
 
             // Tap a decade to play a shuffled mix from it.

@@ -76,6 +76,7 @@ extension RoonClient {
             lastActionError = ActionError(message: "Afspelen mislukt — geen verbinding met Roon.")
             return
         }
+        let tracks = await resolveImportKeys(tracks)
         Log.info("curateTracks: \(tracks.count) tracks → zone \(zoneID)", category: .roon)
         var isFirst = true
         var failed = 0
@@ -98,6 +99,30 @@ extension RoonClient {
                     ? "Afspelen mislukt — geen van de \(tracks.count) tracks kon starten."
                     : "\(failed) van de \(tracks.count) tracks konden niet in de wachtrij.")
         }
+    }
+
+    /// Swap synthetic `import::` playback keys for the real Roon item_key this
+    /// server owns, resolved by content `match_key`. A client that imported the
+    /// library over the wire holds `import::artist::title` ids (the exporter's
+    /// Roon keys are session-scoped and meaningless off-device); left as-is they
+    /// force `playByBrowse` down a live Roon search that is slow and flaky under a
+    /// degraded session. This server DOES hold the current key for any owned
+    /// track, so resolving here makes discovery playback take the fast, reliable
+    /// direct-browse path. Non-library keys (`qobuz_search::`, unresolved
+    /// imports) pass through unchanged and still fall back to search.
+    func resolveImportKeys(_ tracks: [TrackRecord]) async -> [TrackRecord] {
+        guard let db = database else { return tracks }
+        var out: [TrackRecord] = []
+        out.reserveCapacity(tracks.count)
+        for track in tracks {
+            guard track.id.hasPrefix(DatabaseManager.importKeyPrefix) else { out.append(track); continue }
+            if let realID = await db.libraryTrackID(matchKey: LocalPlayability.matchKey(for: track)) {
+                var t = track; t.id = realID; out.append(t)
+            } else {
+                out.append(track)
+            }
+        }
+        return out
     }
 
 }

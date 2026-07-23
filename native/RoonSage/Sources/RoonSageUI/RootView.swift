@@ -74,7 +74,11 @@ struct ReconnectingBanner: View {
     @Environment(RoonClient.self) private var client
 
     var body: some View {
-        if !client.connectionState.isConnected {
+        // Only while genuinely establishing the first connection — once a live
+        // session exists a poll blip must NOT drop a "Verbinden met …" pill over
+        // the nav title (it was covering it and never clearing). Real failures
+        // still surface via the bottom ActionErrorToast.
+        if !client.connectionState.isConnected && !client.hasLiveSession {
             Label(client.connectionState.label, systemImage: "arrow.clockwise")
                 .font(.caption.weight(.medium))
                 .padding(.horizontal, 12)
@@ -425,7 +429,7 @@ struct RootView: View {
                     // whole bar and let the artwork run to the top.
                     .toolbar(.hidden, for: .navigationBar)
             }
-            .tabItem { Label { LT("nav.nowPlaying") } icon: { Image(systemName: "play.circle.fill") } }
+            .tabItem { Label { Text("Nu speelt") } icon: { Image(systemName: "play.circle.fill") } }
             .tag(SidebarItem.nowPlaying)
 
             NavigationStack {
@@ -436,21 +440,21 @@ struct RootView: View {
                     .ambientSurface()
             }
             .nowPlayingBarDocked()
-            .tabItem { Label { LT("nav.library") } icon: { Image(systemName: "music.note.list") } }
+            .tabItem { Label { Text("Bibliotheek") } icon: { Image(systemName: "music.note.list") } }
             .tag(SidebarItem.library)
 
             NavigationStack {
                 iOSCreateHub.toolbar { navToolbar }.ambientSurface()
             }
             .nowPlayingBarDocked()
-            .tabItem { Label { LT("section.create") } icon: { Image(systemName: "wand.and.stars") } }
+            .tabItem { Label { Text("Maak") } icon: { Image(systemName: "wand.and.stars") } }
             .tag(SidebarItem.generate)
 
             NavigationStack {
                 iOSExploreHub.toolbar { navToolbar }.ambientSurface()
             }
             .nowPlayingBarDocked()
-            .tabItem { Label { LT("section.explore") } icon: { Image(systemName: "sparkles") } }
+            .tabItem { Label { Text("Ontdek") } icon: { Image(systemName: "sparkles") } }
             .tag(SidebarItem.discovery)
 
             NavigationStack {
@@ -461,7 +465,7 @@ struct RootView: View {
                     .ambientSurface()
             }
             .nowPlayingBarDocked()
-            .tabItem { Label { LT("nav.settings") } icon: { Image(systemName: "gearshape") } }
+            .tabItem { Label { Text("Instellingen") } icon: { Image(systemName: "gearshape") } }
             .tag(SidebarItem.settings)
         }
         .onChange(of: client.zones) { _, _ in

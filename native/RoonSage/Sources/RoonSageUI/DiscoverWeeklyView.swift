@@ -17,8 +17,21 @@ public struct DiscoverWeeklyView: View {
     @State private var loading = true
     @State private var refreshing = false
     @State private var errorText: String?
+    @State private var actionMessage: String?   // transient "Afspelen gestart…" banner
 
     public init() {}
+
+    /// Strip placeholder "Unknown Artist" fragments a source (ListenBrainz/Qobuz)
+    /// sometimes leaves in a joined credit ("Alan Parsons / Unknown Artist"), so
+    /// the row shows a clean name instead of the raw metadata.
+    private func cleanArtist(_ artist: String?) -> String {
+        guard let artist, !artist.isEmpty else { return "Onbekend" }
+        let parts = artist
+            .components(separatedBy: CharacterSet(charactersIn: "/;"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0.caseInsensitiveCompare("Unknown Artist") != .orderedSame }
+        return parts.isEmpty ? "Onbekend" : parts.joined(separator: " / ")
+    }
 
     public var body: some View {
         List {
@@ -47,7 +60,27 @@ public struct DiscoverWeeklyView: View {
         }
         .ambientSurface()
         .animation(Motion.standard, value: loading)
+        .overlay(alignment: .top) {
+            if let actionMessage {
+                HStack(spacing: Spacing.sm) {
+                    Image(systemName: "play.circle.fill").foregroundStyle(Color.roonGold)
+                    Text(actionMessage).font(.caption).lineLimit(2)
+                }
+                .padding(.horizontal, Spacing.md).padding(.vertical, Spacing.sm)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(.top, Spacing.sm)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         .task { await load() }
+    }
+
+    private func showActionMessage(_ text: String) {
+        withAnimation(Motion.quick) { actionMessage = text }
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            withAnimation(Motion.quick) { actionMessage = nil }
+        }
     }
 
     // MARK: Header card
@@ -74,10 +107,16 @@ public struct DiscoverWeeklyView: View {
             HStack(spacing: Spacing.sm) {
                 Button {
                     Haptics.tap()
-                    guard let z = client.selectedZone?.id else { return }
-                    Task { await client.curateTracks(pl.trackRecords, zoneID: z) }
+                    guard let zone = client.selectedZone else { return }
+                    Task {
+                        await client.curateTracks(pl.trackRecords, zoneID: zone.id)
+                        // Optimistic confirm (the queue loads server-side); a real
+                        // failure still surfaces via the global error toast.
+                        if client.lastActionError == nil { showActionMessage("Afspelen gestart op ‘\(zone.displayName)’ — \(pl.tracks.count) tracks.") }
+                    }
                 } label: {
                     Label("Speel nu", systemImage: "play.fill")
+                        .lineLimit(1)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -109,10 +148,11 @@ public struct DiscoverWeeklyView: View {
                     Text("\(idx + 1)")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.tertiary)
-                        .frame(width: 24, alignment: .trailing)
+                        .frame(width: 20, alignment: .trailing)
+                    AlbumArtView(imageKey: t.imageKey, size: 44)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(t.title).font(.body).lineLimit(1)
-                        Text(t.artist ?? "Onbekend")
+                        Text(cleanArtist(t.artist))
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 0)
@@ -125,7 +165,7 @@ public struct DiscoverWeeklyView: View {
                     }
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(idx + 1). \(t.title), \(t.artist ?? "onbekende artiest")\(t.notInLibrary ? ", nog niet in je bibliotheek" : "")")
+                .accessibilityLabel("\(idx + 1). \(t.title), \(cleanArtist(t.artist))\(t.notInLibrary ? ", nog niet in je bibliotheek" : "")")
             }
         }
     }

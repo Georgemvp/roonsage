@@ -88,14 +88,37 @@ public struct SonicRadioView: View {
     }
 
     /// Switches both sections between Artiest · Genre · Sfeer · Activiteit · Decennium.
+    /// A scrollable chip row rather than a segmented control: five labels don't
+    /// fit an iPhone's width segmented (they clipped to "Activi…/Dece…").
     private var categoryPicker: some View {
-        Picker("Categorie", selection: $category) {
-            ForEach(RoonClient.RadioCategory.allCases) { c in
-                Text(c.label).tag(c)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Spacing.sm) {
+                ForEach(RoonClient.RadioCategory.allCases) { c in
+                    categoryChip(c)
+                }
             }
+            .padding(.horizontal, 2)
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
+    }
+
+    @ViewBuilder
+    private func categoryChip(_ c: RoonClient.RadioCategory) -> some View {
+        let selected = c == category
+        Button {
+            Haptics.tap()
+            withAnimation(Motion.quick) { category = c }
+        } label: {
+            Text(c.label)
+                .font(.subheadline.weight(selected ? .semibold : .regular))
+                .lineLimit(1)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
+                .background(selected ? Color.roonGold.opacity(0.18) : Color.clear, in: Capsule())
+                .overlay(Capsule().strokeBorder(selected ? Color.roonGold : Color.secondary.opacity(0.35)))
+                .foregroundStyle(selected ? Color.roonGold : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
     // MARK: Sections

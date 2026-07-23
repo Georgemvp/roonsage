@@ -25,11 +25,15 @@ public struct AlbumArtView: View {
 
     private var placeholder: some View {
         ZStack {
+            // A soft gold-tinted gradient reads as "artwork missing" far more
+            // gracefully than a flat grey tile sitting next to real covers.
             RoundedRectangle(cornerRadius: cornerRadius ?? size * 0.12)
-                .fill(.quaternary)
+                .fill(LinearGradient(
+                    colors: [Color.roonGold.opacity(0.22), Color.roonGold.opacity(0.06)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing))
             Image(systemName: "music.note")
-                .font(.system(size: size * 0.35))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: size * 0.34, weight: .semibold))
+                .foregroundStyle(Color.roonGold.opacity(0.7))
         }
     }
 }

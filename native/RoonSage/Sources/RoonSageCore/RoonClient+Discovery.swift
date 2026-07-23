@@ -220,9 +220,18 @@ extension RoonClient {
         _ = await serverAcceptRecommendation(id)
     }
 
-    public func playRecommendation(_ id: Int64, zoneID: String?) async {
-        if isRemote { _ = await postDiscoveryAction("/discovery/play", DiscoveryActionRequest(itemID: id, zoneID: zoneID)); return }
-        _ = await serverPlayRecommendation(id, zoneID: zoneID)
+    /// Play a recommendation. Returns whether the server accepted the request so
+    /// the UI can confirm or surface a failure (the resolve-and-load itself can
+    /// take many seconds for an unowned track matched live to Qobuz). On a thin
+    /// client a success also re-polls playback so Now Playing reflects it.
+    @discardableResult
+    public func playRecommendation(_ id: Int64, zoneID: String?) async -> Bool {
+        if isRemote {
+            let ok = await postDiscoveryAction("/discovery/play", DiscoveryActionRequest(itemID: id, zoneID: zoneID))
+            if ok { await pollPlaybackOnce() }
+            return ok
+        }
+        return await serverPlayRecommendation(id, zoneID: zoneID)
     }
 
     public func rejectRecommendation(_ id: Int64, permanent: Bool = false) async {

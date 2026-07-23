@@ -248,7 +248,8 @@ public struct GenerateView: View {
                     ForEach(featured) { t in
                         Button { model.apply(t) } label: {
                             HStack(spacing: Spacing.xs) {
-                                Text(t.icon)
+                                Image(systemName: t.categorySymbol)
+                                    .foregroundStyle(Color.roonGold)
                                 Text(t.name).font(.callout).lineLimit(1)
                             }
                             .padding(.horizontal, Spacing.md)
