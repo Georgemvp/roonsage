@@ -392,6 +392,13 @@ struct RootView: View {
                 // the navigateTo environment so its tap can switch tabs.
                 .nowPlayingBarInset(hidden: selection == .nowPlaying)
                 .environment(\.navigateTo, NavigateAction { selection = $0 })
+                // Give the detail column a fresh identity per sidebar item so a
+                // change in `selection` tears down the detail's implicit
+                // navigation stack. Without this, once a NavigationLink push is
+                // active (e.g. Herontdek → "Ontdek Wekelijks"), switching the
+                // sidebar updates `selection` but the pushed view stays on top —
+                // the detail appears frozen and other views "do nothing".
+                .id(selection)
         }
         .navigationTitle("")
         .toolbar { navToolbar }
