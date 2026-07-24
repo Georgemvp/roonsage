@@ -457,6 +457,26 @@ extension RoonClient {
         return (try? await db.topTracks(limit: limit)) ?? []
     }
 
+    /// Owned albums resurfaced by recency-decay of their last play (the reworked
+    /// "vergeten muziek" axis), via `ForgottenMusicService`. Most-forgotten first.
+    public func forgottenAlbums(limit: Int = 16) async -> [DatabaseManager.AlbumResult] {
+        guard let db = database else { return [] }
+        return (try? await ForgottenMusicService(database: db).forgottenAlbums(limit: limit)) ?? []
+    }
+
+    /// Owned albums never played here — "nog niet gehoord".
+    public func neverPlayedAlbums(limit: Int = 16) async -> [DatabaseManager.AlbumResult] {
+        guard let db = database else { return [] }
+        return (try? await ForgottenMusicService(database: db).neverPlayedAlbums(limit: limit)) ?? []
+    }
+
+    /// The deterministic album-of-the-day for `date` — identical on repeated opens
+    /// the same day, different the next day. nil if the library has no eligible album.
+    public func albumOfTheDay(on date: Date = Date()) async -> DatabaseManager.AlbumResult? {
+        guard let db = database else { return nil }
+        return try? await ForgottenMusicService(database: db).albumOfTheDay(on: date)
+    }
+
     /// Filter by `options`, shuffle, and play a random `count`-track mix.
     public func playShuffledMix(options: DatabaseManager.FilterOptions, count: Int, zoneID: String) async {
         var opts = options

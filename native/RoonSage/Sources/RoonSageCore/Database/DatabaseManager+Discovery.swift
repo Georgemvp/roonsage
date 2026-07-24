@@ -147,6 +147,48 @@ extension DatabaseManager {
         }
     }
 
+    /// Per-album play aggregates for OWNED albums that appear in listening history,
+    /// each with its most-recent play and total play count — the raw signal
+    /// `ForgottenMusicService` scores by recency-decay. Album identity is the
+    /// `LOWER(album)` string join (there is no album id in history). One row per
+    /// `album_key`; albums with fewer than `minTracks` owned tracks are skipped
+    /// (single-track "albums" are usually singles/compilation noise). Ordered
+    /// least-recently-played first and bounded to `limit` so the scored pool stays
+    /// cheap on a large history.
+    public func playedAlbumAggregates(minTracks: Int = 3, limit: Int = 400) async throws
+        -> [(album: AlbumResult, lastPlayedAt: Date?, playCount: Int)] {
+        try await pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT t.album_key, t.album, t.artist, t.year,
+                       COUNT(DISTINCT t.id) AS track_count, MAX(t.image_key) AS image_key,
+                       h.plays AS plays, h.last_play AS last_play
+                FROM tracks t
+                JOIN (
+                    SELECT LOWER(album) AS alb, COUNT(*) AS plays, MAX(played_at) AS last_play
+                    FROM listening_history
+                    WHERE album IS NOT NULL AND album <> ''
+                    GROUP BY LOWER(album)
+                ) h ON LOWER(t.album) = h.alb
+                WHERE t.album IS NOT NULL AND t.album <> ''
+                GROUP BY t.album_key
+                HAVING track_count >= ?
+                ORDER BY h.last_play ASC
+                LIMIT ?
+            """, arguments: [minTracks, limit])
+            return rows.map { row in
+                let album = AlbumResult(
+                    albumKey:   row["album_key"]  as String? ?? "",
+                    album:      row["album"]      as String? ?? "",
+                    artist:     row["artist"],
+                    year:       row["year"],
+                    trackCount: row["track_count"] as Int? ?? 0,
+                    imageKey:   row["image_key"])
+                let last = (row["last_play"] as String?).flatMap { Self.isoFormatter.date(from: $0) }
+                return (album: album, lastPlayedAt: last, playCount: row["plays"] as Int? ?? 0)
+            }
+        }
+    }
+
     /// Your most-played tracks (from listening history), resolved to current
     /// library item_keys.
     public func topTracks(limit: Int = 25) async throws ->[TrackRecord] {

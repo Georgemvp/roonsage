@@ -16,8 +16,9 @@ public struct DiscoveryView: View {
     public init() {}
     @Environment(RoonClient.self) private var client
     @State private var stats: DatabaseManager.LibraryStats?
-    @State private var undiscovered: [DatabaseManager.AlbumResult] = []
-    @State private var dormant: [DatabaseManager.AlbumResult] = []
+    @State private var undiscovered: [DatabaseManager.AlbumResult] = []   // "nog niet gehoord" (never-played)
+    @State private var dormant: [DatabaseManager.AlbumResult] = []        // "weer opzetten" (recency-decay forgotten)
+    @State private var albumOfDay: DatabaseManager.AlbumResult?           // deterministic daily pick
     @State private var forgotten: [TrackRecord] = []
     @State private var topTracks: [TrackRecord] = []
     // Cross-feature de-dup: what the weekly already surfaces, so these owned-music
@@ -34,12 +35,13 @@ public struct DiscoveryView: View {
             if let stats {
                 if let hero = heroItem { heroCard(hero).plainCardRow() }
                 summaryCards(stats).plainCardRow()
+                if let aotd = albumOfDay { albumOfDayCard(aotd).plainCardRow() }
                 if !undiscovered.isEmpty {
-                    shelf("Onontdekte albums", "sparkles",
+                    shelf("Nog niet gehoord", "sparkles",
                           covers: undiscovered.map(albumCover),
                           zoneAvailable: client.selectedZone != nil) {
                         Button { Task {
-                            undiscovered = await client.undiscoveredAlbums()
+                            undiscovered = await client.neverPlayedAlbums()
                                 .filter { !weeklyAlbums.contains($0.album.lowercased()) }
                         } } label: {
                             Image(systemName: "shuffle")
@@ -54,7 +56,7 @@ public struct DiscoveryView: View {
                           covers: dormant.map(albumCover),
                           zoneAvailable: client.selectedZone != nil) {
                         Button { Task {
-                            dormant = await client.dormantAlbums()
+                            dormant = await client.forgottenAlbums()
                                 .filter { !weeklyAlbums.contains($0.album.lowercased()) }
                         } } label: {
                             Image(systemName: "shuffle")
@@ -204,6 +206,52 @@ public struct DiscoveryView: View {
         .padding(Spacing.lg)
         .background(
             LinearGradient(colors: [Color.roonGold.opacity(0.18), Color.roonGold.opacity(0.03)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: RoundedRectangle(cornerRadius: Radius.lg))
+    }
+
+    // MARK: - "Album van de dag"
+
+    /// A once-a-day deterministic album pick (see `ForgottenMusicService.albumOfTheDay`).
+    /// Mirrors the "Herontdek" hero styling but with a calendar label and album actions.
+    private func albumOfDayCard(_ a: DatabaseManager.AlbumResult) -> some View {
+        HStack(spacing: Spacing.lg) {
+            AlbumArtView(imageKey: a.imageKey, size: 120)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                .shadow(color: .roonShadow, radius: 10, y: 6)
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Label("Album van de dag", systemImage: "calendar")
+                    .font(.caption.bold())
+                    .foregroundStyle(Color.roonGold)
+                Text(a.album).font(.title2.bold()).lineLimit(2)
+                if let sub = a.artist {
+                    Text(sub).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: Spacing.sm)
+                HStack(spacing: Spacing.sm) {
+                    Button {
+                        Haptics.tap()
+                        play { await client.playAlbum(albumKey: a.albumKey, zoneID: $0) }
+                    } label: {
+                        Label("Speel nu", systemImage: "play.fill")
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(client.selectedZone == nil)
+                    Button {
+                        Haptics.tap(); Task { await client.playAlbumLocally(albumKey: a.albumKey) }
+                    } label: { Image(systemName: "iphone") }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Speel op dit apparaat")
+                        .help("Speel lokaal af op dit apparaat")
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(Spacing.lg)
+        .background(
+            LinearGradient(colors: [Color.roonGold.opacity(0.14), Color.roonGold.opacity(0.02)],
                            startPoint: .topLeading, endPoint: .bottomTrailing),
             in: RoundedRectangle(cornerRadius: Radius.lg))
     }
@@ -391,11 +439,12 @@ public struct DiscoveryView: View {
     private func load() async {
         stats = await client.libraryStats()
         async let weekly = client.discoverWeekly()
-        async let u = client.undiscoveredAlbums()
-        async let d = client.dormantAlbums()
+        async let u = client.neverPlayedAlbums()
+        async let d = client.forgottenAlbums()
         async let f = client.forgottenFavorites()
         async let t = client.topTracks()
-        let (uv, dv, fv, tv) = await (u, d, f, t)
+        async let aotd = client.albumOfTheDay()
+        let (uv, dv, fv, tv, av) = await (u, d, f, t, aotd)
         if let w = await weekly {
             weeklyAlbums = w.albumKeysSurfaced
             weeklyTracks = w.trackKeysSurfaced
@@ -404,6 +453,7 @@ public struct DiscoveryView: View {
         dormant = dv.filter { !weeklyAlbums.contains($0.album.lowercased()) }
         forgotten = fv.filter { !weeklyTracks.contains(Self.trackKey($0)) }
         topTracks = tv
+        albumOfDay = av
         isLoaded = true
     }
 
