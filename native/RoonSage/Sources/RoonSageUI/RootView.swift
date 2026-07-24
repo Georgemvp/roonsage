@@ -385,20 +385,30 @@ struct RootView: View {
             Divider()
             connectedBadge
         } detail: {
-            detailView(for: selection)
-                .ambientSurface()
-                // Mini-bar above the window bottom — hidden on Now Playing,
-                // which already hosts the full hero + transport. Placed inside
-                // the navigateTo environment so its tap can switch tabs.
-                .nowPlayingBarInset(hidden: selection == .nowPlaying)
-                .environment(\.navigateTo, NavigateAction { selection = $0 })
-                // Give the detail column a fresh identity per sidebar item so a
-                // change in `selection` tears down the detail's implicit
-                // navigation stack. Without this, once a NavigationLink push is
-                // active (e.g. Herontdek → "Ontdek Wekelijks"), switching the
-                // sidebar updates `selection` but the pushed view stays on top —
-                // the detail appears frozen and other views "do nothing".
-                .id(selection)
+            // Give the detail column its OWN NavigationStack — matching the iOS
+            // tab shells — instead of leaning on NavigationSplitView's implicit
+            // one. Two bugs this fixes on macOS/iPad:
+            //   1. A per-screen `.toolbar` in a bare split-view detail is
+            //      shadowed by the split view's own toolbar: the buttons render
+            //      (a Menu even opens) but their actions never reach the detached
+            //      detail view, so "Ontdek-inzichten"/"Ontdek op stemming" looked
+            //      dead. Hosting the detail in its own NavigationStack gives that
+            //      toolbar a real owner, like the working iOS path.
+            //   2. A pushed NavigationLink (Herontdek → "Ontdek Wekelijks") stayed
+            //      on top when the sidebar changed, freezing the detail.
+            // `.id(selection)` rebuilds the stack per sidebar item, so a push is
+            // discarded on switch and the new root always shows.
+            NavigationStack {
+                detailView(for: selection)
+                    .ambientSurface()
+                    // Mini-bar above the window bottom — hidden on Now Playing,
+                    // which already hosts the full hero + transport.
+                    .nowPlayingBarInset(hidden: selection == .nowPlaying)
+            }
+            // Placed inside the navigateTo environment so a mini-bar / empty-state
+            // tap can switch tabs.
+            .environment(\.navigateTo, NavigateAction { selection = $0 })
+            .id(selection)
         }
         .navigationTitle("")
         .toolbar { navToolbar }
