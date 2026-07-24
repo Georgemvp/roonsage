@@ -152,11 +152,15 @@ public struct DiscoverFeedView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button { Task { await refresh() } } label: {
-                    Image(systemName: "arrow.clockwise")
+                    if refreshing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
                 }
                 .disabled(refreshing)
                 .help("Nieuwe ontdekkingen bouwen")
-                .accessibilityLabel("Ververs ontdekkingen")
+                .accessibilityLabel(refreshing ? "Ontdekkingen worden gebouwd" : "Ververs ontdekkingen")
             }
         }
         .ambientSurface()
@@ -258,6 +262,13 @@ public struct DiscoverFeedView: View {
         commitPendingRejectNow()   // don't let a reload resurrect an in-flight skip
         refreshing = true
         defer { refreshing = false }
+        // The run is a ~2-min server pipeline with no other visible signal, so
+        // without this banner + the toolbar spinner the button reads as dead.
+        let moodLabel = mood.map { RoonClient.moodLabel($0) }
+        withAnimation(Motion.quick) {
+            message = moodLabel.map { "Nieuwe ontdekkingen (\($0)) worden gebouwd — dit kan ~2 min duren…" }
+                ?? "Nieuwe ontdekkingen worden gebouwd — dit kan ~2 min duren…"
+        }
         await client.triggerDiscoveryRun(mood: mood)
         // Poll up to ~2 minutes for the batch to finish (MB resolve is slow).
         for _ in 0..<24 {
@@ -269,6 +280,12 @@ public struct DiscoverFeedView: View {
         errorText = nil
         do { items = try await client.discoveryRecommendationsChecked(limit: 60) }
         catch { errorText = error.localizedDescription }
+        withAnimation(Motion.quick) {
+            message = errorText != nil
+                ? "Verversen mislukt — probeer het later opnieuw."
+                : "Klaar — \(items.count) ontdekkingen\(moodLabel.map { " (\($0))" } ?? "")."
+        }
+        clearMessageSoon()
     }
 
     // MARK: - Actions
